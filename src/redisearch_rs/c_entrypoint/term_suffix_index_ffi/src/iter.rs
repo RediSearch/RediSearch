@@ -11,7 +11,7 @@
 
 use std::ffi::{c_char, c_int, c_void};
 use std::rc::Rc;
-use std::{iter, ptr, slice, str};
+use std::{ptr, slice, str};
 
 use super::*;
 
@@ -75,7 +75,11 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// Invoke `cb` once per member term containing the UTF-8 needle
 /// `(needle, len)` as a substring; a term may be reported more than once.
 /// Iteration stops early when the callback returns a non-zero value. An
-/// empty or non-UTF-8 needle reports no matches.
+/// empty needle reports no matches.
+///
+/// # Panics
+///
+/// Panics if `needle` is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -106,10 +110,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let Ok(needle) = str::from_utf8(bytes) else {
-        debug_assert!(false, "needle must be valid UTF-8");
-        return;
-    };
+    let needle = str::from_utf8(bytes).expect("needle must be valid UTF-8");
     for term in index.iter_contains(needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
@@ -128,8 +129,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 
 /// Invoke `cb` once per member term ending with the UTF-8 needle
 /// `(needle, len)`; each matching term is reported exactly once. Iteration
-/// stops early when the callback returns a non-zero value. An empty or
-/// non-UTF-8 needle reports no matches.
+/// stops early when the callback returns a non-zero value. An empty
+/// needle reports no matches.
+///
+/// # Panics
+///
+/// Panics if `needle` is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -160,10 +165,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let Ok(needle) = str::from_utf8(bytes) else {
-        debug_assert!(false, "needle must be valid UTF-8");
-        return;
-    };
+    let needle = str::from_utf8(bytes).expect("needle must be valid UTF-8");
     for term in index.iter_suffix(needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
@@ -185,10 +187,13 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// byte); a term may be yielded more than once.
 ///
 /// Returns NULL when the pattern has no literal token that can anchor
-/// the search; the caller must then fall back to a full scan. A
-/// non-UTF-8 pattern yields no matches.
+/// the search; the caller must then fall back to a full scan.
 ///
 /// Advance with [`TermSuffixIndexIterator_Next`].
+///
+/// # Panics
+///
+/// Panics if `pattern` is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -211,15 +216,10 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
-    let iter: Box<dyn Iterator<Item = Rc<str>>> = match str::from_utf8(bytes) {
-        Ok(pattern) => match index.iter_wildcard(pattern) {
-            Some(matches) => Box::new(matches),
-            None => return ptr::null_mut(),
-        },
-        Err(_) => {
-            debug_assert!(false, "pattern must be valid UTF-8");
-            Box::new(iter::empty())
-        }
+    let pattern = str::from_utf8(bytes).expect("pattern must be valid UTF-8");
+    let iter: Box<dyn Iterator<Item = Rc<str>>> = match index.iter_wildcard(pattern) {
+        Some(matches) => Box::new(matches),
+        None => return ptr::null_mut(),
     };
     Box::into_raw(Box::new(TermSuffixIndexIterator {
         iter,

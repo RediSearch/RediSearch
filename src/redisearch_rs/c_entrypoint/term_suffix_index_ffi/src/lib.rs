@@ -10,8 +10,7 @@
 //! C entry points for [`term_suffix_index::TermSuffixIndex`].
 //!
 //! All string parameters are byte pointers with an explicit length and
-//! must be valid UTF-8. Invalid UTF-8 is rejected — mutations become
-//! no-ops, lookups yield no matches — and trips a debug assertion.
+//! must be valid UTF-8. Passing invalid UTF-8 panics.
 
 mod index;
 mod iter;

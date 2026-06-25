@@ -56,8 +56,12 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -
     index.mem_usage()
 }
 
-/// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
-/// empty or non-UTF-8 term is a no-op.
+/// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+/// empty term is a no-op.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -81,15 +85,16 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let Ok(term) = str::from_utf8(bytes) else {
-        debug_assert!(false, "term must be valid UTF-8");
-        return;
-    };
+    let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
     index.add(term);
 }
 
-/// Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent,
-/// empty or non-UTF-8 term is a no-op.
+/// Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+/// or empty term is a no-op.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -113,9 +118,6 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let Ok(term) = str::from_utf8(bytes) else {
-        debug_assert!(false, "term must be valid UTF-8");
-        return;
-    };
+    let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
     index.remove(term);
 }

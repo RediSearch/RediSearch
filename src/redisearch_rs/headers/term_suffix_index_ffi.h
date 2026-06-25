@@ -84,8 +84,12 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *tsi);
 
 /**
- * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing,
- * empty or non-UTF-8 term is a no-op.
+ * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+ * empty term is a no-op.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  *
  * # Safety
  *
@@ -102,7 +106,11 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
  * Invoke `cb` once per member term containing the UTF-8 needle
  * `(needle, len)` as a substring; a term may be reported more than once.
  * Iteration stops early when the callback returns a non-zero value. An
- * empty or non-UTF-8 needle reports no matches.
+ * empty needle reports no matches.
+ *
+ * # Panics
+ *
+ * Panics if `needle` is not valid UTF-8.
  *
  * # Safety
  *
@@ -117,8 +125,12 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent,
- * empty or non-UTF-8 term is a no-op.
+ * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+ * or empty term is a no-op.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  *
  * # Safety
  *
@@ -134,8 +146,12 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
 /**
  * Invoke `cb` once per member term ending with the UTF-8 needle
  * `(needle, len)`; each matching term is reported exactly once. Iteration
- * stops early when the callback returns a non-zero value. An empty or
- * non-UTF-8 needle reports no matches.
+ * stops early when the callback returns a non-zero value. An empty
+ * needle reports no matches.
+ *
+ * # Panics
+ *
+ * Panics if `needle` is not valid UTF-8.
  *
  * # Safety
  *
@@ -155,10 +171,13 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
  * byte); a term may be yielded more than once.
  *
  * Returns NULL when the pattern has no literal token that can anchor
- * the search; the caller must then fall back to a full scan. A
- * non-UTF-8 pattern yields no matches.
+ * the search; the caller must then fall back to a full scan.
  *
  * Advance with [`TermSuffixIndexIterator_Next`].
+ *
+ * # Panics
+ *
+ * Panics if `pattern` is not valid UTF-8.
  *
  * # Safety
  *
