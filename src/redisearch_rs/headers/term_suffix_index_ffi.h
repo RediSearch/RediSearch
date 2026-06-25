@@ -36,7 +36,7 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a new, empty [`TermSuffixIndex`]. Free it with
+ * Create a new, empty [`TermSuffixIndex`]. Must be freed with
  * [`TermSuffixIndex_Free`].
  */
 struct TermSuffixIndex *TermSuffixIndex_New(void);

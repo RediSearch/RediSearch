@@ -13,7 +13,7 @@ use std::ffi::c_char;
 
 use super::TermSuffixIndex;
 
-/// Create a new, empty [`TermSuffixIndex`]. Free it with
+/// Create a new, empty [`TermSuffixIndex`]. Must be freed with
 /// [`TermSuffixIndex_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn TermSuffixIndex_New() -> *mut TermSuffixIndex {
