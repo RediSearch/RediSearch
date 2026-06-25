@@ -354,23 +354,16 @@ int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen)
   return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 }
 
-TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal, size_t tagValLen, tag_iter_mode mode) {
+TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal,
+                                                 size_t tagValLen, tag_iter_mode mode) {
   return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
 }
 
-void TagIndex_IterateRangeValues(
-  const TagIndex *idx,
-  const char *min,
-  int minlen,
-  bool includeMin,
-  const char *max,
-  int maxlen,
-  bool includeMax,
-  TrieMapRangeCallback callback,
-  void* ctx
-) {
-  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax,
-                       callback, ctx);
+void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
+                                 const char *max, int maxlen, bool includeMax,
+                                 TrieMapRangeCallback callback, void *ctx) {
+  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax, callback,
+                       ctx);
 }
 
 /* Serialize all the tags in the index to the redis client */
