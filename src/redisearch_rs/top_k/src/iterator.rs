@@ -207,6 +207,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // TODO: MOD-14209: bubble up errors
             self.phase = Phase::NotStarted;
             self.mode = self.initial_mode;
+            // Discard whatever the aborted scan accumulated. A retry re-collects
+            // from scratch, and the collection paths append to the heap without
+            // de-duping against it, so leftover hits would duplicate doc ids and
+            // skew the top-k set. Rewind the source too: collect_batches/
+            // prepare_unfiltered_direct resume from its cursor rather than the start.
+            self.heap = TopKHeap::new(self.k, self.compare);
+            self.source.rewind();
+            if let Some(child) = &mut self.child {
+                child.rewind();
+            }
         }
         result
     }

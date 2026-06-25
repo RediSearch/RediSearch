@@ -379,6 +379,33 @@ fn yield_timeout_polled_before_yielding_valid() {
 }
 
 #[test]
+fn retry_after_timeout_discards_partial_collection() {
+    // A scan that times out after collecting some hits, then is re-driven via
+    // read(), must re-collect from scratch. The collection paths append to the
+    // heap without de-duping against leftovers, so a retained partial hit would
+    // resurface as a duplicate doc id. The one-shot deadline fires on the second
+    // adhoc poll (mid-collection, with doc 1 already in the heap) and clears, so
+    // the retry runs clean and must yield each doc exactly once.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_timeout_once_at(2);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2, 3]);
+    assert!(it.at_eof());
+}
+
+#[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
         vec![
