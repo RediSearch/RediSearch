@@ -87,16 +87,16 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
  * empty term is a no-op.
  *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `term` must point to a [valid] byte sequence of length `len`.
  * 3. No iterator obtained from `tsi` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -108,10 +108,6 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
  * Iteration stops early when the callback returns a non-zero value. An
  * empty needle reports no matches.
  *
- * # Panics
- *
- * Panics if `needle` is not valid UTF-8.
- *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
@@ -119,6 +115,10 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
  *    retain the term pointer beyond the call.
+ *
+ * # Panics
+ *
+ * Panics if `needle` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -128,16 +128,16 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
  * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
  * or empty term is a no-op.
  *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `term` must point to a [valid] byte sequence of length `len`.
  * 3. No iterator obtained from `tsi` may be alive.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -149,10 +149,6 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
  * stops early when the callback returns a non-zero value. An empty
  * needle reports no matches.
  *
- * # Panics
- *
- * Panics if `needle` is not valid UTF-8.
- *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
@@ -160,6 +156,10 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
  *    retain the term pointer beyond the call.
+ *
+ * # Panics
+ *
+ * Panics if `needle` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -175,15 +175,15 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
  *
  * Advance with [`TermSuffixIndexIterator_Next`].
  *
- * # Panics
- *
- * Panics if `pattern` is not valid UTF-8.
- *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
+ *
+ * # Panics
+ *
+ * Panics if `pattern` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

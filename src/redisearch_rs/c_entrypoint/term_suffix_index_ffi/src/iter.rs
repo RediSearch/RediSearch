@@ -77,10 +77,6 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// Iteration stops early when the callback returns a non-zero value. An
 /// empty needle reports no matches.
 ///
-/// # Panics
-///
-/// Panics if `needle` is not valid UTF-8.
-///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
@@ -88,6 +84,10 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
+///
+/// # Panics
+///
+/// Panics if `needle` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -132,10 +132,6 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 /// stops early when the callback returns a non-zero value. An empty
 /// needle reports no matches.
 ///
-/// # Panics
-///
-/// Panics if `needle` is not valid UTF-8.
-///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
@@ -143,6 +139,10 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
 ///    retain the term pointer beyond the call.
+///
+/// # Panics
+///
+/// Panics if `needle` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -191,15 +191,15 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// Advance with [`TermSuffixIndexIterator_Next`].
 ///
-/// # Panics
-///
-/// Panics if `pattern` is not valid UTF-8.
-///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
+///
+/// # Panics
+///
+/// Panics if `pattern` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

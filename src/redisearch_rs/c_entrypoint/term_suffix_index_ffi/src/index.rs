@@ -59,16 +59,16 @@ pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -
 /// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
 /// empty term is a no-op.
 ///
-/// # Panics
-///
-/// Panics if `term` is not valid UTF-8.
-///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `tsi` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -92,16 +92,16 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 /// Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
 /// or empty term is a no-op.
 ///
-/// # Panics
-///
-/// Panics if `term` is not valid UTF-8.
-///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `term` must point to a [valid] byte sequence of length `len`.
 /// 3. No iterator obtained from `tsi` may be alive.
+///
+/// # Panics
+///
+/// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
