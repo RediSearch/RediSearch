@@ -15,8 +15,8 @@ use std::rc::Rc;
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, SkipToOutcome,
     deferred::{ProducedResults, Producer},
-    id_list::IdListSorted,
-    metric::{MetricSortedById, MetricType},
+    id_list::IdListLazy,
+    metric::{MetricLazySortedById, MetricType},
 };
 
 /// Build a [`Producer`] closure yielding `ids`/`metrics` (or a timeout), incrementing `calls`
@@ -27,11 +27,15 @@ fn producer(
     timed_out: bool,
     calls: Rc<Cell<u32>>,
 ) -> Producer<'static> {
+    // The owning iterator calls the producer once but retains it ([`Producer`] is `FnMut`), so the
+    // payload is taken out via an `Option` rather than moved directly out of the closure captures.
+    let mut payload = Some((ids, metrics));
     Box::new(move || {
         calls.set(calls.get() + 1);
         if timed_out {
             return Err(RQEIteratorError::TimedOut);
         }
+        let (ids, metrics) = payload.take().expect("producer should only be run once");
         Ok(ProducedResults {
             ids: ids.into(),
             metrics: metrics.map(Into::into),
@@ -42,7 +46,7 @@ fn producer(
 #[test]
 fn id_list_is_not_produced_until_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListSorted::with_producer(
+    let mut it = IdListLazy::<true>::new(
         producer(vec![1, 4, 9], None, false, calls.clone()),
         100,
         index_result::RSIndexResult::build_virt().build(),
@@ -71,7 +75,7 @@ fn id_list_is_not_produced_until_first_read() {
 #[test]
 fn metric_produces_ids_and_metrics_on_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = MetricSortedById::with_producer(
+    let mut it = MetricLazySortedById::new(
         producer(
             vec![2, 5, 8],
             Some(vec![0.2, 0.5, 0.8]),
@@ -99,7 +103,7 @@ fn metric_produces_ids_and_metrics_on_first_read() {
 #[test]
 fn empty_production_reports_eof() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = MetricSortedById::with_producer(
+    let mut it = MetricLazySortedById::new(
         producer(vec![], Some(vec![]), false, calls.clone()),
         7,
         MetricType::VectorDistance,
@@ -113,7 +117,7 @@ fn empty_production_reports_eof() {
 #[test]
 fn timeout_propagates_on_first_read() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListSorted::with_producer(
+    let mut it = IdListLazy::<true>::new(
         producer(vec![], None, true, calls.clone()),
         10,
         index_result::RSIndexResult::build_virt().build(),
@@ -127,7 +131,7 @@ fn timeout_propagates_on_first_read() {
 #[test]
 fn skip_to_triggers_production() {
     let calls = Rc::new(Cell::new(0));
-    let mut it = IdListSorted::with_producer(
+    let mut it = IdListLazy::<true>::new(
         producer(vec![3, 6, 9, 12], None, false, calls.clone()),
         50,
         index_result::RSIndexResult::build_virt().build(),

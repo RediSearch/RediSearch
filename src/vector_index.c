@@ -132,7 +132,11 @@ typedef struct {
   double radius;
   VecSimQueryParams qParams;    // resolved at build time; POD, copied by value
   VecSimQueryReply_Order order;
-  struct timespec timeout;
+  // Timeout context that `qParams.timeoutCtx` points to. It must live as long as the query
+  // reply is in use: a tiered index defers part of the search (and its timeout checks) to the
+  // reply iteration, so a stack-local would dangle by then. Stored here so it lives until the
+  // whole producer context is freed (after the reply is drained).
+  TimeoutCtx timeoutCtx;
 } VectorRangeProducerCtx;
 
 // Runs the deferred vector range query. On timeout, frees the reply, marks `out` and returns NULL;
@@ -141,8 +145,7 @@ typedef struct {
 // documents whose id exceeds the query's snapshot are dropped downstream when their (missing)
 // metadata is looked up in the doc table.
 static VecSimQueryReply *runVectorRangeQuery(VectorRangeProducerCtx *ctx, VectorRangeResults *out) {
-  TimeoutCtx timeoutCtx = {.timeout = ctx->timeout, .counter = 0};
-  ctx->qParams.timeoutCtx = &timeoutCtx;
+  ctx->qParams.timeoutCtx = &ctx->timeoutCtx;
   VecSimQueryReply *reply =
       VecSimIndex_RangeQuery(ctx->vecsim, ctx->vector, ctx->radius, &ctx->qParams, ctx->order);
   if (VecSimQueryReply_GetCode(reply) == VecSim_QueryReply_TimedOut) {
@@ -286,7 +289,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
           .radius = vq->range.radius,
           .qParams = qParams,
           .order = vq->range.order,
-          .timeout = q->sctx->time.timeout,
+          .timeoutCtx = {.timeout = q->sctx->time.timeout, .counter = 0},
       };
       ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
       return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,

@@ -29,8 +29,18 @@ pub struct ProducedResults {
     pub metrics: Option<OwnedSlice<f64>>,
 }
 
-/// A one-shot closure that produces an iterator's results on first access.
+/// A closure that produces an iterator's results on first access.
 ///
 /// Returns [`RQEIteratorError::TimedOut`] if the underlying computation timed out before
 /// producing results.
-pub type Producer<'a> = Box<dyn FnOnce() -> Result<ProducedResults, RQEIteratorError> + 'a>;
+///
+/// # Lifetime
+///
+/// The owning iterator calls this exactly once (on the first `read`/`skip_to`) but **keeps it
+/// alive for its whole lifetime**, dropping it only when the iterator itself is dropped. This
+/// matters when the producer owns state that the underlying query engine may still reference
+/// after the call returns — e.g. a deferred vector range query whose `VecSimQueryParams`
+/// (and its timeout context) must outlive the query, mirroring how the KNN hybrid iterator
+/// keeps its `runtimeParams`/`timeoutCtx` for its whole lifetime. Hence [`FnMut`] (retained)
+/// rather than [`FnOnce`] (consumed and dropped on first call).
+pub type Producer<'a> = Box<dyn FnMut() -> Result<ProducedResults, RQEIteratorError> + 'a>;

@@ -22,8 +22,8 @@ use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::utils::OwnedSlice;
 use rqe_iterators::{
     RQEIteratorError,
-    id_list::IdList,
-    metric::{Metric, MetricType},
+    id_list::IdListLazy,
+    metric::{MetricLazy, MetricType},
 };
 
 /// Results returned by a [`ProduceResultsFn`].
@@ -79,8 +79,12 @@ unsafe fn c_producer(
 ) -> Producer<'static> {
     let guard = CtxGuard { ctx, free_ctx };
     Box::new(move || {
-        // `guard` is moved into the closure; it is dropped (freeing the context) when the
-        // closure returns, or — if the closure is never called — when the box is dropped.
+        // Bind the *whole* `guard` by reference so the closure captures all of it. Without this,
+        // edition-2024 disjoint closure captures would capture only the `Copy` field `guard.ctx`
+        // and drop the `CtxGuard` (freeing the context) the moment `c_producer` returns — long
+        // before the deferred query runs, leaving the closure with a dangling context pointer.
+        // Capturing the whole guard ties the context's lifetime to the closure (and its iterator).
+        let guard = &guard;
         // SAFETY: `produce` and `ctx` are valid per the contract of `NewLazyVectorRangeIterator`.
         let results = unsafe { (produce)(guard.ctx) };
         if results.timed_out {
@@ -137,22 +141,18 @@ pub unsafe extern "C" fn NewLazyVectorRangeIterator(
     let producer = unsafe { c_producer(produce, free_ctx, ctx) };
 
     match (yields_metric, sorted_by_id) {
-        (true, true) => RQEIteratorWrapper::boxed_new(Metric::<true>::with_producer(
-            producer,
-            num_estimated,
-            type_,
-        )),
-        (true, false) => RQEIteratorWrapper::boxed_new(Metric::<false>::with_producer(
-            producer,
-            num_estimated,
-            type_,
-        )),
-        (false, true) => RQEIteratorWrapper::boxed_new(IdList::<true>::with_producer(
+        (true, true) => {
+            RQEIteratorWrapper::boxed_new(MetricLazy::<true>::new(producer, num_estimated, type_))
+        }
+        (true, false) => {
+            RQEIteratorWrapper::boxed_new(MetricLazy::<false>::new(producer, num_estimated, type_))
+        }
+        (false, true) => RQEIteratorWrapper::boxed_new(IdListLazy::<true>::new(
             producer,
             num_estimated,
             RSIndexResult::build_virt().weight(1.0).build(),
         )),
-        (false, false) => RQEIteratorWrapper::boxed_new(IdList::<false>::with_producer(
+        (false, false) => RQEIteratorWrapper::boxed_new(IdListLazy::<false>::new(
             producer,
             num_estimated,
             RSIndexResult::build_virt().weight(1.0).build(),
