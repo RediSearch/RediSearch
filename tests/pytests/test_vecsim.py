@@ -2503,6 +2503,8 @@ def test_score_name_case_sensitivity():
 
 @skip(cluster=True)
 def test_tiered_index_gc():
+    if RS_TEST_ENTERPRISE:
+        raise SkipTest('Enterprise RoR keeps tiered HNSW deleted markers after GC_FORCEINVOKE')
     N = 100
     env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)

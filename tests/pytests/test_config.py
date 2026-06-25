@@ -42,7 +42,6 @@ def testConfig(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1).equal('OK')
 
 @skip(cluster=True)
-@ft_config_passthrough
 def testConfigErrors(env):
     env.expect(config_cmd(), 'set', 'MINPREFIX', 1, 2).equal('EXCESSARGS')
     env.expect(config_cmd(), 'no_such_command', 'idx').error().contains("unknown subcommand 'no_such_command'")
@@ -113,9 +112,6 @@ def testGetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-    # In enterprise, config_cmd() maps to Redis CONFIG SET; error text differs
-    if RS_TEST_ENTERPRISE:
-        env.skip()
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'EXTLOAD', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC', 1).error().contains(not_modifiable)
@@ -152,9 +148,6 @@ def testSetConfigOptions(env):
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
-    # In enterprise, error text from Redis CONFIG differs from FT.CONFIG
-    if RS_TEST_ENTERPRISE:
-        env.skip()
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE', 'str').error().contains('Not modifiable at runtime')
     env.expect(config_cmd(), 'set', 'MAXEXPANSIONS', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'TIMEOUT', 'str').error().contains('SEARCH_PARSE_ARGS Could not convert argument to expected type')
@@ -645,7 +638,6 @@ CLAMPED_CONFIGS = {
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
 }
-# Enterprise accepts WORKERS/MIN_OPERATION_WORKERS values above OSS max (extended range)
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -696,14 +688,6 @@ def testConfigAPIRunTimeNumericParams():
             env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
             env.expect('CONFIG', 'GET', configName)\
                 .equal([configName, str(max)])
-        elif RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
-            # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
-            # Assert: OSS max+1 (17) is accepted; 8192 is accepted; >8192 is rejected.
-            _enterprise_worker_max = 8192
-            env.expect('CONFIG', 'SET', configName, str(max + 1)).equal('OK')
-            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max)).equal('OK')
-            env.expect('CONFIG', 'SET', configName, str(_enterprise_worker_max + 1)).error()\
-                .contains('CONFIG SET failed')
         else:
             env.expect('CONFIG', 'SET', configName, str(max + 1)).error()\
                 .contains('CONFIG SET failed')
@@ -869,30 +853,6 @@ def _testConfigAPILoadTimeNumericParam(configName, maxValue):
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, default_module_list)
-    if RS_TEST_ENTERPRISE and configName in ('search-workers', 'search-min-operation-workers'):
-        # Enterprise allows up to MAX_WORKER_THREADS=8192 (vs OSS max of 16).
-        # OSS max+1 (17) and up to 8192 must be ACCEPTED; >8192 must be rejected.
-        _enterprise_worker_max = 8192
-        rdbFilePath = _getRDBFilePath(env)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(maxValue + 1)).ok()
-        env.assertTrue(env.isUp())
-        env.stop()
-        os.unlink(rdbFilePath)
-        env.start()
-        rdbFilePath = _getRDBFilePath(env)
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(_enterprise_worker_max)).ok()
-        env.assertTrue(env.isUp())
-        env.stop()
-        os.unlink(rdbFilePath)
-        env.start()
-        env.expect('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, str(_enterprise_worker_max + 1)).error()\
-                    .contains('Error loading the extension')
-        env.assertTrue(env.isUp())
-        env.stop()
-        return
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, str(maxValue + 1)).error()\
                 .contains('Error loading the extension')
@@ -1208,7 +1168,6 @@ def testNumericArgDeprecationMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
-@ft_config_passthrough
 def testNumericFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using numeric parameters'''
     # create module arguments
@@ -1399,7 +1358,6 @@ def testEnumArgDeprecationMessage():
     env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 @skip(redis_less_than='7.9.227')
-@ft_config_passthrough
 def testEnumFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using enum parameters'''
     # create module arguments
@@ -2048,7 +2006,6 @@ def testDeprecatedModuleArgsMessage():
         env.assertEqual(matchCount, 1, message=f'argName: {argName}')
 
 @skip(redis_less_than='7.9.227')
-@ft_config_passthrough
 def testBooleanFTConfigDeprecationMessage():
     '''Test deprecation message of FT.CONFIG using boolean parameters'''
     # create module arguments
@@ -2333,9 +2290,7 @@ def test_on_oom(env):
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'fail']])
     env.expect(config_cmd(), 'SET', 'ON_OOM', 'return').ok()
     env.expect(config_cmd(), 'GET', 'ON_OOM').equal([['ON_OOM', 'return']])
-    # Enterprise uses Redis CONFIG twin; error is 'argument(s) must be one of...' not 'Invalid ON_OOM value'
-    if not RS_TEST_ENTERPRISE:
-        env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
+    env.expect(config_cmd(), 'SET', 'ON_OOM', 'invalid').error().contains('Invalid ON_OOM value')
 
 @skip(cluster=True)
 def testDefaultScorerConfig(env):

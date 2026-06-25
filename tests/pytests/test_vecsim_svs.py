@@ -155,8 +155,13 @@ def test_svs_vamana_info():
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
-        # compression in runtime is LVQ8 if we are running on intel optimizations are enabled and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_opt_enabled() or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
+        # Enterprise builds expose the optimized SVS compression names in
+        # FT.INFO even when the OSS BUILD_INTEL_SVS_OPT flag is not set here.
+        compression_runtime = (
+            compression_type
+            if is_intel_opt_enabled() or RS_TEST_ENTERPRISE or compression_type == 'NO_COMPRESSION'
+            else 'GlobalSQ8'
+        )
         expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
                           'data_type', data_type, 'dim', dim, 'distance_metric', 'L2', 'graph_max_degree', 32,
                           'construction_window_size', 200, 'compression', compression_runtime]]

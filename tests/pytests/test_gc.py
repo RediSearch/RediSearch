@@ -608,15 +608,29 @@ def test_gc_oom_replica_relaxed():
     # (only checks max_process_mem which is 0 in OSS, so used_memory_ratio = 0)
     slave.execute_command('CONFIG', 'SET', 'maxmemory', int(slave_memory * 0.99))
 
-    # Force GC on slave - should run despite maxmemory being exceeded
-    # because replicas only check max_process_mem (which is 0 in OSS)
-    slave.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+    bytes_collected = 0
+    for _ in range(3):
+        # Replication can leave a background save child around briefly; wait
+        # before forcing GC so RedisModule_Fork does not fail with EEXIST.
+        for _ in range(50):
+            persistence = slave.execute_command('INFO', 'Persistence')
+            if not persistence['rdb_bgsave_in_progress']:
+                break
+            sleep(0.1)
 
-    # Verify bytes were collected by GC on the slave
-    slave_info = slave.execute_command('FT.INFO', 'idx')
-    slave_info_dict = to_dict(slave_info)
-    gc_dict = to_dict(slave_info_dict["gc_stats"])
-    bytes_collected = int(gc_dict['bytes_collected'])
+        # Force GC on slave - should run despite maxmemory being exceeded
+        # because replicas only check max_process_mem (which is 0 in OSS)
+        slave.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+
+        # Verify bytes were collected by GC on the slave
+        slave_info = slave.execute_command('FT.INFO', 'idx')
+        slave_info_dict = to_dict(slave_info)
+        gc_dict = to_dict(slave_info_dict["gc_stats"])
+        bytes_collected = int(gc_dict['bytes_collected'])
+        if bytes_collected > 0:
+            break
+        sleep(0.1)
+
     env.assertGreater(bytes_collected, 0,
         message="GC should run on replica even when maxmemory is exceeded")
 
@@ -678,4 +692,3 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
     env.expect('DEL', 'doc1').equal(1)
     forceInvokeGC(env, 'idx')
     env.expect('PING').equal(True)
-

@@ -449,9 +449,7 @@ def testconfigMultiTextOffsetDelta(env):
     env.cmd('FT.CREATE', 'idx_category_arr', 'ON', 'JSON', 'SCHEMA', '$.category', 'AS', 'category', 'TEXT')
     waitForIndex(env, 'idx_category_arr')
 
-    # Enterprise uses Redis CONFIG twin; 'can't set immutable config' vs 'Not modifiable at runtime'
-    _immutable_err = "can't set immutable config" if RS_TEST_ENTERPRISE else 'Not modifiable at runtime'
-    env.expect(config_cmd(), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains(_immutable_err)
+    env.expect(config_cmd(), 'SET', 'MULTI_TEXT_SLOP', '101').error().contains('Not modifiable at runtime')
 
 
     # MULTI_TEXT_SLOP = 100 (Default)

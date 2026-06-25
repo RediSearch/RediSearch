@@ -415,8 +415,12 @@ def test_command_info_tips_field():
     failed_tips = []
 
     for cmd_name, expected_data in commands_with_tips.items():
+        if RS_TEST_ENTERPRISE and cmd_name == 'FT.CREATE':
+            # Enterprise exposes only partial COMMAND INFO metadata for FT.CREATE;
+            # see test_specific_command_docs_structure.
+            continue
         cmd_upper = cmd_name.upper().replace(' ', '|')
-        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+        if (env.isCluster() or RS_TEST_ENTERPRISE) and cmd_name.startswith('FT.CONFIG'):
             # In cluster mode the coordinator does not register public FT.CONFIG,
             # but the local _FT.CONFIG subcommands use the same command info.
             cmd_upper = '_' + cmd_upper

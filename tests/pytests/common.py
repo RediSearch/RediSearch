@@ -367,145 +367,10 @@ def collectKeys(env, pattern='*'):
 # Gated by RS_TEST_ENTERPRISE=1; default=0 → zero behavior change on OSS CI.
 # ---------------------------------------------------------------------------
 
-# Build the FT.CONFIG-name → redis-config-name mapping from src/config.c
-# __configPairs[].  Only non-empty ConfigName entries have a CONFIG SET/GET
-# twin; entries with "" have none.
-_FT_CONFIG_TO_REDIS: dict = {}
-_FT_CONFIG_NO_TWIN: set = set()
-# FT.CONFIG param names (upper-case) whose CONFIG twin is a boolean config
-# (registered via RedisModule_RegisterBoolConfig). For these the OSS tests use
-# the FT.CONFIG value form 'true'/'false', while the CONFIG twin only accepts
-# 'yes'/'no'. Derived from src/config.c, never hardcoded — see
-# _build_ft_config_table().
-_FT_CONFIG_BOOL: set = set()
-
-def _build_ft_config_table():
-    """Populate _FT_CONFIG_TO_REDIS, _FT_CONFIG_NO_TWIN and _FT_CONFIG_BOOL by
-    parsing src/config.c relative to this file's repo root."""
-    import re
-    _repo_root = os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-    config_c = os.path.join(_repo_root, 'src', 'config.c')
-    try:
-        with open(config_c) as _f:
-            _src = _f.read()
-    except OSError:
-        return  # graceful degradation if run outside the source tree
-    # Match entries like:  {"FT_NAME", "search-redis-name"},
-    _pattern = re.compile(
-        r'\{\s*"([^"]+)"\s*,\s*"([^"]*)"\s*\}')
-    _in_array = False
-    for _line in _src.splitlines():
-        if '__configPairs' in _line and '{' in _line:
-            _in_array = True
-        if not _in_array:
-            continue
-        # Detect end of the array (a line that closes the outer brace)
-        if _in_array and re.match(r'^\s*\};', _line):
-            break
-        for _m in _pattern.finditer(_line):
-            _ft_name = _m.group(1).upper()
-            _redis_name = _m.group(2)
-            if _redis_name:
-                _FT_CONFIG_TO_REDIS[_ft_name] = _redis_name
-            else:
-                _FT_CONFIG_NO_TWIN.add(_ft_name)
-    # Alias: MAXEXPANSIONS is a legacy alias for MAXPREFIXEXPANSIONS
-    if 'MAXPREFIXEXPANSIONS' in _FT_CONFIG_TO_REDIS and 'MAXEXPANSIONS' not in _FT_CONFIG_TO_REDIS:
-        _FT_CONFIG_TO_REDIS['MAXEXPANSIONS'] = _FT_CONFIG_TO_REDIS['MAXPREFIXEXPANSIONS']
-    # Derive the boolean param set: each search-<name> registered via
-    # RedisModule_RegisterBoolConfig accepts only yes/no, while its FT.CONFIG
-    # twin uses true/false. Map every bool twin back to its FT.CONFIG name via
-    # the inverse of _FT_CONFIG_TO_REDIS. Bool twins with no FT.CONFIG pair
-    # (e.g. search-monitor-expiration) are never reached through this shim and
-    # are simply absent from the set.
-    _redis_to_ft = {_r: _ft for _ft, _r in _FT_CONFIG_TO_REDIS.items()}
-    for _bool_twin in re.findall(
-            r'RedisModule_RegisterBoolConfig\s*\(\s*ctx,\s*"([^"]+)"', _src):
-        _ft = _redis_to_ft.get(_bool_twin)
-        if _ft is not None:
-            _FT_CONFIG_BOOL.add(_ft)
-
-_build_ft_config_table()
-
-# --- Per-param value transforms between the FT.CONFIG value form the OSS tests
-#     use and the CONFIG-twin value form the enterprise module accepts.
-#
-#  * Booleans (set above): FT 'true'/'false' <-> twin 'yes'/'no'.
-#  * "Unlimited" result-cap params: FT.CONFIG SET accepts a negative sentinel
-#    meaning "unlimited" and reports the cap as the literal 'unlimited'
-#    (src/config.c setMaxSearchResults/getMaxSearchResults, lines 483-525);
-#    the numeric twin (min 0) rejects negatives, so the sentinel is mapped to
-#    the twin's max value and the max is reported back as 'unlimited'.
-#  * Zero-sentinel params: FT.CONFIG SET accepts 0 (TIMEOUT 0 = no per-query
-#    timeout; FORK_GC_CLEAN_THRESHOLD 0 = clean on every GC cycle —
-#    src/config.c setTimeout/setForkGcCleanThreshold accept 0), while the
-#    numeric twins have min 1, so 0 is clamped up to the twin's minimum (1),
-#    the nearest value preserving the intended behavior.
-#
-# 2**31 is MAX_SEARCH_REQUEST_RESULTS / MAX_AGGREGATE_REQUEST_RESULTS, which is
-# also the registered max of the corresponding twins (src/config.h:344,351).
-_FT_UNLIMITED_MAX = 1 << 31
-_FT_CONFIG_UNLIMITED = {'MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS'}
-# FT param -> twin minimum it must be clamped up to when the FT 0-sentinel is set.
-_FT_CONFIG_ZERO_TO_MIN = {'TIMEOUT': 1, 'FORK_GC_CLEAN_THRESHOLD': 1}
-
-
-def _ft_value_to_twin(param, value):
-    """Translate an FT.CONFIG SET value into the value the CONFIG twin accepts.
-    Returns the (possibly unchanged) value to forward to CONFIG SET."""
-    sval = str(value)
-    if param in _FT_CONFIG_BOOL:
-        low = sval.strip().lower()
-        if low == 'true':
-            return 'yes'
-        if low == 'false':
-            return 'no'
-        return value  # let an invalid value reach the twin and error there
-    if param in _FT_CONFIG_UNLIMITED:
-        try:
-            n = int(sval)
-        except (TypeError, ValueError):
-            return value
-        if n < 0:
-            return _FT_UNLIMITED_MAX
-        return min(n, _FT_UNLIMITED_MAX)
-    if param in _FT_CONFIG_ZERO_TO_MIN:
-        try:
-            n = int(sval)
-        except (TypeError, ValueError):
-            return value
-        if n == 0:
-            return _FT_CONFIG_ZERO_TO_MIN[param]
-    return value
-
-
-def _twin_value_to_ft(param, value):
-    """Translate a CONFIG-twin value back into the FT.CONFIG value form the OSS
-    tests expect (inverse of _ft_value_to_twin for the round-trip cases)."""
-    if value is None:
-        return value
-    # Enterprise CONFIG GET returns '' for unset string params; FT.CONFIG uses None.
-    if value == '' and param not in _FT_CONFIG_BOOL and param not in _FT_CONFIG_UNLIMITED:
-        return None
-    sval = str(value)
-    if param in _FT_CONFIG_BOOL:
-        low = sval.strip().lower()
-        if low == 'yes':
-            return 'true'
-        if low == 'no':
-            return 'false'
-        return value
-    if param in _FT_CONFIG_UNLIMITED:
-        try:
-            if int(sval) == _FT_UNLIMITED_MAX:
-                return 'unlimited'
-        except (TypeError, ValueError):
-            pass
-    return value
-
-# --- FIX 1: monkeypatch redis-py to transparently rewrite _FT.CONFIG/FT.CONFIG
-#     SET|GET <PARAM> → CONFIG SET|GET search-<param> when RS_TEST_ENTERPRISE=1.
+# Enterprise standalone test builds expose the local config command as
+# _FT.CONFIG.  Route public FT.CONFIG SET/GET through that command so OSS tests
+# exercise the same FT.CONFIG parser and reply shape instead of emulating it
+# with Redis CONFIG search-* twins.
 
 def _strip_shard_id_from_profile(obj):
     """Strip 'Shard ID',<value> pair from each shard flat list in FT.PROFILE reply.
@@ -531,38 +396,22 @@ def _strip_shard_id_from_profile(obj):
     return _strip_shard(obj)
 
 
-# Some tests (the *FTConfigDeprecationMessage tests) deliberately exercise the
-# real FT.CONFIG command to assert the module's "FT.CONFIG is deprecated" log
-# line. The shim below rewrites FT.CONFIG->CONFIG, which would suppress that
-# log, so those tests wrap themselves with @ft_config_passthrough to disable the
-# rewrite for their duration. Defined unconditionally so OSS imports succeed.
-_ft_config_shim_bypass = False
-
-def ft_config_passthrough(fn):
-    import functools
-    @functools.wraps(fn)
-    def _wrapper(*args, **kwargs):
-        global _ft_config_shim_bypass
-        prev = _ft_config_shim_bypass
-        _ft_config_shim_bypass = True
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            _ft_config_shim_bypass = prev
-    return _wrapper
-
 if RS_TEST_ENTERPRISE:
     _orig_execute_command = redis.client.Redis.execute_command
 
     def _enterprise_execute_command(self, *args, **kwargs):
         """Intercept command rewrites for enterprise/OSS compat:
-        - _FT.CONFIG / FT.CONFIG GET|SET → CONFIG GET|SET
+        - FT.CONFIG GET|SET → _FT.CONFIG GET|SET
         - _FT._RESTOREIFNX → FT._RESTOREIFNX (enterprise registers without leading underscore)
         - FT.PROFILE: strip 'Shard ID' from each shard's flat list to normalize positions
         """
         # Rewrite _FT._RESTOREIFNX -> FT._RESTOREIFNX
         if args and str(args[0]).upper() == '_FT._RESTOREIFNX':
             args = ('FT._RESTOREIFNX',) + tuple(args[1:])
+        if (len(args) >= 2
+                and str(args[0]).upper() == 'FT.CONFIG'
+                and str(args[1]).upper() in ('SET', 'GET')):
+            args = ('_FT.CONFIG',) + tuple(args[1:])
         # FT.PROFILE: strip Shard ID from raw RESP2 shard lists so index [3] stays = Iterators profile value
         if args and str(args[0]).upper() == 'FT.PROFILE':
             raw = _orig_execute_command(self, *args, **kwargs)
@@ -596,50 +445,6 @@ if RS_TEST_ENTERPRISE:
                         _time.sleep(0.2)
                         continue
                     raise
-        if (not _ft_config_shim_bypass
-                and len(args) >= 3
-                and str(args[0]).upper() in ('_FT.CONFIG', 'FT.CONFIG')
-                and str(args[1]).upper() in ('SET', 'GET')):
-            op = str(args[1]).upper()
-            param = str(args[2]).upper()
-            redis_name = _FT_CONFIG_TO_REDIS.get(param)
-            if redis_name is not None:
-                # Rewrite: CONFIG <op> <redis_name> [remaining args...]
-                rest = tuple(args[3:])
-                if op == 'SET' and len(rest) >= 1:
-                    # FIX 3a: TIMEOUT 0 (zero-sentinel = unlimited) must NOT be
-                    # rewritten to CONFIG SET search-timeout because search-timeout
-                    # has registered min=1; clamping to 1 would set a 1ms timeout
-                    # rather than unlimited.  Fall through to the raw _FT.CONFIG
-                    # SET path which the enterprise module accepts directly.
-                    if param in _FT_CONFIG_ZERO_TO_MIN:
-                        try:
-                            if int(str(rest[0])) == 0:
-                                return _orig_execute_command(self, *args, **kwargs)
-                        except (TypeError, ValueError):
-                            pass
-                    # Translate the FT.CONFIG SET value into the form the CONFIG
-                    # twin accepts (true/false->yes/no, unlimited/zero sentinels).
-                    rest = (_ft_value_to_twin(param, rest[0]),) + rest[1:]
-                new_args = ('CONFIG', op, redis_name) + rest
-                raw = _orig_execute_command(self, *new_args, **kwargs)
-                if op == 'SET':
-                    # redis CONFIG SET returns True; FT.CONFIG SET returns 'OK'.
-                    return 'OK' if raw is True else raw
-                # op == 'GET': reshape to the FT.CONFIG GET response shape, preserving the
-                # RESP version.  RESP3 CONFIG GET returns a {name: value} dict, so
-                # FT.CONFIG GET must return a {PARAM: value} map; RESP2 returns a
-                # flat [name, value] list, so FT.CONFIG GET returns [[PARAM, value]].
-                # Keying off the raw reply type avoids probing the protocol and
-                # never regresses the RESP2 path.
-                if isinstance(raw, dict):
-                    value = raw.get(redis_name, raw.get(redis_name.lower()))
-                    return {args[2]: _twin_value_to_ft(param, value)}
-                elif isinstance(raw, (list, tuple)) and len(raw) == 2:
-                    return [[args[2], _twin_value_to_ft(param, raw[1])]]
-                else:
-                    return [[args[2], _twin_value_to_ft(param, raw)]]
-            # No twin (empty ConfigName) or unknown param → pass through
         return _orig_execute_command(self, *args, **kwargs)
 
     redis.client.Redis.execute_command = _enterprise_execute_command
