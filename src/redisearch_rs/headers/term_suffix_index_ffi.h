@@ -8,8 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct TermSuffixIndex TermSuffixIndex;
-
 /**
  * Yields the keys of a [`TermSuffixIndex`].
  *
@@ -18,6 +16,8 @@ typedef struct TermSuffixIndex TermSuffixIndex;
  * [`TermSuffixIndexIterator_Free`].
  */
 typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
+
+typedef struct TermSuffixIndex TermSuffixIndex;
 
 /**
  * Callback invoked once per term yielded by
@@ -42,6 +42,20 @@ extern "C" {
 struct TermSuffixIndex *TermSuffixIndex_New(void);
 
 /**
+ * Free a [`TermSuffixIndex`] and all terms it owns.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. No iterator obtained from `tsi` may be alive.
+ * 3. `tsi` must not be used after this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
+
+/**
  * Iterate over every key stored in the index — each member term plus
  * every indexed proper suffix — in lexicographical order.
  *
@@ -61,18 +75,26 @@ struct TermSuffixIndex *TermSuffixIndex_New(void);
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *tsi);
 
 /**
- * Free a [`TermSuffixIndex`] and all terms it owns.
+ * Invoke `cb` once per member term containing the UTF-8 needle
+ * `(needle, len)` as a substring; a term may be reported more than once.
+ * Iteration stops early when the callback returns a non-zero value. An
+ * empty needle reports no matches.
  *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `tsi` may be alive.
- * 3. `tsi` must not be used after this call.
+ * 2. `needle` must point to a [valid] byte sequence of length `len`.
+ * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
+ *    retain the term pointer beyond the call.
+ *
+ * # Panics
+ *
+ * Panics if `needle` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
+void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
@@ -137,55 +159,6 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
 void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
- * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
- * Invalidates any string pointer previously returned by
- * [`TermSuffixIndexIterator_Next`].
- *
- * # Safety
- *
- * 1. `it` must be a [valid], non-null pointer to a live
- *    [`TermSuffixIndexIterator`].
- * 2. `it` must not be used after this call.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
-
-/**
- * Estimated heap memory currently held by the index, in bytes.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
-
-/**
- * Invoke `cb` once per member term containing the UTF-8 needle
- * `(needle, len)` as a substring; a term may be reported more than once.
- * Iteration stops early when the callback returns a non-zero value. An
- * empty needle reports no matches.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. `needle` must point to a [valid] byte sequence of length `len`.
- * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
- *    retain the term pointer beyond the call.
- *
- * # Panics
- *
- * Panics if `needle` is not valid UTF-8.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
-
-/**
  * Invoke `cb` once per member term ending with the UTF-8 needle
  * `(needle, len)`; each matching term is reported exactly once. Iteration
  * stops early when the callback returns a non-zero value. An empty
@@ -206,6 +179,33 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
+
+/**
+ * Estimated heap memory currently held by the index, in bytes.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
+
+/**
+ * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
+ * Invalidates any string pointer previously returned by
+ * [`TermSuffixIndexIterator_Next`].
+ *
+ * # Safety
+ *
+ * 1. `it` must be a [valid], non-null pointer to a live
+ *    [`TermSuffixIndexIterator`].
+ * 2. `it` must not be used after this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
 
 /**
  * Invoke `cb` once per member term matching the wildcard pattern

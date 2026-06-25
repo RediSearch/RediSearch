@@ -13,10 +13,12 @@
 //! must be valid UTF-8. Passing invalid UTF-8 panics.
 
 mod index;
-mod iter;
+mod iter_callback;
+mod iter_cursor;
 
 pub use index::*;
-pub use iter::*;
+pub use iter_callback::*;
+pub use iter_cursor::*;
 
 /// A set of indexed terms supporting substring, ends-with, exact and
 /// wildcard lookups.
