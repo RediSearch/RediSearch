@@ -1606,6 +1606,12 @@
                             "type": "integer"
                           }
                         ]
+                      },
+                      {
+                        "name": "distinct",
+                        "type": "pure-token",
+                        "token": "DISTINCT",
+                        "optional": true
                       }
                     ]
                   }
@@ -2808,6 +2814,12 @@
                             "type": "integer"
                           }
                         ]
+                      },
+                      {
+                        "name": "distinct",
+                        "type": "pure-token",
+                        "token": "DISTINCT",
+                        "optional": true
                       }
                     ]
                   }
