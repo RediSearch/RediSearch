@@ -159,6 +159,7 @@ pub struct LocalCollectReducer<'a> {
     input_key: &'a RLookupKey<'a>,
     fields: Fields,
     limit: Option<(u64, u64)>,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
@@ -185,6 +186,7 @@ impl<'a> LocalCollectReducer<'a> {
         sort_key_names: Box<[CString]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
+        distinct: bool,
     ) -> Self {
         let fields = match requested {
             Some(requested) => Fields::Specific {
@@ -200,6 +202,7 @@ impl<'a> LocalCollectReducer<'a> {
             input_key,
             fields,
             limit,
+            distinct,
         }
     }
 
@@ -223,15 +226,15 @@ impl LocalCollectCtx {
             lookup: RLookup::new(),
             storage: Storage::new(
                 !r.fields.sort_key_names().is_empty(),
+                r.distinct,
                 r.limit,
                 r.sort_asc_map,
             ),
         }
     }
 
-    /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// dispatching each item to the array or heap arm of [`Storage`] under the
-    /// configured `LIMIT`.
+    /// Add each item of the shard payload carried by `row` (a serialized array
+    /// of per-row maps) to the storage.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -250,10 +253,10 @@ impl LocalCollectCtx {
                 continue;
             }
             match &mut self.storage {
-                Storage::Array(a) => {
-                    a.push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)))
+                Storage::Unranked(unranked) => {
+                    unranked.push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)))
                 }
-                Storage::Heap(h) => h.consider(
+                Storage::Ranked(ranked) => ranked.consider(
                     snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),
                     || ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)),

@@ -23,6 +23,7 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
+use crate::collect::heap::HeapEntry;
 use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
@@ -123,6 +124,7 @@ pub struct RemoteCollectReducer<'a> {
     fields: Fields<'a>,
     limit: Option<(u64, u64)>,
     is_internal: bool,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) == 0);
@@ -148,6 +150,7 @@ impl<'a> RemoteCollectReducer<'a> {
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
         is_internal: bool,
+        distinct: bool,
     ) -> Self {
         // `distributeCollect` rewrites the shard wire's LIMIT to
         // `(0, offset+count)`, so an internal shard never sees a non-zero
@@ -171,6 +174,7 @@ impl<'a> RemoteCollectReducer<'a> {
             fields,
             limit,
             is_internal,
+            distinct,
         }
     }
 
@@ -243,16 +247,17 @@ fn dedup_by_dstidx<'a>(
 impl RemoteCollectCtx {
     pub fn new(r: &RemoteCollectReducer<'_>) -> Self {
         Self {
-            storage: Storage::new(!r.fields.sort_keys().is_empty(), r.limit, r.sort_asc_map),
+            storage: Storage::new(
+                !r.fields.sort_keys().is_empty(),
+                r.distinct,
+                r.limit,
+                r.sort_asc_map,
+            ),
         }
     }
 
-    /// Project the source row's field values into a stored [`RLookupRow`].
-    ///
-    /// Dispatches on the storage family: the array path simply buffers the row,
-    /// while the heap path additionally snapshots the sort-key values to drive
-    /// the comparator, dropping doomed candidates before paying the
-    /// row-projection cost. The snapshot is built only on the heap path.
+    /// Add `row` to the storage. The sort-key snapshot is built only on the
+    /// ranked arm, so the unranked path pays nothing for sorting.
     pub fn add(
         &mut self,
         r: &RemoteCollectReducer<'_>,
@@ -269,15 +274,15 @@ impl RemoteCollectCtx {
             ProjectedRow::new(dst)
         };
         match &mut self.storage {
-            Storage::Array(a) => a.push(project),
-            Storage::Heap(h) => {
+            Storage::Unranked(unranked) => unranked.push(project),
+            Storage::Ranked(ranked) => {
                 let sort_vals = r
                     .fields
                     .sort_keys()
                     .iter()
                     .map(|key| row.get(key).cloned())
                     .collect();
-                h.consider(sort_vals, doc_id, project);
+                ranked.consider(sort_vals, doc_id, project);
             }
         }
     }
@@ -287,7 +292,7 @@ impl RemoteCollectCtx {
     /// [`LocalCollectCtx::finalize`][crate::collect::local::LocalCollectCtx::finalize]
     /// reconstructs the client-facing result from the emitted payload.
     ///
-    /// On the shard (`is_internal`) heap path the SORTBY columns are re-attached
+    /// On the shard (`is_internal`) ranked path the SORTBY columns are re-attached
     /// from each entry's ranking-key snapshot; the client path emits only the
     /// requested fields.
     pub fn finalize(&mut self, r: &RemoteCollectReducer<'_>) -> SharedValue {
@@ -300,20 +305,22 @@ impl RemoteCollectCtx {
                     .collect::<Vec<_>>(),
             )
         };
-        let rows = match &mut self.storage {
-            Storage::Array(a) => Either::Left(a.drain().map(|projected| to_map(projected.row()))),
-            Storage::Heap(h) => Either::Right(h.drain().map(|entry| {
-                let (ranking_key, projected) = entry.into_parts();
-                let mut row = projected.into_row();
-                // `sort_extras` (names) and the snapshot (values) share SORTBY
-                // order, so the i-th key takes the i-th value.
-                for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
-                    if let Some(val) = val {
-                        row.write_key(key, val.clone());
-                    }
+        // Rebuild a ranked entry's wire row: projected fields plus the deferred
+        // sort columns merged back from the ranking-key snapshot.
+        let map_entry = |entry: HeapEntry<ffi::t_docId, ProjectedRow>| {
+            let (ranking_key, projected) = entry.into_parts();
+            let mut row = projected.into_row();
+            // `sort_extras` (names) and the snapshot (values) share SORTBY order.
+            for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
+                if let Some(val) = val {
+                    row.write_key(key, val.clone());
                 }
-                to_map(&row)
-            })),
+            }
+            to_map(&row)
+        };
+        let rows = match &mut self.storage {
+            Storage::Unranked(unranked) => Either::Left(unranked.drain().map(|p| to_map(p.row()))),
+            Storage::Ranked(ranked) => Either::Right(ranked.drain().map(map_entry)),
         };
         SharedValue::new_array(rows)
     }

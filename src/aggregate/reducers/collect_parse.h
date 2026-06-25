@@ -42,6 +42,8 @@ typedef struct {
   bool has_limit;
   uint64_t limit_offset;
   uint64_t limit_count;
+
+  bool distinct;                       // true iff user wrote `DISTINCT`
 } CollectArgs;
 
 /**

@@ -1664,6 +1664,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "priority-queue"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93980406f12d9f8140ed5abe7155acb10bb1e69ea55c88960b9c2f117445ef96"
+dependencies = [
+ "equivalent",
+ "indexmap",
+ "serde",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2065,8 +2076,10 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "indexmap",
  "itertools 0.14.0",
  "min-max-heap",
+ "priority-queue",
  "query_error",
  "redis_mock",
  "redisearch_rs",

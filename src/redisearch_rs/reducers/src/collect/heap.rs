@@ -91,11 +91,8 @@ impl<D: Ord> Ord for RankingKey<D> {
     }
 }
 
-/// Heap slot: the comparator key alongside the projected payload.
-///
-/// `T` is the per-row payload the consumer
-/// ([`HeapStorage`][super::storage::HeapStorage]) yields at finalize. Comparing
-/// only reads `key`, so the choice of `T` does not affect ranking.
+/// Pairs the comparator key with the projected payload. The `Ord` impl reads
+/// only `key`, so the choice of `T` never affects ranking.
 pub struct HeapEntry<D: Ord, T> {
     key: RankingKey<D>,
     projected: T,
@@ -114,16 +111,10 @@ impl<D: Ord, T> HeapEntry<D, T> {
         &self.projected
     }
 
-    /// Return the projected payload.
     pub fn into_projected(self) -> T {
         self.projected
     }
 
-    /// Split into the ranking key and the projected payload.
-    ///
-    /// Unlike [`Self::into_projected`], this keeps the [`RankingKey`] so a
-    /// consumer can read its [`RankingKey::sort_vals`] — needed by the remote
-    /// reducer's deferred sort-key merge.
     pub fn into_parts(self) -> (RankingKey<D>, T) {
         (self.key, self.projected)
     }
