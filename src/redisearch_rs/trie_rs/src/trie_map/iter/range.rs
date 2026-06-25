@@ -130,9 +130,13 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
             return RangeIter::empty();
         };
 
-        // Shorten the boundaries. The minimum may be gone entirely.
+        // Shorten the boundaries. When the descent fully consumes `min.value`
+        // we can drop the lower bound only if it's inclusive — an exclusive
+        // empty-suffix marker still has to ride along so the entry whose key
+        // equals `min.value` is skipped at this exact depth.
+        let descended_past_min = subroot_prefix.len() < min.value.len();
         let filter = RangeFilter {
-            min: (subroot_prefix.len() != min.value.len()).then(|| RangeBoundary {
+            min: (descended_past_min || !min.is_included).then(|| RangeBoundary {
                 value: &min.value[subroot_prefix.len()..],
                 is_included: min.is_included,
             }),
