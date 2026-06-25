@@ -513,8 +513,12 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
-  // Reset the total results length:
-  qctx->totalResults = 0;
+  // Reset the total results length. WITHCOUNT preserves it across cursor
+  // reads — the value is the shard-summed total set once at Phase B start,
+  // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
+  if (!HasWithCount(req)) {
+    qctx->totalResults = 0;
+  }
   QueryError_ClearError(qctx->err);
 }
 

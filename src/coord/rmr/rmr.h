@@ -206,11 +206,33 @@ MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *absti
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
 struct MRChannel *MRIterator_GetChannel(MRIterator *it);
 
+/* Allocate and initialize an iterator without dispatching its fan-out. The
+ * iterator is inert until MR_StartIterator schedules its start callback, so the
+ * caller can safely publish any state the per-reply callback depends on (e.g.
+ * store the iterator pointer, register an abort-wake channel) before any reply
+ * can arrive on the IO thread. Pair every MR_CreateIterator with
+ * MR_StartIterator. Only the dispatch-related fields of `config` are read here
+ * (`successCB`, `errorCB`, `cbPrivateData`, `cbPrivateDataDestructor`,
+ * `cbPrivateDataInit`, `commandModifier`); `iterStartCb` /
+ * `iterStartCbPrivateData` are consumed by MR_StartIterator. */
+MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
+
+/* Schedule the iterator's start callback on its IO runtime, kicking off the
+ * fan-out to the shards. After this call replies may arrive at any time on the
+ * IO thread. */
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
+                      StrongRef *iterStartCbPrivateData);
+
 MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config);
 
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
+
+/* Return the iterator that owns this callback context. Intended for per-reply
+ * callbacks that need to query iterator-wide state (e.g. the shard count via
+ * MRIterator_GetNumShards). */
+MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx);
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx);
 
@@ -237,6 +259,17 @@ size_t MRIterator_GetNumShards(const MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+/* Replace the iterator's per-reply successCB and no-reply errorCB. Must only
+ * be called from the iterator's own IO thread (the same thread that invokes
+ * mrIteratorRedisCB / mrIteratorCallback_Error); no synchronization is applied.
+ * Passing NULL for errorCB detaches it. */
+void MRIterator_SwapCallbacks(MRIterator *it, MRIteratorCallback successCB,
+                              MRIteratorErrorCallback errorCB);
+
+/* Return the privateData stored in the first callback context of the iterator.
+ * Valid while the iterator is alive (i.e. before the coord ref is released). */
+void *MRIterator_GetPrivateData(const MRIterator *it);
 
 sds MRCommand_SafeToString(const MRCommand *cmd);
 

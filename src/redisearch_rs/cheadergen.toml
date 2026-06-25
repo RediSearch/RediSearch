@@ -203,7 +203,7 @@ typedef uint32_t QEFlags;
 #define QEXEC_F_SEND_PAYLOADS                      QEFlag_SendPayloads
 #define QEXEC_F_IS_CURSOR                          QEFlag_IsCursor
 #define QEXEC_F_REQUIRED_FIELDS                    QEFlag_RequiredFields
-#define QEXEC_F_BUILDPIPELINE_NO_ROOT              QEFlag_BuildPipelineNoRoot
+#define QEXEC_F_IS_COORDINATOR                     QEFlag_IsCoordinator
 #define QEXEC_F_RUN_IN_BACKGROUND                  QEFlag_RunInBackground
 #define QEXEC_F_IS_SEARCH                          QEFlag_IsSearch
 #define QEXEC_F_SEND_HIGHLIGHT                     QEFlag_SendHighlight
