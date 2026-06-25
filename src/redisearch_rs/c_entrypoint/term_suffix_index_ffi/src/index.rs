@@ -39,23 +39,6 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(tsi: *mut TermSuffixIndex) {
     drop(unsafe { Box::from_raw(tsi) });
 }
 
-/// Estimated heap memory currently held by the index, in bytes.
-///
-/// # Safety
-///
-/// 1. `tsi` must be a [valid], non-null pointer obtained from
-///    [`TermSuffixIndex_New`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -> usize {
-    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
-
-    // Safety: ensured by caller (1.)
-    let index = unsafe { &*tsi };
-    index.mem_usage()
-}
-
 /// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
 /// empty term is a no-op.
 ///
@@ -120,4 +103,21 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 
     let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
     index.remove(term);
+}
+
+/// Estimated heap memory currently held by the index, in bytes.
+///
+/// # Safety
+///
+/// 1. `tsi` must be a [valid], non-null pointer obtained from
+///    [`TermSuffixIndex_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermSuffixIndex_MemUsage(tsi: *const TermSuffixIndex) -> usize {
+    debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
+
+    // Safety: ensured by caller (1.)
+    let index = unsafe { &*tsi };
+    index.mem_usage()
 }

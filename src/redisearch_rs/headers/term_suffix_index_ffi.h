@@ -56,16 +56,23 @@ struct TermSuffixIndex *TermSuffixIndex_New(void);
 void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
 
 /**
- * Estimated heap memory currently held by the index, in bytes.
+ * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+ * empty term is a no-op.
  *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
+ * 2. No iterator obtained from `tsi` may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
+void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Iterate over every key stored in the index — each member term plus
@@ -84,8 +91,8 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *tsi);
 
 /**
- * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
- * empty term is a no-op.
+ * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+ * or empty term is a no-op.
  *
  * # Safety
  *
@@ -100,7 +107,7 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
+void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Invoke `cb` once per member term containing the UTF-8 needle
@@ -125,23 +132,16 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
- * or empty term is a no-op.
+ * Estimated heap memory currently held by the index, in bytes.
  *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `tsi` may be alive.
- * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 
 /**
  * Invoke `cb` once per member term ending with the UTF-8 needle
