@@ -217,7 +217,7 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 }
 #endif
 
-static void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
+void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
   RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, &hreq->syncCtx);
 
   for (size_t i = 0; i < hreq->nrequests; i++) {
@@ -228,7 +228,7 @@ static void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq)
   }
 }
 
-static bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
+bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&hreq->syncCtx)) {
     return true;
   }

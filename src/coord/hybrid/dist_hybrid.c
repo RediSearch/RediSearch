@@ -1077,6 +1077,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
 
 #ifdef ENABLE_ASSERT
@@ -1168,6 +1172,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
     CurrentThread_ClearIndexSpec();
@@ -1248,6 +1256,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
