@@ -670,6 +670,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // WITHOUTCOUNT enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+      // on disk indexes (it relies on RAM-only structures). Reject rather than silently degrade.
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHOUTCOUNT", status)) {
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -721,17 +726,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
-    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
+    // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
+    // is never actually run for them.
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-  }
-
-  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
-  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
-  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
-  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
-  // never entered for disk specs (it asserts the same).
-  if (isDiskIndex) {
-    AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -1141,13 +1139,46 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
+/* See aggregate.h for the full handshake contract. The aggregateResultsLock
+ * serializes the worker's "set holding, then check timedOut" against the main
+ * thread's "set timedOut, then check holding", making the two race-free. */
+bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
+  bool proceed;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  if (RS_AtomicBoolLoadRelaxed(&sync->timedOut)) {
+    // Timeout already fired: do not mark holding, bail instead of blocking on the
+    // GIL the main thread holds while it waits.
+    proceed = false;
+  } else {
+    sync->safeLoaderHoldingGIL = true;
+    proceed = true;
+  }
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return proceed;
+}
+
+void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  sync->safeLoaderHoldingGIL = false;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+}
+
+bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
+  bool holding;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  holding = sync->safeLoaderHoldingGIL;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return holding;
+}
+
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
+  req->syncCtx.safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
+  RequestSyncCtx_ClearTimedOut(&req->syncCtx);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1285,6 +1316,14 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+  // on disk.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      goto error;
+    }
+  }
+
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
@@ -1299,8 +1338,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(ctx, &req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results

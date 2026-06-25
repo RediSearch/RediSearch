@@ -33,6 +33,7 @@
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "cursor.h"
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {
@@ -482,9 +483,17 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
+// Pin the request's config + tail-pipeline policy to the dispatch-time value
+// (CoordRequestCtx), undoing AREQ_New/AREQ_Compile's RSGlobalConfig re-read on
+// the BG thread. Avoids a TOCTOU with a concurrent FT.CONFIG SET (mirrors hybrid).
+static void applyCoordReqConfigTimeoutPolicy(AREQ *r, RSTimeoutPolicy policy) {
+  r->reqConfig.timeoutPolicy = policy;
+  r->pipeline.qctx.timeoutPolicy = policy;
+}
+
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
-                               QueryError *status) {
+                               RSTimeoutPolicy requestTimeoutPolicy, QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -506,6 +515,10 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
+
+  // Pin back to the dispatch-time policy before skipTimeoutChecks / the pipeline
+  // ctx are derived from it below.
+  applyCoordReqConfigTimeoutPolicy(r, requestTimeoutPolicy);
 
   r->profile = printAggProfile;
 
@@ -656,7 +669,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
 
-  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  // The global timeout policy may change before this background job is picked up.
+  // Use the policy captured from the original request.
+  RSTimeoutPolicy requestTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
+  if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
@@ -677,7 +693,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, requestTimeoutPolicy,
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -763,7 +780,6 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
-
   if (!req || AREQ_TryClaimAggregateResults(req)) {
     // Either the request is NULL or We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
@@ -784,6 +800,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  }
 
   // Harvest any shard replies that landed in the channel before the deadline.
   // No-op for already-complete runs.
@@ -867,17 +886,21 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   CoordRequestCtx_LockSetRequest(reqCtx);
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
-  CoordRequestCtx_UnlockSetRequest(reqCtx);
-
-  if (!req) {
+  if (req) {
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+  } else {
     // BG never took the cursor (or hit the early TimedOut check and bailed
     // before taking). No condvar signal will arrive; reply directly with
-    // cursor-shaped empty + cid. Cid was validated by CursorCommand on the
-    // main thread before BC arming, so argv[3] is trusted.
+    // a depleted cursor. Cid was validated by CursorCommand on the main thread
+    // before BC arming, so argv[3] is trusted. Purge while still holding
+    // setRequestLock: BG cannot pass its TimedOut check and take the cursor
+    // concurrently.
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
-    return coord_cursor_read_empty_reply_timeout(ctx, cid);
+    Cursors_Purge(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    CoordRequestCtx_UnlockSetRequest(reqCtx);
+    return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
@@ -891,6 +914,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
@@ -927,6 +951,10 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   MRCommand *cmd = NULL;
   size_t numShards = 0;
   RPNet *rpnet = NULL;
+  // The global timeout policy may change before this background job is picked up.
+  // Use the policy captured from the original request. Declared here, before any
+  // `goto err`, to avoid jumping over its initialization.
+  RSTimeoutPolicy requestTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
 
   // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
   // when AREQ_Free is called
@@ -952,7 +980,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
 
-  if (r->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
@@ -972,7 +1000,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
-                          &status) != REDISMODULE_OK) {
+                          requestTimeoutPolicy, &status) != REDISMODULE_OK) {
     goto err;
   }
 

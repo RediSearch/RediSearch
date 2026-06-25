@@ -1,0 +1,4 @@
+interface:
+  display_name: "Branch Out Release"
+  short_description: "Create RediSearch release branches from master safely"
+  default_prompt: "Branch a new RediSearch release line from master"

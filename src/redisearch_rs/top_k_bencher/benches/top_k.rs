@@ -130,12 +130,12 @@ fn bench_intersection_overlap(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
+                    let child: Box<_> =
                         Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    let mut it = TopKIterator::new(source, child, k, asc);
                     while black_box(it.read()).unwrap().is_some() {}
                 },
                 BatchSize::SmallInput,
@@ -159,12 +159,12 @@ fn bench_intersection_disjoint(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
+                    let child: Box<_> =
                         Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
                     (source, child)
                 },
                 |(source, child)| {
-                    let mut it = TopKIterator::new(source, Some(child), k, asc);
+                    let mut it = TopKIterator::new(source, child, k, asc);
                     while black_box(it.read()).unwrap().is_some() {}
                 },
                 BatchSize::SmallInput,

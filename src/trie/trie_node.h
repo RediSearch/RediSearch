@@ -156,7 +156,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                               bool skipTimeoutChecks);
 
-void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
+void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                               bool skipTimeoutChecks);
 

@@ -12,6 +12,7 @@
 #include "rqe_core.h"
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
+static const uint8_t Result_OwnsIndexResult = 1 << 1;
 
 /* Forward decl + reference-counted pointer to a const RSDocumentMetadata.
  * Declared directly here (rather than auto-generated from the document_metadata

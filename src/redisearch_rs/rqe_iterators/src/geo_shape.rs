@@ -202,6 +202,69 @@ where
     }
 }
 
+/// Returns the index of the first ID in `ids` that is `>= doc_id`.
+///
+/// `ids` must be a non-empty, ascending slice whose last element is `>= doc_id`,
+/// so a match is guaranteed to exist.
+///
+/// The search has two phases: an exponential ("galloping") probe that brackets
+/// `doc_id` in a window growing as `1, 2, 4, …`, followed by a binary search
+/// within that window. Two deliberate choices make this fast on the large id
+/// buffers a geometry query produces:
+///
+/// * **Galloping, not a single bounded guess.** A sorted-id list with unique IDs
+///   can bound the match to `doc_id - last_doc_id` entries ahead, but the
+///   geometry index may yield *duplicate* IDs, so consecutive entries can repeat
+///   and that bound is unsound. Galloping makes no uniqueness assumption: it
+///   discovers a valid window by probing, and stays cache-friendly when the
+///   match is near the cursor — the common case for forward skips.
+/// * **A hand-rolled branchy search, not [`slice::partition_point`].** The
+///   standard search is branchless; benchmarks show it consistently slower here,
+///   both over the full (cold, multi-megabyte) tail — where its data-dependent
+///   probes serialize cache misses the branchy form lets the CPU speculate past
+///   — and even within the small galloped window, where its general setup
+///   dominates.
+///
+/// Lower-bound semantics are preserved: when `doc_id` is duplicated, the index
+/// of its *first* occurrence is returned.
+#[inline]
+fn lower_bound(ids: &[DocId], doc_id: DocId) -> usize {
+    debug_assert!(!ids.is_empty(), "tail must be non-empty");
+    debug_assert!(
+        *ids.last().expect("non-empty tail") >= doc_id,
+        "a match must exist within the tail"
+    );
+
+    let len = ids.len();
+
+    // Exponential phase: grow `hi` until `ids[hi] >= doc_id` (or `hi` runs off
+    // the end). Every doubling is guarded by a confirmed `ids[hi] < doc_id`, so
+    // afterwards `ids[hi >> 1] < doc_id` whenever `hi >= 2`.
+    let mut hi = 1;
+    // SAFETY: the `hi < len` guard short-circuits before the index, so `hi` is
+    // always in bounds when dereferenced.
+    while hi < len && unsafe { *ids.get_unchecked(hi) } < doc_id {
+        hi <<= 1;
+    }
+
+    // Binary search the bracketed, inclusive range `[bottom, top]`. `ids[top]`
+    // is `>= doc_id` (the loop either stopped on it, or it is the clamped last
+    // element, which the precondition guarantees is `>= doc_id`), so the answer
+    // lies in the range.
+    let mut bottom = hi >> 1;
+    let mut top = hi.min(len - 1);
+    while bottom < top {
+        let mid = (bottom + top) >> 1;
+        // SAFETY: `bottom <= mid < top <= len - 1`, so `mid` is in bounds.
+        if unsafe { *ids.get_unchecked(mid) } < doc_id {
+            bottom = mid + 1;
+        } else {
+            top = mid;
+        }
+    }
+    bottom
+}
+
 impl<'index, T, E, M> RQEIterator<'index> for GeoShape<'index, T, E, M>
 where
     T: TimeoutContext,
@@ -246,9 +309,11 @@ where
             return Ok(None);
         }
 
-        // Binary search for the first ID >= `doc_id` within the unread tail.
+        // Find the first ID >= `doc_id` within the unread tail. The tail is
+        // non-empty and its last element is >= `doc_id` (both guaranteed above),
+        // so a match always exists.
         let tail = &self.ids[self.offset..];
-        let idx = self.offset + tail.partition_point(|&id| id < doc_id);
+        let idx = self.offset + lower_bound(tail, doc_id);
         let found = self.ids[idx];
         self.offset = idx + 1;
 

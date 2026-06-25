@@ -30,9 +30,9 @@
  *    standard scoring metric for approximate autocomplete and the basis of
  *    FT.SUGGET FUZZY ranking.
  *
- *    Admission criteria differ by mode (DFAFilter.prefixMode):
- *      - non-prefix: term T is admitted iff Lev(Q, T) <= maxDist.
- *      - prefix:     term T is admitted iff PED(Q, T) <= maxDist (some prefix
+ *    Admission criteria differ by mode (DFAFilter.mode):
+ *      - TRIE_MATCH_EDIT_DISTANCE: term T is admitted iff Lev(Q, T) <= maxDist.
+ *      - TRIE_MATCH_PREFIX:        term T is admitted iff PED(Q, T) <= maxDist (some prefix
  *                    of T is within maxDist of Q; the tail is unconstrained).
  *    *matchCtx reports PED in both modes; only in prefix mode does PED also
  *    gate admission. This is why the prefix example in FilterFunc can yield
@@ -97,6 +97,12 @@ int SparseAutomaton_IsMatch(SparseAutomaton *a, sparseVector *v);
 /* Can the current state lead to a possible match, or is this a dead end? */
 int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
+/* How a DFAFilter admits terms: full edit distance vs. prefix edit distance. */
+typedef enum {
+    TRIE_MATCH_EDIT_DISTANCE = 0,  // admit T iff Lev(Q, T) <= maxDist
+    TRIE_MATCH_PREFIX        = 1,  // admit T iff PED(Q, T) <= maxDist (prefix mode)
+} TrieMatchMode;
+
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 typedef struct {
     // a cache of the DFA states, allowing us to reuse the same state whenever we need it
@@ -107,16 +113,16 @@ typedef struct {
     // accept-state distances along the path leading to it. Used to report the
     // cost of the best prefix match seen so far via matchCtx in FilterFunc.
     Vector *distStack;
-    // whether the filter works in prefix mode or not
-    int prefixMode;
+    // whether the filter matches full edit distance or prefix edit distance
+    TrieMatchMode mode;
 
     SparseAutomaton a;
 } DFAFilter;
 
 /* Create a new DFA filter  using a Levenshtein automaton, for the given string  and maximum
- * distance. If prefixMode is 1, we match prefixes within the given distance, and then continue
- * onwards to all suffixes. */
-DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
+ * distance. If mode is TRIE_MATCH_PREFIX, we match prefixes within the given distance, and then
+ * continue onwards to all suffixes. */
+DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, TrieMatchMode mode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator.
  *

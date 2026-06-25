@@ -9,6 +9,7 @@
 #include "indexes_info.h"
 #include "util/dict.h"
 #include "spec.h"
+#include "indexes.h"
 #include "field_spec_info.h"
 #include "VecSim/vec_sim.h"
 #include <string.h>  // Add this for strerror
@@ -67,8 +68,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.total_active_write_threads += activeWrites;
     BGIndexerInProgress |= sp->scan_in_progress;
     info.total_num_docs_in_indexes += sp->stats.scoring.numDocuments;
-    info.total_inverted_index_blocks +=
-        __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
+    info.total_inverted_index_blocks += IndexSpec_TotalBlockCount(sp);
 
     // Index errors metrics
     size_t index_error_count = IndexSpec_GetIndexErrorCount(sp);

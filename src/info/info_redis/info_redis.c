@@ -20,6 +20,8 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -431,7 +433,7 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     } else {
       // Output FT.INFO in a crash-safe manner (no allocations, no locks)
       // This includes the index name, so no need to output it separately
-      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true, !!global_spec_scanner);
     }
   }
 }

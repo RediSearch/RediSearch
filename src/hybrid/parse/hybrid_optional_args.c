@@ -133,19 +133,21 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                              ARG_OPT_CALLBACK, handleIndexPrefixes, ctx,
                              ARG_OPT_END);
 
-        // Mandatory SLOTS_STR argument for internal requests
+        // SLOTS_STR argument for internal requests. Optional: coordinators older than 8.4
+        // do not send it, and the caller falls back to the current local slots (MOD-16047)
         ArgParser_AddSubArgsV(parser, SLOTS_STR, "Requested slots from coordinator",
                             &subArgs, 1, 1,
-                            ARG_OPT_REQUIRED,
+                            ARG_OPT_OPTIONAL,
                             ARG_OPT_CALLBACK, handleSlotsInfo, ctx,
                             ARG_OPT_END);
 
-        // Mandatory _COORD_DISPATCH_TIME argument for internal requests
+        // _COORD_DISPATCH_TIME is optional for rolling upgrades from coordinators older
+        // than 8.6, which do not send this internal argument.
         static_assert(sizeof(unsigned long long) == sizeof(rs_wall_clock_ns_t),
                       "rs_wall_clock_ns_t must be the same size as unsigned long long");
         ArgParser_AddULongLongV(parser, COORD_DISPATCH_TIME_STR, "Coordinator dispatch time",
                             (unsigned long long *)ctx->coordDispatchTime,
-                            ARG_OPT_REQUIRED,
+                            ARG_OPT_OPTIONAL,
                             ARG_OPT_END);
 
     }

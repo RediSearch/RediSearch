@@ -448,6 +448,59 @@ def test_flex_disk_hnsw_rerank_value(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(False)
+def test_ram_hnsw_rerank_rejected(env):
+    # In RAM mode RERANK is a disk-only option and must be rejected outright,
+    # including the otherwise-valid RERANK TRUE form (MOD-16015). The disk guard
+    # is the first check in the RERANK branch, so it short-circuits before the
+    # duplicate / missing-arg / value checks and never reads what follows the
+    # keyword. We therefore reject every RERANK form identically:
+    #   - RERANK TRUE: the form the bug silently accepted.
+    #   - RERANK FALSE: a valid value that is still disk-only in RAM mode.
+    #   - RERANK with no value: the guard fires before the missing-arg check.
+    #   - duplicate RERANK: pins the guard's precedence over the other RERANK
+    #     checks, so reordering them would surface as a regression here.
+    err = 'RERANK is only supported for disk-based vector indexes'
+
+    env.expect(
+        'FT.CREATE', 'idx_true', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'FALSE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '7',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '10',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
     # _SIMULATE_IN_FLEX validates syntax but does not persist the rerank value
@@ -692,6 +745,56 @@ def test_flex_blocks_summarize_argument(env):
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
         .error().contains('SUMMARIZE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_dialect_4(env):
+    """Test that DIALECT 4 is blocked in Redis Flex while dialects 1-3 work.
+
+    DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE) by default, which
+    relies on RAM-only structures (DocTable / NumericRangeTree) that disk specs
+    do not populate, so it is unsupported on disk (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    # Dialects 1-3 still return the document on a disk index.
+    for dialect in (1, 2, 3):
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', str(dialect)) \
+            .equal([1, 'doc:1'])
+
+    # DIALECT 4 is rejected.
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', '4') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withoutcount_argument(env):
+    """Test that WITHOUTCOUNT is blocked in Redis Flex.
+
+    WITHOUTCOUNT explicitly enables the query optimizer (QEXEC_OPTIMIZE), which
+    is unsupported on disk for the same reason as DIALECT 4 (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'WITHOUTCOUNT') \
+        .error().contains('WITHOUTCOUNT is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_configured_default_dialect_4(env):
+    """Test that a configured default of DIALECT 4 is also blocked in Redis Flex.
+
+    When the query omits an explicit DIALECT it inherits search-default-dialect,
+    so a default of 4 must be rejected too (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('CONFIG', 'SET', 'search-default-dialect', '4').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
 
 
 @skip(cluster=True)
