@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    deferred::ResultsProducer,
+    deferred::{ProducedResults, Producer},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -43,7 +43,7 @@ pub struct IdList<'index, const SORTED: bool> {
     /// [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to) via [`ensure_materialized`](Self::ensure_materialized),
     /// at which point the producer is consumed (set back to `None`). This lets the expensive query
     /// run after the spec lock is released (see MOD-16437 and [`crate::deferred`]).
-    producer: Option<ResultsProducer>,
+    producer: Option<Producer<'index>>,
     /// Upper-bound estimate returned by [`num_estimated`](RQEIterator::num_estimated) while a
     /// [`producer`](Self::producer) is still pending (the real count is unknown until it runs).
     num_estimated_hint: usize,
@@ -96,7 +96,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// returns `num_estimated_hint` and the iterator reports itself as not at EOF, so callers will read it.
     /// See [`crate::deferred`].
     pub fn with_producer(
-        producer: ResultsProducer,
+        producer: Producer<'index>,
         num_estimated_hint: usize,
         result: RSIndexResult<'index>,
     ) -> Self {
@@ -124,7 +124,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         let Some(producer) = self.producer.take() else {
             return Ok(None);
         };
-        let (ids, metrics) = producer.produce()?;
+        let ProducedResults { ids, metrics } = producer()?;
         self.ids = ids;
         Ok(metrics)
     }

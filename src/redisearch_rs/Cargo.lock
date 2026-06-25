@@ -1176,6 +1176,7 @@ dependencies = [
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "field",
  "index_result",

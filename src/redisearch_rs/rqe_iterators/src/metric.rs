@@ -11,7 +11,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    deferred::ResultsProducer,
+    deferred::Producer,
     id_list::IdList,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
@@ -108,7 +108,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     /// expensive query run after the spec lock is released (see MOD-16437 and [`crate::deferred`]).
     /// `num_estimated_hint` is the upper-bound estimate reported until the producer runs.
     pub fn with_producer(
-        producer: ResultsProducer,
+        producer: Producer<'index>,
         num_estimated_hint: usize,
         type_: MetricType,
     ) -> Self {

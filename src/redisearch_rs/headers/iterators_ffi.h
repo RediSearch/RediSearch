@@ -107,6 +107,44 @@ typedef struct NumericRangeTree NumericRangeTree;
 
 typedef struct RLookupKey RLookupKey;
 
+/**
+ * Results returned by a [`ProduceResultsFn`].
+ *
+ * The `ids` and `metrics` arrays are allocated by the C producer using the Redis allocator;
+ * ownership transfers to the iterator, which frees them via `RedisModule_Free` (see
+ * [`OwnedSlice::from_c`]).
+ */
+typedef struct VectorRangeResults {
+  /**
+   * Pointer to the array of `num` matching document IDs. May be null when
+   * `num` is zero or `timed_out` is set.
+   */
+  t_docId *ids;
+  /**
+   * Pointer to the array of `num` metric (distance) values, parallel to `ids`.
+   * Null when the query does not yield a metric or `timed_out` is set.
+   */
+  double *metrics;
+  /**
+   * Number of entries in `ids` (and `metrics`, when non-null).
+   */
+  size_t num;
+  /**
+   * Set when the underlying query timed out before producing results.
+   */
+  bool timed_out;
+} VectorRangeResults;
+
+/**
+ * Type of the C callback that runs the deferred query and returns its results.
+ */
+typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
+
+/**
+ * Type of the C callback that frees the producer context.
+ */
+typedef void (*FreeProducerCtxFn)(void *ctx);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -247,31 +285,6 @@ QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, con
  * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
  */
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
-
-/**
- * Creates a lazily-evaluated vector range iterator.
- *
- * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
- * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
- * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
- * after which the resulting iterator behaves exactly like an eagerly-built metric (when
- * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
- * lock before it executes, so writes can proceed concurrently (see MOD-16437).
- *
- * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
- * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
- * when `yields_metric`).
- *
- * # Safety
- *
- * 1. `produce` and `free_ctx` must be valid C callbacks satisfying the contract of
- *    [`ResultsProducer::new`].
- * 2. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator,
- *    which frees it via `free_ctx`.
- * 3. `produce` must return arrays allocated with the Redis allocator; the iterator takes
- *    ownership and frees them via `RedisModule_Free`.
- */
-QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
 
 /**
  * Creates a new iterator over a list of unsorted document IDs.
@@ -440,6 +453,29 @@ void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle)
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void GeoShape_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+
+/**
+ * Creates a lazily-evaluated vector range iterator.
+ *
+ * Unlike [`NewMetricIteratorSortedById`](crate::metric::NewMetricIteratorSortedById) and the
+ * other ID-list/metric constructors, the matching documents are **not** computed here. Instead
+ * the `produce` callback runs the underlying vector range query on the first `Read`/`SkipTo`,
+ * after which the resulting iterator behaves exactly like an eagerly-built metric (when
+ * `yields_metric`) or ID-list iterator. Deferring the query lets the caller release the spec
+ * lock before it executes, so writes can proceed concurrently (see MOD-16437).
+ *
+ * `sorted_by_id` selects between the by-ID and by-score variants; `num_estimated` is the
+ * upper-bound estimate reported until the query runs; `type_` is the metric type (only used
+ * when `yields_metric`).
+ *
+ * # Safety
+ *
+ * 1. `produce` must run the query against `ctx` and return a valid [`VectorRangeResults`]
+ *    (arrays allocated with the Redis allocator, or `timed_out`); it must not free `ctx`.
+ * 2. `free_ctx` must free `ctx` and be safe to call exactly once.
+ * 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
+ */
+QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
 
 /**
  * Append a new child iterator to the intersection.
