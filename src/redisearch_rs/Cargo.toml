@@ -36,6 +36,7 @@ members = [
     "search_result",
     "slots_tracker",
     "sorting_vector",
+    "spellcheck_dictionary",
     "string_utils",
     "term_suffix_index",
     "tools/license_header_linter",
@@ -168,7 +169,7 @@ bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
 cc = "1.2.53"
-cheadergen = { version = "0.2.0" }
+cheadergen = { version = "0.3.1" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
@@ -196,6 +197,7 @@ rmp-serde = "1.3.1"
 rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 smallvec = "1.15.1"
+strsim = "0.11.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).

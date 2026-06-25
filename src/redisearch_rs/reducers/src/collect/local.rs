@@ -32,7 +32,7 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
@@ -230,7 +230,8 @@ impl LocalCollectCtx {
     }
 
     /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// honouring `LIMIT` via [`Storage::insert_entry`].
+    /// dispatching each item to the array or heap arm of [`Storage`] under the
+    /// configured `LIMIT`.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -248,11 +249,16 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry(
-                || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                (),
-                || r.fields.prepare_row(item, &mut self.lookup),
-            );
+            match &mut self.storage {
+                Storage::Array(a) => {
+                    a.push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)))
+                }
+                Storage::Heap(h) => h.consider(
+                    snapshot_sort_keys(r.fields.sort_key_names(), item),
+                    (),
+                    || ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)),
+                ),
+            }
         }
     }
 
@@ -272,7 +278,8 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain().map(|row| {
+        SharedValue::new_array(self.storage.drain().map(|projected| {
+            let row = projected.row();
             SharedValue::new_map(
                 template
                     .iter()

@@ -370,12 +370,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/suffix.h",
-        fns: &[],
-        types: &[],
-        vars: &["MIN_SUFFIX"],
-    },
-    HeaderAllowlist {
         path: "src/tag_index.h",
         fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
         types: &[],
@@ -392,6 +386,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["Trie_DecrementNumDocs"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie_node.h",
+        fns: &[],
+        types: &[],
+        vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
     },
     HeaderAllowlist {
         path: "src/ttl_table/ttl_table.h",
@@ -510,6 +510,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `aggregate.h` includes `value_ffi.h`; reachable via
     // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
     "value_ffi.h",
+    // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
+    // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
+    "types_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).

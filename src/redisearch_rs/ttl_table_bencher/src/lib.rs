@@ -253,7 +253,10 @@ impl PickRandom {
         self.0.sample(rng)
     }
 
-    fn iter<'s, 'rand, R: RngExt>(&'s self, rng: &'rand mut R) -> PickRandomIter<'s, 'rand, R> {
+    const fn iter<'s, 'rand, R: RngExt>(
+        &'s self,
+        rng: &'rand mut R,
+    ) -> PickRandomIter<'s, 'rand, R> {
         PickRandomIter(self, rng)
     }
 }

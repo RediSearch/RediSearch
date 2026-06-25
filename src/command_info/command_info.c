@@ -306,6 +306,7 @@ int SetFtCreateInfo(RedisModuleCommand *cmd) {
     },
     .arity = -5,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -326,6 +327,7 @@ int SetFtInfoInfo(RedisModuleCommand *cmd) {
     },
     .arity = 2,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -359,6 +361,7 @@ int SetFtExplainInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -392,6 +395,7 @@ int SetFtExplaincliInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -439,6 +443,7 @@ int SetFtAlterInfo(RedisModuleCommand *cmd) {
     },
     .arity = -6,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -472,6 +477,7 @@ int SetFtDropindexInfo(RedisModuleCommand *cmd) {
     },
     .arity = -2,
     .since = "2.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -496,6 +502,7 @@ int SetFtAliasaddInfo(RedisModuleCommand *cmd) {
     },
     .arity = 3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -520,6 +527,7 @@ int SetFtAliasupdateInfo(RedisModuleCommand *cmd) {
     },
     .arity = 3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -539,6 +547,7 @@ int SetFtAliasdelInfo(RedisModuleCommand *cmd) {
     },
     .arity = 2,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -559,6 +568,7 @@ int SetFtAliaslistInfo(RedisModuleCommand *cmd) {
     },
     .arity = 2,
     .since = "8.10.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -583,6 +593,7 @@ int SetFtTagvalsInfo(RedisModuleCommand *cmd) {
     },
     .arity = 3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -633,6 +644,7 @@ int SetFtSugaddInfo(RedisModuleCommand *cmd) {
     },
     .arity = -4,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -709,6 +721,7 @@ int SetFtSugdelInfo(RedisModuleCommand *cmd) {
     },
     .arity = 3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -764,6 +777,7 @@ int SetFtSynupdateInfo(RedisModuleCommand *cmd) {
     },
     .arity = -4,
     .since = "1.2.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -784,6 +798,7 @@ int SetFtSyndumpInfo(RedisModuleCommand *cmd) {
     },
     .arity = 2,
     .since = "1.2.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -858,6 +873,7 @@ int SetFtSpellcheckInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.4.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -882,6 +898,7 @@ int SetFtDictaddInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.4.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -906,6 +923,7 @@ int SetFtDictdelInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.4.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -925,6 +943,7 @@ int SetFtDictdumpInfo(RedisModuleCommand *cmd) {
     },
     .arity = 2,
     .since = "1.4.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -936,6 +955,7 @@ int SetFt_ListInfo(RedisModuleCommand *cmd) {
     .summary = "Returns a list of all existing indexes",
     .complexity = "O(1)",
     .since = "2.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -959,6 +979,7 @@ int SetFtConfigSetInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -978,6 +999,7 @@ int SetFtConfigGetInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -997,6 +1019,7 @@ int SetFtConfigHelpInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -1457,6 +1480,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.0.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -2295,6 +2319,7 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
     },
     .arity = -3,
     .since = "1.1.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -2354,6 +2379,7 @@ int SetFtProfileInfo(RedisModuleCommand *cmd) {
     },
     .arity = -5,
     .since = "2.2.0",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }
@@ -2383,7 +2409,7 @@ int SetFtCursorReadInfo(RedisModuleCommand *cmd) {
       {0}
     },
     .arity = -4,
-    .tips = "request_policy:special",
+    .tips = "request_policy:special dont_cache",
     .since = "1.1.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -2408,7 +2434,7 @@ int SetFtCursorDelInfo(RedisModuleCommand *cmd) {
       {0}
     },
     .arity = -4,
-    .tips = "request_policy:special",
+    .tips = "request_policy:special dont_cache",
     .since = "1.1.0",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
@@ -3474,6 +3500,7 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
     },
     .arity = -7,
     .since = "8.4.4",
+    .tips = "dont_cache",
   };
   return RedisModule_SetCommandInfo(cmd, &info);
 }

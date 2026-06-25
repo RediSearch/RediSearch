@@ -43,13 +43,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
       // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
-      // Skipped for RETURN_STRICT: the cursor survives timeout and a delayed
-      // free_privdata for an earlier Read could otherwise free a cursor that
-      // a later Read has already parked in the same AREQ slot. Trade-off is
-      // a stashed-cursor leak on client disconnect (tracked in MOD-15415).
-      if (ctx->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-        AREQ_CleanUpStoredCursor(ctx->areq);
-      }
+      AREQ_CleanUpStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
   } else {

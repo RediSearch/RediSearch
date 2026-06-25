@@ -143,7 +143,12 @@ impl InvertedIndex {
         &self,
         doc_exist: impl Fn(t_docId) -> bool,
     ) -> std::io::Result<Option<crate::GcScanDelta>> {
-        ii_dispatch!(self, scan_gc, doc_exist, None::<fn(&_, &_)>)
+        ii_dispatch!(
+            self,
+            scan_gc,
+            doc_exist,
+            None::<fn(&index_result::RSIndexResult, &crate::RepairContext<'_>)>
+        )
     }
 
     /// Apply the deltas of a garbage collection scan to the index.

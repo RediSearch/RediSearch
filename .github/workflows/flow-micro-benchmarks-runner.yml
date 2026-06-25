@@ -103,6 +103,9 @@ jobs:
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
         env:
           DEBIAN_FRONTEND: noninteractive
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
