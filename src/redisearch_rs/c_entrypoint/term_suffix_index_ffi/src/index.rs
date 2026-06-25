@@ -10,6 +10,7 @@
 //! C entry points for creating, mutating and freeing a [`TermSuffixIndex`].
 
 use std::ffi::c_char;
+use std::{slice, str};
 
 use super::TermSuffixIndex;
 
@@ -78,9 +79,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     // Safety: ensured by caller (1., 3.)
     let index = unsafe { &mut *tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
+    let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let Ok(term) = std::str::from_utf8(bytes) else {
+    let Ok(term) = str::from_utf8(bytes) else {
         debug_assert!(false, "term must be valid UTF-8");
         return;
     };
@@ -110,9 +111,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     // Safety: ensured by caller (1., 3.)
     let index = unsafe { &mut *tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(term.cast::<u8>(), len) };
+    let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let Ok(term) = std::str::from_utf8(bytes) else {
+    let Ok(term) = str::from_utf8(bytes) else {
         debug_assert!(false, "term must be valid UTF-8");
         return;
     };

@@ -11,6 +11,7 @@
 
 use std::ffi::{c_char, c_int, c_void};
 use std::rc::Rc;
+use std::{iter, ptr, slice, str};
 
 use super::*;
 
@@ -103,9 +104,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(needle.cast::<u8>(), len) };
+    let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let Ok(needle) = std::str::from_utf8(bytes) else {
+    let Ok(needle) = str::from_utf8(bytes) else {
         debug_assert!(false, "needle must be valid UTF-8");
         return;
     };
@@ -116,7 +117,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
                 term.as_ptr().cast::<c_char>(),
                 term.len(),
                 ctx,
-                std::ptr::null_mut(),
+                ptr::null_mut(),
             )
         };
         if outcome != 0 {
@@ -157,9 +158,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2.)
-    let bytes = unsafe { std::slice::from_raw_parts(needle.cast::<u8>(), len) };
+    let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let Ok(needle) = std::str::from_utf8(bytes) else {
+    let Ok(needle) = str::from_utf8(bytes) else {
         debug_assert!(false, "needle must be valid UTF-8");
         return;
     };
@@ -170,7 +171,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
                 term.as_ptr().cast::<c_char>(),
                 term.len(),
                 ctx,
-                std::ptr::null_mut(),
+                ptr::null_mut(),
             )
         };
         if outcome != 0 {
@@ -210,16 +211,16 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard<'si>(
     // Safety: ensured by caller (1., 3.)
     let index = unsafe { &*tsi };
     // Safety: ensured by caller (2., 3.)
-    let bytes = unsafe { std::slice::from_raw_parts(pattern.cast::<u8>(), len) };
+    let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
-    let iter: Box<dyn Iterator<Item = Rc<str>>> = match std::str::from_utf8(bytes) {
+    let iter: Box<dyn Iterator<Item = Rc<str>>> = match str::from_utf8(bytes) {
         Ok(pattern) => match index.iter_wildcard(pattern) {
             Some(matches) => Box::new(matches),
-            None => return std::ptr::null_mut(),
+            None => return ptr::null_mut(),
         },
         Err(_) => {
             debug_assert!(false, "pattern must be valid UTF-8");
-            Box::new(std::iter::empty())
+            Box::new(iter::empty())
         }
     };
     Box::into_raw(Box::new(TermSuffixIndexIterator {
