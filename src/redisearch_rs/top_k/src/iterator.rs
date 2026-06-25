@@ -581,13 +581,14 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
                 // so the yield phase can return it without re-reading the child.
                 let record = child.current().map(|r| capture_child_record(r));
                 heap.push_with_record(batch_doc, batch_score, record);
-                // Advance the child first, then the batch.
-                // The child is read once more after the final match (and counted).
-                let next_child_doc = child.read()?.map(|r| r.doc_id);
+                // Advance the batch first; only read the child when another
+                // batch doc remains. Reading the child past an exhausted batch
+                // is needless work that inflates its profile counters and could
+                // turn a completed batch into a spurious TimedOut.
                 let Some((d, s)) = batch.next() else { break };
                 batch_doc = d;
                 batch_score = s;
-                match next_child_doc {
+                match child.read()?.map(|r| r.doc_id) {
                     Some(doc_id) => child_doc = doc_id,
                     None => break,
                 }
