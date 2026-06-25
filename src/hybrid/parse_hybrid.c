@@ -32,6 +32,7 @@
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/hybrid_search_result.h"
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
@@ -962,6 +963,15 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (AREQ_ApplyContext(vectorRequest, vectorRequest->sctx, status) != REDISMODULE_OK) {
     AddValidationErrorContext(vectorRequest, status);
     goto error;
+  }
+
+  // Build the EXPLAINSCORE context now, while the data it reads is final but still
+  // available: AREQ_ApplyContext has resolved the search scorer name, and the
+  // vector sub-query's ParsedVectorData snapshot is still intact (the live
+  // VectorQuery is moved into the AST by AREQ_ApplyContext). Ownership is held by
+  // hybridParams and transferred to the merger in HybridRequest_BuildMergePipeline.
+  if (*mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
+    hybridParams->explainCtx = HybridExplainContext_Build(searchRequest, vectorRequest);
   }
 
   // thread safe context

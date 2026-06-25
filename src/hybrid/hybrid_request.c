@@ -158,10 +158,9 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // to create missing keys
     bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;
     HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup, createMissingKeys);
-    HybridExplainContext *explainCtx = NULL;
-    if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
-      explainCtx = HybridExplainContext_Build(req->requests[SEARCH_INDEX], req->requests[VECTOR_INDEX]);
-    }
+    // Built at parse time (parseHybridCommand) and carried on params; take ownership here.
+    HybridExplainContext *explainCtx = params->explainCtx;
+    params->explainCtx = NULL; // ownership transferred to merger
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx,
                                                  params->scoringCtx, upstreams, req->nrequests,
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx,

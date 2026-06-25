@@ -11,6 +11,7 @@
 #include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
+#include "hybrid_search_result.h"
 #include "aggregate/aggregate_exec_common.h"
 #include "debug_commands.h"
 
@@ -600,6 +601,10 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams->scoringCtx) {
     HybridScoringContext_Free(hybridParams->scoringCtx);
     hybridParams->scoringCtx = NULL;
+  }
+  if (hybridParams->explainCtx) {
+    HybridExplainContext_Free(hybridParams->explainCtx);
+    hybridParams->explainCtx = NULL;
   }
   rm_free(hybridParams);
 }

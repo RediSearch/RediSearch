@@ -7,6 +7,10 @@
 extern "C" {
 #endif
 
+// Forward declaration: the full definition lives in hybrid/hybrid_search_result.h,
+// which is not (and need not be) included here — we only reference it by pointer.
+typedef struct HybridExplainContext HybridExplainContext;
+
 /**
  * Common parameters shared across different pipeline types in RediSearch.
  * This struct contains the core components needed by all pipeline operations,
@@ -140,6 +144,13 @@ typedef struct HybridPipelineParams {
      *  are combined and scored. The pipeline takes ownership of this pointer and will
      *  free it during cleanup. Can be NULL for default scoring behavior. */
     HybridScoringContext *scoringCtx;
+
+    /** EXPLAINSCORE wrapper context, built at parse time when EXPLAINSCORE is set.
+     *  Describes the constant-across-rows scoring context (resolved text scorer
+     *  name, vector retrieval mode/envelope). Ownership transfers to the hybrid
+     *  merger in HybridRequest_BuildMergePipeline; freed by freeHybridParams if the
+     *  merge pipeline is never built. NULL ⇒ no EXPLAINSCORE wrapping. */
+    HybridExplainContext *explainCtx;
 } HybridPipelineParams;
 
 /**
