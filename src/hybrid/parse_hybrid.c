@@ -965,11 +965,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
     goto error;
   }
 
-  // Build the EXPLAINSCORE context now, while the data it reads is final but still
-  // available: AREQ_ApplyContext has resolved the search scorer name, and the
-  // vector sub-query's ParsedVectorData snapshot is still intact (the live
-  // VectorQuery is moved into the AST by AREQ_ApplyContext). Ownership is held by
-  // hybridParams and transferred to the merger in HybridRequest_BuildMergePipeline.
+  // Build here, after AREQ_ApplyContext on both sub-queries: it has resolved the
+  // search scorer name, and the vector ParsedVectorData snapshot is still intact
+  // (the live VectorQuery is moved into the AST by the same call, so reading it
+  // any later would be too late).
   if (*mergeReqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     hybridParams->explainCtx = HybridExplainContext_Build(searchRequest, vectorRequest);
   }
@@ -1002,9 +1001,6 @@ error:
   if (mergeSearchopts.params) {
     Param_DictFree(mergeSearchopts.params);
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   return REDISMODULE_ERR;
 }

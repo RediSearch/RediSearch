@@ -7,8 +7,7 @@
 extern "C" {
 #endif
 
-// Forward declaration: the full definition lives in hybrid/hybrid_search_result.h,
-// which is not (and need not be) included here — we only reference it by pointer.
+// Referenced only by pointer here; defined in hybrid/hybrid_search_result.h.
 typedef struct HybridExplainContext HybridExplainContext;
 
 /**
@@ -145,11 +144,10 @@ typedef struct HybridPipelineParams {
      *  free it during cleanup. Can be NULL for default scoring behavior. */
     HybridScoringContext *scoringCtx;
 
-    /** EXPLAINSCORE wrapper context, built at parse time when EXPLAINSCORE is set.
-     *  Describes the constant-across-rows scoring context (resolved text scorer
-     *  name, vector retrieval mode/envelope). Ownership transfers to the hybrid
-     *  merger in HybridRequest_BuildMergePipeline; freed by freeHybridParams if the
-     *  merge pipeline is never built. NULL ⇒ no EXPLAINSCORE wrapping. */
+    /** EXPLAINSCORE wrapper context (see HybridExplainContext), built at parse
+     *  time when EXPLAINSCORE is set. Ownership transfers to the hybrid merger in
+     *  HybridRequest_BuildMergePipeline; freed via HybridPipelineParams_Cleanup if
+     *  the merge pipeline is never built. NULL ⇒ no EXPLAINSCORE wrapping. */
     HybridExplainContext *explainCtx;
 } HybridPipelineParams;
 

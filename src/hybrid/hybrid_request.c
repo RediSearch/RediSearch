@@ -127,6 +127,20 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
   }
 }
 
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params) {
+    if (!params) {
+        return;
+    }
+    if (params->scoringCtx) {
+        HybridScoringContext_Free(params->scoringCtx);
+        params->scoringCtx = NULL;
+    }
+    if (params->explainCtx) {
+        HybridExplainContext_Free(params->explainCtx);
+        params->explainCtx = NULL;
+    }
+}
+
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status) {
     // Array to collect upstream from each individual request pipeline
     arrayof(ResultProcessor*) upstreams = array_new(ResultProcessor *, req->nrequests);
@@ -158,9 +172,8 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     // to create missing keys
     bool createMissingKeys = (req->reqflags & QEXEC_AGG_LOAD_ALL) != 0;
     HybridLookupContext *lookupCtx = HybridLookupContext_New(req->requests, tailLookup, createMissingKeys);
-    // Built at parse time (parseHybridCommand) and carried on params; take ownership here.
     HybridExplainContext *explainCtx = params->explainCtx;
-    params->explainCtx = NULL; // ownership transferred to merger
+    params->explainCtx = NULL; // ownership transferred to merger (built in parseHybridCommand)
     ResultProcessor *merger = RPHybridMerger_New(params->aggregationParams.common.sctx,
                                                  params->scoringCtx, upstreams, req->nrequests,
                                                  docKey, scoreKey, req->subqueriesReturnCodes, lookupCtx,

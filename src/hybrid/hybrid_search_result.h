@@ -21,11 +21,9 @@ extern "C" {
 #endif
 
 /**
- * Per-query info needed to render the EXPLAINSCORE wrapper. Built once at
- * pipeline construction (when EXPLAINSCORE is set) and stored on the merger.
- * The fields here describe context that is constant across all yielded rows
- * — per-doc values (ranks, scores, scorer subtree) are filled in by the
- * merger as it runs.
+ * Per-query info needed to render the EXPLAINSCORE wrapper. The fields here
+ * describe context that is constant across all yielded rows — per-doc values
+ * (ranks, scores, scorer subtree) are filled in by the merger as it runs.
  */
 typedef struct HybridExplainContext {
   // Owned. Resolved scorer name (defaults to RSGlobalConfig.defaultScorer when
@@ -48,7 +46,9 @@ void HybridExplainContext_Free(HybridExplainContext *ctx);
  * sub-query's retrieval mode (and, for RANGE, radius + optional epsilon
  * QueryAttribute) and freezes them into strings the merger reuses per row.
  *
- * Returned context is owned by the caller (the hybrid merger).
+ * Must be called after AREQ_ApplyContext on both sub-queries (it relies on the
+ * resolved scorer name and the still-intact ParsedVectorData snapshot).
+ * Returned context is owned by the caller.
  */
 struct AREQ;
 HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, const struct AREQ *vectorReq);
