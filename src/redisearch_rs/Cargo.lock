@@ -1696,6 +1696,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "search_disk",
  "workspace_hack",
 ]
 
@@ -2515,6 +2516,15 @@ dependencies = [
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "search_disk"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "rqe_core",
  "workspace_hack",
 ]
 

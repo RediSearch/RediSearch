@@ -1,0 +1,14 @@
+[package]
+name = "search_disk"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+rqe_core.workspace = true
+workspace_hack.workspace = true

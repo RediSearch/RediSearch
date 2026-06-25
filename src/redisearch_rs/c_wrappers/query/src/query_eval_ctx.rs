@@ -15,6 +15,7 @@ use query_flags::QEFlags;
 use rlookup::MetricRequest;
 use rqe_core::DocId;
 use rqe_iterators::IteratorsConfig;
+use search_disk::SearchDiskHandle;
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
@@ -148,13 +149,12 @@ impl QueryEvalContext {
     /// the disk index; otherwise it is read from the in-memory
     /// [`DocTable`](ffi::DocTable).
     pub fn max_doc_id(&self) -> DocId {
-        let disk_spec = self.spec().diskSpec;
-        if disk_spec.is_null() {
-            self.doc_table().maxDocId
-        } else {
-            // SAFETY: `disk_spec` is non-null (checked above) and, per invariant
-            // (1)/(2) of `new`, a valid `RedisSearchDiskIndexSpec`.
-            unsafe { ffi::SearchDisk_GetMaxDocId(disk_spec) }
+        // SAFETY: per invariant (1)/(2) of `new`, `spec.diskSpec` is either null
+        // or a valid `RedisSearchDiskIndexSpec`.
+        let disk = unsafe { SearchDiskHandle::new(self.spec().diskSpec) };
+        match disk {
+            Some(disk) => disk.max_doc_id(),
+            None => self.doc_table().maxDocId,
         }
     }
 
