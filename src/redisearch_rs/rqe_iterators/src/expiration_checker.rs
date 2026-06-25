@@ -139,9 +139,12 @@ impl ExpirationChecker for FieldExpirationChecker {
         let ttl = unsafe { &*ttl };
 
         match self.filter_ctx.field {
-            FieldMaskOrIndex::Index(index) => {
-                !ttl.verify_doc_and_field(doc_id, index, self.filter_ctx.predicate, current_time)
-            }
+            FieldMaskOrIndex::Index(index) => !ttl.field_satisfies_predicate(
+                doc_id,
+                index,
+                self.filter_ctx.predicate,
+                current_time,
+            ),
             FieldMaskOrIndex::Mask(mask) => {
                 let field_mask = result.field_mask & mask;
 
@@ -158,23 +161,14 @@ impl ExpirationChecker for FieldExpirationChecker {
                 let ft_id_to_field_index =
                     unsafe { std::slice::from_raw_parts(ft_id_to_field_index, len as usize) };
 
-                if !self.is_wide_schema {
-                    !ttl.verify_doc_and_field_mask(
-                        doc_id,
-                        field_mask as u32,
-                        self.filter_ctx.predicate,
-                        current_time,
-                        ft_id_to_field_index,
-                    )
-                } else {
-                    !ttl.verify_doc_and_wide_field_mask(
-                        doc_id,
-                        field_mask,
-                        self.filter_ctx.predicate,
-                        current_time,
-                        ft_id_to_field_index,
-                    )
-                }
+                !ttl.field_mask_satisfies_predicate(
+                    doc_id,
+                    field_mask,
+                    self.filter_ctx.predicate,
+                    current_time,
+                    ft_id_to_field_index,
+                    self.is_wide_schema,
+                )
             }
         }
     }

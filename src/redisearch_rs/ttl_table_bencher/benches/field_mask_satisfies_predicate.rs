@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Read-side benchmarks for `TimeToLiveTable::verify_doc_and_field_mask`.
+//! Read-side benchmarks for `TimeToLiveTable::field_mask_satisfies_predicate`.
 
 use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ffi::t_docId;
+use rqe_core::FieldMask;
 use ttl_table::{
     FieldExpirationPredicate,
     test_utils::{NOW, identity_ft_id},
@@ -47,8 +48,8 @@ fn doc_inputs() -> Vec<DocsInput> {
     doc_inputs
 }
 
-fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
-    let mut group = c.benchmark_group("verify_doc_and_field_mask/doc_default");
+fn field_mask_satisfies_predicate_doc_default(c: &mut Criterion) {
+    let mut group = c.benchmark_group("field_mask_satisfies_predicate/doc_default");
 
     let doc_inputs = doc_inputs();
 
@@ -73,12 +74,13 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
                     |doc_ids| {
                     let mut acc = 0u64;
                     for doc_id in doc_ids {
-                        let ok = table.verify_doc_and_field_mask(
+                        let ok = table.field_mask_satisfies_predicate(
                             black_box(doc_id as t_docId),
-                            black_box(mask),
+                            black_box(mask as FieldMask),
                             FieldExpirationPredicate::Default,
                             &NOW,
                             &ft_id_to_field_index,
+                            false,
                         );
                         acc += ok as u64;
                     }
@@ -91,5 +93,5 @@ fn verify_doc_and_field_mask_doc_default(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, verify_doc_and_field_mask_doc_default);
+criterion_group!(benches, field_mask_satisfies_predicate_doc_default);
 criterion_main!(benches);

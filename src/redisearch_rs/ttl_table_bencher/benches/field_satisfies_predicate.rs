@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Read-side benchmarks for `TimeToLiveTable::verify_doc_and_field`.
+//! Read-side benchmarks for `TimeToLiveTable::field_satisfies_predicate`.
 
 use std::hint::black_box;
 use std::num::NonZeroUsize;
@@ -38,8 +38,8 @@ fn doc_inputs() -> Vec<DocsInput> {
     doc_inputs
 }
 
-fn verify_doc_and_field_doc_default(c: &mut Criterion) {
-    let mut group = c.benchmark_group("verify_doc_and_field/doc_default");
+fn field_satisfies_predicate_doc_default(c: &mut Criterion) {
+    let mut group = c.benchmark_group("field_satisfies_predicate/doc_default");
 
     let doc_inputs = doc_inputs();
 
@@ -62,7 +62,7 @@ fn verify_doc_and_field_doc_default(c: &mut Criterion) {
                         |doc_ids| {
                             let mut acc = 0u64;
                             for doc_id in doc_ids {
-                                let ok = table.verify_doc_and_field(
+                                let ok = table.field_satisfies_predicate(
                                     black_box(doc_id as t_docId),
                                     0,
                                     FieldExpirationPredicate::Default,
@@ -82,5 +82,5 @@ fn verify_doc_and_field_doc_default(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, verify_doc_and_field_doc_default);
+criterion_group!(benches, field_satisfies_predicate_doc_default);
 criterion_main!(benches);

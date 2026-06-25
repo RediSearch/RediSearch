@@ -120,10 +120,15 @@ struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct Tim
  *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
  *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
  */
-bool TimeToLiveTable_VerifyDocAndField(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
+bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
 
 /**
- * 32-bit field-mask expiration check.
+ * Field-mask expiration check.
+ *
+ * `field_mask` is always passed as a wide [`FieldMask`]. When `wide` is
+ * `false` (narrow schema, at most 32 fields) only the low 32 bits are
+ * meaningful and the faster `u32` bit-walk is used; when `wide` is `true`
+ * the full [`FieldMask`] width is walked.
  *
  * `ft_id_to_field_index` must point to at least
  * `highest_set_bit(field_mask) + 1` valid `u16` entries.
@@ -144,19 +149,7 @@ bool TimeToLiveTable_VerifyDocAndField(const struct TimeToLiveTable *table, t_do
  *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
  *  - `ft_id_to_field_index` must satisfy the bound above.
  */
-bool TimeToLiveTable_VerifyDocAndFieldMask(const struct TimeToLiveTable *table, t_docId doc_id, uint32_t field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index);
-
-/**
- * Wide field-mask version of [`TimeToLiveTable_VerifyDocAndFieldMask`].
- *
- * # Returns
- * Same semantics as [`TimeToLiveTable_VerifyDocAndFieldMask`] — see that
- * function for the predicate / no-entry cases.
- *
- * # Safety
- * Same contract as [`TimeToLiveTable_VerifyDocAndFieldMask`].
- */
-bool TimeToLiveTable_VerifyDocAndWideFieldMask(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index);
+bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index, bool wide);
 
 /**
  * Test-only: number of buckets currently allocated.
