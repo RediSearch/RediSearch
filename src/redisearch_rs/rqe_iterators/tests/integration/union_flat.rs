@@ -133,3 +133,189 @@ fn into_trimmed_quick_flat_trims_asc() {
     // Active window [0..2), reads in reverse: child[1] then child[0].
     assert_eq!(docs, [3, 4, 1, 2]);
 }
+
+mod via_resume {
+    use crate::utils::{Mock, MockRevalidateResult};
+    use rqe_iterators::{BoxedRQEIterator, RQEIterator, UnionFullFlat};
+    use rqe_iterators_test_utils::revalidate_via_resume;
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 15);
+
+        let guard = mock_ctx.spec_read();
+        let (mut union, status) = revalidate_via_resume(Box::new(union), &guard);
+        assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 20);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_moved() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Move);
+        child1.data().set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let (union, status) = revalidate_via_resume(Box::new(union), &guard);
+        assert_eq!(status, ffi::ValidateStatus_VALIDATE_MOVED);
+        // After Move, children advance — last_doc_id should reflect new min.
+        assert!(union.last_doc_id() > 10);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_single_child_aborts() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Abort);
+        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let (mut union, status) = revalidate_via_resume(Box::new(union), &guard);
+        // One child aborted, the other survives — union continues.
+        assert!(
+            status == ffi::ValidateStatus_VALIDATE_MOVED
+                || status == ffi::ValidateStatus_VALIDATE_OK,
+            "Expected MOVED or OK when one child aborts, got {status:?}"
+        );
+        // Reads from the surviving child should continue.
+        let r = union.read().unwrap().unwrap();
+        assert!(r.doc_id >= 15);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_all_children_abort() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Abort);
+        child1.data().set_revalidate_result(MockRevalidateResult::Abort);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let (_union, status) = revalidate_via_resume(Box::new(union), &guard);
+        assert_eq!(status, ffi::ValidateStatus_VALIDATE_ABORTED);
+    }
+
+    /// Phase 3.15 regression: when no child moved, the aggregate must be
+    /// rebuilt at `saved_last_doc_id` so subsequent reads continue from the
+    /// same logical position.
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_minimum_unchanged_returns_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 3> = Mock::new([10, 30, 50]);
+        let child1: Mock<'_, 3> = Mock::new([10, 40, 60]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let (mut union, status) = revalidate_via_resume(Box::new(union), &guard);
+        assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+
+        // Union must continue producing the remaining children's docs.
+        let r = union.read().unwrap().unwrap();
+        assert!(r.doc_id > 10, "expected next doc_id > 10, got {}", r.doc_id);
+    }
+
+    /// Phase 5b.5 regression: an EOF child swap-removed into the dead tail must
+    /// NOT be re-included as a live child by resume — that would yield its
+    /// already-read max doc_id forever.
+    #[test]
+    #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+    fn revalidate_swap_removed_dead_tail_not_yielded_again() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Child 0 has a small doc set; child 1 has more docs.
+        // Read past child 0's EOF so it's swap-removed into the dead tail.
+        let child0: Mock<'_, 2> = Mock::new([10, 20]);
+        let child1: Mock<'_, 5> = Mock::new([5, 15, 25, 35, 45]);
+        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            BoxedRQEIterator::new(Box::new(child0)),
+            BoxedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullFlat::new(children);
+
+        // Drain child0: 5 (c1), 10 (c0), 15 (c1), 20 (c0) — c0 now at EOF and
+        // gets swap_remove_child'd next time `read()` advances past 20.
+        let mut docs = Vec::new();
+        for _ in 0..4 {
+            docs.push(union.read().unwrap().unwrap().doc_id);
+        }
+        assert_eq!(docs, [5, 10, 15, 20]);
+        // The next read trims child0 to the dead tail.
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 25);
+
+        // Now resume: child0 is in the dead tail. It must NOT re-emerge as live.
+        let guard = mock_ctx.spec_read();
+        let (mut union, status) = revalidate_via_resume(Box::new(union), &guard);
+        assert_eq!(status, ffi::ValidateStatus_VALIDATE_OK);
+
+        // Continue reading: must surface the rest of child1 and never repeat 20.
+        let remaining: Vec<_> = std::iter::from_fn(|| {
+            union.read().unwrap().map(|r| r.doc_id)
+        }).collect();
+        assert_eq!(remaining, [35, 45]);
+    }
+}
