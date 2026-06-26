@@ -17,8 +17,8 @@ use std::ptr::NonNull;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, id_list::IdListSorted,
-    interop::RQEIteratorWrapper, inverted_index::new_missing_iterator,
+    Empty, c2rust::CRQEIterator, id_list::IdListSorted, interop::RQEIteratorWrapper,
+    inverted_index::new_missing_iterator,
 };
 
 use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
@@ -26,7 +26,7 @@ use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
-pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
+pub type EvalResult<'index> = rqe_iterators::BoxedRQEIterator<'index>;
 
 /// The outcome of evaluating a query node.
 ///
@@ -69,7 +69,9 @@ impl<'index> Evaluated<'index> {
             // with all required callbacks populated (it came from
             // `ffi::Query_EvalNode`) — exactly the preconditions of
             // `CRQEIterator::new`.
-            Evaluated::C(it) => Box::new(unsafe { CRQEIterator::new(it) }),
+            Evaluated::C(it) => rqe_iterators::BoxedRQEIterator::new(Box::new(unsafe {
+                CRQEIterator::new(it)
+            })),
         }
     }
 }
@@ -82,7 +84,8 @@ pub fn qast_iterate<'index>(
     ctx: &'index mut QueryEvalContext,
     root: &QueryNodeRef,
 ) -> Evaluated<'index> {
-    eval_node(ctx, root).unwrap_or_else(|| Evaluated::Rust(Box::new(Empty)))
+    eval_node(ctx, root)
+        .unwrap_or_else(|| Evaluated::Rust(rqe_iterators::BoxedRQEIterator::new(Box::new(Empty))))
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -124,7 +127,7 @@ fn eval_node_c<'index>(
 
 /// `QN_NULL` — stopword queries produce an empty iterator.
 fn eval_null<'index>() -> EvalResult<'index> {
-    Box::new(Empty)
+    rqe_iterators::BoxedRQEIterator::new(Box::new(Empty))
 }
 
 /// `QN_WILDCARD` — the `*` query that matches every document.
@@ -149,7 +152,7 @@ fn eval_wildcard<'index>(
     // 8. `SEARCH_ENTERPRISE_ITERATORS` is initialised when `diskSpec` is
     //    non-null — the enterprise module sets it during `OnLoad`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(ctx.as_non_null(), weight) };
-    Box::new(it)
+    rqe_iterators::BoxedRQEIterator::new(Box::new(it))
 }
 
 /// `QN_IDS` — filter by explicit document key names.
@@ -206,10 +209,10 @@ fn eval_ids<'index>(
         ids.dedup();
     }
 
-    Box::new(IdListSorted::with_result(
+    rqe_iterators::BoxedRQEIterator::new(Box::new(IdListSorted::with_result(
         ids,
         RSIndexResult::build_virt().weight(1.0).build(),
-    ))
+    )))
 }
 
 /// `QN_MISSING` — matches documents where a field has no indexed value.

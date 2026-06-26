@@ -16,8 +16,8 @@
 
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
-    QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
-    wildcard::Wildcard,
+    BoxedRQEIterator, QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS,
+    SearchEnterpriseIterators, wildcard::Wildcard,
 };
 
 /// The `top_id` used by the wildcard returned from
@@ -43,8 +43,11 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         weight: f64,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
         _status: Option<&mut QueryError>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
-        Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
+        Ok(BoxedRQEIterator::new(Box::new(Wildcard::new(
+            MOCK_DISK_WILDCARD_TOP_ID,
+            weight,
+        ))))
     }
 
     fn new_term_on_disk_with_offsets<'index>(
@@ -54,7 +57,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _field_mask: inverted_index::FieldMask,
         _weight: f64,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!(
             "MockEnterpriseIterators::new_term_on_disk_with_offsets not used in these tests"
         )
@@ -67,7 +70,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _field_mask: inverted_index::FieldMask,
         _weight: f64,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!(
             "MockEnterpriseIterators::new_term_on_disk_without_offsets not used in these tests"
         )
@@ -90,7 +93,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _filter: &ffi::NumericFilter,
         _field_index: ffi::t_fieldIndex,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_numeric_on_disk not used in these tests")
     }
 }

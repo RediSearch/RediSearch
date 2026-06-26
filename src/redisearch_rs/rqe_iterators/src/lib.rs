@@ -341,7 +341,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
         status: Option<&mut QueryError>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::BoxedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, loading offset data for each document.
     ///
@@ -356,7 +356,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::BoxedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
     ///
@@ -371,7 +371,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_mask: FieldMask,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::BoxedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over all the tags (tokens) in the index at the given field index. Each document in
     /// then iterator will have the given weight.
@@ -392,5 +392,5 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         filter: &ffi::NumericFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::BoxedRQEIterator<'index>, Box<dyn std::error::Error>>;
 }
