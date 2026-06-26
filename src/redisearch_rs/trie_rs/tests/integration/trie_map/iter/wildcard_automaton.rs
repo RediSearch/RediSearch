@@ -160,7 +160,7 @@ fn long_literal_patterns_route_to_u128() {
 }
 
 /// Patterns past 127 atoms route to the filter-based fallback in the
-/// dispatcher. This exercises the `WildcardBackend::Filter` arm of
+/// dispatcher. This exercises the [`WildcardBackend::Filter`] arm of
 /// [`WildcardSpecializedIter`] and confirms the dispatcher wraps
 /// [`WildcardIter`] correctly through its lending interface.
 #[test]
