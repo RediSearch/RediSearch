@@ -13,7 +13,6 @@ use ref_mode::{SharedPtr, Suspended};
 
 use std::{ffi::c_char, mem, ptr};
 
-use ffi::t_fieldMask;
 use index_result::{
     RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
 };
