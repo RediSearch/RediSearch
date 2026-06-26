@@ -137,8 +137,8 @@ impl TermSuffixIndex {
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
         let lowered = unicode_tolower(needle);
         self.inner
-            .prefixed_iter(&lowered)
-            .flat_map(|(_, data)| data.terms().map(|term| &**term))
+            .prefixed_values(&lowered)
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Iterate over the members that end with `needle`.
@@ -180,10 +180,7 @@ impl TermSuffixIndex {
         // match, so only terms ending with it — exactly its own
         // suffix entry — qualify.
         let (subtree, exact) = if followed_by_star {
-            (
-                Some(self.inner.prefixed_iter(token).map(|(_, data)| data)),
-                None,
-            )
+            (Some(self.inner.prefixed_values(token)), None)
         } else {
             (None, self.inner.get(token))
         };
