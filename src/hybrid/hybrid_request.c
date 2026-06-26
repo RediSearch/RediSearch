@@ -195,6 +195,11 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
+    // Skip the index-result copy unless the tail needs it. The tail misses this baseline
+    // by skipping Pipeline_BuildQueryPart; BuildAggregationPart flips it back on as needed.
+    req->tailPipeline->qctx.skipIndexResultDeepCopy =
+        !QEFlags_RequireIndexResultsDownstream(params->aggregationParams.common.reqflags);
+
     uint32_t stateFlags = 0;
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags, status);
 
