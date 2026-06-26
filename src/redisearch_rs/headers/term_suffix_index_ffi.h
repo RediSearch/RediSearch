@@ -83,12 +83,12 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
- * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
- *    retain the term pointer beyond the call.
+ * 3. `cb` must not modify or free `tsi`, nor retain the term
+ *    pointer beyond the call.
  *
  * # Panics
  *
- * Panics if `needle` is not valid UTF-8.
+ * Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -167,12 +167,12 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
- * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
- *    retain the term pointer beyond the call.
+ * 3. `cb` must not modify or free `tsi`, nor retain the term
+ *    pointer beyond the call.
  *
  * # Panics
  *
- * Panics if `needle` is not valid UTF-8.
+ * Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -220,12 +220,12 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
- * 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
- *    retain the term pointer beyond the call.
+ * 3. `cb` must not modify or free `tsi`, nor retain the term
+ *    pointer beyond the call.
  *
  * # Panics
  *
- * Panics if `pattern` is not valid UTF-8.
+ * Panics if `cb` is NULL, or if `pattern` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

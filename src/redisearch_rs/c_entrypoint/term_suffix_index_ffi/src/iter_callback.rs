@@ -27,12 +27,12 @@ use super::*;
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
-/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
-///    retain the term pointer beyond the call.
+/// 3. `cb` must not modify or free `tsi`, nor retain the term
+///    pointer beyond the call.
 ///
 /// # Panics
 ///
-/// Panics if `needle` is not valid UTF-8.
+/// Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -45,10 +45,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ) {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!needle.is_null(), "needle cannot be NULL");
-    let Some(cb) = cb else {
-        debug_assert!(false, "cb cannot be NULL");
-        return;
-    };
+    let cb = cb.expect("callback must not be NULL");
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
@@ -82,12 +79,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
-/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
-///    retain the term pointer beyond the call.
+/// 3. `cb` must not modify or free `tsi`, nor retain the term
+///    pointer beyond the call.
 ///
 /// # Panics
 ///
-/// Panics if `needle` is not valid UTF-8.
+/// Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -100,10 +97,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ) {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!needle.is_null(), "needle cannot be NULL");
-    let Some(cb) = cb else {
-        debug_assert!(false, "cb cannot be NULL");
-        return;
-    };
+    let cb = cb.expect("callback must not be NULL");
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
@@ -141,12 +135,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
-/// 3. `cb` cannot be NULL and must not modify or free `tsi`, nor
-///    retain the term pointer beyond the call.
+/// 3. `cb` must not modify or free `tsi`, nor retain the term
+///    pointer beyond the call.
 ///
 /// # Panics
 ///
-/// Panics if `pattern` is not valid UTF-8.
+/// Panics if `cb` is NULL, or if `pattern` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -159,11 +153,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
 ) -> c_int {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!pattern.is_null(), "pattern cannot be NULL");
-    let Some(cb) = cb else {
-        debug_assert!(false, "cb cannot be NULL");
-        // No way to report matches; have the caller fall back to a full scan.
-        return 0;
-    };
+    let cb = cb.expect("callback must not be NULL");
 
     // Safety: ensured by caller (1.)
     let index = unsafe { &*tsi };
