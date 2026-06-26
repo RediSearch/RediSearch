@@ -14,11 +14,16 @@
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK,
+};
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+    SkipToOutcome,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     wildcard::WildcardIterator,
@@ -348,6 +353,137 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W, I> RQEIteratorBoxed<'index> for OptionalOptimized<'index, W, I>
+where
+    W: WildcardIterator<'index> + RQEIteratorBoxed<'index>,
+    for<'a> <W::Suspended as RQESuspendedIterator>::Resumed<'a>:
+        WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = W::Suspended>,
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
+        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
+        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
+        // layout-compatible with `W::Suspended`/`I::Suspended` by the
+        // [`RQEIteratorBoxed`] contract, and `MaybeEmpty<I>` likewise
+        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
+        // heap allocation.
+        unsafe {
+            Box::from_raw(raw as *mut RawOptionalOptimized<Suspended, W::Suspended, I::Suspended>)
+        }
+    }
+}
+
+impl<WS, IS> RQESuspendedIterator for RawOptionalOptimized<Suspended, WS, IS>
+where
+    WS: RQESuspendedIterator,
+    for<'a> WS::Resumed<'a>: WildcardIterator<'a> + RQEIteratorBoxed<'a, Suspended = WS>,
+    IS: RQESuspendedIterator,
+{
+    type Resumed<'a> = OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawOptionalOptimized {
+            wcii,
+            child,
+            virt,
+            max_doc_id,
+            weight,
+            last_doc_id,
+            at_eof,
+        } = *self;
+
+        let pre_wcii_last_doc_id = RQESuspendedIterator::last_doc_id(&wcii);
+        let (wcii, wcii_status) = Box::new(wcii).resume(guard);
+        let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&child);
+        let (child, child_status) = Box::new(child).resume(guard);
+
+        // SAFETY: `OptionalOptimized`'s `virt` is a virtual sentinel built
+        // via `build_virt()` — no aliased pointers to validate. The
+        // `Active<'a>` re-typing is unconditionally sound. See the same
+        // SAFETY note in `Not::resume`.
+        let virt = unsafe { virt.into_active::<'a>() };
+
+        let mut active = Box::new(OptionalOptimized {
+            wcii: *wcii,
+            child: *child,
+            virt,
+            max_doc_id,
+            weight,
+            last_doc_id,
+            at_eof,
+        });
+
+        if wcii_status == ValidateStatus_VALIDATE_ABORTED {
+            return (active, ValidateStatus_VALIDATE_ABORTED);
+        }
+        // Distinguish "wcii moved to a new valid position" from "wcii moved
+        // past all docs (no new current)". The status alone doesn't carry
+        // the {Some, None} distinction that legacy `revalidate` had, so we
+        // recover it by comparing wcii's pre/post `last_doc_id`: a true
+        // "Moved to EOF without a new doc" leaves the cached doc_id
+        // unchanged (the wcii has nothing new to surface). A "Moved to a
+        // new valid doc" advances the cached doc_id even if `at_eof` is
+        // now true (because that new doc is the LAST valid one).
+        if wcii_status == ValidateStatus_VALIDATE_MOVED
+            && active.wcii.at_eof()
+            && active.wcii.last_doc_id() == pre_wcii_last_doc_id
+        {
+            active.at_eof = true;
+            return (active, ValidateStatus_VALIDATE_MOVED);
+        }
+        active.at_eof = active.wcii.at_eof();
+
+        let current_was_virtual =
+            active.last_doc_id == 0 || pre_child_last_doc_id != active.last_doc_id;
+
+        let child_moved_or_aborted = if child_status == ValidateStatus_VALIDATE_ABORTED {
+            let _ = active.child.take_iterator(); // replace with Empty
+            true
+        } else {
+            child_status == ValidateStatus_VALIDATE_MOVED
+        };
+
+        #[expect(non_upper_case_globals, reason = "bindgen-generated constants")]
+        match wcii_status {
+            ValidateStatus_VALIDATE_OK => {
+                if !child_moved_or_aborted || current_was_virtual {
+                    return (active, ValidateStatus_VALIDATE_OK);
+                }
+                let _ = active.read();
+                (active, ValidateStatus_VALIDATE_MOVED)
+            }
+            ValidateStatus_VALIDATE_MOVED => {
+                let wcii_doc_id = active.wcii.last_doc_id();
+                if wcii_doc_id > active.max_doc_id {
+                    active.at_eof = true;
+                    return (active, ValidateStatus_VALIDATE_MOVED);
+                }
+                if wcii_doc_id > active.child.last_doc_id() {
+                    let _ = active.child.skip_to(wcii_doc_id);
+                }
+                active.last_doc_id = wcii_doc_id;
+                active.at_eof |= wcii_doc_id >= active.max_doc_id;
+                if active.child.last_doc_id() != wcii_doc_id {
+                    active.virt.doc_id = wcii_doc_id;
+                }
+                (active, ValidateStatus_VALIDATE_MOVED)
+            }
+            _ => (active, ValidateStatus_VALIDATE_OK),
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
     }
 }
 
