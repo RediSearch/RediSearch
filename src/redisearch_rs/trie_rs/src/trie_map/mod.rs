@@ -15,8 +15,8 @@ mod utils;
 
 use crate::trie_map::{
     iter::{
-        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, NfaBitSet,
-        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
+        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
+        RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
         WildcardSpecializedIter, filter::VisitAll,
     },
     node::Node,
@@ -220,21 +220,6 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
-    /// using NFA-simulation streaming with the chosen bitset representation.
-    ///
-    /// Pick `S` based on the pattern's atom count: `u64` for ≤ 63 atoms and
-    /// `u128` for 64..=127. Patterns beyond 127 atoms should route through
-    /// [`Self::wildcard_specialized_iter`], which falls back to the
-    /// filter-based [`WildcardIter`] for those sizes.
-    pub fn wildcard_nfa_iter<S: NfaBitSet>(
-        &self,
-        pattern: &WildcardPattern<'_>,
-    ) -> AutomatonIter<'_, Data, WildcardNfa<S>> {
-        let nfa = WildcardNfa::<S>::compile(pattern);
-        self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa)
-    }
-
-    /// Iterate over all trie entries whose key matches the specified pattern,
     /// auto-selecting the most efficient backend for the pattern's atom
     /// count:
     ///
@@ -250,15 +235,16 @@ impl<Data> TrieMap<Data> {
     ) -> WildcardSpecializedIter<'tm, 'p, Data> {
         match WildcardBackend::for_pattern(pattern) {
             WildcardBackend::U64 => {
-                WildcardSpecializedIter::U64(self.wildcard_nfa_iter::<u64>(pattern))
+                let nfa = WildcardNfa::<u64>::compile(pattern);
+                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
+                WildcardSpecializedIter::U64(iter)
             }
             WildcardBackend::U128 => {
-                WildcardSpecializedIter::U128(self.wildcard_nfa_iter::<u128>(pattern))
+                let nfa = WildcardNfa::<u128>::compile(pattern);
+                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
+                WildcardSpecializedIter::U128(iter)
             }
             WildcardBackend::Filter => {
-                // `WildcardIter::new` takes the pattern by value; clone is
-                // shallow (the parsed tokens borrow from the caller's
-                // slice).
                 WildcardSpecializedIter::Filter(self.wildcard_iter(pattern.clone()))
             }
         }
