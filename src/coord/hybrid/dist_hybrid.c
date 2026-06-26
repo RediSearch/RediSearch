@@ -1166,6 +1166,13 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
+    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+    // timeout takes effect here.
+    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                   debugParams.tail_timeout_count);
+    }
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
