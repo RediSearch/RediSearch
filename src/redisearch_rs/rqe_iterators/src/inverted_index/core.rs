@@ -35,7 +35,7 @@ use crate::{
 /// # Type Parameters
 ///
 /// * `Rf` - The [`Ref`] mode: [`Active<'a>`] gives the iterator working,
-///   readable references into the index; [`Suspended`](ref_mode::Suspended)
+///   readable references into the index; [`Suspended`]
 ///   produces a passive carrier with no callable surface.
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.

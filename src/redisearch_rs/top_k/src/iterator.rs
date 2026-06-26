@@ -9,13 +9,18 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::{cmp::Ordering, marker::PhantomData, num::NonZeroUsize};
 
-use index_result::RSIndexResult;
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use rqe_iterators::{
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+    SkipToOutcome,
+};
 
 use crate::{
     heap::{ScoredResult, TopKHeap},
@@ -28,6 +33,7 @@ use crate::{
 /// and may be switched mid-execution when the source decides a different
 /// strategy is more efficient.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum TopKMode {
     /// No child filter — stream directly from the source's single batch.
     /// The heap is bypassed entirely.
@@ -60,6 +66,7 @@ pub enum TopKMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 enum Phase {
     /// Collection has not started; the first call to [`read`](TopKIterator::read)
     /// will trigger it.
@@ -72,23 +79,41 @@ enum Phase {
     YieldingDirect,
 }
 
-/// A generic top-k iterator parameterized over a [`ScoreSource`].
+/// A generic top-k iterator parameterized over a [`ScoreSource`] and a child
+/// [`RQEIterator`].
 ///
-/// Implements the execution mode described in the design doc:
+/// Implements the execution modes described in the design doc:
 /// [`Unfiltered`](TopKMode::Unfiltered), [`Batches`](TopKMode::Batches),
 /// and [`AdhocBF`](TopKMode::AdhocBF).
-pub struct TopKIterator<
-    'index,
+///
+/// Parameterised over a [`Ref`] mode — see [`TopKIterator`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
+/// # Layout
+///
+/// The struct is `#[repr(C)]` so that [`Active`] and [`Suspended`]
+/// instantiations are layout-compatible: `result: RawIndexResult<Rf>` differs
+/// only in the validity of internal [`SharedPtr`](ref_mode::SharedPtr) fields
+/// (transparent over [`Rf`]), and the child field varies via `I` vs
+/// `I::Suspended` (layout-compatible by the [`RQEIteratorBoxed`] contract).
+/// `S` is identical across modes because [`ScoreSource`] is unparameterized.
+#[repr(C)]
+pub struct RawTopK<'index, Rf: Ref, S, I>
+where
     S: ScoreSource,
-    C: RQEIterator<'index> + 'index = Box<dyn RQEIterator<'index> + 'index>,
-> {
+{
     source: S,
-    child: Option<C>,
+    child: Option<I>,
     mode: TopKMode,
-    /// Preserved so [`rewind`](Self::rewind) can restore the original mode.
+    /// Preserved so [`rewind`](RQEIterator::rewind) can restore the original mode.
     initial_mode: TopKMode,
     heap: TopKHeap,
     /// Holds the in-progress batch for the Unfiltered path.
+    ///
+    /// Dropped on [`suspend`](RQEIteratorBoxed::suspend) and re-acquired on the
+    /// next [`read`](RQEIterator::read) after [`resume`](RQESuspendedIterator::resume),
+    /// since the batch cursor may carry references that are only valid while
+    /// the spec read lock is held.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
     compare: fn(f64, f64) -> Ordering,
@@ -96,12 +121,25 @@ pub struct TopKIterator<
     /// Heap contents drained into score order for yielding.
     results: Vec<ScoredResult>,
     yield_pos: usize,
-    current: Option<RSIndexResult<'index>>,
+    /// Currently-held result. Valid iff `has_current` is `true`.
+    result: RawIndexResult<Rf>,
+    /// Discriminant for `result`: matches the legacy `current: Option<…>`
+    /// shape — `false` before the first read and after EOF.
+    has_current: bool,
     last_doc_id: DocId,
     at_eof: bool,
+    _marker: PhantomData<&'index ()>,
 }
 
-impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
+/// Alias for an [`Active`] [`RawTopK`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type TopKIterator<'index, S, I = Box<dyn RQEIterator<'index> + 'index>> =
+    RawTopK<'index, Active<'index>, S, I>;
+
+impl<'index, S> TopKIterator<'index, S, Box<dyn RQEIterator<'index> + 'index>>
+where
+    S: ScoreSource + 'index,
+{
     /// Create a new unfiltered [`TopKIterator`] (no child filter).
     ///
     /// Results are streamed directly from the source's batch — the heap is bypassed.
@@ -111,11 +149,15 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     }
 }
 
-impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKIterator<'index, S, C> {
+impl<'index, S, I> TopKIterator<'index, S, I>
+where
+    S: ScoreSource + 'index,
+    I: RQEIterator<'index> + 'index,
+{
     /// Create a new [`TopKIterator`] with a filter child.
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
-    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(source: S, child: I, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
         Self::_new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
@@ -123,7 +165,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
         source: S,
-        child: Option<C>,
+        child: Option<I>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
         mode: TopKMode,
@@ -134,7 +176,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Create a new [`TopKIterator`] with an explicit initial mode.
     fn _new_with_mode(
         source: S,
-        child: Option<C>,
+        child: Option<I>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
         mode: TopKMode,
@@ -151,9 +193,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             phase: Phase::NotStarted,
             results: Vec::new(),
             yield_pos: 0,
-            current: None,
+            result: RawIndexResult::build_virt().build(),
+            has_current: false,
             last_doc_id: 0,
             at_eof: false,
+            _marker: PhantomData,
         }
     }
 
@@ -173,7 +217,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 
     /// Returns a reference to the filter child iterator, if present.
-    pub fn child(&self) -> Option<&C> {
+    pub fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
 
@@ -307,14 +351,14 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
 
         match item {
             Some((doc_id, score)) => {
-                let result = self.source.build_result(doc_id, score);
-                self.current = Some(result);
+                self.result = self.source.build_result(doc_id, score);
+                self.has_current = true;
                 self.last_doc_id = doc_id;
-                Ok(self.current.as_mut())
+                Ok(Some(&mut self.result))
             }
             None => {
                 self.at_eof = true;
-                self.current = None;
+                self.has_current = false;
                 Ok(None)
             }
         }
@@ -330,19 +374,25 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         }
         let ScoredResult { doc_id, score } = self.results[self.yield_pos];
         self.yield_pos += 1;
-        let result = self.source.build_result(doc_id, score);
-        self.current = Some(result);
+        self.result = self.source.build_result(doc_id, score);
+        self.has_current = true;
         self.last_doc_id = doc_id;
-        Ok(self.current.as_mut())
+        Ok(Some(&mut self.result))
     }
 }
 
-impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterator<'index>
-    for TopKIterator<'index, S, C>
+impl<'index, S, I> RQEIterator<'index> for TopKIterator<'index, S, I>
+where
+    S: ScoreSource + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        self.current.as_mut()
+        if self.has_current {
+            Some(&mut self.result)
+        } else {
+            None
+        }
     }
 
     #[inline(always)]
@@ -396,7 +446,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         self.direct_batch = None;
         self.results.clear();
         self.yield_pos = 0;
-        self.current = None;
+        self.has_current = false;
         self.last_doc_id = 0;
         self.at_eof = false;
         self.phase = Phase::NotStarted;
@@ -489,6 +539,121 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         }
     }
     Ok(())
+}
+
+impl<'index, S, I> RQEIteratorBoxed<'index> for TopKIterator<'index, S, I>
+where
+    S: ScoreSource + 'static,
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawTopK<'static, Suspended, S, I::Suspended>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Drop the in-flight batch and reset phase BEFORE the type cast.
+        // A `ScoreSource::Batch` may borrow from the source's live state; any
+        // such borrow is invalid once the spec read lock is released. We pay
+        // for a fresh `collect()` on resume — see [`prepare_unfiltered_direct`].
+        self.direct_batch = None;
+        self.phase = Phase::NotStarted;
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTopK` is `#[repr(C)]`. The only `Rf`-dependent field is
+        // `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
+        // [`SharedPtr`](ref_mode::SharedPtr) transparency. `Option<I>` and
+        // `Option<I::Suspended>` are layout-compatible by the
+        // [`RQEIteratorBoxed`] contract. `S` is unchanged because
+        // [`ScoreSource`] is unparameterized over `Rf`. `Box::from_raw` reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTopK<'static, Suspended, S, I::Suspended>) }
+    }
+}
+
+impl<S, IS> RQESuspendedIterator for RawTopK<'static, Suspended, S, IS>
+where
+    S: ScoreSource + 'static,
+    IS: RQESuspendedIterator,
+{
+    type Resumed<'a> = RawTopK<'a, Active<'a>, S, IS::Resumed<'a>>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let RawTopK {
+            source,
+            child,
+            mode,
+            initial_mode,
+            heap,
+            direct_batch,
+            k,
+            compare,
+            phase,
+            results,
+            yield_pos,
+            result,
+            has_current,
+            last_doc_id,
+            at_eof,
+            _marker,
+        } = *self;
+
+        // `suspend` always resets these — assert as an internal invariant.
+        debug_assert!(direct_batch.is_none(), "direct_batch must be dropped on suspend");
+        debug_assert!(
+            matches!(phase, Phase::NotStarted),
+            "phase must be NotStarted on suspend"
+        );
+
+        // Resume the child first (if present) so we never construct the
+        // active iterator with a still-suspended `child` field.
+        let (child, child_status) = match child {
+            None => (None, ValidateStatus_VALIDATE_OK),
+            Some(c) => {
+                let (active_child, status) = Box::new(c).resume(guard);
+                (Some(*active_child), status)
+            }
+        };
+
+        // SAFETY: `result` was last populated via `ScoreSource::build_result`
+        // (owned/virtual), which carries no `'index`-bound borrows. Re-typing
+        // the held result as `Active<'a>` is therefore unconditionally sound;
+        // the lifetime is purely advisory at this point.
+        let result = unsafe { result.into_active::<'a>() };
+
+        let active = Box::new(RawTopK {
+            source,
+            child,
+            mode,
+            initial_mode,
+            heap,
+            direct_batch: None,
+            k,
+            compare,
+            phase: Phase::NotStarted,
+            results,
+            yield_pos,
+            result,
+            has_current,
+            last_doc_id,
+            at_eof,
+            _marker: PhantomData,
+        });
+
+        // If we had a yielded result before suspend, the iterator's position
+        // can only "move" because the batch is regenerated on the next read.
+        // Surface that as MOVED so callers re-query `current()` / `read()`.
+        let status: ValidateStatus = if has_current || last_doc_id > 0 {
+            child_status.max(ValidateStatus_VALIDATE_MOVED)
+        } else {
+            child_status
+        };
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.last_doc_id
+    }
 }
 
 impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>
