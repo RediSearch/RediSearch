@@ -2292,7 +2292,7 @@ static dictType invIdxDictType = {
   .valDestructor = InvIndFreeCb,
 };
 
-static dictType missingFieldDictType = {
+dictType missingFieldDictType = {
         .hashFunction = hiddenNameHashFunction,
         .keyDup = hiddenNameKeyDup,
         .valDup = NULL,

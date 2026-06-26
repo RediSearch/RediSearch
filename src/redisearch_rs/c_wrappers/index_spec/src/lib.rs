@@ -298,7 +298,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Return the spec's `missingFieldDict` as a typed [`Dict`].
-    pub fn missing_field_dict<'a>(&'a self) -> &'a Dict<'a, MissingFieldDictType> {
+    pub fn missing_field_dict(&self) -> &Dict<MissingFieldDictType> {
         debug_assert!(
             !self.0.missingFieldDict.is_null(),
             "missingFieldDict must not be null"

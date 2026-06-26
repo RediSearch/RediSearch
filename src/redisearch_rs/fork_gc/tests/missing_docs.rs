@@ -26,13 +26,14 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 /// Add one entry to `dict` keyed by `field_name`, with value `ii`.
 ///
-/// `MissingFieldDictType` uses `dictTypeHeapHiddenStrings`, which copies the
-/// key via `keyDup`, so the temporary `HiddenString` can be freed immediately
-/// after insertion.
-fn add_entry<'a>(
-    dict: &mut OwnedDict<'a, MissingFieldDictType>,
+/// `MissingFieldDictType` uses `missingFieldDictType`, which copies the key via
+/// `keyDup` and owns the value via `valDestructor` (→ `InvertedIndex_Free`).
+/// The temporary `HiddenString` key is freed immediately after insertion;
+/// ownership of `ii` is transferred to the dict.
+fn add_entry(
+    dict: &mut OwnedDict<MissingFieldDictType>,
     field_name: &[u8],
-    ii: Option<&'a OpaqueInvertedIndex>,
+    ii: Box<OpaqueInvertedIndex>,
 ) {
     // SAFETY: NewHiddenString copies `field_name`; the dict's keyDup copies
     // the HiddenString itself, so we free the original immediately after insert.
@@ -45,13 +46,13 @@ fn add_entry<'a>(
 fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only field access through the guard.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
-    spec.missingFieldDict = dict.as_ptr();
+    spec.missingFieldDict = dict.as_mut_ptr();
     spec
 }
 
 /// When the dict has no entries, only a Terminator is written.
 #[test]
-#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_dict_writes_only_terminator() {
     let dict = OwnedDict::create();
     let spec = make_spec(&dict);
@@ -67,36 +68,16 @@ fn empty_dict_writes_only_terminator() {
     ));
 }
 
-/// Entries whose value is `None` (no inverted index) are skipped silently.
-#[test]
-#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
-fn null_value_entry_is_skipped() {
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"no_index_field", None);
-    let spec = make_spec(&dict);
-    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-
-    let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &*guard).unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
-}
-
 /// An entry whose inverted index is empty produces no delta, so it is skipped.
 #[test]
-#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_inverted_index_is_skipped() {
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
         InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
     ));
-    let ii_ptr = Box::into_raw(ii);
 
     let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"empty_field", Some(unsafe { &*ii_ptr }));
+    add_entry(&mut dict, b"empty_field", ii);
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
@@ -108,9 +89,6 @@ fn empty_inverted_index_is_skipped() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
-
-    // SAFETY: dict does not free values; ii_ptr was created via Box::into_raw.
-    unsafe { drop(Box::from_raw(ii_ptr)) };
 }
 
 /// When an entry has docs absent from the DocTable, `scan_gc` produces a delta.
@@ -120,7 +98,7 @@ fn empty_inverted_index_is_skipped() {
 /// The spec's `DocTable` is zeroed, so `DocTable_Exists` returns `false` for
 /// every doc ID — every recorded doc is treated as deleted.
 #[test]
-#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn entry_with_deleted_docs_writes_delta_frame() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -128,10 +106,9 @@ fn entry_with_deleted_docs_writes_delta_frame() {
     ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
         .unwrap();
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-    let ii_ptr = Box::into_raw(ii);
 
     let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"age", Some(unsafe { &*ii_ptr }));
+    add_entry(&mut dict, b"age", ii);
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
@@ -152,29 +129,23 @@ fn entry_with_deleted_docs_writes_delta_frame() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
-
-    // SAFETY: dict does not free values; ii_ptr was created via Box::into_raw.
-    unsafe { drop(Box::from_raw(ii_ptr)) };
 }
 
 /// Multiple entries each produce their own Data frame + delta, followed by a
 /// single Terminator.
 #[test]
-#[cfg_attr(miri, ignore = "accesses extern static `dictTypeHeapHiddenStrings`")]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn multiple_entries_write_multiple_delta_frames() {
     let make_ii = |doc_id| {
         let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
         ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
             .unwrap();
-        Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)))
+        Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
     };
 
-    let ii_a = make_ii(1);
-    let ii_b = make_ii(2);
-
     let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"field_a", Some(unsafe { &*ii_a }));
-    add_entry(&mut dict, b"field_b", Some(unsafe { &*ii_b }));
+    add_entry(&mut dict, b"field_a", make_ii(1));
+    add_entry(&mut dict, b"field_b", make_ii(2));
     let spec = make_spec(&dict);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
@@ -200,10 +171,4 @@ fn multiple_entries_write_multiple_delta_frames() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
-
-    // SAFETY: dict does not free values; both ii pointers were created via Box::into_raw.
-    unsafe {
-        drop(Box::from_raw(ii_a));
-        drop(Box::from_raw(ii_b));
-    }
 }
