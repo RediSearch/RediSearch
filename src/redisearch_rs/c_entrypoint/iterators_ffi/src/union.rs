@@ -16,7 +16,8 @@ use ffi::{QueryIterator, QueryNodeType};
 use crate::profile::Profile_AddIters;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    IteratorsConfig, RQEIterator, UnionVariant, c2rust::CRQEIterator,
+    interop::{InnerState, RQEIteratorWrapper},
     union_opaque::UnionOpaque, union_reducer::new_union_iterator,
 };
 
@@ -27,7 +28,7 @@ use rqe_iterators::{
 /// module recover a reference to the wrapper from a raw `*mut QueryIterator`
 /// via [`RQEIteratorWrapper::ref_from_header_ptr`] /
 /// [`RQEIteratorWrapper::mut_ref_from_header_ptr`].
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 /// `ProfileChildren` callback for union iterators.
 ///
@@ -42,7 +43,7 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     debug_assert!(!base.is_null());
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
+    for child in wrapper.inner_mut().children_mut() {
         // SAFETY: CRQEIterator is #[repr(transparent)] over NonNull<QueryIterator>,
         // which is layout-compatible with *mut QueryIterator (same size/alignment).
         // The cast to *mut *mut QueryIterator is therefore valid for in-place mutation.
@@ -192,6 +193,91 @@ pub unsafe extern "C" fn NewUnionIterator(
 // FFI: Profile accessors
 // ============================================================================
 
+/// Returns the number of child iterators (including exhausted ones).
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+///    created via [`NewUnionIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetUnionIteratorNumChildren(it: *const QueryIterator) -> usize {
+    debug_assert!(!it.is_null());
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_children_total(),
+        InnerState::Suspended(it) => it.num_children_total(),
+    }
+}
+
+/// Returns a non-owning raw pointer to the child at `idx`.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+///    created via [`NewUnionIterator`].
+/// 2. `idx` must be less than [`GetUnionIteratorNumChildren`]`(it)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetUnionIteratorChild(
+    it: *const QueryIterator,
+    idx: usize,
+) -> *const QueryIterator {
+    debug_assert!(!it.is_null());
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child_at(idx),
+        InnerState::Suspended(it) => it.child_at(idx),
+    };
+    match child {
+        Some(child) => child.as_ref() as *const QueryIterator,
+        None => std::ptr::null(),
+    }
+}
+
+/// Returns the [`QueryNodeType`] stored in the union iterator.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+///    created via [`NewUnionIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetUnionIteratorQueryNodeType(it: *const QueryIterator) -> QueryNodeType {
+    debug_assert!(!it.is_null());
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
+    match wrapper.state() {
+        InnerState::Active(it) => it.query_node_type,
+        InnerState::Suspended(it) => it.query_node_type,
+    }
+}
+
+/// Returns the query string pointer stored in the union iterator, or null.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+///    created via [`NewUnionIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -> *const c_char {
+    debug_assert!(!it.is_null());
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
+    match wrapper.state() {
+        InnerState::Active(it) => it.query_string,
+        InnerState::Suspended(it) => it.query_string,
+    }
+}
+
+
 // ============================================================================
 // FFI: Query optimizer support
 // ============================================================================
@@ -210,7 +296,7 @@ pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize,
     debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
     // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(it) };
-    let dispatch = &mut wrapper.inner;
+    let dispatch = wrapper.inner_mut();
 
     // With fewer than 3 children, trimming is a no-op — keep the
     // current sorted union variant so skip_to and merge order are preserved.

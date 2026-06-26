@@ -11,8 +11,10 @@ use std::ptr::NonNull;
 
 use ffi::{QueryEvalCtx, QueryIterator};
 use rqe_core::DocId;
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::c2rust::CRQEIterator;
-use rqe_iterators::interop::RQEIteratorWrapper;
+use rqe_iterators::interop::{InnerState, RQEIteratorWrapper};
+use rqe_iterators::optional::Optional;
 use rqe_iterators::optional_reducer::{
     NewOptionalIterator as OptionalIteratorOutcome, new_optional_iterator,
 };
@@ -59,4 +61,85 @@ pub unsafe extern "C" fn NewOptionalIterator(
             RQEIteratorWrapper::boxed_new_compound(opt_opt)
         }
     }
+}
+
+#[unsafe(no_mangle)]
+/// Return the child pointer of an optional iterator (optimized or non-optimized), or NULL if there is no child.
+///
+/// # Safety
+///
+/// 1. `base` must be a valid non-null pointer to an optional iterator created via [`NewOptionalIterator`].
+pub unsafe extern "C" fn GetOptionalIteratorChild(
+    base: *const QueryIterator,
+) -> *const QueryIterator {
+    debug_assert!(!base.is_null());
+    // SAFETY: thanks to 1
+    if unsafe { (*base).type_ } == IteratorType::OptionalOptimized {
+        // SAFETY: thanks to 1
+        unsafe { get_optional_optimized_iterator_child(base) }
+    } else {
+        // SAFETY: thanks to 1
+        unsafe { get_optional_non_optimized_iterator_child(base) }
+    }
+}
+
+/// Get the child pointer of the optional (non-optimized) iterator or NULL
+/// in case there is no child.
+///
+/// # Safety
+///
+/// 1. `header` must be a valid non-null pointer to an iterator with `type_` equal to
+///    [`rqe_iterator_type::IteratorType::Optional`], as returned by [`NewOptionalIterator`].
+unsafe fn get_optional_non_optimized_iterator_child(
+    header: *const QueryIterator,
+) -> *const QueryIterator {
+    debug_assert!(!header.is_null());
+    debug_assert_eq!(
+        // SAFETY: Safe thanks to 1
+        unsafe { (*header).type_ },
+        IteratorType::Optional,
+        "Expected an optional (Non-Optimized) iterator"
+    );
+    // SAFETY: Safe thanks to 1
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<Optional<CRQEIterator>>::ref_from_header_ptr(header) };
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
+        .map(|p| p.as_ref() as *const _)
+        .unwrap_or(std::ptr::null())
+}
+
+/// Get the child pointer of the optimized optional iterator, or NULL if there is no child.
+///
+/// # Safety
+///
+/// 1. `header` must be a valid non-null pointer to an iterator with `type_` equal to
+///    [`ffi::IteratorType::OptionalOptimized`], as returned by [`crate::optional::NewOptionalIterator`].
+unsafe fn get_optional_optimized_iterator_child(
+    header: *const QueryIterator,
+) -> *const QueryIterator {
+    use rqe_iterators::NewWildcardIterator;
+    use rqe_iterators::optional_optimized::OptionalOptimized;
+
+    type OptionalOptimizedFfi<'a> = OptionalOptimized<'a, NewWildcardIterator<'a>, CRQEIterator>;
+    debug_assert!(!header.is_null());
+    debug_assert_eq!(
+        // SAFETY: Safe thanks to 1
+        unsafe { &*header }.type_,
+        IteratorType::OptionalOptimized,
+        "Expected an optimized optional iterator"
+    );
+    // SAFETY: Safe thanks to 1
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<OptionalOptimizedFfi>::ref_from_header_ptr(header) };
+    let child = match wrapper.state() {
+        InnerState::Active(it) => it.child(),
+        InnerState::Suspended(it) => it.child(),
+    };
+    child
+        .map(|p| p.as_ref() as *const _)
+        .unwrap_or(std::ptr::null())
 }

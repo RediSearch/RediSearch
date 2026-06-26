@@ -53,7 +53,22 @@
  * downstream.
  *******************************************************************************************************************/
 
-static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
+/**
+ * Suspend the iterator and release the spec read lock.
+ *
+ * The `Suspend` callback gives the iterator a chance to drop any lock-dependent state
+ * (in particular, borrows into inverted-index data) before the lock is released. For
+ * Rust-wrapped iterators this flips an internal Active→Suspended typestate, so any
+ * subsequent read/skip/rewind before the next `Revalidate` fails loudly. For pure C
+ * iterators it is the no-op `Default_Suspend`.
+ *
+ * `it` may be NULL only if the spec was never locked for this call; otherwise it must
+ * be the iterator that observed the locked state (typically `RPQueryIterator::iterator`).
+ */
+static int UnlockSpec_and_ReturnRPResult(QueryIterator *it, RedisSearchCtx *sctx, int result_status) {
+  if (it != NULL) {
+    it->Suspend(it);
+  }
   RedisSearchCtx_UnlockSpec(sctx);
   return result_status;
 }
@@ -72,6 +87,26 @@ typedef struct {
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
 } RPQueryIterator;
+
+/**
+ * Suspend the root [`QueryIterator`] in the given pipeline, if any. The lookup
+ * goes through `qctx->rootProc` and is a no-op when there is no RP_INDEX at the
+ * root (e.g., coordinator pipelines with a network root).
+ *
+ * Used by every spec-unlock site that runs while a query iterator may be in
+ * Active state — for example the end of a SafeLoader batch (just before
+ * `RedisSearchCtx_UnlockSpec`) and the cursor end-of-batch unlock in
+ * `aggregate_exec.c`. The `Suspend` callback gives the iterator a chance to
+ * drop any lock-dependent state before the spec read lock is released; for
+ * Rust-wrapped iterators it flips an internal Active→Suspended typestate so
+ * `Revalidate` (resume) can refresh borrowed pointers on lock re-acquisition.
+ */
+void QITR_SuspendRootIterator(QueryProcessingCtx *qctx) {
+  QueryIterator *it = QITR_GetRootFilter(qctx);
+  if (it) {
+    it->Suspend(it);
+  }
+}
 
 
 /****
@@ -294,16 +329,16 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   while (1) {
     if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
         SearchTime_IsTimedOut(&sctx->time)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_TIMEDOUT);
     }
 
     if (!needToValidateCurrent) {
       IteratorStatus rc = it->Read(it);
       switch (rc) {
       case ITERATOR_EOF:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+        return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_EOF);
       case ITERATOR_TIMEOUT:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+        return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_TIMEDOUT);
       default:
         RS_ASSERT(rc == ITERATOR_OK);
       }
@@ -350,7 +385,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   while (1) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_TIMEDOUT);
     }
 
     // Free the previous deep-copied IndexResult if any
@@ -363,7 +398,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     // Step 1: Refill IndexResult buffer if needed (cheap iterator reads)
     int refillResult = refillBufferUsingIterator(self);
     if (refillResult == RS_RESULT_TIMEDOUT) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_TIMEDOUT);
     }
 
     // Step 1b: Submit any buffered results to async pool (keep pipeline full)
@@ -392,7 +427,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_EOF);
     }
 
     // Loop back to serve results (I/O for next batch is already running)
@@ -455,6 +490,15 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
   if (it->rootProc && it->rootProc->type == RP_INDEX) {
     return ((RPQueryIterator *)it->rootProc)->iterator;
+  }
+  return NULL;
+}
+
+RedisSearchCtx *QITR_GetRootSearchCtx(QueryProcessingCtx *it) {
+  /* Same skip as QITR_GetRootFilter: coordinator pipelines have a non-RP_INDEX
+   * root (e.g. RP_NETWORK) and there's no owning search context to expose. */
+  if (it->rootProc && it->rootProc->type == RP_INDEX) {
+    return ((RPQueryIterator *)it->rootProc)->sctx;
   }
   return NULL;
 }
@@ -1217,6 +1261,13 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
 
+  // Suspend the upstream query iterator so it drops any lock-dependent state
+  // (e.g. inverted-index borrows) before we release the spec read lock. The
+  // iterator's `Revalidate` will be called when the spec lock is re-acquired
+  // on the next upstream `Next` invocation. Idempotent: if the iterator is
+  // already suspended (e.g. the upstream returned EOF via
+  // `UnlockSpec_and_ReturnRPResult`), this is a no-op.
+  QITR_SuspendRootIterator(rp->parent);
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
@@ -1883,6 +1934,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Unlock the index if we locked it
   if (lock_acquired) {
+    // Suspend the upstream query iterator before releasing the spec read lock
+    // so it drops any lock-dependent state (e.g. inverted-index borrows). The
+    // iterator's `Revalidate` will be called when the lock is re-acquired on
+    // the next upstream `Next` invocation. Idempotent.
+    QITR_SuspendRootIterator(self->base.parent);
     RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
   }
 

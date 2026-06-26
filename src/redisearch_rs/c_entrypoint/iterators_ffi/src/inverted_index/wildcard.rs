@@ -10,15 +10,130 @@
 use std::fmt::Debug;
 
 use index_result::RSIndexResult;
-use inverted_index::{DocId, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
-use rqe_iterators::{
-    IteratorType, interop::RQEIteratorWrapper, inverted_index::Wildcard, profile_print,
+use ffi::{ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId};
+use inverted_index::{
+    RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
 };
+use rqe_core::DocId;
+use rqe_iterators::{
+    IteratorType, RQEIteratorBoxed, RQESuspendedIterator, interop::RQEIteratorWrapper,
+    inverted_index::Wildcard, profile_print,
+};
+
+/// Suspended counterpart of [`WildcardIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// `#[repr(C, u8)]` matches the layout of [`WildcardIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — see
+/// [`super::tag::TagIteratorSuspended`] for the heap-address
+/// preservation argument.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
+              the dead-code analyzer doesn't see that cast as construction."
+)]
+pub(super) enum WildcardIteratorSuspended {
+    Encoded(<Wildcard<'static, DocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
+    Raw(<Wildcard<'static, RawDocIdsOnly> as RQEIteratorBoxed<'static>>::Suspended),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form into the active form for the optional reseek dispatch.
+enum WildcardResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
+}
+
+impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
+    type Suspended = WildcardIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
+        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended) }
+    }
+}
+
+impl RQESuspendedIterator for WildcardIteratorSuspended {
+    type Resumed<'a> = WildcardIterator<'a>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant (see `TagIteratorSuspended::resume` for the
+        // mode-independence argument).
+        let outcome = match &mut *self {
+            WildcardIteratorSuspended::Encoded(w) => {
+                if w.should_abort(spec) {
+                    WildcardResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers() {
+                        RefreshOutcome::Ok => WildcardResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            WildcardResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+            WildcardIteratorSuspended::Raw(w) => {
+                if w.should_abort(spec) {
+                    WildcardResumeOutcome::Abort
+                } else {
+                    match w.refresh_pointers() {
+                        RefreshOutcome::Ok => WildcardResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            WildcardResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Step 2: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut WildcardIterator<'a>) };
+
+        let status = match outcome {
+            WildcardResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            WildcardResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            WildcardResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                WildcardIterator::Encoded(w) => w.reseek_after_refresh(last_doc_id),
+                WildcardIterator::Raw(w) => w.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            WildcardIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            WildcardIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            WildcardIteratorSuspended::Encoded(s) => s.num_estimated(),
+            WildcardIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
 
 /// Wrapper around different II wildcard iterator encoding types to avoid generics in FFI code.
 ///
 /// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
 /// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`WildcardIteratorSuspended`].
+#[repr(C, u8)]
 pub(super) enum WildcardIterator<'index> {
     Encoded(Wildcard<'index, DocIdsOnly>),
     Raw(Wildcard<'index, RawDocIdsOnly>),

@@ -405,4 +405,8 @@ where
     fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id_field()
     }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated_field()
+    }
 }

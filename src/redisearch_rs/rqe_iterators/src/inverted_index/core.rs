@@ -61,6 +61,14 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
     /// is immutable for the iterator's lifetime.
     flags: IndexFlags,
 
+    /// Cached `num_estimated`, snapshotted at construction from
+    /// `reader.unique_docs()`. Backs [`RQEIterator::num_estimated`] (active)
+    /// and [`RQESuspendedIterator::num_estimated`] (suspended) uniformly —
+    /// FT.PROFILE introspection reads this after the iterator has transitioned
+    /// to `Suspended`, where the live reader is no longer callable. The value
+    /// is an estimate; the snapshot is acceptable.
+    num_estimated: usize,
+
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
@@ -100,6 +108,12 @@ impl<Rf: Ref, R, E> RawInvIndIterator<Rf, R, E> {
     pub const fn flags(&self) -> IndexFlags {
         self.flags
     }
+
+    /// Read the cached `num_estimated` regardless of mode. See the field's
+    /// doc comment for why this is an immutable snapshot.
+    pub(crate) const fn num_estimated_field(&self) -> usize {
+        self.num_estimated
+    }
 }
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
@@ -128,6 +142,7 @@ where
         };
 
         let flags = reader.flags();
+        let num_estimated = reader.unique_docs() as usize;
 
         Self {
             reader,
@@ -136,6 +151,7 @@ where
             result,
             expiration_checker,
             flags,
+            num_estimated,
             read_impl,
             skip_to_impl,
         }
@@ -343,7 +359,7 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.reader.unique_docs() as usize
+        self.num_estimated
     }
 
     fn last_doc_id(&self) -> DocId {
@@ -542,5 +558,9 @@ where
 
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id_field()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated_field()
     }
 }

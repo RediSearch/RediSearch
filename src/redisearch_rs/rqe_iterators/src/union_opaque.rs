@@ -131,6 +131,44 @@ pub struct RawUnionOpaque<Rf: Ref, I> {
 /// with an [`RQEIterator`] impl today.
 pub type UnionOpaque<'index, I> = RawUnionOpaque<Active<'index>, I>;
 
+impl<Rf: Ref, I> RawUnionOpaque<Rf, I> {
+    /// Returns the total number of children (including exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.num_children_total(),
+            RawUnionVariant::FlatQuick(it) => it.num_children_total(),
+            RawUnionVariant::HeapFull(it) => it.num_children_total(),
+            RawUnionVariant::HeapQuick(it) => it.num_children_total(),
+            RawUnionVariant::Trimmed(it) => it.num_children_total(),
+        }
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.num_children_active(),
+            RawUnionVariant::FlatQuick(it) => it.num_children_active(),
+            RawUnionVariant::HeapFull(it) => it.num_children_active(),
+            RawUnionVariant::HeapQuick(it) => it.num_children_active(),
+            RawUnionVariant::Trimmed(it) => it.num_children_active(),
+        }
+    }
+
+    /// Returns a shared reference to the child at `idx` (across all children).
+    /// Returns [`None`] if the index is out of range. Mode-independent.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.child_at(idx),
+            RawUnionVariant::FlatQuick(it) => it.child_at(idx),
+            RawUnionVariant::HeapFull(it) => it.child_at(idx),
+            RawUnionVariant::HeapQuick(it) => it.child_at(idx),
+            RawUnionVariant::Trimmed(it) => it.child_at(idx),
+        }
+    }
+}
+
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.
     /// Must be called before the first read/skip.
@@ -138,22 +176,6 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
         if let Some(result) = self.current() {
             result.weight = weight;
         }
-    }
-
-    /// Returns the total number of children (including exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        delegate_variant_ref!(self, num_children_total)
-    }
-
-    /// Returns the number of currently active (non-exhausted) children.
-    pub const fn num_children_active(&self) -> usize {
-        delegate_variant_ref!(self, num_children_active)
-    }
-
-    /// Returns a shared reference to the child at `idx` (across all children).
-    /// Returns [`None`] if the index is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        delegate_variant_ref!(self, child_at, idx)
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).

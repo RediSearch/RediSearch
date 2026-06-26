@@ -331,4 +331,8 @@ impl<const SORTED: bool> RQESuspendedIterator for RawIdList<Suspended, SORTED> {
     fn last_doc_id(&self) -> DocId {
         Self::suspended_result_doc_id(self)
     }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.len()
+    }
 }

@@ -8,8 +8,110 @@
 */
 
 use ffi::QueryIterator;
-use rqe_iterators::c2rust::CRQEIterator;
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    c2rust::CRQEIterator,
+    interop::{InnerState, RQEIteratorWrapper},
+    profile::{Profile, ProfileCounters},
+};
 use std::ptr::NonNull;
+
+type ProfileIteratorImpl = Profile<'static, CRQEIterator>;
+
+/// Create a new profile iterator.
+///
+/// # Safety
+///
+/// 1. `child` must be a valid non-null pointer to an implementation of the C query iterator API.
+/// 2. `child` must not be aliased.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewProfileIterator(child: *mut QueryIterator) -> *mut QueryIterator {
+    debug_assert!(!child.is_null(), "child must not be null");
+    // SAFETY: 1.
+    let child = unsafe { NonNull::new_unchecked(child) };
+    // SAFETY: thanks to 1 + 2
+    let child = unsafe { CRQEIterator::new(child) };
+    RQEIteratorWrapper::boxed_new(Profile::new(child))
+}
+
+/// Get the child iterator from a profile iterator.
+///
+/// The returned pointer borrows from the iterator — it is valid as long as
+/// the iterator is alive. The C caller only reads through this pointer.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ProfileIterator_GetChild(
+    it: *const QueryIterator,
+) -> *const QueryIterator {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
+        "Expected a profile iterator"
+    );
+    // SAFETY: guaranteed by 1.
+    let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
+    let child: &QueryIterator = match wrapper.state() {
+        InnerState::Active(p) => p.child(),
+        InnerState::Suspended(p) => p.child(),
+    };
+    std::ptr::from_ref(child)
+}
+
+/// Get the profile counters from a profile iterator.
+///
+/// The returned pointer borrows from the iterator — it is valid as long as
+/// the iterator is alive. The C caller only reads through this pointer.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ProfileIterator_GetCounters(
+    it: *const QueryIterator,
+) -> *const ProfileCounters {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
+        "Expected a profile iterator"
+    );
+    // SAFETY: guaranteed by 1.
+    let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
+    let counters: &ProfileCounters = match wrapper.state() {
+        InnerState::Active(p) => p.counters(),
+        InnerState::Suspended(p) => p.counters(),
+    };
+    std::ptr::from_ref(counters)
+}
+
+/// Get the accumulated wall time in nanoseconds from a profile iterator.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-null pointer created by [`NewProfileIterator`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator) -> u64 {
+    debug_assert!(!it.is_null());
+    debug_assert_eq!(
+        // SAFETY: guaranteed by 1.
+        unsafe { (*it).type_ },
+        IteratorType::Profile,
+        "Expected a profile iterator"
+    );
+    // SAFETY: guaranteed by 1.
+    let wrapper = unsafe { RQEIteratorWrapper::<ProfileIteratorImpl>::ref_from_header_ptr(it) };
+    match wrapper.state() {
+        InnerState::Active(p) => p.wall_time_ns(),
+        InnerState::Suspended(p) => p.wall_time_ns(),
+    }
+}
+
 
 /// Profile-wrap an iterator and its entire subtree.
 ///

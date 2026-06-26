@@ -7,10 +7,283 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{fmt::Debug, ptr::NonNull};
 
+use ffi::{
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK, t_docId,
+};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::RSIndexResult;
+use inverted_index::{
+    IndexReader, RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
+};
 use rqe_core::FieldIndex;
-use rqe_iterators::{interop::RQEIteratorWrapper, inverted_index::new_missing_iterator};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    FieldExpirationChecker, RQEIteratorBoxed, RQESuspendedIterator,
+    interop::{InnerState, RQEIteratorWrapper},
+    inverted_index::Missing,
+};
+
+/// Suspended counterpart of [`MissingIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// `#[repr(C, u8)]` matches the layout of [`MissingIterator`] so that
+/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// can perform whole-`Box` pointer casts between the two — see
+/// [`super::tag::TagIteratorSuspended`] for the same argument and
+/// why the previous `match` + `Box::new` shape was unsound.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "Variants are constructed via the whole-box pointer cast in `suspend`; \
+              the dead-code analyzer doesn't see that cast as construction."
+)]
+pub(super) enum MissingIteratorSuspended {
+    Encoded(
+        <Missing<'static, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended,
+    ),
+    Raw(
+        <Missing<'static, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'static>>::Suspended,
+    ),
+}
+
+/// Local 3-state outcome carrying the work done while still on the
+/// suspended form (`should_abort` + `refresh_pointers`) into the active
+/// form for the optional reseek dispatch.
+enum MissingResumeOutcome {
+    Abort,
+    Ok,
+    NeedsReseek { last_doc_id: t_docId },
+}
+
+impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
+    type Suspended = MissingIteratorSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
+        // are both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
+        // / `RawMissing<Suspended, E, C>` instantiations are
+        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended) }
+    }
+}
+
+impl RQESuspendedIterator for MissingIteratorSuspended {
+    type Resumed<'a> = MissingIterator<'a>;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &'a index_spec::IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        // Step 1: should_abort + refresh_pointers on the suspended
+        // variant. See `TagIteratorSuspended::resume` for the
+        // mode-independence argument.
+        let outcome = match &mut *self {
+            MissingIteratorSuspended::Encoded(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers() {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+            MissingIteratorSuspended::Raw(m) => {
+                if m.should_abort(spec) {
+                    MissingResumeOutcome::Abort
+                } else {
+                    match m.refresh_pointers() {
+                        RefreshOutcome::Ok => MissingResumeOutcome::Ok,
+                        RefreshOutcome::NeedsReseek { last_doc_id } => {
+                            MissingResumeOutcome::NeedsReseek { last_doc_id }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Step 2: whole-box cast Suspended → Active.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let mut active = unsafe { Box::from_raw(raw as *mut MissingIterator<'a>) };
+
+        // Step 3: dispatch the outcome.
+        let status = match outcome {
+            MissingResumeOutcome::Abort => ValidateStatus_VALIDATE_ABORTED,
+            MissingResumeOutcome::Ok => ValidateStatus_VALIDATE_OK,
+            MissingResumeOutcome::NeedsReseek { last_doc_id } => match &mut *active {
+                MissingIterator::Encoded(m) => m.reseek_after_refresh(last_doc_id),
+                MissingIterator::Raw(m) => m.reseek_after_refresh(last_doc_id),
+            },
+        };
+
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            MissingIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            MissingIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            MissingIteratorSuspended::Encoded(s) => s.num_estimated(),
+            MissingIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
+
+/// Wrapper around different II missing iterator encoding types to avoid generics in FFI code.
+///
+/// Handles both the standard variable-length encoding ([`DocIdsOnly`]) and the
+/// fixed 4-byte raw encoding ([`RawDocIdsOnly`]).
+///
+/// `#[repr(C, u8)]` to make the layout match
+/// [`MissingIteratorSuspended`].
+#[repr(C, u8)]
+pub(super) enum MissingIterator<'index> {
+    Encoded(Missing<'index, DocIdsOnly, FieldExpirationChecker>),
+    Raw(Missing<'index, RawDocIdsOnly, FieldExpirationChecker>),
+}
+
+impl Debug for MissingIterator<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let variant = match self {
+            MissingIterator::Encoded(_) => "Encoded",
+            MissingIterator::Raw(_) => "Raw",
+        };
+        write!(f, "MissingIterator({variant})")
+    }
+}
+
+impl MissingIterator<'_> {
+    /// Get the cached flags of the underlying reader.
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            MissingIterator::Encoded(m) => m.flags(),
+            MissingIterator::Raw(m) => m.flags(),
+        }
+    }
+
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        match self {
+            MissingIterator::Encoded(m) => m.field_name(),
+            MissingIterator::Raw(m) => m.field_name(),
+        }
+    }
+}
+
+impl MissingIteratorSuspended {
+    /// Mirror of [`MissingIterator::flags`] on the suspended side — see
+    /// [`super::super::interop::RQEIteratorWrapper::state`].
+    pub(super) const fn flags(&self) -> ffi::IndexFlags {
+        match self {
+            MissingIteratorSuspended::Encoded(m) => m.flags(),
+            MissingIteratorSuspended::Raw(m) => m.flags(),
+        }
+    }
+
+    /// Mirror of [`MissingIterator::field_name`] on the suspended side — see
+    /// [`super::super::interop::RQEIteratorWrapper::state`].
+    pub(super) fn field_name(&self) -> (*const std::ffi::c_char, usize) {
+        match self {
+            MissingIteratorSuspended::Encoded(m) => m.field_name(),
+            MissingIteratorSuspended::Raw(m) => m.field_name(),
+        }
+    }
+}
+
+/// Macro to dispatch RQEIterator methods across all [`MissingIterator`] variants.
+macro_rules! dispatch {
+    ($self:expr, $method:ident $(, $arg:expr)*) => {
+        match $self {
+            MissingIterator::Encoded(m) => m.$method($($arg),*),
+            MissingIterator::Raw(m) => m.$method($($arg),*),
+        }
+    };
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for MissingIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            MissingIterator::Encoded(m) => m.print_profile(map, ctx),
+            MissingIterator::Raw(m) => m.print_profile(map, ctx),
+        }
+    }
+}
+
+impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
+    #[inline(always)]
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        dispatch!(self, current)
+    }
+
+    #[inline(always)]
+    fn read(
+        &mut self,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
+        dispatch!(self, read)
+    }
+
+    #[inline(always)]
+    fn skip_to(
+        &mut self,
+        doc_id: t_docId,
+    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
+    {
+        dispatch!(self, skip_to, doc_id)
+    }
+
+    #[inline(always)]
+    fn rewind(&mut self) {
+        dispatch!(self, rewind)
+    }
+
+    #[inline(always)]
+    fn num_estimated(&self) -> usize {
+        dispatch!(self, num_estimated)
+    }
+
+    #[inline(always)]
+    fn last_doc_id(&self) -> t_docId {
+        dispatch!(self, last_doc_id)
+    }
+
+    #[inline(always)]
+    fn at_eof(&self) -> bool {
+        dispatch!(self, at_eof)
+    }
+
+    #[inline(always)]
+    fn revalidate(
+        &mut self,
+        spec: &index_spec::IndexSpecReadGuard,
+    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
+        dispatch!(self, revalidate, spec)
+    }
+
+    #[inline(always)]
+    fn type_(&self) -> IteratorType {
+        IteratorType::InvIdxMissing
+    }
+
+    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
+        1.0
+    }
+}
 
 /// Creates a new missing-field inverted index iterator.
 ///
@@ -52,8 +325,62 @@ pub unsafe extern "C" fn NewInvIndIterator_MissingQuery(
     // SAFETY: 3. guarantees sctx is valid and non-null.
     let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut _) };
 
-    // SAFETY: 3.-6. guarantee sctx, spec, field_index, and
-    // missingFieldDict validity.
-    let it = unsafe { new_missing_iterator(ii_ref, sctx_nn, field_index) };
-    RQEIteratorWrapper::boxed_new(it)
+    // Build the expiration checker for the Missing predicate
+    let filter_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Missing,
+    };
+
+    // Create the appropriate missing iterator variant based on encoding type.
+    let iterator = match ii_ref {
+        inverted_index_ffi::InvertedIndex::DocIdsOnly(ii) => {
+            let reader = ii.reader();
+            // SAFETY: 3.-6. guarantee validity for the iterator's lifetime.
+            let checker =
+                unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx, reader.flags()) };
+            // SAFETY: 3.-6. guarantee validity for the iterator's lifetime.
+            MissingIterator::Encoded(unsafe { Missing::new(reader, sctx_nn, field_index, checker) })
+        }
+        inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
+            let reader = ii.reader();
+            // SAFETY: 3.-6. guarantee validity for the iterator's lifetime.
+            let checker =
+                unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx, reader.flags()) };
+            // SAFETY: 3.-6. guarantee validity for the iterator's lifetime.
+            MissingIterator::Raw(unsafe { Missing::new(reader, sctx_nn, field_index, checker) })
+        }
+        _ => panic!(
+            "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
+            std::mem::discriminant(ii_ref)
+        ),
+    };
+
+    RQEIteratorWrapper::boxed_new(iterator)
+}
+
+/// Gets the field name used by a missing-field inverted index iterator.
+///
+/// # Safety
+///
+/// 1. `it` must be a valid non-NULL pointer to a `QueryIterator`.
+/// 2. `it` must have type [`IteratorType::InvIdxMissing`].
+/// 3. `out_len` must be a valid writable pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvIndMissingIterator_GetFieldName(
+    it: *const ffi::QueryIterator,
+    out_len: *mut usize,
+) -> *const std::ffi::c_char {
+    debug_assert!(!it.is_null(), "it must not be null");
+    debug_assert!(!out_len.is_null(), "out_len must not be null");
+
+    // SAFETY: 1. and 2. guarantee the iterator is a valid missing iterator wrapper.
+    let wrapper =
+        unsafe { RQEIteratorWrapper::<MissingIterator<'static>>::ref_from_header_ptr(it.cast()) };
+    let (field_name, field_name_len) = match wrapper.state() {
+        InnerState::Active(it) => it.field_name(),
+        InnerState::Suspended(it) => it.field_name(),
+    };
+    // SAFETY: 3. guarantees `out_len` is valid and writable.
+    unsafe { *out_len = field_name_len };
+    field_name
 }
