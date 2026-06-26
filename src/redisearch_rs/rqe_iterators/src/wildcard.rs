@@ -474,6 +474,82 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
 
 impl<'index> WildcardIterator<'index> for NewWildcardIterator<'index> {}
 
+/// Parallel `'static`-typed counterpart of [`NewWildcardIterator`] used as
+/// its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// `Suspended` form of the corresponding active variant.
+pub enum NewWildcardSuspended {
+    /// Suspended counterpart of [`NewWildcardIterator::NotOptimized`].
+    NotOptimized(RawWildcard<Suspended>),
+    /// Suspended counterpart of [`NewWildcardIterator::Optimized`].
+    Optimized(OptimizedWildcardSuspended),
+    /// Suspended counterpart of [`NewWildcardIterator::Empty`].
+    Empty(Empty),
+    /// Suspended counterpart of [`NewWildcardIterator::Disk`].
+    Disk(DiskWildcardSuspended),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for NewWildcardIterator<'index> {
+    type Suspended = NewWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            NewWildcardIterator::NotOptimized(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::NotOptimized(*suspended))
+            }
+            NewWildcardIterator::Optimized(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Optimized(*suspended))
+            }
+            NewWildcardIterator::Empty(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Empty(*suspended))
+            }
+            NewWildcardIterator::Disk(it) => {
+                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
+                Box::new(NewWildcardSuspended::Disk(*suspended))
+            }
+        }
+    }
+}
+
+impl RQESuspendedIterator for NewWildcardSuspended {
+    type Resumed<'a> = NewWildcardIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        match *self {
+            NewWildcardSuspended::NotOptimized(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::NotOptimized(*active)), status)
+            }
+            NewWildcardSuspended::Optimized(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Optimized(*active)), status)
+            }
+            NewWildcardSuspended::Empty(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Empty(*active)), status)
+            }
+            NewWildcardSuspended::Disk(it) => {
+                let (active, status) = Box::new(it).resume(guard);
+                (Box::new(NewWildcardIterator::Disk(*active)), status)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> t_docId {
+        match self {
+            NewWildcardSuspended::NotOptimized(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Optimized(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Empty(it) => RQESuspendedIterator::last_doc_id(it),
+            NewWildcardSuspended::Disk(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+}
+
 /// Create a [`WildcardIterator`] for an index whose spec has
 /// [`SchemaRule`](ffi::SchemaRule)`.index_all` set.
 ///
@@ -682,5 +758,68 @@ impl ProfilePrint for NewWildcardIterator<'_> {
             Self::Empty(it) => it.print_profile(map, ctx),
             Self::Disk(it) => it.print_profile(map, ctx),
         }
+    }
+}
+
+/// `'static`-typed counterpart of [`DiskWildcardIterator`] used as its
+/// `RQEIteratorBoxed::Suspended` type.
+///
+/// Wraps a `Box<dyn RQEIterator<'static> + 'static>` — the `'static`
+/// here is a **lifetime lie**: the actual borrowed lifetime is `'index`,
+/// inherited from the original [`DiskWildcardIterator`]. The lie is
+/// closed by the FFI-side discipline: while a `DiskWildcardSuspended`
+/// exists, no code dereferences the inner iterator. On [`resume`] the
+/// lifetime contracts back to the guard's lifetime `'a` (which the
+/// caller proves is still valid for the underlying index).
+#[repr(transparent)]
+pub struct DiskWildcardSuspended(pub(crate) Box<dyn RQEIterator<'static> + 'static>);
+
+impl<'index> RQEIteratorBoxed<'index> for DiskWildcardIterator<'index> {
+    type Suspended = DiskWildcardSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `DiskWildcardIterator<'index>` is `#[repr(transparent)]`
+        // over `Box<dyn RQEIterator<'index> + 'index>`, and
+        // `DiskWildcardSuspended` is `#[repr(transparent)]` over
+        // `Box<dyn RQEIterator<'static> + 'static>`. The two are byte-
+        // identical (a `Box` of a trait object is two pointers regardless
+        // of lifetime). Lifetime-extending the inner trait object from
+        // `'index` to `'static` is a lie that is closed at resume time;
+        // the suspended value is opaque (no read/skip path).
+        unsafe { Box::from_raw(raw as *mut DiskWildcardSuspended) }
+    }
+}
+
+impl RQESuspendedIterator for DiskWildcardSuspended {
+    type Resumed<'a> = DiskWildcardIterator<'a>;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        spec: &'a IndexSpecReadGuard<'a>,
+    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+        let raw = Box::into_raw(self);
+        // SAFETY: contract the lifetime back from the suspended `'static`
+        // to the caller-provided `'a`. The caller's read lock on `spec`
+        // witnesses that the underlying index data is dereferenceable at
+        // `'a`. Box::from_raw reuses the same heap allocation.
+        let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };
+        // Drive validity recovery through the inner trait object's
+        // `revalidate` callback.
+        let status = match active.revalidate(spec) {
+            Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
+            Ok(RQEValidateStatus::Moved { .. }) => ffi::ValidateStatus_VALIDATE_MOVED,
+            Ok(RQEValidateStatus::Aborted) => ffi::ValidateStatus_VALIDATE_ABORTED,
+            Err(_) => ffi::ValidateStatus_VALIDATE_MOVED,
+        };
+        (active, status)
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        // SAFETY: `last_doc_id` reads a cached primitive — it does not
+        // dereference any borrowed index pointer. Forwarding to the inner
+        // dyn's `RQEIterator::last_doc_id` is therefore sound despite the
+        // `'static` lifetime lie.
+        RQEIterator::last_doc_id(&*self.0)
     }
 }
