@@ -61,10 +61,10 @@ pub trait NfaBitSet: Clone + Eq {
     /// `self |= other` (set union). Both operands must be the same width.
     fn union_in_place(&mut self, other: &Self);
 
-    /// Position of the lone set bit. Caller must guarantee the set has
-    /// exactly one element; used by the no-`*` (fixed-length) fast path
-    /// in [`super::nfa::WildcardNfa`], where the active set is always a
-    /// singleton.
+    /// Position of the lone set bit.
+    ///
+    /// If the set has more than one element, it returns the position
+    /// of the highest set bit.
     fn singleton_pos(&self) -> usize;
 
     /// Iterate active positions in ascending order.
@@ -107,6 +107,11 @@ impl NfaBitSet for u64 {
     }
     #[inline]
     fn singleton_pos(&self) -> usize {
+        debug_assert_eq!(
+            self.count_ones(),
+            1,
+            "Invoked 'singleton_pos' on a set that contains more than one element."
+        );
         self.trailing_zeros() as usize
     }
     #[inline]
@@ -160,6 +165,11 @@ impl NfaBitSet for u128 {
     }
     #[inline]
     fn singleton_pos(&self) -> usize {
+        debug_assert_eq!(
+            self.count_ones(),
+            1,
+            "Invoked 'singleton_pos' on a set that contains more than one element."
+        );
         self.trailing_zeros() as usize
     }
     #[inline]

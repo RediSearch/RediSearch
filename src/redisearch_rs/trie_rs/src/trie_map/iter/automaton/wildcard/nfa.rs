@@ -61,7 +61,7 @@ pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<EpsilonRo
         let entry = if matches!(atoms[i], Atom::Any) {
             // ε-closure of `{i}` spans more than one position; allocate.
             let mut s = S::singleton(n, i);
-            // SAFETY: `table` has at least one element (the accept row
+            // `table` has at least one element (the accept row
             // pushed above, plus whatever we've pushed in earlier loop
             // iterations).
             match table.last().unwrap() {
@@ -164,9 +164,7 @@ pub(super) fn nfa_step_into<S: NfaBitSet>(
 }
 
 /// Allocating wrapper around [`nfa_step_into`] for one-off transitions
-/// where there's no scratch buffer to recycle (the
-/// [`Automaton::step`] impl and the first byte of
-/// [`WildcardNfa::step_all`]).
+/// where there's no scratch buffer to recycle.
 pub(super) fn nfa_step<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,

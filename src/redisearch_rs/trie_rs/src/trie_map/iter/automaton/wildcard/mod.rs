@@ -17,9 +17,9 @@
 //!
 //! A wildcard pattern like `*ab*` is *non-deterministic* to match: when
 //! the matcher reads a byte from the input, it may be doing any of the
-//! following at the same time —
+//! following at the same time:
 //!
-//! - still consuming bytes for the leading `*` (any prefix);
+//! - consuming bytes for the leading `*` (any prefix);
 //! - about to start the literal `ab`;
 //! - already partway through `ab`;
 //! - already past `ab` and consuming bytes for the trailing `*`.
@@ -34,15 +34,15 @@
 //!
 //! # Positions, atoms, and ε-closure
 //!
-//! The parser breaks a pattern into a flat sequence of [`atoms::Atom`]s
+//! The parser breaks a pattern into a sequence of [`atoms::Atom`]s
 //! — one of `Byte(b)`, `One` (`?`), or `Any` (`*`). With `N` atoms there
 //! are `N + 1` numbered **positions** along the pattern:
 //!
 //! ```text
-//!   pattern:  *  a  b  *
-//!   atoms:   [Any][Byte a][Byte b][Any]
-//!   pos:    0    1       2       3    4
-//!                                     ^ accept (no atom; sink)
+//!   pattern:   *       a        b      *
+//!   atoms:   [Any] [Byte a] [Byte b] [Any]
+//!   pos:       0       1        2      3     4
+//!                                            ^ accept (no atom; sink)
 //! ```
 //!
 //! "Position `i` is active" means "we've successfully consumed the first
@@ -89,9 +89,10 @@
 //!
 //! # Encoding the active set as a bitmask
 //!
-//! Because positions are dense integers `0..=N`, the natural
-//! representation of the active set is a bitmask: bit `i` is set iff
-//! position `i` is in the set. Set union (used to merge ε-closures and
+//! Because positions are contiguous integers `0..=N`, the natural
+//! representation of the active set can be interpreted as a bitmask:
+//! bit `i` is set iff position `i` is in the set.
+//! Set union (used to merge ε-closures and
 //! transition targets) is a bitwise OR; emptiness is a single comparison;
 //! "is position `i` active?" is a shift-and-mask. For `N ≤ 63` the whole
 //! set fits in a `u64`; for `N ≤ 127`, a `u128`. [`nfa::WildcardNfa<S>`]
@@ -182,9 +183,7 @@ impl<'tm, 'p, Data> WildcardSpecializedIter<'tm, 'p, Data> {
     }
 }
 
-/// Pick the most efficient matching backend for a given pattern's atom
-/// count. The dispatcher uses this to route to a fully-monomorphized hot
-/// path for each variant.
+/// The different supported backends for our wildcard iterator.
 pub enum WildcardBackend {
     /// `u64` bitset — covers patterns with ≤ 63 atoms.
     U64,
@@ -198,6 +197,9 @@ pub enum WildcardBackend {
 }
 
 impl WildcardBackend {
+    /// Pick the most efficient matching backend for a given pattern's atom
+    /// count. The dispatcher uses this to route to a fully-monomorphized hot
+    /// path for each variant.
     pub const fn for_pattern(pattern: &WildcardPattern<'_>) -> Self {
         // The state must reach position `accept = n_atoms`, so we need
         // capacity for `n_atoms + 1` distinct positions.
