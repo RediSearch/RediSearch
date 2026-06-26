@@ -18,23 +18,6 @@ use std::{ptr, slice, str};
 
 use super::*;
 
-/// Callback invoked once per term yielded by
-/// [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
-/// or [`TermSuffixIndex_IterateWildcard`].
-///
-/// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
-/// for the duration of the call. `ctx` is the caller context passed to
-/// the iterate function; `payload` is always NULL. Return 0 to continue
-/// the iteration; any other value stops it.
-pub type TermSuffixIterateCallback = Option<
-    unsafe extern "C" fn(
-        term: *const c_char,
-        len: usize,
-        ctx: *mut c_void,
-        payload: *mut c_void,
-    ) -> c_int,
->;
-
 /// Invoke `cb` once per member term containing the UTF-8 needle
 /// `(needle, len)` as a substring; a term may be reported more than once.
 /// Iteration stops early when the callback returns a non-zero value. An
@@ -208,3 +191,18 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     }
     1
 }
+
+/// Callback invoked once per term.
+///
+/// `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
+/// for the duration of the call. `ctx` is the caller context passed to
+/// the iterate function; `payload` is always NULL. Return 0 to continue
+/// the iteration; any other value stops it.
+pub type TermSuffixIterateCallback = Option<
+    unsafe extern "C" fn(
+        term: *const c_char,
+        len: usize,
+        ctx: *mut c_void,
+        payload: *mut c_void,
+    ) -> c_int,
+>;

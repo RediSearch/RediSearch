@@ -17,18 +17,6 @@ use std::ffi::{c_char, c_int};
 
 use super::*;
 
-/// Yields the keys of a [`TermSuffixIndex`].
-///
-/// Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
-/// with [`TermSuffixIndexIterator_Next`], freed with
-/// [`TermSuffixIndexIterator_Free`].
-pub struct TermSuffixIndexIterator<'si> {
-    iter: Box<dyn Iterator<Item = String> + 'si>,
-    /// Keeps the most recently yielded string alive so the pointer
-    /// handed to C stays valid until the next advance (or free).
-    current: Option<String>,
-}
-
 /// Iterate over every key stored in the index — each member term plus
 /// every indexed proper suffix — in lexicographical order.
 ///
@@ -126,4 +114,16 @@ pub unsafe extern "C" fn TermSuffixIndexIterator_Free(it: *mut TermSuffixIndexIt
 
     // Safety: ensured by caller (1., 2.)
     drop(unsafe { Box::from_raw(it) });
+}
+
+/// Yields the keys of a [`TermSuffixIndex`].
+///
+/// Obtained from [`TermSuffixIndex_IterateAll`], advanced
+/// with [`TermSuffixIndexIterator_Next`], freed with
+/// [`TermSuffixIndexIterator_Free`].
+pub struct TermSuffixIndexIterator<'si> {
+    iter: Box<dyn Iterator<Item = String> + 'si>,
+    /// Keeps the most recently yielded string alive so the pointer
+    /// stays valid until the next advance (or free).
+    current: Option<String>,
 }

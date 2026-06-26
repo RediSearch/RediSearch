@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct TermSuffixIndex TermSuffixIndex;
+
 /**
  * Yields the keys of a [`TermSuffixIndex`].
  *
@@ -16,8 +18,6 @@
  * [`TermSuffixIndexIterator_Free`].
  */
 typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
-
-typedef struct TermSuffixIndex TermSuffixIndex;
 
 /**
  * Callback invoked once per term yielded by
@@ -181,18 +181,6 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Estimated heap memory currently held by the index, in bytes.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
-
-/**
  * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
  * Invalidates any string pointer previously returned by
  * [`TermSuffixIndexIterator_Next`].
@@ -206,6 +194,18 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
+
+/**
+ * Estimated heap memory currently held by the index, in bytes.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
 
 /**
  * Invoke `cb` once per member term matching the wildcard pattern
