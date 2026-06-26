@@ -86,9 +86,11 @@ impl RQESuspendedIterator for NumericIteratorSuspended {
         // SAFETY: `active_raw` points to a valid `NumericIterator<'a>`
         // (just produced from `Box::into_raw`). The `iterator` field is
         // at a known `#[repr(C)]` offset.
-        let inner_suspended_ptr =
-            unsafe { ptr::addr_of_mut!((*active_raw).iterator) } as *mut <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended;
-        let inner_suspended_box: Box<<NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended> = {
+        let inner_suspended_ptr = unsafe { ptr::addr_of_mut!((*active_raw).iterator) }
+            as *mut <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended;
+        let inner_suspended_box: Box<
+            <NumericIteratorVariant<'static> as RQEIteratorBoxed<'static>>::Suspended,
+        > = {
             // Build a Box that owns the read-out bytes. We allocate a
             // fresh Box around the read value so the type machinery
             // can drive the trait method.
@@ -230,14 +232,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         self.iterator.skip_to(doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        self.iterator.revalidate(spec)
     }
 
     #[inline(always)]

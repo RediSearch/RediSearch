@@ -207,8 +207,7 @@ macro_rules! dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
             MissingIterator::Encoded(m) => m.$method($($arg),*),
-            MissingIterator::Raw(m) => m.$method($($arg),*),
-        }
+            MissingIterator::Raw(m) => m.$method($($arg),*)}
     };
 }
 
@@ -265,14 +264,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
     #[inline(always)]
     fn at_eof(&self) -> bool {
         dispatch!(self, at_eof)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        dispatch!(self, revalidate, spec)
     }
 
     #[inline(always)]

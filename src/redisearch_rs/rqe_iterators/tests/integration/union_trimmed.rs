@@ -273,21 +273,6 @@ fn current_none_after_exhaustion() {
 }
 
 // =============================================================================
-// revalidate()
-// =============================================================================
-
-/// `revalidate` panics.
-#[test]
-#[should_panic(expected = "revalidate is not supported on UnionTrimmed")]
-fn revalidate_panics() {
-    let (children, _data) = create_mock_3([1], [2], [3]);
-    let mut union = UnionTrimmed::new(children, usize::MAX, true);
-
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let _ = union.revalidate(&*mock_ctx.spec_read());
-}
-
-// =============================================================================
 // type_()
 // =============================================================================
 
@@ -468,29 +453,27 @@ fn into_trimmed_reuses_all_children() {
     );
 }
 
-mod via_resume {
-    use crate::utils::Mock;
-    use rqe_iterators::{BoxedRQEIterator, UnionTrimmed};
-    use rqe_iterators_test_utils::revalidate_via_resume;
+use crate::utils::Mock;
+use rqe_iterators::BoxedRQEIterator;
+use rqe_iterators_test_utils::revalidate_via_resume;
 
-    /// Resume must panic on UnionTrimmed for the same reason `revalidate`
-    /// does: trimmed unions are constructed for the partial-range
-    /// optimization path which doesn't release the spec lock between reads.
-    #[test]
-    #[should_panic(expected = "resume is not supported on UnionTrimmed")]
-    fn resume_panics() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let child0: Mock<'_, 1> = Mock::new([1]);
-        let child1: Mock<'_, 1> = Mock::new([2]);
-        let child2: Mock<'_, 1> = Mock::new([3]);
-        let children = vec![
-            BoxedRQEIterator::new(Box::new(child0)),
-            BoxedRQEIterator::new(Box::new(child1)),
-            BoxedRQEIterator::new(Box::new(child2)),
-        ];
-        let union = UnionTrimmed::new(children, usize::MAX, true);
+/// Resume must panic on UnionTrimmed for the same reason `revalidate`
+/// does: trimmed unions are constructed for the partial-range
+/// optimization path which doesn't release the spec lock between reads.
+#[test]
+#[should_panic(expected = "resume is not supported on UnionTrimmed")]
+fn resume_panics() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 1> = Mock::new([1]);
+    let child1: Mock<'_, 1> = Mock::new([2]);
+    let child2: Mock<'_, 1> = Mock::new([3]);
+    let children = vec![
+        BoxedRQEIterator::new(Box::new(child0)),
+        BoxedRQEIterator::new(Box::new(child1)),
+        BoxedRQEIterator::new(Box::new(child2)),
+    ];
+    let union = UnionTrimmed::new(children, usize::MAX, true);
 
-        let guard = mock_ctx.spec_read();
-        let _ = revalidate_via_resume(Box::new(union), &guard);
-    }
+    let guard = mock_ctx.spec_read();
+    let _ = revalidate_via_resume(Box::new(union), &guard);
 }

@@ -14,7 +14,6 @@ use ffi::{
     ValidateStatus_VALIDATE_OK,
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
-use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore, RefreshOutcome,
     opaque::OpaqueEncoding,
@@ -25,11 +24,12 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, SkipToOutcome,
+    RQESuspendedIterator, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::{InvIndIterator, core::RawInvIndIterator};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator over documents matching a specific tag value, parameterised
 /// over a [`Ref`] mode. See [`Tag`] for the [`Active`] instantiation that
@@ -75,7 +75,7 @@ where
     /// The garbage collector may remove all documents from a tag value's
     /// inverted index or replace it with a new allocation. In both cases
     /// the reader's pointer is stale and the iterator must
-    /// [`abort`](RQEValidateStatus::Aborted).
+    /// `abort`.
     ///
     /// # Why mode-independent
     ///
@@ -290,18 +290,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

@@ -12,15 +12,12 @@
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
     IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus,
-    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
 use rqe_core::DocId;
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection,
-    profile_print,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -266,32 +263,6 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         // - The C code must guarantee, by constructor, that callbacks
         //   can be called on types that implement its C iterator API.
         unsafe { callback(self.header.as_ptr()) };
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<crate::RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
-        let callback = unsafe { self.Revalidate.unwrap_unchecked() };
-        // SAFETY:
-        // - We have a unique handle over this iterator.
-        // - The C code must guarantee, by constructor, that callbacks
-        //   can be called on types that implement its C iterator API.
-        // - spec.as_mut_ptr() is valid for the duration of this call.
-        let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
-        #[expect(non_upper_case_globals)]
-        let status = match status {
-            ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
-            ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
-                current: self.current(),
-            },
-            ValidateStatus_VALIDATE_OK => RQEValidateStatus::Ok,
-            _ => {
-                unreachable!("`Validate` returned an unexpected status, {status}")
-            }
-        };
-        Ok(status)
     }
 
     fn num_estimated(&self) -> usize {

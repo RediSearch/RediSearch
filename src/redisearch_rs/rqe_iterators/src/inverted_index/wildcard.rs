@@ -19,7 +19,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    SkipToOutcome,
     expiration_checker::NoOpChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -62,7 +62,7 @@ where
     /// The garbage collector may either null out `existingDocs` (after
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort.
     ///
     /// # Why mode-independent
     ///
@@ -103,8 +103,7 @@ impl<'index, E: DecodedBy + 'index> Wildcard<'index, E> {
 
 impl<E: DecodedBy + 'static> RawWildcard<Suspended, E>
 where
-    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>:
-        inverted_index::IndexReader<'a>,
+    for<'a> RawIndexReaderCore<ref_mode::Active<'a>, E>: inverted_index::IndexReader<'a>,
 {
     /// Forwarding shim: refresh the inner [`RawInvIndIterator`]'s reader
     /// pointers while still in [`Suspended`] mode. Used by enum-level
@@ -185,20 +184,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

@@ -15,12 +15,11 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    SkipToOutcome,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
 };
-
 use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that negates the results of its child iterator.
@@ -104,7 +103,6 @@ where
     fn reset_timeout(&mut self) {
         self.timeout_ctx.reset_counter();
     }
-
 }
 
 impl<Rf: Ref, I, TC> RawNot<Rf, I, TC> {
@@ -233,35 +231,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.forced_eof || self.result.doc_id >= self.max_doc_id
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Get child status
-        match self.child.revalidate(spec)? {
-            RQEValidateStatus::Aborted => {
-                self.child = MaybeEmpty::new_empty();
-                Ok(RQEValidateStatus::Ok)
-            }
-            RQEValidateStatus::Moved { .. } => {
-                // Invariant: after read/skip_to, child is always ahead of NOT's position (or at EOF).
-                // Moved means child moved forward (can't move backward), so our doc remains valid.
-                // Special case: both at initial state (doc_id = 0) is also valid.
-                debug_assert!(
-                    self.child.at_eof()
-                        || self.child.last_doc_id() > self.last_doc_id()
-                        || (self.child.last_doc_id() == 0 && self.last_doc_id() == 0)
-                );
-                Ok(RQEValidateStatus::Ok)
-            }
-            RQEValidateStatus::Ok => {
-                // Child did not move - we did not move
-                Ok(RQEValidateStatus::Ok)
-            }
-        }
     }
 
     #[inline(always)]

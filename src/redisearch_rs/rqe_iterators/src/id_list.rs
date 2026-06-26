@@ -11,17 +11,17 @@
 
 use ffi::{ValidateStatus, ValidateStatus_VALIDATE_OK};
 use index_result::{RSIndexResult, RawIndexResult};
-use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use std::cmp::Ordering;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, SkipToOutcome,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator that yields results according to a sorted list of unique IDs, specified on construction.
 pub type IdListSorted<'index> = IdList<'index, true>;
@@ -252,14 +252,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.get_current().is_none()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
