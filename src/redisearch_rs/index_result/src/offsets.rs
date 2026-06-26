@@ -66,8 +66,7 @@ impl<R: Ref> Debug for RawOffsetSlice<R> {
             // for the full `len` bytes and ties them to the carrying
             // lifetime, so reconstructing a `&[u8]` of that length here is
             // valid for reads with no aliasing mutable references.
-            let offsets =
-                unsafe { std::slice::from_raw_parts(data.as_raw(), self.len as usize) };
+            let offsets = unsafe { std::slice::from_raw_parts(data.as_raw(), self.len as usize) };
             write!(f, "RSOffsetSlice {offsets:?}")
         } else {
             // Suspended: the pointer may be stale, so we cannot dereference
