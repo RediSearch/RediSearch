@@ -16,8 +16,8 @@
 
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
-    BoxedRQEIterator, QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS,
-    SearchEnterpriseIterators, wildcard::Wildcard,
+    BoxedRQEIterator, QueryError, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
+    wildcard::Wildcard,
 };
 
 /// The `top_id` used by the wildcard returned from
@@ -83,7 +83,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _field_index: FieldIndex,
         _weight: f64,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+    ) -> Result<BoxedRQEIterator<'index>, Box<dyn std::error::Error>> {
         unimplemented!("MockEnterpriseIterators::new_tag_on_disk not used in these tests")
     }
 

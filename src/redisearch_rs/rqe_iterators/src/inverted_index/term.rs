@@ -21,8 +21,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -201,9 +200,22 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    E: ExpirationChecker + 'static,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
 {
+    type Suspended = RawTerm<Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
+        // across `Active`/`Suspended` instantiations (see
+        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
+        // allocation; the active drop won't run on the moved-out bytes.
+        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
+    }
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -254,8 +266,10 @@ where
 
 impl<'index, R, E> ProfilePrint for Term<'index, R, E>
 where
-    R: inverted_index::TermReader<'index>,
-    E: crate::expiration_checker::ExpirationChecker,
+    R: inverted_index::TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: inverted_index::TermReader<'a>,
+    E: crate::expiration_checker::ExpirationChecker + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TEXT");
@@ -264,26 +278,6 @@ where
         }
         ctx.print_optional_counters(map);
         map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
-    }
-}
-
-impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
-where
-    R: TermReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader + PointsToOpaqueIndex,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawTerm<Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTerm` is `#[repr(C)]` containing only a
-        // `RawInvIndIterator<Rf, R, E>` field, whose layout is identical
-        // across `Active`/`Suspended` instantiations (see
-        // `InvIndIterator::suspend`). Box::from_raw reuses the same heap
-        // allocation; the active drop won't run on the moved-out bytes.
-        unsafe { Box::from_raw(raw as *mut RawTerm<Suspended, R::Suspended, E>) }
     }
 }
 

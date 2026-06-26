@@ -15,8 +15,7 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -32,6 +31,14 @@ use crate::{
 pub struct Empty;
 
 impl<'index> RQEIterator<'index> for Empty {
+    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
+    /// itself.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        self
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         None
@@ -81,16 +88,6 @@ impl<'index> RQEIterator<'index> for Empty {
 impl ProfilePrint for Empty {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"EMPTY", map);
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for Empty {
-    /// `Empty` has no `Rf`-dependent state, so its Suspended counterpart is
-    /// itself.
-    type Suspended = Empty;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        self
     }
 }
 

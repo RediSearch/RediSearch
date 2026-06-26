@@ -10,11 +10,11 @@
 //! Integration tests for [`UnionTrimmed`].
 
 use crate::utils::{MockVec, create_mock_3, drain_doc_ids};
-use rqe_iterators::{IteratorType, RQEIterator, UnionTrimmed};
+use rqe_iterators::{BoxedRQEIterator, IteratorType, RQEIterator, UnionTrimmed};
 
 /// Helper: create a vec of boxed MockVec children from doc_id slices.
 /// Each child's `num_estimated` equals the length of its slice.
-fn make_children(slices: &[&[u64]]) -> Vec<Box<dyn RQEIterator<'static>>> {
+fn make_children(slices: &[&[u64]]) -> Vec<BoxedRQEIterator<'static>> {
     slices
         .iter()
         .map(|ids| MockVec::new_boxed(ids.to_vec()))
@@ -28,7 +28,7 @@ fn make_children(slices: &[&[u64]]) -> Vec<Box<dyn RQEIterator<'static>>> {
 #[test]
 #[should_panic(expected = "UnionTrimmed requires at least 3 children, got 0")]
 fn new_panics_on_empty() {
-    UnionTrimmed::<Box<dyn RQEIterator<'static>>>::new(vec![], usize::MAX, true);
+    UnionTrimmed::<BoxedRQEIterator<'static>>::new(vec![], usize::MAX, true);
 }
 
 #[test]
@@ -454,7 +454,6 @@ fn into_trimmed_reuses_all_children() {
 }
 
 use crate::utils::Mock;
-use rqe_iterators::BoxedRQEIterator;
 use rqe_iterators_test_utils::revalidate_via_resume;
 
 /// Resume must panic on UnionTrimmed for the same reason `revalidate`

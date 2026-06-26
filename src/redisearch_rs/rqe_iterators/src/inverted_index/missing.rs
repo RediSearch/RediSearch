@@ -26,8 +26,8 @@ use rqe_core::{DocId, FieldIndex, RS_FIELDMASK_ALL};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 
 use crate::{
-    ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed,
-    RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError,
+    RQESuspendedIterator, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -81,9 +81,9 @@ impl<Rf: Ref, E: DecodedBy, C> RawMissing<Rf, E, C> {
     }
 }
 
-impl<'index, E: DecodedBy + 'index, C> Missing<'index, E, C>
+impl<'index, E: DecodedBy + 'index + 'static, C> Missing<'index, E, C>
 where
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
     /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] after a
     /// GC cycle invalidated the cached block offset. Used by enum-level
@@ -245,10 +245,22 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
+    type Suspended = RawMissing<Suspended, E, C>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawMissing` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`,
+        // whose layout is identical across modes (see
+        // [`InvIndIterator::suspend`]). `field_index: FieldIndex` and
+        // `field_name: CString` carry no `Rf` and survive the cast.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawMissing<Suspended, E, C>) }
+    }
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -299,9 +311,9 @@ where
 
 impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MISSING");
@@ -362,26 +374,6 @@ pub unsafe fn new_missing_iterator<'index>(
             "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
             std::mem::discriminant(ii)
         ),
-    }
-}
-
-impl<'index, E, C> RQEIteratorBoxed<'index> for Missing<'index, E, C>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker + 'static,
-{
-    type Suspended = RawMissing<Suspended, E, C>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawMissing` is `#[repr(C)]`. The `Rf`-dependent field is
-        // the inner `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`,
-        // whose layout is identical across modes (see
-        // [`InvIndIterator::suspend`]). `field_index: FieldIndex` and
-        // `field_name: CString` carry no `Rf` and survive the cast.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawMissing<Suspended, E, C>) }
     }
 }
 

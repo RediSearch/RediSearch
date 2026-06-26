@@ -666,17 +666,6 @@ const char *GetUnionIteratorQueryString(const QueryIterator *it);
 const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
 
 /**
- * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
- * sequential read mode.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
  * Creates a new tag inverted index iterator.
  *
  * # Parameters
@@ -701,7 +690,7 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *
  * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ * 2. `idx` must remain valid between `revalidate` (removed) calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
  * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
@@ -712,6 +701,17 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
+
+/**
+ * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
+ * sequential read mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
 /**
  * Creates a new missing-field inverted index iterator.

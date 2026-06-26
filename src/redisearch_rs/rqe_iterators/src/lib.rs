@@ -60,7 +60,7 @@ pub mod wildcard;
 
 pub use boxed::{
     BoxedRQEIterator, BoxedRQESuspendedIterator, RQEDynIterator, RQEDynSuspendedIterator,
-    RQEIteratorBoxed, RQESuspendedIterator,
+    RQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
 pub use empty::Empty;
@@ -127,7 +127,23 @@ pub enum RQEIteratorError {
 }
 
 /// Trait providing the iterators API.
-pub trait RQEIterator<'index> {
+pub trait RQEIterator<'index>: 'index {
+    /// The suspended counterpart of this iterator. Carries no live
+    /// references into the index and can therefore be held across a lock
+    /// release/reacquire cycle.
+    type Suspended: RQESuspendedIterator + 'static;
+
+    /// Transition to the suspended state.
+    ///
+    /// Implementations should perform a pure pointer cast of the box:
+    /// the active and suspended types are `#[repr(C)]` layout-compatible
+    /// over [`SharedPtr`](ref_mode::SharedPtr) (a `#[repr(transparent)]`
+    /// `NonNull`) fields, so the same heap allocation can be relabelled as
+    /// the suspended type without reallocation. Preserving the heap address
+    /// is what keeps composite aggregate-result pointers valid across the
+    /// cycle.
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
+
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///
     /// Calls to [`read`](Self::read) and [`skip_to`](Self::skip_to) also return
@@ -205,8 +221,17 @@ pub trait RQEIterator<'index> {
 
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
 ///
-/// All methods delegate through the vtable to the concrete type's implementation.
-impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for Box<I> {
+/// All core methods delegate to the inner iterator.
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
+    type Suspended = I::Suspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // The receiver `Box<Box<I>>` is unwrapped via `*self` to recover the
+        // inner `Box<I>` by value, then dispatched through the underlying
+        // iterator's `suspend` method.
+        <I as RQEIterator<'index>>::suspend(*self)
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }
@@ -327,7 +352,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         field_index: FieldIndex,
         weight: f64,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+    ) -> Result<crate::boxed::BoxedRQEIterator<'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the numeric index at the given field index whose value
     /// matches `filter`.

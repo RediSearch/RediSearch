@@ -18,7 +18,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
+    BoxedRQEIterator, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome,
 };
 
 use crate::{
@@ -93,8 +93,8 @@ enum Phase {
 /// The struct is `#[repr(C)]` so that [`Active`] and [`Suspended`]
 /// instantiations are layout-compatible: `result: RawIndexResult<Rf>` differs
 /// only in the validity of internal [`SharedPtr`](ref_mode::SharedPtr) fields
-/// (transparent over [`Rf`]), and the child field varies via `I` vs
-/// `I::Suspended` (layout-compatible by the [`RQEIteratorBoxed`] contract).
+/// (transparent over `Rf`), and the child field varies via `I` vs
+/// `I::Suspended` (layout-compatible by the [`RQEIterator`] contract).
 /// `S` is identical across modes because [`ScoreSource`] is unparameterized.
 #[repr(C)]
 pub struct RawTopK<'index, Rf: Ref, S, I>
@@ -109,7 +109,7 @@ where
     heap: TopKHeap,
     /// Holds the in-progress batch for the Unfiltered path.
     ///
-    /// Dropped on [`suspend`](RQEIteratorBoxed::suspend) and re-acquired on the
+    /// Dropped on [`suspend`](RQEIterator::suspend) and re-acquired on the
     /// next [`read`](RQEIterator::read) after [`resume`](RQESuspendedIterator::resume),
     /// since the batch cursor may carry references that are only valid while
     /// the spec read lock is held.
@@ -132,10 +132,10 @@ where
 
 /// Alias for an [`Active`] [`RawTopK`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type TopKIterator<'index, S, I = Box<dyn RQEIterator<'index> + 'index>> =
+pub type TopKIterator<'index, S, I = BoxedRQEIterator<'index>> =
     RawTopK<'index, Active<'index>, S, I>;
 
-impl<'index, S> TopKIterator<'index, S, Box<dyn RQEIterator<'index> + 'index>>
+impl<'index, S> TopKIterator<'index, S, BoxedRQEIterator<'index>>
 where
     S: ScoreSource + 'index,
 {
@@ -382,9 +382,29 @@ where
 
 impl<'index, S, I> RQEIterator<'index> for TopKIterator<'index, S, I>
 where
-    S: ScoreSource + 'index,
-    I: RQEIterator<'index> + 'index,
+    S: ScoreSource + 'index + 'static,
+    I: RQEIterator<'index> + 'index + RQEIterator<'index>,
 {
+    type Suspended = RawTopK<'static, Suspended, S, I::Suspended>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Drop the in-flight batch and reset phase BEFORE the type cast.
+        // A `ScoreSource::Batch` may borrow from the source's live state; any
+        // such borrow is invalid once the spec read lock is released. We pay
+        // for a fresh `collect()` on resume — see [`prepare_unfiltered_direct`].
+        self.direct_batch = None;
+        self.phase = Phase::NotStarted;
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTopK` is `#[repr(C)]`. The only `Rf`-dependent field is
+        // `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
+        // [`SharedPtr`](ref_mode::SharedPtr) transparency. `Option<I>` and
+        // `Option<I::Suspended>` are layout-compatible by the
+        // [`RQEIterator`] contract. `S` is unchanged because
+        // [`ScoreSource`] is unparameterized over `Rf`. `Box::from_raw` reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTopK<'static, Suspended, S, I::Suspended>) }
+    }
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.has_current {
@@ -529,33 +549,6 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     Ok(())
 }
 
-impl<'index, S, I> RQEIteratorBoxed<'index> for TopKIterator<'index, S, I>
-where
-    S: ScoreSource + 'static,
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawTopK<'static, Suspended, S, I::Suspended>;
-
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // Drop the in-flight batch and reset phase BEFORE the type cast.
-        // A `ScoreSource::Batch` may borrow from the source's live state; any
-        // such borrow is invalid once the spec read lock is released. We pay
-        // for a fresh `collect()` on resume — see [`prepare_unfiltered_direct`].
-        self.direct_batch = None;
-        self.phase = Phase::NotStarted;
-
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTopK` is `#[repr(C)]`. The only `Rf`-dependent field is
-        // `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
-        // [`SharedPtr`](ref_mode::SharedPtr) transparency. `Option<I>` and
-        // `Option<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract. `S` is unchanged because
-        // [`ScoreSource`] is unparameterized over `Rf`. `Box::from_raw` reuses
-        // the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawTopK<'static, Suspended, S, I::Suspended>) }
-    }
-}
-
 impl<S, IS> RQESuspendedIterator for RawTopK<'static, Suspended, S, IS>
 where
     S: ScoreSource + 'static,
@@ -587,7 +580,10 @@ where
         } = *self;
 
         // `suspend` always resets these — assert as an internal invariant.
-        debug_assert!(direct_batch.is_none(), "direct_batch must be dropped on suspend");
+        debug_assert!(
+            direct_batch.is_none(),
+            "direct_batch must be dropped on suspend"
+        );
         debug_assert!(
             matches!(phase, Phase::NotStarted),
             "phase must be NotStarted on suspend"
@@ -641,6 +637,11 @@ where
 
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // TopK never produces more than `k` results regardless of upstream size.
+        self.k.get()
     }
 }
 

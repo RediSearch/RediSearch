@@ -10,6 +10,7 @@
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
 use field::FieldMaskOrIndex;
 use index_result::{RSIndexResult, RSResultKind};
@@ -17,7 +18,7 @@ use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCo
 use numeric_range_tree::NumericIndex;
 use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{ExpirationChecker, RQEIterator, SkipToOutcome};
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators_test_utils::{MockContext, revalidate_via_resume};
 use std::collections::HashSet;
 
 // Re-export TestContext and GlobalGuard from the main library's test_utils module
@@ -485,6 +486,33 @@ impl RevalidateTest {
         }
     }
 
+    /// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
+    pub fn revalidate_basic<'a, I>(&'a self, it: Box<I>)
+    where
+        I: RQEIterator<'a> + 'a,
+    {
+        let guard = self.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert!(matches!(it.read(), Ok(Some(_))));
+        let (_it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+    }
+
+    /// test revalidation functionality when iterator is at EOF
+    pub fn revalidate_at_eof<'a, I>(&'a self, mut it: Box<I>)
+    where
+        I: RQEIterator<'a> + 'a,
+    {
+        // Read all documents to reach EOF
+        while let Some(_record) = it.read().expect("failed to read") {}
+        assert!(it.at_eof());
+        let guard = self.context.spec_read();
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert!(it.at_eof());
+    }
+
     /// Remove the document with the given id from the inverted index.
     pub fn remove_document<E: Encoder + DecodedBy>(
         &self,
@@ -502,127 +530,95 @@ impl RevalidateTest {
         assert_eq!(info.entries_removed, 1);
     }
 
-}
+    /// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
+    pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
+        &'a self,
+        it: Box<I>,
+        ii: &mut InvertedIndex<E>,
+    ) where
+        I: RQEIterator<'a> + 'a,
+    {
+        let guard = self.context.spec_read();
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
-use ffi::{ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
-use rqe_iterators::RQEIteratorBoxed;
-use rqe_iterators_test_utils::revalidate_via_resume;
+        // First, read a few documents to establish a position
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[0]);
 
-/// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
-pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
-where
-    I: RQEIteratorBoxed<'a> + 'a,
-{
-    let guard = test.context.spec_read();
-    let (mut it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
-    assert!(matches!(it.read(), Ok(Some(_))));
-    let (_it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
-}
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[1]);
 
-/// test revalidation functionality when iterator is at EOF
-pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
-where
-    I: RQEIteratorBoxed<'a> + 'a,
-{
-    // Read all documents to reach EOF
-    while let Some(_record) = it.read().expect("failed to read") {}
-    assert!(it.at_eof());
-    let guard = test.context.spec_read();
-    let (it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
-    assert!(it.at_eof());
-}
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[2]);
 
-/// test revalidate returns `Moved` when the document at the iterator position is deleted from the index.
-pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
-    test: &'a RevalidateTest,
-    it: Box<I>,
-    ii: &mut InvertedIndex<E>,
-) where
-    I: RQEIteratorBoxed<'a> + 'a,
-{
-    let guard = test.context.spec_read();
-    let (mut it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
-    // First, read a few documents to establish a position
-    let doc = it
-        .read()
-        .expect("failed to read")
-        .expect("should not be at EOF");
-    assert_eq!(doc.doc_id, test.doc_ids[0]);
+        // Nothing changed in the index so revalidate does nothing
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
 
-    let doc = it
-        .read()
-        .expect("failed to read")
-        .expect("should not be at EOF");
-    assert_eq!(doc.doc_id, test.doc_ids[1]);
+        // Remove an element before the current iteration position.
+        self.remove_document(ii, self.doc_ids[0]);
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
-    let doc = it
-        .read()
-        .expect("failed to read")
-        .expect("should not be at EOF");
-    assert_eq!(doc.doc_id, test.doc_ids[2]);
+        // Remove an element after the current iteration position.
+        self.remove_document(ii, self.doc_ids[4]);
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        assert_eq!(it.last_doc_id(), self.doc_ids[2]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[2]);
 
-    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+        // Remove the element at the current position of the iterator.
+        // When validating we won't be able to skip to this element, so we should get MOVED.
+        self.remove_document(ii, self.doc_ids[2]);
+        let (mut it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
+        let current_doc = it
+            .current()
+            .expect("iterator should be positioned after resume");
+        assert_eq!(current_doc.doc_id, self.doc_ids[3]);
+        // iterator advanced to the next element
+        assert_eq!(it.last_doc_id(), self.doc_ids[3]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[3]);
 
-    // Nothing changed in the index so revalidate does nothing
-    let (it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
+        // read the next element, docs_ids[4] has been removed so iterator should return the one after.
+        let doc = it
+            .read()
+            .expect("failed to read")
+            .expect("should not be at EOF");
+        assert_eq!(doc.doc_id, self.doc_ids[5]);
+        assert_eq!(it.last_doc_id(), self.doc_ids[5]);
+        assert_eq!(it.current().unwrap().doc_id, self.doc_ids[5]);
 
-    // Remove an element before the current iteration position.
-    test.remove_document(ii, test.doc_ids[0]);
-    let (mut it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
-    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
+        // edge case: iterator is at the last document which is then removed.
+        assert!(!it.at_eof());
+        let last_doc_id = *self.doc_ids.last().unwrap();
+        let doc = match it.skip_to(last_doc_id) {
+            Ok(Some(SkipToOutcome::Found(doc))) => doc,
+            _ => panic!("skip_to {last_doc_id} should succeed"),
+        };
+        assert_eq!(doc.doc_id, last_doc_id);
+        assert_eq!(it.last_doc_id(), last_doc_id);
+        assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
-    // Remove an element after the current iteration position.
-    test.remove_document(ii, test.doc_ids[4]);
-    let (mut it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
-    assert_eq!(it.last_doc_id(), test.doc_ids[2]);
-    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[2]);
-
-    // Remove the element at the current position of the iterator.
-    // When validating we won't be able to skip to this element, so we should get MOVED.
-    test.remove_document(ii, test.doc_ids[2]);
-    let (mut it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
-    let current_doc = it
-        .current()
-        .expect("iterator should be positioned after resume");
-    assert_eq!(current_doc.doc_id, test.doc_ids[3]);
-    // iterator advanced to the next element
-    assert_eq!(it.last_doc_id(), test.doc_ids[3]);
-    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[3]);
-
-    // read the next element, docs_ids[4] has been removed so iterator should return the one after.
-    let doc = it
-        .read()
-        .expect("failed to read")
-        .expect("should not be at EOF");
-    assert_eq!(doc.doc_id, test.doc_ids[5]);
-    assert_eq!(it.last_doc_id(), test.doc_ids[5]);
-    assert_eq!(it.current().unwrap().doc_id, test.doc_ids[5]);
-
-    // edge case: iterator is at the last document which is then removed.
-    assert!(!it.at_eof());
-    let last_doc_id = *test.doc_ids.last().unwrap();
-    let doc = match it.skip_to(last_doc_id) {
-        Ok(Some(SkipToOutcome::Found(doc))) => doc,
-        _ => panic!("skip_to {last_doc_id} should succeed"),
-    };
-    assert_eq!(doc.doc_id, last_doc_id);
-    assert_eq!(it.last_doc_id(), last_doc_id);
-    assert_eq!(it.current().unwrap().doc_id, last_doc_id);
-
-    test.remove_document(ii, last_doc_id);
-    // revalidate should return Moved without current doc and be at EOF.
-    let (it, status) = revalidate_via_resume(it, &guard);
-    assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
-    assert!(it.at_eof());
+        self.remove_document(ii, last_doc_id);
+        // revalidate should return Moved without current doc and be at EOF.
+        let (it, status) = revalidate_via_resume(it, &guard);
+        assert_eq!(status, ValidateStatus_VALIDATE_MOVED);
+        assert!(it.at_eof());
+    }
 }

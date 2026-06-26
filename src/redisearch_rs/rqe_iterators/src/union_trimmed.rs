@@ -50,10 +50,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    SkipToOutcome,
-};
+use crate::{IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
@@ -73,7 +70,7 @@ use index_spec::IndexSpecReadGuard;
 /// - [`skip_to`](RQEIterator::skip_to): children are drained sequentially
 ///   (not in doc-id order), so skipping to a specific doc-id has no
 ///   meaningful semantics.
-/// - `revalidate`: trimmed unions run in a
+/// - `revalidate` (removed): trimmed unions run in a
 ///   single, short-lived read path that does not interleave with GC cycles,
 ///   so revalidation should never be needed.
 ///
@@ -234,6 +231,25 @@ impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionTrimmed<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the children Vec is reachable and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
+        // byte-rewritten as `Vec<I::Suspended>` contents) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)
@@ -321,30 +337,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionTrimmed<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the children Vec is reachable and unaliased.
-        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-        for child in children.iter_mut() {
-            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
-        }
-        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
-        // byte-rewritten as `Vec<I::Suspended>` contents) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<Suspended, I::Suspended>) }
-    }
-}
-
 impl<S> RQESuspendedIterator for RawUnionTrimmed<Suspended, S>
 where
     S: RQESuspendedIterator,
@@ -360,7 +352,7 @@ where
         // pipeline drains every upstream result inside a single locked
         // `sendChunk` call, so the FFI `Revalidate` path never reaches a
         // trimmed union. See the parallel `unreachable!` in
-        // the legacy `revalidate` method for the full justification.
+        // `RQEIterator::revalidate` for the full justification.
         unreachable!(
             "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );

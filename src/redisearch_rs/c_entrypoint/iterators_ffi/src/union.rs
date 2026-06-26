@@ -279,7 +279,6 @@ pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -
     }
 }
 
-
 // ============================================================================
 // FFI: Query optimizer support
 // ============================================================================
