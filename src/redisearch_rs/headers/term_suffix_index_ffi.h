@@ -13,16 +13,14 @@ typedef struct TermSuffixIndex TermSuffixIndex;
 /**
  * Yields the keys of a [`TermSuffixIndex`].
  *
- * Opaque to C; obtained from [`TermSuffixIndex_IterateAll`], advanced
+ * Obtained from [`TermSuffixIndex_IterateAll`], advanced
  * with [`TermSuffixIndexIterator_Next`], freed with
  * [`TermSuffixIndexIterator_Free`].
  */
 typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
 
 /**
- * Callback invoked once per term yielded by
- * [`TermSuffixIndex_IterateContains`], [`TermSuffixIndex_IterateSuffix`]
- * or [`TermSuffixIndex_IterateWildcard`].
+ * Callback invoked once per term.
  *
  * `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
  * for the duration of the call. `ctx` is the caller context passed to

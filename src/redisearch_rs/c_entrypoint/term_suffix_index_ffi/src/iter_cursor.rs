@@ -9,9 +9,9 @@
 
 //! Cursor-style iteration over a [`TermSuffixIndex`].
 //!
-//! The caller obtains an opaque iterator from [`TermSuffixIndex_IterateAll`],
-//! advances it with [`TermSuffixIndexIterator_Next`], and frees it with
-//! [`TermSuffixIndexIterator_Free`]. Used by `FT.DEBUG DUMP_SUFFIX_TRIE`.
+//! The caller obtains an opaque iterator, advances it with
+//! [`TermSuffixIndexIterator_Next`], and frees it with
+//! [`TermSuffixIndexIterator_Free`].
 
 use std::ffi::{c_char, c_int};
 

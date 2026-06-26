@@ -10,8 +10,7 @@
 //! Callback-style iteration over a [`TermSuffixIndex`].
 //!
 //! The caller passes a [`TermSuffixIterateCallback`] that is invoked once
-//! per matched term, fully drained within the call. Used by the query
-//! path to accumulate matched terms into a union iterator.
+//! per matched term, fully drained within the call.
 
 use std::ffi::{c_char, c_int, c_void};
 use std::{ptr, slice, str};
