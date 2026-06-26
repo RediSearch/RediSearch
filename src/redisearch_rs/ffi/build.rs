@@ -359,7 +359,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Release",
         ],
         types: &[],
-        vars: &["isCrdt"],
+        vars: &["isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
