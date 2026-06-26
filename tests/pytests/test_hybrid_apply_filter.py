@@ -111,3 +111,51 @@ def test_hybrid_bad_apply():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', '$BLOB',\
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
          'APPLY', 'whoami', 'PARAMS', '2', 'BLOB', query_vector).error().contains("Unknown symbol 'whoami'")
+
+
+def _hybrid_matched_terms_with_score(env):
+    """Run FT.HYBRID with a required score and matched_terms() in the tail.
+
+    YIELD_SCORE_AS requests a score, which keeps each row's index result alive
+    through the subquery depleters, so matched_terms() reads the matched terms
+    rather than the tail separately opting in. Returns {key: terms} per row.
+    """
+    query_vector = np.array([0, 0]).astype(np.float32).tobytes()
+    response = env.cmd('FT.HYBRID', 'idx',
+        'SEARCH', 'shoes', 'YIELD_SCORE_AS', 's_score',
+        'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+        'LOAD', '1', '@__key', 'APPLY', 'matched_terms()', 'AS', 'terms',
+        'PARAMS', '2', 'BLOB', query_vector)
+    results, _ = get_results_from_hybrid_response(response)
+    return {key: row.get('terms') for key, row in results.items()}
+
+
+def _assert_matched_terms_present(env, terms):
+    # Text-matched docs expose the matched term; the vector-only doc has none.
+    for key in ('doc:1', 'doc:2', 'doc:4'):
+        env.assertIsNotNone(terms[key], message=key)
+        env.assertContains('shoes', terms[key], message=key)
+    env.assertIsNone(terms['doc:3'])
+
+
+@skip(cluster=True)
+def test_hybrid_matched_terms_with_score_standalone():
+    """Standalone serves matched_terms() in the hybrid tail: the index result
+    is live in the same process that runs the query."""
+    env = Env()
+    setup_basic_index(env)
+    _assert_matched_terms_present(env, _hybrid_matched_terms_with_score(env))
+
+
+def test_hybrid_matched_terms_with_score_coordinator():
+    """Coordinator cannot serve matched_terms() in the hybrid tail: the index
+    result is shard-local and shard rows reach the coordinator carrying only
+    their declared output fields, so the tail has no terms to read.
+
+    This asserts the standalone outcome under a forced cluster, so it FAILS in
+    coordinator mode, reproducing the gap. A score is requested so the result
+    is preserved regardless of whether the tail opts into keeping it.
+    """
+    env = Env(env='oss-cluster', shardsCount=3)
+    setup_basic_index(env)
+    _assert_matched_terms_present(env, _hybrid_matched_terms_with_score(env))
