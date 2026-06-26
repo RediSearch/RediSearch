@@ -103,6 +103,17 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
     "${root}/deps/thpool/*.c")
 
 #----------------------------------------------------------------------------------------------
+# GIT_VERSPEC / GIT_SHA (computed in the top-level CMakeLists) change on every
+# commit. Scope them to the only two TUs that read them — debug_commands.c
+# (FT.DEBUG GIT_SHA) and module-init.c (version string) — instead of defining
+# them globally, so every other TU keeps a stable compile command line and
+# stays cacheable (sccache) across commits.
+set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/debug_commands.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/module-init/module-init.c"
+    PROPERTIES COMPILE_DEFINITIONS "GIT_VERSPEC=\"${GIT_VERSPEC}\";GIT_SHA=\"${GIT_SHA}\"")
+
+#----------------------------------------------------------------------------------------------
 # Create the rscore object library
 add_library(rscore OBJECT ${SOURCES})
 add_dependencies(rscore generate_command_info)
