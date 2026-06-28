@@ -968,12 +968,13 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
-// A result flagged Result_ExpiredDoc carries no fields: its document was deleted or
-// re-indexed between the iterator yielding it and the safe loader loading it (the safe
-// loader releases the spec read lock to take the GIL, so a concurrent re-index can pop
-// the doc's metadata in that window). Such a result must not reach the client, where it
-// would serialize as a nil field-array (RESP2 $-1); the safe loader drops it instead.
-// The plain loader runs with Redis locked throughout, so it never observes this.
+// Whether a loaded result can be serialized to the client. A result flagged
+// Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
+// the iterator yielding it and the safe loader loading it (the safe loader releases the
+// spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
+// that window) - so serializing it would produce a doc id followed by a nil field-array
+// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
+// with Redis locked throughout and never sees them. [MOD-16507]
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }

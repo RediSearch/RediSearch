@@ -1,4 +1,5 @@
 import copy
+import threading
 import time
 from itertools import chain
 
@@ -1146,44 +1147,74 @@ def test_expire_past_timestamp_removes_doc(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
 
 
-@skip(cluster=True, redis_less_than="7.4")
-def test_search_no_nil_fields_when_doc_reindexed_during_load(env):
-    # When the result loader runs on a worker thread (WORKERS>0), the safe loader
-    # buffers the matched rows, releases the spec read lock, and then takes the GIL to
-    # load their fields. If a matched document is re-indexed on the main thread in that
-    # window - here by expiring an indexed hash field (HPEXPIRE) while re-seeding the
-    # docs under query - its buffered metadata is popped. The loader must DROP that row
-    # rather than emit the doc id followed by a nil field-array (RESP2 $-1, decoded to
-    # None by redis-py), and must keep total_results consistent with the rows returned.
+@skip(cluster=True)
+def test_search_drops_doc_reindexed_during_load(env):
+    # When result loading runs on a worker thread (WORKERS>0), the safe loader buffers
+    # the matched rows, releases the spec read lock, and then takes the GIL to load
+    # their fields. If a matched document is re-indexed on the main thread inside that
+    # window, its buffered metadata is popped (marked deleted, a new docId assigned).
+    # The loader must DROP that row rather than emit the doc id followed by a nil
+    # field-array (RESP2 $-1, decoded to None by redis-py), and must remove it from
+    # total_results so the advertised count matches the rows actually returned.
     #
-    # redis_less_than 7.4: HPEXPIRE (hash-field TTL) requires Redis 7.4.
-    # WORKERS>0 at load so result loading runs on worker threads (the safe loader).
-    env = Env(moduleArgs='WORKERS 4')
+    # Reproduced deterministically with the BeforeSafeLoaderGILLock sync point: pin the
+    # worker after it has buffered the rows and released the read lock, re-index a
+    # matched doc on the main thread, then release the worker.
+    env = Env(moduleArgs='WORKERS 1')
+    # Sync points are compiled only with ENABLE_ASSERT. The shared isEnableAssertEnabled
+    # helper probes a coordinator-only command, so gate on the SYNC_POINT command itself.
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()
+        return
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
-               'SCHEMA', 'title', 'TEXT', 'SORTABLE', 'cat', 'TAG').ok()
+               'SCHEMA', 'n', 'NUMERIC', 'title', 'TEXT', 'SORTABLE').ok()
+    # No query timeout, so the worker blocks on the sync point rather than the clock.
+    env.expect('FT.CONFIG', 'SET', 'TIMEOUT', '0').ok()
+    conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one')
+    conn.execute_command('HSET', 'doc:2', 'n', '2', 'title', 'two')
+    waitForIndex(env, 'idx')
 
-    NDOCS = 300
-    # Re-seed every doc and give its indexed SORTABLE field a tiny, staggered TTL so the
-    # field is reaped around query time, forcing a re-index that races the worker-thread
-    # loader. The query matches all docs (LIMIT covers them), so every match is loaded
-    # and total_results must equal the number of rows actually returned.
-    with TimeLimit(180, 'reindex-during-load loop timed out'):
-        for it in range(250):
-            pipe = conn.pipeline(transaction=False)
-            for d in range(NDOCS):
-                key = f'doc:{d}'
-                pipe.hset(key, mapping={'title': f'item {d}', 'cat': 'x'})
-                pipe.execute_command('HPEXPIRE', key, 2 + (d % 8), 'FIELDS', '1', 'title')
-            pipe.execute()
+    sync_point = 'BeforeSafeLoaderGILLock'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
-            res = conn.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(NDOCS))
-            total, flat = res[0], res[1:]
-            pairs = list(zip(flat[0::2], flat[1::2]))
-            # No matched doc may come back with a nil field-array...
-            nil_keys = [key for key, fields in pairs if fields is None]
-            env.assertEqual(nil_keys, [], message=f'iter {it}: nil field-array for {nil_keys}')
-            # ...and a dropped row must also leave total_results, so the advertised count
-            # never exceeds the rows we actually return.
-            env.assertEqual(total, len(pairs),
-                            message=f'iter {it}: total_results {total} != returned rows {len(pairs)}')
+    out = []
+    def run_search(c, sink):
+        try:
+            sink.append(c.execute_command('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'))
+        except Exception as e:
+            sink.append(e)
+
+    query_conn = env.getConnection()
+    t = threading.Thread(target=run_search, args=(query_conn, out), daemon=True)
+    t.start()
+
+    # The worker has buffered both rows and released the read lock; it is now pinned
+    # just before taking the GIL.
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point}')
+
+    # Re-index a matched doc on the main thread while the worker is pinned: this pops
+    # its buffered metadata, marking it deleted and assigning a new docId.
+    conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one-reindexed')
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='search thread still blocked after signal')
+
+    res = out[0]
+    env.assertFalse(isinstance(res, Exception), message=f'search raised: {res}')
+    total, flat = res[0], res[1:]
+    pairs = list(zip(flat[0::2], flat[1::2]))
+    # No matched document may come back with a nil field-array.
+    env.assertEqual([key for key, fields in pairs if fields is None], [],
+                    message=f'nil field-array in reply: {pairs}')
+    # The re-indexed doc is dropped (only the untouched doc:2 remains), and
+    # total_results matches the rows actually returned.
+    env.assertEqual([key for key, _ in pairs], ['doc:2'],
+                    message=f'expected only doc:2, got {[k for k, _ in pairs]}')
+    env.assertEqual(total, len(pairs),
+                    message=f'total_results {total} != returned rows {len(pairs)}')
