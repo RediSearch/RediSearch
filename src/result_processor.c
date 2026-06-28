@@ -969,26 +969,24 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 }
 
 // A result flagged Result_ExpiredDoc carries no fields: its document was deleted or
-// re-indexed between the iterator yielding it and the loader running (the safe loader
-// briefly releases the spec read lock to take the GIL). Such a result must not reach
-// the client, where it would serialize as a nil field-array (RESP2 $-1). The loader
-// drops it from the stream instead of emitting it. [MOD-16507]
+// re-indexed between the iterator yielding it and the safe loader loading it (the safe
+// loader releases the spec read lock to take the GIL, so a concurrent re-index can pop
+// the doc's metadata in that window). Such a result must not reach the client, where it
+// would serialize as a nil field-array (RESP2 $-1); the safe loader drops it instead.
+// The plain loader runs with Redis locked throughout, so it never observes this.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc;
-  while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
-    rpLoader_loadDocument(lc, r);
-    if (loaderResultIsEmittable(r)) {
-      return RS_RESULT_OK;
-    }
-    // Document was invalidated mid-query: drop it and reuse r for the next fetch.
-    SearchResult_Clear(r);
+  int rc = base->upstream->Next(base->upstream, r);
+  if (rc != RS_RESULT_OK) {
+    return rc;
   }
-  return rc;
+
+  rpLoader_loadDocument(lc, r);
+  return RS_RESULT_OK;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
@@ -1172,6 +1170,20 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     rpLoader_loadDocument(&self->base_loader, curr_res);
+    if (!loaderResultIsEmittable(curr_res)) {
+      // The document was deleted/re-indexed between buffering and load (the safe
+      // loader released the read lock to take the GIL). Drop it here, in the load
+      // pass, rather than at yield time:
+      //  - remove it from totalResults while we still run before the reply header is
+      //    written (RESP2 emits the count before yielding rows, RESP3 after), so both
+      //    protocols stay consistent with the rows we actually return; and
+      //  - reset the slot to an empty tombstone. The yield phase then skips it with
+      //    no per-slot cleanup, and rpSafeLoaderFree can destroy the emptied slot
+      //    safely whether or not it was reached.
+      self->base_loader.base.parent->totalResults--;
+      SearchResult_Destroy(curr_res);
+      *curr_res = SearchResult_New();
+    }
   }
 
   // Reset the iterator
@@ -1183,13 +1195,14 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res;
 
   while ((curr_res = GetNextResult(self))) {
-    if (loaderResultIsEmittable(curr_res)) {
-      SetResult(curr_res, result_output);
-      return RS_RESULT_OK;
+    // rpSafeLoader_Load emptied the slots of documents invalidated mid-query (and
+    // already removed them from totalResults). A tombstone owns nothing, so skip it
+    // with no cleanup; a live buffered result always carries document metadata.
+    if (SearchResult_GetDocumentMetadata(curr_res) == NULL) {
+      continue;
     }
-    // Document was invalidated mid-query: drop it. GetNextResult has already advanced
-    // past this slot, so rpSafeLoaderFree won't reclaim it - release it here.
-    SearchResult_Clear(curr_res);
+    SetResult(curr_res, result_output);
+    return RS_RESULT_OK;
   }
   return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
