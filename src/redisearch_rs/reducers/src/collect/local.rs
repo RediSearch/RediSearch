@@ -254,9 +254,8 @@ impl LocalCollectCtx {
                 continue;
             }
             match &mut self.storage {
-                Storage::Unranked(unranked) => {
-                    unranked.push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)))
-                }
+                Storage::Unranked(unranked) => unranked
+                    .push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup))),
                 Storage::Ranked(ranked) => ranked.consider(
                     snapshot_sort_keys(r.fields.sort_key_names(), item),
                     (),
@@ -282,8 +281,6 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        // Both arms yield `ProjectedRow`s; the ranked arm drops each entry's
-        // `RankingKey`, which the client-facing reducer never re-emits.
         let rows = match &mut self.storage {
             Storage::Unranked(u) => Either::Left(u.drain()),
             Storage::Ranked(r) => Either::Right(r.drain()),

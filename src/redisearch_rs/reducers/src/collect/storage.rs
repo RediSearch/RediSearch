@@ -294,9 +294,7 @@ impl<D: Ord> RankedStorage<D> {
         self.drain_with_sort_vals().map(|(row, _)| row)
     }
 
-    /// Like [`drain`][Self::drain] but pairs each row with its sort-key snapshot,
-    /// so the remote reducer can re-attach the deferred SORTBY columns. Keeps
-    /// [`RankedEntry`]/[`RankingKey`] private to this module.
+    /// Like [`drain`][Self::drain] but pairs each row with its sort-key snapshot.
     pub fn drain_with_sort_vals(
         &mut self,
     ) -> impl ExactSizeIterator<Item = (ProjectedRow, Box<[Option<SharedValue>]>)> {
