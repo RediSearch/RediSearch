@@ -179,7 +179,7 @@ fs-err = "3.2.2"
 hash32 = "1"
 icu_casemap = "2.2.0"
 insta = "1.46.1"
-itertools = "0.14.0"
+itertools = "0.15.0"
 lending-iterator = "0.1.7"
 libc = "0.2.180"
 nix = { version = "0.26", default-features = false, features = ["poll"] }

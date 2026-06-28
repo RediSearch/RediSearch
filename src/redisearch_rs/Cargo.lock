@@ -1126,7 +1126,7 @@ dependencies = [
  "ffi",
  "index_result",
  "inverted_index",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "query_term",
  "redis-module",
  "redis_mock",
@@ -1181,9 +1181,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -2038,7 +2038,7 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "min-max-heap",
  "query_error",
  "redis_mock",
@@ -2160,7 +2160,7 @@ dependencies = [
  "field_spec",
  "index_spec",
  "index_spec_cache",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "libc",
  "pin-project",
  "pretty_assertions",
@@ -2297,7 +2297,7 @@ dependencies = [
  "inverted_index",
  "inverted_index_ffi",
  "iterators_ffi",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "query_term",
  "rand 0.10.1",
  "redis_mock",
