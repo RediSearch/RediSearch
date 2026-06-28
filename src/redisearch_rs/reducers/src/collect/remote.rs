@@ -306,19 +306,20 @@ impl RemoteCollectCtx {
         };
         let rows = match &mut self.storage {
             Storage::Unranked(unranked) => Either::Left(unranked.drain().map(|p| to_map(p.row()))),
-            Storage::Ranked(ranked) => Either::Right(ranked.drain().map(|entry| {
-                // Rebuild a ranked entry's wire row: projected fields plus the
-                // deferred sort columns merged back from the ranking-key snapshot.
-                let (ranking_key, projected) = entry.into_parts();
-                let mut row = projected.into_row();
-                // `sort_extras` (names) and the snapshot (values) share SORTBY order.
-                for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
-                    if let Some(val) = val {
-                        row.write_key(key, val.clone());
+            Storage::Ranked(ranked) => {
+                Either::Right(ranked.drain_with_sort_vals().map(|(projected, sort_vals)| {
+                    // Rebuild the wire row: projected fields plus the deferred sort
+                    // columns merged back from the ranking-key snapshot.
+                    let mut row = projected.into_row();
+                    // `sort_extras` (names) and the snapshot (values) share SORTBY order.
+                    for (key, val) in sort_extras.iter().zip(sort_vals.iter()) {
+                        if let Some(val) = val {
+                            row.write_key(key, val.clone());
+                        }
                     }
-                }
-                to_map(&row)
-            })),
+                    to_map(&row)
+                }))
+            }
         };
         SharedValue::new_array(rows)
     }

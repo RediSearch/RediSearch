@@ -289,13 +289,18 @@ impl<D: Ord> RankedStorage<D> {
         }
     }
 
-    /// Each [`RankedEntry`] keeps its [`RankingKey`] so the remote reducer can read
-    /// [`RankingKey::sort_vals`] (via [`RankedEntry::into_parts`]) to rebuild the
-    /// wire row; the local reducer just takes [`RankedEntry::into_projected`].
-    pub fn drain(
+    /// Drains the retained rows best→worst, discarding each entry's ranking key.
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
+        self.drain_with_sort_vals().map(|(row, _)| row)
+    }
+
+    /// Like [`drain`][Self::drain] but pairs each row with its sort-key snapshot,
+    /// so the remote reducer can re-attach the deferred SORTBY columns. Keeps
+    /// [`RankedEntry`]/[`RankingKey`] private to this module.
+    pub fn drain_with_sort_vals(
         &mut self,
-    ) -> impl ExactSizeIterator<Item = RankedEntry<RankingKey<D>, ProjectedRow>> {
-        match self {
+    ) -> impl ExactSizeIterator<Item = (ProjectedRow, Box<[Option<SharedValue>]>)> {
+        let entries = match self {
             Self::Plain {
                 heap,
                 offset,
@@ -319,6 +324,10 @@ impl<D: Ord> RankedStorage<D> {
                 best_first.reverse();
                 best_first.into_iter().skip(*offset).take(*count)
             }
-        }
+        };
+        entries.map(|entry| {
+            let (key, row) = entry.into_parts();
+            (row, key.into_sort_vals())
+        })
     }
 }

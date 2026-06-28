@@ -8,10 +8,8 @@
 */
 
 //! Ranking primitives for the bounded `COLLECT … SORTBY [LIMIT]` top-K path:
-//! [`RankingKey`], the comparator, and [`RankedEntry`], which pairs a key with a
-//! payload. The two ranked backings — a [`MinMaxHeap`][min_max_heap::MinMaxHeap]
-//! and, on the DISTINCT path, a [`PriorityQueue`][priority_queue::PriorityQueue]
-//! — both yield [`RankedEntry`]s when drained.
+//! [`RankingKey`] is the comparator; [`RankedEntry`] is the ranked storage's
+//! element, pairing a key with its payload.
 //!
 //! ## Deferred projection
 //!
@@ -45,9 +43,10 @@ impl<D: Ord> RankingKey<D> {
         }
     }
 
-    /// The sort-key snapshot, in `SORTBY` order (an absent key is `None`).
-    pub fn sort_vals(&self) -> &[Option<SharedValue>] {
-        &self.sort_vals
+    /// Consumes the key, yielding its sort-key snapshot in `SORTBY` order (an
+    /// absent key is `None`).
+    pub fn into_sort_vals(self) -> Box<[Option<SharedValue>]> {
+        self.sort_vals
     }
 }
 

@@ -33,7 +33,6 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::ranking::RankedEntry;
 use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
@@ -287,7 +286,7 @@ impl LocalCollectCtx {
         // `RankingKey`, which the client-facing reducer never re-emits.
         let rows = match &mut self.storage {
             Storage::Unranked(u) => Either::Left(u.drain()),
-            Storage::Ranked(r) => Either::Right(r.drain().map(RankedEntry::into_projected)),
+            Storage::Ranked(r) => Either::Right(r.drain()),
         };
         SharedValue::new_array(rows.map(|projected| {
             let row = projected.row();
