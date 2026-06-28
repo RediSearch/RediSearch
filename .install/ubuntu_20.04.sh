@@ -25,18 +25,21 @@ add_launchpad_ppa() {
         "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp}" \
         | $MODE gpg --dearmor --yes -o "$keyring"
 
-    $MODE add-apt-repository -y \
-        "deb [signed-by=${keyring}] http://ppa.launchpad.net/${owner}/${name}/ubuntu ${codename} main"
+    # Write the source directly: focal's add-apt-repository can't parse a one-line
+    # entry with [signed-by=...] options.
+    echo "deb [signed-by=${keyring}] http://ppa.launchpad.net/${owner}/${name}/ubuntu ${codename} main" \
+        | $MODE tee "/etc/apt/sources.list.d/${owner}-${name}.list" > /dev/null
 }
 
 apt_get_cmd "$MODE" update -qq
 apt_get_cmd "$MODE" upgrade -yqq
 
-# software-properties-common provides add-apt-repository; curl/gnupg used by add_launchpad_ppa
+# curl/gnupg for add_launchpad_ppa; software-properties-common for install_llvm.sh
 apt_get_cmd "$MODE" install -yqq software-properties-common curl gnupg
 
 add_launchpad_ppa ubuntu-toolchain-r test
 add_launchpad_ppa deadsnakes ppa
+apt_get_cmd "$MODE" update -qq
 
 apt_get_cmd "$MODE" install -yqq wget make clang-format gcc lcov git openssl libssl-dev \
     unzip rsync build-essential gcc-11 g++-11 curl libclang-dev gdb
