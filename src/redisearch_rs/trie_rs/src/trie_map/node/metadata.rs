@@ -240,8 +240,8 @@ impl<Data> PtrMetadata<Data> {
         };
         // SAFETY:
         // 1. We allocated the buffer behind `ptr` using the global allocator, just above.
-        // 2.
-        // +
+        // 2. The allocation size equals `self.layout().size()`, i.e. the size dictated
+        //    by the metadata `self`.
         // 3. The layout used to allocate the buffer is exactly the layout mandated by
         //    the metadata we are attaching to it.
         unsafe { PtrWithMetadata::new(ptr, self) }
