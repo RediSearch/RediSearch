@@ -7,6 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! A case-preserving dictionary of spell-check terms, backed by a
+//! [`StrTrieMap`].
+//!
+//! # Case model
+//!
+//! Terms are stored verbatim. [`SpellCheckDictionary::contains`] and
+//! [`SpellCheckDictionary::fuzzy_matches`] are case-insensitive — the query
+//! and each candidate are lowercased via [`unicode_tolower`] before comparison
+//! — but [`SpellCheckDictionary::remove`] matches verbatim and is therefore
+//! case-sensitive.
+//!
+//! Because matching lowercases verbatim-stored keys, those two queries scan
+//! every stored term rather than exploiting the trie's prefix structure.
+
 use std::fmt::{self, Debug};
 
 use string_utils::{unicode_tolower, unicode_tolower_capped};
