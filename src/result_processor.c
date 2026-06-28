@@ -1197,8 +1197,8 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 
   while ((curr_res = GetNextResult(self))) {
     // rpSafeLoader_Load emptied the slots of documents invalidated mid-query (and
-    // already removed them from totalResults). A tombstone owns nothing, so skip it
-    // with no cleanup; a live buffered result always carries document metadata.
+    // counted them in skippedResults). A tombstone owns nothing, so skip it with no
+    // cleanup; a live buffered result always carries document metadata.
     if (SearchResult_GetDocumentMetadata(curr_res) == NULL) {
       continue;
     }
