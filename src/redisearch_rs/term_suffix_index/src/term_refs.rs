@@ -101,7 +101,7 @@ impl TermRefs {
     }
 }
 
-/// Whether a mutating operation on `TermRefs` left the entry empty.
+/// Whether a mutating operation on [`TermRefs`] left the entry empty.
 #[derive(Debug, PartialEq, Eq)]
 #[must_use = "evict the entry from the trie on Outcome::Drained"]
 pub(super) enum Outcome {
