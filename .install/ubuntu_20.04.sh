@@ -4,10 +4,8 @@ export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
-# Add a Launchpad PPA without the `ppa:` shortcut, which imports the key via the
-# launchpad.net web frontend - flaky from CI runners and the cause of focal build
-# failures. Resolve the fingerprint via api.launchpad.net, fetch the key from the
-# keyserver, and add a plain `deb` line (key fetched before the source is trusted).
+# Add the PPA manually instead of via the `ppa:` shortcut, which relies on
+# launchpad.net - intermittently unreachable from CI runners. See MOD-XXXXX.
 add_launchpad_ppa() {
     local owner="$1" name="$2"
     local codename keyring fp
