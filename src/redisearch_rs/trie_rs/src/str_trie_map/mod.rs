@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! A UTF-8 keyed trie map. See [`StrTrieMap`].
+
 pub mod iter;
 
 use crate::TrieMap;
