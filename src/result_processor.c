@@ -981,13 +981,18 @@ static inline bool loaderResultIsEmittable(const SearchResult *r) {
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+  int rc;
+  while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
+    rpLoader_loadDocument(lc, r);
+    if (loaderResultIsEmittable(r)) {
+      return RS_RESULT_OK;
+    }
+    // Deleted/expired/failed-to-open between matching and load: drop rather than
+    // emit a nil field-array, counting it as skipped so the total stays accurate. [MOD-16507]
+    base->parent->skippedResults++;
+    SearchResult_Clear(r);
   }
-
-  rpLoader_loadDocument(lc, r);
-  return RS_RESULT_OK;
+  return rc;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
