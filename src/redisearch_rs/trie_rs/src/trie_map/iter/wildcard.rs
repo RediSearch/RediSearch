@@ -26,7 +26,7 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
     pub(crate) fn new(root: Option<&'tm Node<Data>>, pattern: WildcardPattern<'p>) -> Self {
         let iter = match root {
             Some(root) => {
-                // If the first portion of the pattern is a literal, we can jumping directly
+                // If the first portion of the pattern is a literal, we can jump directly
                 // to the subtree of the trie containing the terms under that prefix
                 // (if there are any).
                 if let Some(rqe_wildcard::Token::Literal(lit)) = pattern.tokens().first() {
