@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 #include "config.h"
 #include "util/strconv.h"
+#include "util/timeout.h"
 #include "wildcard.h"
 
 #include <string.h>
@@ -340,6 +341,17 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
     }
   }
   return REDISMODULE_OK;
+}
+
+// Stop predicate for the Rust TermSuffixIndex_IterateWildcard scan: returns
+// true once the query deadline has passed. `deadline` is a `struct timespec *`.
+// Mirrors the RS_IsMock short-circuit of the counter-based timeout helpers so
+// mock-mode runs, which lack a real query clock, never spuriously time out.
+static bool suffixWildcard_timedOut(void *deadline) {
+  if (RS_IsMock) {
+    return false;
+  }
+  return TimedOut((const struct timespec *)deadline) == TIMED_OUT;
 }
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
