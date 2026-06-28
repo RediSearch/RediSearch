@@ -15,6 +15,8 @@
 //! by the tokenizer. The structure itself is content-agnostic — any
 //! `&str` will do.
 //!
+//! # Case-insensitivity
+//!
 //! Every term and query is lowercased on the way in via
 //! [`unicode_tolower`], so stored terms and matches are always in
 //! lowercase form and lookups are case-insensitive. Callers pass terms
@@ -71,8 +73,8 @@ impl TermSuffixIndex {
     }
 
     /// Add a term to the set, registering it under its own key and every
-    /// queryable suffix. Lowercased on entry; re-adding an existing term, or
-    /// adding an empty one, is a no-op.
+    /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
+    /// re-adding an existing term, or adding an empty one, is a no-op.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -98,8 +100,8 @@ impl TermSuffixIndex {
     }
 
     /// Remove a term from the set, evicting its own key and any suffix entries
-    /// it was the last referrer to. Lowercased on entry; removing an absent or
-    /// empty term is a no-op.
+    /// it was the last referrer to. [Lowercased on entry](crate#case-insensitivity);
+    /// removing an absent or empty term is a no-op.
     pub fn remove(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -131,7 +133,7 @@ impl TermSuffixIndex {
     }
 
     /// Iterate over the members that contain `needle` as a substring.
-    /// Lowercased on entry, so matching is case-insensitive. Empty
+    /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
@@ -142,7 +144,7 @@ impl TermSuffixIndex {
     }
 
     /// Iterate over the members that end with `needle`.
-    /// Lowercased on entry, so matching is case-insensitive. Empty
+    /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
         let lowered = unicode_tolower(needle);
@@ -156,9 +158,10 @@ impl TermSuffixIndex {
     }
 
     /// Iterate over the members matching the glob `pattern`, where `*` matches
-    /// any run of characters and `?` any single byte. Lowercased on entry, so
-    /// matching is case-insensitive. Returns `None` when no token in the
-    /// pattern can seed the search (every token is empty or contains `?`).
+    /// any run of characters and `?` any single byte. Matching is
+    /// [case-insensitive](crate#case-insensitivity). Returns `None` when no
+    /// token in the pattern can seed the search (every token is empty or
+    /// contains `?`).
     /// A term may be yielded more than once (once per matching suffix entry).
     ///
     /// `?` matches a single *byte*, not a codepoint. The final filter runs
