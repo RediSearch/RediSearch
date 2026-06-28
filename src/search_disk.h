@@ -394,6 +394,29 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
  */
 QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
 
+/**
+ * @brief Create a geo radius IndexIterator over the disk-backed index
+ *
+ * Geo fields are stored as geohash-encoded `f64`s in the numeric column family,
+ * so this decomposes the circle in `gf` into up to 9 numeric range filters and
+ * runs them through the same disk machinery as `SearchDisk_NewNumericIterator`,
+ * unioning the results and post-filtering each record by true great-circle
+ * distance. The disk snapshot is taken from `sctx->diskSnapshot` (which must be
+ * non-NULL) so all cells observe the same database state.
+ *
+ * @param index Pointer to the index
+ * @param sctx Search context whose `diskSnapshot` field selects the read view.
+ *             The `diskSnapshot` field is required to be non-NULL.
+ * @param gf Geo filter; `numericFilters` MUST be NULL on entry and is populated
+ *           by this call (owned by `*gf`, freed by `GeoFilter_Free`). Must
+ *           outlive this call; each per-cell leaf copies the `GeoFilter` onto
+ *           its own heap so the returned iterator does not retain a borrow into `gf`.
+ * @param fieldIndex Field index for the geo field (same CF as numeric)
+ * @param status QueryError to populate with the cause when creation fails (may be NULL)
+ * @return Pointer to the IndexIterator, or NULL if no buckets overlap any cell
+ */
+QueryIterator* SearchDisk_NewGeoIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, GeoFilter *gf, t_fieldIndex fieldIndex, QueryError *status);
+
 // DocTable API wrappers
 
 /**

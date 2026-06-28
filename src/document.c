@@ -633,10 +633,7 @@ static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 FIELD_BULK_INDEXER(numericIndexer) {
   if (aCtx->disk.batch) {
     // The dispatcher in `IndexerBulkAdd` routes both IXFLDPOS_NUMERIC and
-    // IXFLDPOS_GEO through this indexer; only the numeric path rides the
-    // disk batch today.
-    RS_LOG_ASSERT_ALWAYS(!(fs->types & INDEXFLD_T_GEO),
-                         "disk-mode geo is not supported yet");
+    // IXFLDPOS_GEO through this indexer.
     return indexNumericOnDiskBatch(aCtx, ctx, fs, fdata, status);
   }
 
@@ -871,10 +868,10 @@ FIELD_BULK_APPLIER(numericApplier) {
 }
 
 FIELD_BULK_APPLIER(geoApplier) {
-  // TODO: when geo lands on the per-document disk write batch, move the
-  // numeric-tree mutation + stats deltas here. Today `numericIndexer` (which
-  // handles both numeric and geo) does the work inline and asserts disk-mode
-  // is disabled.
+  // Per-spec geo stats are bumped by `numericIndexer` in both modes (geo
+  // values are stored as geohash `f64`s in the numeric index, so the same
+  // code path applies). The applier only handles the global field-docs
+  // counter.
   (void)aCtx; (void)field; (void)fs; (void)fdata;
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEO, 1);
 }
