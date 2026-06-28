@@ -130,6 +130,12 @@ impl TermSuffixIndex {
             .map(|(byte_idx, _)| &term[byte_idx..])
     }
 
+    /// Iterate over every key in the index — each member term plus every
+    /// indexed proper suffix — in lexicographical order.
+    pub fn keys(&self) -> impl Iterator<Item = String> + '_ {
+        self.inner.iter().map(|(key, _)| key)
+    }
+
     /// Iterate over the members that contain `needle` as a substring.
     /// Lowercased on entry, so matching is case-insensitive. Empty
     /// `needle` yields nothing. A term may be yielded more than once
