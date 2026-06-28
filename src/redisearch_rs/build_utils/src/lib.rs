@@ -90,7 +90,16 @@ pub fn force_link_time_symbol_resolution() {
 /// When the top-level build coordinator sets `BINDIR`, that value is used
 /// directly. Otherwise we fall back to the conventional release layout
 /// derived from the git root.
+///
+/// The chosen directory is baked into the `-L` link-search flags this crate
+/// emits, so it must be re-evaluated whenever `BINDIR` changes. Without the
+/// `rerun-if-env-changed` below, Cargo would replay a build script's cached
+/// directives — e.g. a release-layout `-L` captured during a `BINDIR`-less
+/// `cargo` invocation — into a later debug build, letting a stale
+/// `bin/<...>-release/.../libredisearch_all.a` shadow the correct one and
+/// fail the final link with undefined symbols.
 fn bin_root() -> PathBuf {
+    println!("cargo::rerun-if-env-changed=BINDIR");
     if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
