@@ -2524,6 +2524,12 @@
         ]
       },
       {
+        "name": "explainscore",
+        "type": "pure-token",
+        "token": "EXPLAINSCORE",
+        "optional": true
+      },
+      {
         "name": "params",
         "type": "block",
         "optional": true,

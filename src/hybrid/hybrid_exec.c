@@ -608,10 +608,7 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   rm_free(hybridParams);
 }
 
@@ -1003,7 +1000,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     BlockClientCtx blockClientCtx = {0};
 
-    blockClientCtx.ast = &hreq->requests[0]->ast;
     blockClientCtx.privdata = hreq;
     HybridRequest_IncrRef(hreq);
     blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;

@@ -2162,13 +2162,13 @@ class TestCoordinatorTimeout:
         Covers two related coordinator-side code paths that both fire on this
         scenario:
 
-        1. ShardResponseBarrier (rpnet.c): WITHCOUNT installs a barrier that
-           makes RPNet's first getNextReply block until every shard has sent
-           its first reply so that total_results reflects the pre-LIMIT count
-           across the full cluster. With one shard paused, the barrier never
-           completes: shardResponseBarrier_HandleTimeout fires before any row
-           is serialized and shardResponseBarrier_UpdateTotalResults is
-           skipped, so RPNet returns TIMEDOUT with no buffered rows.
+        1. Async WITHCOUNT collection (dist_aggregate.c): WITHCOUNT defers the
+           aggregation pipeline until every shard has sent its first reply, so
+           total_results reflects the pre-LIMIT count across the full cluster
+           before any row is serialized. With one shard paused, that collection
+           never completes: the blocked-client timeout fires first, the
+           main-thread callback replies TIMEOUT, and the deferred pipeline is
+           skipped - so the coordinator returns TIMEDOUT with no buffered rows.
 
         2. RPDepleter RETURN_STRICT discard (result_processor.c): WITHCOUNT
            without SORTBY/GROUPBY adds an RPDepleter between RPNet and
@@ -2177,7 +2177,7 @@ class TestCoordinatorTimeout:
            any buffered rows and propagate TIMEDOUT in O(1) under
            RETURN_STRICT - returning a partial count would silently
            understate the result set. In this scenario the depleter's buffer
-           is empty (the barrier blocked all rows), but the discard branch
+           is empty (collection blocked all rows), but the discard branch
            still executes and is asserted by the empty-result expectation.
 
         The reply must carry 0 rows, total_results=0, and a TIMEOUT warning
@@ -4812,11 +4812,9 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             verify_shard_init(self.env.getConnection(i))
 
         conn = getConnectionByEnv(self.env)
+
         self.env.expect('FT.CREATE', 'idx', 'PREFIX', '1', 'doc',
                         'SCHEMA', 'name', 'TEXT').ok()
-        for i in range(self.n_docs):
-            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
-
         # Index with a vector field for FT.HYBRID tests (different prefix).
         self.env.expect(
             'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
@@ -4824,7 +4822,10 @@ class TestCoordinatorTimeoutReturnStrictResp2:
             'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
             'DISTANCE_METRIC', 'L2'
         ).ok()
+
         for i in range(self.n_docs):
+            conn.execute_command('HSET', f'doc{i}', 'name', f'hello{i}')
+
             vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
             conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}',
                                  'embedding', vec)

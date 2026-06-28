@@ -2297,6 +2297,7 @@ dictType dictTypeHybridSearchResult = {
  const RLookupKey *docKey;        // Key for reading document key when dmd is not available
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+ HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
 
 } RPHybridMerger;
 
@@ -2413,7 +2414,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
   RS_ASSERT(hybridResult);
 
-  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
     return RS_RESULT_ERROR;
   }
@@ -2512,6 +2513,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
      HybridLookupContext_Free(self->lookupCtx);
    }
 
+   if (self->explainCtx) {
+     HybridExplainContext_Free(self->explainCtx);
+   }
+
    // Free the processor itself
    rm_free(self);
  }
@@ -2532,7 +2537,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx) {
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   ret->sctx = sctx;
@@ -2550,6 +2556,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   ret->scoreKey = scoreKey;
 
   ret->docKey = docKey;
+
+  ret->explainCtx = explainCtx;
 
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);

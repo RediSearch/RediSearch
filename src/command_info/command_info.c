@@ -2751,6 +2751,12 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
         },
       },
       {
+        .name = "explainscore",
+        .token = "EXPLAINSCORE",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {
         .name = "params",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
