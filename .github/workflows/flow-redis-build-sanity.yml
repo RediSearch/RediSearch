@@ -95,77 +95,10 @@ on:
 
 jobs:
   generate-matrix:
-    runs-on: ubuntu-slim
-    outputs:
-      matrix: ${{ steps.generate.outputs.matrix }}
-      has-jobs: ${{ steps.generate.outputs.has-jobs }}
-    steps:
-      - name: Generate filtered matrix
-        id: generate
-        shell: python
-        env:
-          INPUT_PLATFORM: ${{ inputs.platform }}
-          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
-        run: |
-          import json
-          import os
-
-          supported_combinations = [
-              ("ubuntu:resolute", "x86_64"),
-              ("ubuntu:resolute", "aarch64"),
-              ("ubuntu:noble", "x86_64"),
-              ("ubuntu:noble", "aarch64"),
-              ("ubuntu:jammy", "x86_64"),
-              ("ubuntu:jammy", "aarch64"),
-              ("ubuntu:focal", "x86_64"),
-              ("ubuntu:focal", "aarch64"),
-              ("rockylinux:8", "x86_64"),
-              ("rockylinux:8", "aarch64"),
-              ("rockylinux:9", "x86_64"),
-              ("rockylinux:9", "aarch64"),
-              ("rockylinux:10", "x86_64"),
-              ("rockylinux:10", "aarch64"),
-              ("amazonlinux:2023", "x86_64"),
-              ("amazonlinux:2023", "aarch64"),
-              ("debian:bookworm", "x86_64"),
-              ("debian:bookworm", "aarch64"),
-              ("debian:trixie", "x86_64"),
-              ("debian:trixie", "aarch64"),
-              ("azurelinux:3", "x86_64"),
-              ("azurelinux:3", "aarch64"),
-              ("alpine:3.23", "x86_64"),
-              ("alpine:3.23", "aarch64"),
-              ("macos-14", "x86_64"),
-              ("macos-14", "aarch64"),
-              ("macos-15", "x86_64"),
-              ("macos-15", "aarch64"),
-              ("macos-26", "x86_64"),
-              ("macos-26", "aarch64"),
-              ("intel", "x86_64"),
-          ]
-          minimal_combinations = [
-              ("ubuntu:latest", "x86_64"),
-              ("ubuntu:latest", "aarch64"),
-          ]
-
-          platform_filter = os.environ["INPUT_PLATFORM"]
-          architecture_filter = os.environ["INPUT_ARCHITECTURE"]
-          platform_list = [p.strip() for p in platform_filter.split(",") if p.strip()]
-          exclude_list = [p[1:] for p in platform_list if p.startswith("!")]
-          include_latest = "ubuntu:latest" in platform_list
-          combinations = supported_combinations + (minimal_combinations if include_latest else [])
-
-          matrix_items = [
-              {"platform": platform, "architecture": architecture}
-              for platform, architecture in combinations
-              if (platform in platform_list or "all" in platform_list)
-              and platform not in exclude_list
-              and (architecture == architecture_filter or architecture_filter == "all")
-          ]
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"matrix={json.dumps({'include': matrix_items})}\n")
-              output.write(f"has-jobs={str(bool(matrix_items)).lower()}\n")
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
 
   redis-build-sanity-matrix:
     name: ${{ matrix.platform }} (${{ matrix.architecture }})
