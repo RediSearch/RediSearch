@@ -3159,10 +3159,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->timedOut) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-      // req->timedOut is set only by DistSearchTimeoutPartialCallback, so this is
-      // a blocked-client coord timeout -> record the per-stage breakdown.
-      recordSearchTimeoutStage(req, /*isError=*/false);
+      // The timeout warning stats (aggregate + per-stage) are recorded
+      // protocol-independently in DistSearchTimeoutPartialCallback; here we only
+      // emit the RESP3 warning entry. (RESP2 has no warning slot in the reply.)
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       RedisModule_Reply_ArrayEnd(reply);
@@ -4505,6 +4504,14 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
   req->timedOut = true;
+
+  // Confirmed blocked-client coord timeout: record the aggregate timeout warning
+  // and its per-stage breakdown here, protocol-independently, so RESP2 clients
+  // (which have no warning slot in the reply) and the profile reply path are
+  // counted the same as RESP3. Mirrors the queryOOM warning handling in
+  // sendSearchResults, which is likewise recorded outside the RESP3 block.
+  QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  recordSearchTimeoutStage(req, /*isError=*/false);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   if (req->profileArgs > 0) {
