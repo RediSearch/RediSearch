@@ -23,7 +23,7 @@
 
 use std::rc::Rc;
 
-/// `Rc<str>` shares one heap allocation across all of a term's
+/// [`Rc<str>`](std::rc::Rc) shares one heap allocation across all of a term's
 /// trie entries — one full-term entry plus its `N - 1` proper-suffix
 /// entries — keeping per-term memory `O(N)` instead of `O(N²)`.
 /// Bytes drop with the last reference.
