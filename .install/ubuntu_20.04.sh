@@ -4,22 +4,10 @@ export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 
-# Add a Launchpad PPA without add-apt-repository's `ppa:` shortcut.
-#
-# The `ppa:owner/name` shortcut resolves the PPA through the launchpad.net web
-# frontend and imports its signing key from there. That host is intermittently
-# unreachable from CI runners (TCP connections to it hang/time out), which makes
-# the focal container build fail with "retrieving gpg key timed out" /
-# "NO_PUBKEY" / "user or team does not exist" - all symptoms of the same failed
-# launchpad.net call.
-#
-# Instead we avoid launchpad.net entirely and use only its reachable
-# infrastructure: look up the signing-key fingerprint via the API host
-# (api.launchpad.net), fetch the *public* signing key from the Ubuntu keyserver,
-# then add the PPA as a plain `deb` line (no `ppa:` resolution). Packages still
-# come from the reachable ppa.launchpad.net. The key is fetched before the source
-# line is trusted, so a failed fetch never leaves a half-configured, unsigned
-# source behind (which would otherwise poison retries).
+# Add a Launchpad PPA without the `ppa:` shortcut, which imports the key via the
+# launchpad.net web frontend - flaky from CI runners and the cause of focal build
+# failures. Resolve the fingerprint via api.launchpad.net, fetch the key from the
+# keyserver, and add a plain `deb` line (key fetched before the source is trusted).
 add_launchpad_ppa() {
     local owner="$1" name="$2"
     local codename keyring fp
@@ -39,8 +27,6 @@ add_launchpad_ppa() {
         "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${fp}" \
         | $MODE gpg --dearmor --yes -o "$keyring"
 
-    # `deb` line (not `ppa:`) => add-apt-repository just writes the source, with
-    # no launchpad.net lookup. The key is already trusted via signed-by.
     $MODE add-apt-repository -y \
         "deb [signed-by=${keyring}] http://ppa.launchpad.net/${owner}/${name}/ubuntu ${codename} main"
 }
@@ -48,8 +34,7 @@ add_launchpad_ppa() {
 apt_get_cmd "$MODE" update -qq
 apt_get_cmd "$MODE" upgrade -yqq
 
-# Provides add-apt-repository (software-properties-common) plus curl/gnupg used
-# by add_launchpad_ppa below.
+# software-properties-common provides add-apt-repository; curl/gnupg used by add_launchpad_ppa
 apt_get_cmd "$MODE" install -yqq software-properties-common curl gnupg
 
 add_launchpad_ppa ubuntu-toolchain-r test
