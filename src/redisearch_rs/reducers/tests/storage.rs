@@ -374,10 +374,9 @@ fn heap_drain_with_sort_vals_exposes_snapshot_in_best_first_order() {
 
 // ===== DISTINCT storage families =====
 //
-// These exercise the dedup *mechanism*. Identity is the temporary naive
-// `ProjectedRow` identity (its `Debug` rendering), so rows tagged with the same
-// value collapse and rows tagged differently stay distinct. The final
-// field-aware identity is deferred (see `ProjectedRow::identity_repr`).
+// These exercise the dedup *mechanism*. Identity is the field-aware
+// `ProjectedRow` `Hash`/`Eq` (its projected values), so rows with equal values
+// collapse and rows with differing values stay distinct.
 
 #[test]
 fn distinct_array_keeps_first_arrival_per_identity() {
