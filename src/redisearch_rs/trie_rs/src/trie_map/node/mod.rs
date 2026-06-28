@@ -151,7 +151,7 @@ impl<Data> Node<Data> {
                 // - The destination range is all contained within newly allocated buffer.
                 // - We have exclusive access to the destination buffer,
                 //   since it was allocated earlier in this function.
-                // - The destination pointer is well aligned, see 1. in [`PtrMetadata::child_ptr`]
+                // - The destination pointer is well aligned, see 1. in [`PtrMetadata::child_first_bytes_ptr`]
                 unsafe { next_byte_ptr.write(*first_byte) };
                 // SAFETY:
                 // - The offsetted pointer doesn't overflow `isize`, since it is within the bounds
