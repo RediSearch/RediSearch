@@ -67,7 +67,6 @@ impl<Data> TrieMap<Data> {
     ///
     /// Returns the value associated with the key if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<Data> {
-        // If there's no root, there's nothing to remove.
         let root = self.root.as_mut()?;
 
         // The key is not in the trie if the root's label is not a
@@ -92,7 +91,6 @@ impl<Data> TrieMap<Data> {
         } else {
             // The node we need to remove is deeper in the trie.
             let data = root.remove_descendant(suffix, &mut self.memory_usage);
-            // After removing the child, we attempt to merge the child into the root.
             root.merge_child_if_possible(&mut self.memory_usage);
             data
         };

@@ -32,7 +32,7 @@ pub trait TraversalFilter {
     fn filter(&self, key: &[u8]) -> FilterOutcome;
 }
 
-/// Implement the trait for all closures that match the expected signature.
+/// Any closure with the right signature is a [`TraversalFilter`].
 impl<F> TraversalFilter for F
 where
     F: Fn(&[u8]) -> FilterOutcome,

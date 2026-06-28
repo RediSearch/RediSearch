@@ -77,7 +77,7 @@ impl<'tm, 'p, Data> From<WildcardFilterIter<'tm, 'p, Data>>
     }
 }
 
-/// Returns all trie entries that match the given wildcard pattern.
+/// A [`TraversalFilter`] that keeps only keys matching the given [`WildcardPattern`].
 pub struct WildcardFilter<'p>(WildcardPattern<'p>);
 
 impl TraversalFilter for WildcardFilter<'_> {
