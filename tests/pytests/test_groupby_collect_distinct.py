@@ -20,7 +20,6 @@ def _group(res, field, value):
 # ---------------------------------------------------------------------------
 # Basic dedup, HASH, no SORTBY.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_hash():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -44,7 +43,7 @@ def test_collect_distinct_hash():
 # ---------------------------------------------------------------------------
 # Dedup entire JSON documents loaded dynamically (non-indexed) via `LOAD $`.
 # ---------------------------------------------------------------------------
-@skip(cluster=True, no_json=True)
+@skip(no_json=True)
 def test_collect_distinct_json_whole_doc():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -73,7 +72,6 @@ def test_collect_distinct_json_whole_doc():
 # ---------------------------------------------------------------------------
 # `FIELDS *` keys on the whole loaded row, including non-indexed loaded fields.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_star_includes_loaded_fields():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -102,7 +100,6 @@ def test_collect_distinct_star_includes_loaded_fields():
 # ---------------------------------------------------------------------------
 # SORTBY + LIMIT bound the ranked, deduped set.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_sortby_limit():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -127,7 +124,6 @@ def test_collect_distinct_sortby_limit():
 # DISTINCT keeps the best (smallest-SORTBY) representative per identity,
 # independent of arrival interleaving. Output order reflects that best key.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_keeps_best_representative():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -163,7 +159,6 @@ def test_collect_distinct_keeps_best_representative():
 # Dedup is per-group, not global: a doc landing in two groups is not deduped
 # across them, but duplicates within a group still collapse.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_is_per_group_not_global():
     env = Env(protocol=3)
     enable_unstable_features(env)
@@ -187,7 +182,6 @@ def test_collect_distinct_is_per_group_not_global():
 # ---------------------------------------------------------------------------
 # DISTINCT dedups at the outer stage of a stacked GROUPBY.
 # ---------------------------------------------------------------------------
-@skip(cluster=True)
 def test_collect_distinct_outer_groupby():
     env = Env(protocol=3)
     enable_unstable_features(env)
