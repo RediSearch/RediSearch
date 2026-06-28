@@ -1173,15 +1173,15 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe
-      // loader released the read lock to take the GIL). Drop it here, in the load
-      // pass, rather than at yield time:
-      //  - remove it from totalResults while we still run before the reply header is
-      //    written (RESP2 emits the count before yielding rows, RESP3 after), so both
-      //    protocols stay consistent with the rows we actually return; and
+      // loader released the read lock to take the GIL). Drop it:
+      //  - count it as skipped (the reported total is totalResults - skippedResults).
+      //    We bump a separate counter instead of decrementing totalResults so the
+      //    live match count stays stable for the length prediction, and so a
+      //    post-header re-accumulation can't resurrect a shipped decrement; and
       //  - reset the slot to an empty tombstone. The yield phase then skips it with
       //    no per-slot cleanup, and rpSafeLoaderFree can destroy the emptied slot
       //    safely whether or not it was reached.
-      self->base_loader.base.parent->totalResults--;
+      self->base_loader.base.parent->skippedResults++;
       SearchResult_Destroy(curr_res);
       *curr_res = SearchResult_New();
     }
