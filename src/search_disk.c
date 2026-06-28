@@ -354,6 +354,11 @@ QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, co
     return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot, status);
 }
 
+QueryIterator* SearchDisk_NewGeoIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, GeoFilter *gf, t_fieldIndex fieldIndex, QueryError *status) {
+    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && gf);
+    return disk->index.newGeoIterator(index, gf, fieldIndex, sctx->diskSnapshot, status);
+}
+
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     disk->index.runGC(index, stats);

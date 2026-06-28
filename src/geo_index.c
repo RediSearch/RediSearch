@@ -93,6 +93,10 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
+NumericFilter **GeoFilter_AllocNumericFiltersArray(void) {
+  return rm_calloc(GEO_RANGE_COUNT, sizeof(NumericFilter *));
+}
+
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
   if (gf->field) {
     HiddenString_Free(gf->field, false);
