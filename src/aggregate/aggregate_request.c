@@ -97,6 +97,10 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
+      if (path && fields->fields[ii].explicitReturn == 0 &&
+          fields->fields[ii].mode != SummarizeMode_None) {
+        fields->fields[ii].path = path;
+      }
       return fields->fields + ii;
     }
   }
@@ -1563,6 +1567,33 @@ static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
   return !isSingle;
 }
 
+static bool jsonPathIsMultiValue(const char *pathStr) {
+  if (!pathStr || *pathStr != '$') {
+    return false;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = japi->pathParse(pathStr, RSDummyContext, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static const FieldSpec *getHighlightFieldSpec(const IndexSpec *index, const ReturnedField *rf) {
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(index, rf->name, strlen(rf->name));
+  if (!fs && rf->path && strcmp(rf->path, rf->name) != 0) {
+    fs = IndexSpec_GetFieldWithLength(index, rf->path, strlen(rf->path));
+  }
+  return fs;
+}
+
 // Validate that HIGHLIGHT/SUMMARIZE fields on a JSON index all use single-value JSONPaths.
 // Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR otherwise.
 static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *index,
@@ -1571,15 +1602,14 @@ static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *i
   bool hasMultiValue = false;
 
   // outFields contains fields from both RETURN and HIGHLIGHT/SUMMARIZE FIELDS.
-  // Since we require explicitReturn for JSON, numFields is always > 0 here.
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     const ReturnedField *rf = &fields->fields[ii];
     // Skip fields that are only in RETURN (no highlight/summarize mode).
     if (rf->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
       continue;
     }
-    const FieldSpec *fs = IndexSpec_GetFieldWithLength(index, rf->name, strlen(rf->name));
-    if (fieldSpecIsMultiValueText(fs)) {
+    const FieldSpec *fs = getHighlightFieldSpec(index, rf);
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
       hasMultiValue = true;
       break;
     }
@@ -1614,7 +1644,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     // JSON requires RETURN so that fields are loaded individually. Without RETURN,
     // JSON "LOAD ALL" produces a single serialized blob and individual fields are
     // not available for highlighting.
-    if (!req->outFields.explicitReturn) {
+    if (!req->outFields.explicitReturn || req->outFields.numFields == 0) {
       QueryError_SetError(
           status, QUERY_ERROR_CODE_INVAL,
           "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names");

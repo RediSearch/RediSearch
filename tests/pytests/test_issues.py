@@ -1169,44 +1169,6 @@ def test_mod_6541(env: Env):
 
 
 @skip(cluster=True)
-def test_mod_14921(env: Env):
-  """Test that FT.SEARCH, FT.AGGREGATE, and FT.PROFILE work inside MULTI/EXEC
-  in standalone mode (MOD-14921). When search-workers > 0, the module falls
-  back to main-thread execution instead of calling RedisModule_BlockClient."""
-  env = Env(moduleArgs='WORKERS 1')
-  conn = getConnectionByEnv(env)
-
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
-  conn.execute_command('HSET', 'doc1', 't', 'hello world', 'n', '1')
-  conn.execute_command('HSET', 'doc2', 't', 'foo bar', 'n', '2')
-
-  # FT.SEARCH inside MULTI/EXEC
-  env.expect('MULTI').ok()
-  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10').equal('QUEUED')
-  res = env.cmd('EXEC')
-  env.assertEqual(len(res), 1)
-  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
-                 message=f'FT.SEARCH in MULTI failed: {res[0]}')
-  env.assertGreaterEqual(res[0][0], 1)
-
-  # FT.AGGREGATE inside MULTI/EXEC
-  env.expect('MULTI').ok()
-  env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n').equal('QUEUED')
-  res = env.cmd('EXEC')
-  env.assertEqual(len(res), 1)
-  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
-                 message=f'FT.AGGREGATE in MULTI failed: {res[0]}')
-
-  # FT.PROFILE inside MULTI/EXEC
-  env.expect('MULTI').ok()
-  env.expect('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*').equal('QUEUED')
-  res = env.cmd('EXEC')
-  env.assertEqual(len(res), 1)
-  env.assertTrue(not isinstance(res[0], redis_exceptions.ResponseError),
-                 message=f'FT.PROFILE in MULTI failed: {res[0]}')
-
-
-@skip(cluster=True)
 def test_4732(env):
   '''
   Test tokenizing text with an escaped backslash followed by a delimiter

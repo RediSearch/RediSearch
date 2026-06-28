@@ -205,7 +205,7 @@ void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sy
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
-                                   const RLookup *lookup);
+                                   const RLookup *lookup, bool isJson);
 
 /*******************************************************************************************************************
  *  Profiling Processor
