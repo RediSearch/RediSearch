@@ -16,7 +16,7 @@ extern crate redisearch_rs;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use reducers::collect::heap::HeapEntry;
+use reducers::collect::ranking::RankedEntry;
 use reducers::collect::storage::{
     DEFAULT_LIMIT, ProjectedRow, RankedStorage, Storage, UnrankedStorage,
 };
@@ -126,7 +126,7 @@ fn heap_consider_keeps_top_k_under_asc() {
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().map(RankedEntry::into_projected).collect();
     // ASC: smallest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
 }
@@ -139,7 +139,7 @@ fn heap_consider_keeps_top_k_under_desc() {
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().map(RankedEntry::into_projected).collect();
     // DESC: largest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![5.0, 4.0, 3.0]);
 }
@@ -200,7 +200,7 @@ fn drain_heap_applies_skip_take_after_best_first_order() {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().map(RankedEntry::into_projected).collect();
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }
 
@@ -212,7 +212,7 @@ fn heap_uses_default_limit_when_no_explicit_limit() {
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
         h.consider(sort_vals(i as f64), (), || projected(&key, i as f64));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().map(RankedEntry::into_projected).collect();
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
 }
 
@@ -370,7 +370,7 @@ fn projected_row_mixed_value_types() {
 #[test]
 fn heap_drain_entries_expose_sort_vals_in_best_first_order() {
     // The heap-family drain keeps each value's ranking key so the remote reducer
-    // can re-attach the deferred SORTBY columns (see `HeapEntry::into_parts`).
+    // can re-attach the deferred SORTBY columns (see `RankedEntry::into_parts`).
     let key = make_key();
     let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
     let h = as_ranked(&mut s);
@@ -451,7 +451,7 @@ fn distinct_heap_dedups_keeping_best_ranked() {
     for (v, rank) in inserts {
         d.consider(sort_vals(rank), (), || projected(&key, v));
     }
-    let drained: Vec<_> = d.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = d.drain().map(RankedEntry::into_projected).collect();
     // Two distinct identities survive; drained best→worst by the kept rank
     // (v=1 @5 then v=2 @4).
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
@@ -469,7 +469,7 @@ fn distinct_heap_stays_bounded_on_insert() {
         let v = v as f64;
         d.consider(sort_vals(v), (), || projected(&key, v));
     }
-    let drained: Vec<_> = d.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = d.drain().map(RankedEntry::into_projected).collect();
     assert_eq!(drained.len(), cap);
     // Top-3 under DESC = [19, 18, 17] best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![19.0, 18.0, 17.0]);
@@ -491,7 +491,7 @@ fn distinct_heap_duplicates_do_not_consume_capacity() {
     ] {
         d.consider(sort_vals(rank), (), || projected(&key, v));
     }
-    let drained: Vec<_> = d.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = d.drain().map(RankedEntry::into_projected).collect();
     // Both identities survive; v=1 kept rank 9, v=2 kept rank 4 → DESC order.
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }

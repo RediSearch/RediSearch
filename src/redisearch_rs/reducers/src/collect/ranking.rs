@@ -7,20 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Min-max heap building blocks for the bounded `COLLECT … SORTBY [LIMIT]`
-//! top-K path.
-//!
-//! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
-//! [`HeapEntry<D, T>`], where the comparator only reads the [`RankingKey`] half. The
-//! split lets the heap defer payload projection until a candidate's survival is
-//! confirmed.
+//! Ranking primitives for the bounded `COLLECT … SORTBY [LIMIT]` top-K path:
+//! [`RankingKey`], the comparator, and [`RankedEntry`], which pairs a key with a
+//! payload. The two ranked backings — a [`MinMaxHeap`][min_max_heap::MinMaxHeap]
+//! and, on the DISTINCT path, a [`PriorityQueue`][priority_queue::PriorityQueue]
+//! — both yield [`RankedEntry`]s when drained.
 //!
 //! ## Deferred projection
 //!
 //! [`RankingKey`] owns a *snapshot* of the sort-key values, severed from the
-//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. The payload
-//! `T` is materialised by the caller only after the candidate has beaten the
-//! current worst — see [`super::storage`].
+//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. On the
+//! non-DISTINCT path the payload `T` is materialised only after the candidate
+//! beats the current worst — see [`super::storage`].
 //!
 
 use std::cmp::Ordering;
@@ -85,25 +83,25 @@ impl<D: Ord> Ord for RankingKey<D> {
         // C `RPSorter`'s `mmh_pop_max` consumer.
         //
         // On a tie, break by doc id. Reversing the comparison makes a
-        // smaller doc id "stronger" (greater), so the heap prefers it.
+        // smaller doc id "stronger" (greater), so ranking prefers it.
         cmp_fields(pairs, self.sort_asc_map, None)
             .then_with(|| self.doc_id.cmp(&other.doc_id).reverse())
     }
 }
 
-/// Pairs the comparator key with the projected payload. The `Ord` impl reads
-/// only `key`, so the choice of `T` never affects ranking.
-pub struct HeapEntry<D: Ord, T> {
-    key: RankingKey<D>,
+/// Ordering and equality read only `key`, so the payload `T` never affects
+/// ranking.
+pub struct RankedEntry<K, T> {
+    key: K,
     projected: T,
 }
 
-impl<D: Ord, T> HeapEntry<D, T> {
-    pub const fn new(key: RankingKey<D>, projected: T) -> Self {
+impl<K, T> RankedEntry<K, T> {
+    pub const fn new(key: K, projected: T) -> Self {
         Self { key, projected }
     }
 
-    pub const fn key(&self) -> &RankingKey<D> {
+    pub const fn key(&self) -> &K {
         &self.key
     }
 
@@ -115,26 +113,26 @@ impl<D: Ord, T> HeapEntry<D, T> {
         self.projected
     }
 
-    pub fn into_parts(self) -> (RankingKey<D>, T) {
+    pub fn into_parts(self) -> (K, T) {
         (self.key, self.projected)
     }
 }
 
-impl<D: Ord, T> PartialEq for HeapEntry<D, T> {
+impl<K: PartialEq, T> PartialEq for RankedEntry<K, T> {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
     }
 }
 
-impl<D: Ord, T> Eq for HeapEntry<D, T> {}
+impl<K: Eq, T> Eq for RankedEntry<K, T> {}
 
-impl<D: Ord, T> PartialOrd for HeapEntry<D, T> {
+impl<K: Ord, T> PartialOrd for RankedEntry<K, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<D: Ord, T> Ord for HeapEntry<D, T> {
+impl<K: Ord, T> Ord for RankedEntry<K, T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
     }

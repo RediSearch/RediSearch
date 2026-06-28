@@ -50,7 +50,7 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Both variants carry `sort_key_names`; the names feed the heap
+/// Both variants carry `sort_key_names`; the names feed the ranking
 /// comparator and the per-item sort snapshot regardless of mode.
 enum Fields {
     /// `FIELDS *` mode. Every key observed in a shard payload is written
@@ -109,7 +109,7 @@ impl Fields {
     }
 }
 
-/// Snapshot sort-key values for heap comparison, preserving absent keys as
+/// Snapshot sort-key values for ranking comparison, preserving absent keys as
 /// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
 /// missing-worst policy.
 fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {

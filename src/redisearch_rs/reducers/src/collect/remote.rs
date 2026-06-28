@@ -23,12 +23,12 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::heap::HeapEntry;
+use crate::collect::ranking::{RankedEntry, RankingKey};
 use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Sort keys feed the heap comparator in both variants. [`Fields::Specific`]
+/// Sort keys feed the ranking comparator in both variants. [`Fields::Specific`]
 /// deliberately excludes them from the per-row projection and merges them back at
 /// finalize (see [`Fields::build_template`]); [`Fields::All`] carries them only
 /// because they are non-hidden lookup fields it already projects, not by any
@@ -307,7 +307,7 @@ impl RemoteCollectCtx {
         };
         // Rebuild a ranked entry's wire row: projected fields plus the deferred
         // sort columns merged back from the ranking-key snapshot.
-        let map_entry = |entry: HeapEntry<ffi::t_docId, ProjectedRow>| {
+        let map_entry = |entry: RankedEntry<RankingKey<ffi::t_docId>, ProjectedRow>| {
             let (ranking_key, projected) = entry.into_parts();
             let mut row = projected.into_row();
             // `sort_extras` (names) and the snapshot (values) share SORTBY order.

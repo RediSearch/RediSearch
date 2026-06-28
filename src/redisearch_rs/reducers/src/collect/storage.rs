@@ -29,7 +29,7 @@ use value::SharedValue;
 use value::comparison::compare_on_equality_only;
 use value::hash::hash_value;
 
-use super::heap::{HeapEntry, RankingKey};
+use super::ranking::{RankedEntry, RankingKey};
 
 /// `SORTBY` result count when no explicit `LIMIT` is given, matching the C
 /// implementation's `DEFAULT_LIMIT`.
@@ -132,7 +132,7 @@ impl<D: Ord> Storage<D> {
     pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
         match self {
             Self::Unranked(u) => Either::Left(u.drain()),
-            Self::Ranked(r) => Either::Right(r.drain().map(HeapEntry::into_projected)),
+            Self::Ranked(r) => Either::Right(r.drain().map(RankedEntry::into_projected)),
         }
     }
 }
@@ -212,7 +212,7 @@ impl UnrankedStorage {
 /// projection (the row keys the queue).
 pub enum RankedStorage<D: Ord> {
     Plain {
-        heap: MinMaxHeap<HeapEntry<D, ProjectedRow>>,
+        heap: MinMaxHeap<RankedEntry<RankingKey<D>, ProjectedRow>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
@@ -265,13 +265,13 @@ impl<D: Ord> RankedStorage<D> {
                 }
                 let cand_key = RankingKey::new(sort_vals, *sort_asc_map, doc_id);
                 if heap.len() < max_size {
-                    heap.push(HeapEntry::new(cand_key, project()));
+                    heap.push(RankedEntry::new(cand_key, project()));
                 } else {
                     // `peek_min` is the worst survivor (best = max, see
-                    // `super::heap`); a full heap with `max_size > 0` is non-empty.
+                    // `super::ranking`); a full heap with `max_size > 0` is non-empty.
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
                     if cand_key > *worst.key() {
-                        heap.push_pop_min(HeapEntry::new(cand_key, project()));
+                        heap.push_pop_min(RankedEntry::new(cand_key, project()));
                     }
                 }
             }
@@ -299,10 +299,12 @@ impl<D: Ord> RankedStorage<D> {
         }
     }
 
-    /// Each [`HeapEntry`] keeps its [`RankingKey`] so the remote reducer can read
-    /// [`RankingKey::sort_vals`] (via [`HeapEntry::into_parts`]) to rebuild the
-    /// wire row; the local reducer just takes [`HeapEntry::into_projected`].
-    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = HeapEntry<D, ProjectedRow>> {
+    /// Each [`RankedEntry`] keeps its [`RankingKey`] so the remote reducer can read
+    /// [`RankingKey::sort_vals`] (via [`RankedEntry::into_parts`]) to rebuild the
+    /// wire row; the local reducer just takes [`RankedEntry::into_projected`].
+    pub fn drain(
+        &mut self,
+    ) -> impl ExactSizeIterator<Item = RankedEntry<RankingKey<D>, ProjectedRow>> {
         match self {
             Self::Plain {
                 heap,
@@ -319,10 +321,11 @@ impl<D: Ord> RankedStorage<D> {
             } => {
                 // `into_sorted_iter` yields highest-priority first; with a
                 // `Reverse<RankingKey>` priority that is worst→best, so reverse it.
-                let mut best_first: Vec<HeapEntry<D, ProjectedRow>> = std::mem::take(pq)
-                    .into_sorted_iter()
-                    .map(|(row, Reverse(ranking_key))| HeapEntry::new(ranking_key, row))
-                    .collect();
+                let mut best_first: Vec<RankedEntry<RankingKey<D>, ProjectedRow>> =
+                    std::mem::take(pq)
+                        .into_sorted_iter()
+                        .map(|(row, Reverse(ranking_key))| RankedEntry::new(ranking_key, row))
+                        .collect();
                 best_first.reverse();
                 best_first.into_iter().skip(*offset).take(*count)
             }
