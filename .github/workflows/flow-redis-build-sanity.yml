@@ -1,0 +1,186 @@
+name: Redis Build Sanity on Platforms
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      redis-repository:
+        description: 'Redis repository to use for the modernized build flow'
+        type: string
+        default: TalBarYakar/redis
+      redis-ref:
+        description: 'Redis ref containing modules-update/bootstrap/build/run'
+        type: string
+        default: tal.ba/feat/add_redis_docker_files
+      redisearch-repository:
+        description: 'RediSearch repository to inject into Redis modules.yaml. Defaults to this repository.'
+        type: string
+        default: ''
+      redisearch-ref:
+        description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Defaults to this workflow SHA.'
+        type: string
+        default: ''
+      modules:
+        description: 'Redis module selection to test'
+        type: string
+        default: redisearch
+      fail-fast:
+        type: boolean
+        default: false
+
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:latest
+          - ubuntu:resolute
+          - ubuntu:noble
+          - ubuntu:jammy
+          - ubuntu:focal
+          - rockylinux:8
+          - rockylinux:9
+          - rockylinux:10
+          - debian:bookworm
+          - debian:trixie
+          - amazonlinux:2023
+          - azurelinux:3
+          - alpine:3.23
+          - macos-14
+          - macos-15
+          - macos-26
+          - intel
+        description: 'Platform to test on. Use "all" to test all supported platforms.'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test all supported architectures.'
+        default: all
+      redis-repository:
+        description: 'Redis repository to use for the modernized build flow'
+        type: string
+        default: TalBarYakar/redis
+      redis-ref:
+        description: 'Redis ref containing modules-update/bootstrap/build/run'
+        type: string
+        default: tal.ba/feat/add_redis_docker_files
+      redisearch-repository:
+        description: 'RediSearch repository to inject into Redis modules.yaml. Empty means this repository.'
+        type: string
+        default: ''
+      redisearch-ref:
+        description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Empty means this workflow SHA.'
+        type: string
+        default: ''
+      modules:
+        description: 'Redis module selection to test'
+        type: string
+        default: redisearch
+      fail-fast:
+        description: 'Stop matrix after the first failure'
+        type: boolean
+        default: false
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-slim
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+      has-jobs: ${{ steps.generate.outputs.has-jobs }}
+    steps:
+      - name: Generate filtered matrix
+        id: generate
+        shell: python
+        env:
+          INPUT_PLATFORM: ${{ inputs.platform }}
+          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+        run: |
+          import json
+          import os
+
+          supported_combinations = [
+              ("ubuntu:resolute", "x86_64"),
+              ("ubuntu:resolute", "aarch64"),
+              ("ubuntu:noble", "x86_64"),
+              ("ubuntu:noble", "aarch64"),
+              ("ubuntu:jammy", "x86_64"),
+              ("ubuntu:jammy", "aarch64"),
+              ("ubuntu:focal", "x86_64"),
+              ("ubuntu:focal", "aarch64"),
+              ("rockylinux:8", "x86_64"),
+              ("rockylinux:8", "aarch64"),
+              ("rockylinux:9", "x86_64"),
+              ("rockylinux:9", "aarch64"),
+              ("rockylinux:10", "x86_64"),
+              ("rockylinux:10", "aarch64"),
+              ("amazonlinux:2023", "x86_64"),
+              ("amazonlinux:2023", "aarch64"),
+              ("debian:bookworm", "x86_64"),
+              ("debian:bookworm", "aarch64"),
+              ("debian:trixie", "x86_64"),
+              ("debian:trixie", "aarch64"),
+              ("azurelinux:3", "x86_64"),
+              ("azurelinux:3", "aarch64"),
+              ("alpine:3.23", "x86_64"),
+              ("alpine:3.23", "aarch64"),
+              ("macos-14", "x86_64"),
+              ("macos-14", "aarch64"),
+              ("macos-15", "x86_64"),
+              ("macos-15", "aarch64"),
+              ("macos-26", "x86_64"),
+              ("macos-26", "aarch64"),
+              ("intel", "x86_64"),
+          ]
+          minimal_combinations = [
+              ("ubuntu:latest", "x86_64"),
+              ("ubuntu:latest", "aarch64"),
+          ]
+
+          platform_filter = os.environ["INPUT_PLATFORM"]
+          architecture_filter = os.environ["INPUT_ARCHITECTURE"]
+          platform_list = [p.strip() for p in platform_filter.split(",") if p.strip()]
+          exclude_list = [p[1:] for p in platform_list if p.startswith("!")]
+          include_latest = "ubuntu:latest" in platform_list
+          combinations = supported_combinations + (minimal_combinations if include_latest else [])
+
+          matrix_items = [
+              {"platform": platform, "architecture": architecture}
+              for platform, architecture in combinations
+              if (platform in platform_list or "all" in platform_list)
+              and platform not in exclude_list
+              and (architecture == architecture_filter or architecture_filter == "all")
+          ]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"matrix={json.dumps({'include': matrix_items})}\n")
+              output.write(f"has-jobs={str(bool(matrix_items)).lower()}\n")
+
+  redis-build-sanity-matrix:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
+    strategy:
+      fail-fast: ${{ inputs.fail-fast }}
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/task-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      redis-repository: ${{ inputs.redis-repository }}
+      redis-ref: ${{ inputs.redis-ref }}
+      redisearch-repository: ${{ inputs.redisearch-repository || github.repository }}
+      redisearch-ref: ${{ inputs.redisearch-ref || github.sha }}
+      modules: ${{ inputs.modules || 'redisearch' }}

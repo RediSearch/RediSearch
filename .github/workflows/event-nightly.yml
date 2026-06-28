@@ -42,9 +42,22 @@ jobs:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
+  redis-build-sanity:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/flow-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      platform: ${{ github.ref_name == 'master' && 'ubuntu:latest' || 'all' }}
+      architecture: ${{ github.ref_name == 'master' && 'x86_64' || 'all' }}
+      # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
+      redis-repository: TalBarYakar/redis
+      redis-ref: tal.ba/feat/add_redis_docker_files
+      redisearch-repository: ${{ github.repository }}
+      redisearch-ref: ${{ github.sha }}
 
   notify-failure:
-    needs: [lint, test-all-platforms, micro-benchmarks]
+    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity]
     if: failure()
     runs-on: ubuntu-slim
     permissions:
