@@ -404,10 +404,10 @@ impl<Data> Node<Data> {
             let (old_ptr, old_metadata) = old_ptr.into_parts();
             new_root_size = new_metadata.layout().size();
             // SAFETY:
-            // - `self.ptr` was allocated via the same global allocator
+            // - `old_ptr` was allocated via the same global allocator
             //    we are invoking via `realloc`.
             // - `old_metadata.layout()` is the same layout that was used
-            //   to allocate the buffer behind `self.ptr`.
+            //   to allocate the buffer behind `old_ptr`.
             // - `new_metadata.layout().size()` is greater than zero, see
             //   1. in [`PtrMetadata::layout`]
             // - `new_metadata.layout().size()` does not overflow `isize`
@@ -430,7 +430,7 @@ impl<Data> Node<Data> {
         };
 
         // SAFETY:
-        // - We have exclusive access to the buffer that `child_ptr` points to, since it was just allocated.
+        // - We have exclusive access to the buffer that `new_ptr` points to, since it was just (re)allocated.
         unsafe { new_ptr.write_header(new_header) };
 
         // `realloc` guarantees that the range `0..min(layout.size(), new_size)`
