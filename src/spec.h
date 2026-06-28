@@ -286,6 +286,7 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
+typedef struct TermSuffixIndex TermSuffixIndex;
 typedef const void* RedisSearchDiskIndexSpec;
 
 typedef struct CharBuf {
@@ -305,7 +306,7 @@ typedef struct IndexSpec {
   IndexStats stats;               // Statistics of memory used and quantities
 
   Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
-  Trie *suffix;                   // Trie of TEXT suffix tokens of terms. Used for contains queries
+  TermSuffixIndex *suffix;        // TEXT suffix index of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
 

@@ -38,6 +38,7 @@
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
+#include "term_suffix_index_ffi.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 #include "iterators/hybrid_reader.h"
@@ -721,16 +722,15 @@ static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = charIterCb,
-        .cbCtx = &ctx,
-
-      };
-      Suffix_IterateContains(&sufCtx);
+      // The suffix index is keyed by UTF-8; convert the query runes back.
+      size_t needlelen;
+      char *needle = runesToStr(str, nstr, &needlelen);
+      if (qn->pfx.prefix) {
+        TermSuffixIndex_IterateContains(spec->suffix, needle, needlelen, charIterCb, &ctx);
+      } else {
+        TermSuffixIndex_IterateSuffix(spec->suffix, needle, needlelen, charIterCb, &ctx);
+      }
+      rm_free(needle);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
@@ -778,24 +778,11 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // TEXT terms are stored lowercased, so recheck against the lowercased
-      // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
+      // The suffix index is keyed by UTF-8; convert the query runes back.
       size_t lcstrlen;
       char *lcstr = runesToStr(str, nstr, &lcstrlen);
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .cstr = lcstr,
-        .cstrlen = lcstrlen,
-        .type = SUFFIX_TYPE_WILDCARD,
-        .callback = charIterCb, // the difference is weather the function receives char or rune
-        .cbCtx = &ctx,
-        .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
-      };
-      if (Suffix_IterateWildcard(&sufCtx) == 0) {
-        // if suffix trie cannot be used, use brute force
+      if (TermSuffixIndex_IterateWildcard(spec->suffix, lcstr, lcstrlen, charIterCb, &ctx) == 0) {
+        // if suffix index cannot be used, use brute force
         fallbackBruteForce = true;
       }
       rm_free(lcstr);
