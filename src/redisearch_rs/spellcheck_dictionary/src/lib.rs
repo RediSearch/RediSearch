@@ -181,8 +181,8 @@ mod tests {
     }
 
     #[rstest]
-    #[case(TRIE_INITIAL_STRING_LEN - 1, true)] // 255 codepoints: accepted
-    #[case(TRIE_INITIAL_STRING_LEN, false)] // 256 codepoints: rejected, like C
+    #[case(TRIE_INITIAL_STRING_LEN - 1, true)] // one below the limit: accepted
+    #[case(TRIE_INITIAL_STRING_LEN, false)] // at the limit: rejected, like C
     fn add_enforces_codepoint_limit(#[case] codepoints: usize, #[case] accepted: bool) {
         let term: String = "a".repeat(codepoints);
         let mut sut = SpellCheckDictionary::new();
@@ -193,9 +193,10 @@ mod tests {
 
     #[test]
     fn add_enforces_byte_limit_for_multibyte() {
-        // 'あ' is 3 UTF-8 bytes / 1 codepoint. 200 of them = 600 bytes (over the
-        // 512-byte gate) but only 200 codepoints (under 256): C rejects it via
-        // the byte gate, before the codepoint gate is reached.
+        // 'あ' is 3 UTF-8 bytes / 1 codepoint. 200 of them = 600 bytes, over the
+        // byte gate (TRIE_INITIAL_STRING_LEN * size_of::<u16>()) but well under
+        // TRIE_INITIAL_STRING_LEN codepoints: C rejects it via the byte gate,
+        // before the codepoint gate is reached.
         let term: String = "あ".repeat(200);
         assert!(term.len() > TRIE_INITIAL_STRING_LEN * size_of::<u16>());
         assert!(term.chars().count() < TRIE_INITIAL_STRING_LEN);
@@ -238,7 +239,7 @@ mod tests {
     #[test]
     fn cutoff_measures_lowercased_codepoints() {
         // 'İ' (U+0130) lowercases to two codepoints ("i̇"), so 51 of them
-        // exceed the 100-codepoint limit only after lowercasing.
+        // exceed the TRIE_MAX_PREFIX limit only after lowercasing.
         let term: String = "İ".repeat(51);
         assert_eq!(term.chars().count(), 51);
         assert!(unicode_tolower(&term).chars().count() > TRIE_MAX_PREFIX);
