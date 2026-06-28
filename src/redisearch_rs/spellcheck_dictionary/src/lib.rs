@@ -34,6 +34,10 @@ const TRIE_MAX_PREFIX: usize = ffi::TRIE_MAX_PREFIX as usize;
 /// Upper bound on insertable term length, in runes (codepoints).
 const TRIE_INITIAL_STRING_LEN: usize = ffi::TRIE_INITIAL_STRING_LEN as usize;
 
+/// A case-preserving set of spell-check terms.
+///
+/// See the [crate-level case model](crate#case-model) for how case is handled
+/// across queries and removal.
 #[derive(Default)]
 pub struct SpellCheckDictionary {
     trie: StrTrieMap<()>,
