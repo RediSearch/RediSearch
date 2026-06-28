@@ -23,7 +23,6 @@ use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::SharedValue;
 
 use crate::Reducer;
-use crate::collect::ranking::{RankedEntry, RankingKey};
 use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Field-selection state: `FIELDS *` vs explicit list.
@@ -305,22 +304,21 @@ impl RemoteCollectCtx {
                     .collect::<Vec<_>>(),
             )
         };
-        // Rebuild a ranked entry's wire row: projected fields plus the deferred
-        // sort columns merged back from the ranking-key snapshot.
-        let map_entry = |entry: RankedEntry<RankingKey<ffi::t_docId>, ProjectedRow>| {
-            let (ranking_key, projected) = entry.into_parts();
-            let mut row = projected.into_row();
-            // `sort_extras` (names) and the snapshot (values) share SORTBY order.
-            for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
-                if let Some(val) = val {
-                    row.write_key(key, val.clone());
-                }
-            }
-            to_map(&row)
-        };
         let rows = match &mut self.storage {
             Storage::Unranked(unranked) => Either::Left(unranked.drain().map(|p| to_map(p.row()))),
-            Storage::Ranked(ranked) => Either::Right(ranked.drain().map(map_entry)),
+            Storage::Ranked(ranked) => Either::Right(ranked.drain().map(|entry| {
+                // Rebuild a ranked entry's wire row: projected fields plus the
+                // deferred sort columns merged back from the ranking-key snapshot.
+                let (ranking_key, projected) = entry.into_parts();
+                let mut row = projected.into_row();
+                // `sort_extras` (names) and the snapshot (values) share SORTBY order.
+                for (key, val) in sort_extras.iter().zip(ranking_key.sort_vals()) {
+                    if let Some(val) = val {
+                        row.write_key(key, val.clone());
+                    }
+                }
+                to_map(&row)
+            })),
         };
         SharedValue::new_array(rows)
     }
