@@ -2874,6 +2874,7 @@ dependencies = [
 name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
+ "ffi",
  "proptest",
  "rqe_wildcard",
  "rstest",
