@@ -245,6 +245,21 @@ impl<D: Ord> RankedStorage<D> {
         }
     }
 
+    const fn max_size(&self) -> usize {
+        let (offset, count) = match self {
+            Self::Plain { offset, count, .. } | Self::Distinct { offset, count, .. } => {
+                (*offset, *count)
+            }
+        };
+        offset.saturating_add(count)
+    }
+
+    const fn sort_asc_map(&self) -> u64 {
+        match self {
+            Self::Plain { sort_asc_map, .. } | Self::Distinct { sort_asc_map, .. } => *sort_asc_map,
+        }
+    }
+
     /// `doc_id` breaks ties when sort keys compare equal (see [`RankingKey`]).
     pub fn consider(
         &mut self,
@@ -252,18 +267,12 @@ impl<D: Ord> RankedStorage<D> {
         doc_id: D,
         project: impl FnOnce() -> ProjectedRow,
     ) {
+        let max_size = self.max_size();
+        // `LIMIT count` is parse-validated `>= 1`, so `offset + count` never reaches zero here.
+        debug_assert!(max_size > 0, "ranked storage built with a zero cap");
+        let cand_key = RankingKey::new(sort_vals, self.sort_asc_map(), doc_id);
         match self {
-            Self::Plain {
-                heap,
-                sort_asc_map,
-                offset,
-                count,
-            } => {
-                let max_size = offset.saturating_add(*count);
-                if max_size == 0 {
-                    return;
-                }
-                let cand_key = RankingKey::new(sort_vals, *sort_asc_map, doc_id);
+            Self::Plain { heap, .. } => {
                 if heap.len() < max_size {
                     heap.push(RankedEntry::new(cand_key, project()));
                 } else {
@@ -275,24 +284,14 @@ impl<D: Ord> RankedStorage<D> {
                     }
                 }
             }
-            Self::Distinct {
-                pq,
-                sort_asc_map,
-                offset,
-                count,
-            } => {
-                let max_size = offset.saturating_add(*count);
-                if max_size == 0 {
-                    return;
-                }
-                let ranking_key = RankingKey::new(sort_vals, *sort_asc_map, doc_id);
+            Self::Distinct { pq, .. } => {
                 let row = project();
                 // Priority is `Reverse<RankingKey>`, so `push_decrease` keeps the
                 // better (higher) `RankingKey` per identity, and the queue's max —
                 // what `pop` removes — is the worst survivor. `push_decrease`
                 // returns `None` only on a *new* identity, the sole case that can
                 // exceed the cap.
-                if pq.push_decrease(row, Reverse(ranking_key)).is_none() && pq.len() > max_size {
+                if pq.push_decrease(row, Reverse(cand_key)).is_none() && pq.len() > max_size {
                     pq.pop();
                 }
             }
