@@ -12,6 +12,7 @@ on:
       redis-repository:
         description: 'Redis repository to use for the modernized build flow'
         type: string
+        # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
         default: TalBarYakar/redis
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
@@ -69,6 +70,7 @@ on:
       redis-repository:
         description: 'Redis repository to use for the modernized build flow'
         type: string
+        # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
         default: TalBarYakar/redis
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
