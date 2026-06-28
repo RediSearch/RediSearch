@@ -29,6 +29,15 @@ typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
  */
 typedef int (*TermSuffixIterateCallback)(const char *term, size_t len, void *ctx, void *payload);
 
+/**
+ * Stop predicate polled while a wildcard scan walks its candidates.
+ *
+ * `ctx` is the `stop_ctx` passed to the iterate function. Return `true`
+ * to abandon the scan (e.g. once a deadline has passed); the caller owns
+ * the decision and any clock it consults. A NULL predicate never stops.
+ */
+typedef bool (*TermSuffixShouldStop)(void *ctx);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -211,9 +220,16 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * byte); a term may be reported more than once. Iteration stops early
  * when the callback returns a non-zero value.
  *
+ * When `should_stop` is non-NULL it is polled periodically while the
+ * candidate set is scanned; once it returns `true` the scan is abandoned
+ * and only the terms gathered so far are reported. This bounds the
+ * expensive scan by a caller-owned deadline, which the per-term callback
+ * alone cannot do because matches are gathered before any callback fires.
+ * Pass NULL to scan without a deadline.
+ *
  * Returns 0 when the pattern has no literal token that can anchor the
  * search; the caller must then fall back to a full scan. Returns 1
- * otherwise, even when no term matched.
+ * otherwise, even when no term matched or the scan stopped early.
  *
  * # Safety
  *
@@ -222,6 +238,8 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
+ * 4. If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+ *    for the duration of this call, and must not modify or free `tsi`.
  *
  * # Panics
  *
@@ -229,7 +247,7 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *pattern, size_t len, TermSuffixIterateCallback cb, void *ctx);
+int TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *pattern, size_t len, TermSuffixIterateCallback cb, void *ctx, TermSuffixShouldStop should_stop, void *stop_ctx);
 
 #ifdef __cplusplus
 }  // extern "C"

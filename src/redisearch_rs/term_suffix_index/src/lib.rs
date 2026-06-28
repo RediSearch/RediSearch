@@ -45,6 +45,11 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// must out-length an exact token by this many codepoints to win.
 const STARRED_ANCHOR_PENALTY: i32 = 5;
 
+/// Poll the caller's stop predicate once per this many candidates examined
+/// during a wildcard scan, amortizing the cost of the check over a run of
+/// work.
+const TIMEOUT_COUNTER_LIMIT: u32 = ffi::TIMEOUT_COUNTER_LIMIT;
+
 #[derive(Default)]
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,
@@ -177,6 +182,22 @@ impl TermSuffixIndex {
     /// engine's pre-existing `?` behavior, which we deliberately reuse rather
     /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
+        self.iter_wildcard_until(pattern, || false)
+    }
+
+    /// Like [`iter_wildcard`](Self::iter_wildcard), but polls `should_stop`
+    /// once per [`TIMEOUT_COUNTER_LIMIT`] candidates examined and,
+    /// when it returns `true`, abandons the scan early — yielding the matches
+    /// found so far rather than the full set. This lets a caller bound the
+    /// scan by a deadline without consulting the clock on every candidate.
+    ///
+    /// As with [`iter_wildcard`](Self::iter_wildcard), returns `None` when no
+    /// token in the pattern can seed the search.
+    pub fn iter_wildcard_until(
+        &self,
+        pattern: &str,
+        mut should_stop: impl FnMut() -> bool,
+    ) -> Option<impl Iterator<Item = Rc<str>>> {
         let lowered = unicode_tolower(pattern);
         let (token, followed_by_star) = choose_token(&lowered)?;
 
@@ -195,13 +216,22 @@ impl TermSuffixIndex {
         };
 
         let wildcard = WildcardPattern::parse(lowered.as_bytes());
-        let matches: Vec<Rc<str>> = subtree
-            .into_iter()
-            .flatten()
-            .chain(exact)
-            .flat_map(|data| data.terms().cloned())
-            .filter(|term| wildcard.matches(term.as_bytes()) == MatchOutcome::Match)
-            .collect();
+        let mut matches = Vec::new();
+        let mut since_last_check = 0_u32;
+        for data in subtree.into_iter().flatten().chain(exact) {
+            for term in data.terms() {
+                since_last_check += 1;
+                if since_last_check == TIMEOUT_COUNTER_LIMIT {
+                    since_last_check = 0;
+                    if should_stop() {
+                        return Some(matches.into_iter());
+                    }
+                }
+                if wildcard.matches(term.as_bytes()) == MatchOutcome::Match {
+                    matches.push(Rc::clone(term));
+                }
+            }
+        }
         Some(matches.into_iter())
     }
 }

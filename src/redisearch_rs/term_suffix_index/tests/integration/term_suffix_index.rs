@@ -272,6 +272,50 @@ fn iter_wildcard_without_anchorable_token_reports_none() {
 }
 
 #[test]
+fn iter_wildcard_until_does_not_poll_within_the_first_window() {
+    // Fewer candidates than one polling window: the predicate is never
+    // consulted, so even an always-stop request yields every match.
+    let small = (0..50).map(|i| format!("cat{i:03}")).collect::<Vec<_>>();
+    let sut = build_index(&small);
+
+    let actual = collect_set(
+        sut.iter_wildcard_until("cat*", || true)
+            .expect("'cat' anchors"),
+    );
+
+    assert_eq!(
+        actual.len(),
+        small.len(),
+        "no candidate within the first window triggers a poll"
+    );
+}
+
+#[test]
+fn iter_wildcard_until_abandons_scan_once_stop_fires() {
+    // More candidates than one window: the first poll fires mid-scan, so
+    // an always-stop request abandons it with only a prefix of the matches.
+    let large = (0..250).map(|i| format!("cat{i:03}")).collect::<Vec<_>>();
+    let sut = build_index(&large);
+
+    let stopped = collect_set(
+        sut.iter_wildcard_until("cat*", || true)
+            .expect("'cat' anchors"),
+    );
+    let full = collect_set(
+        sut.iter_wildcard_until("cat*", || false)
+            .expect("'cat' anchors"),
+    );
+
+    assert_eq!(full.len(), large.len(), "never stopping yields every match");
+    assert!(
+        !stopped.is_empty() && stopped.len() < full.len(),
+        "always stopping abandons the scan partway: {} of {}",
+        stopped.len(),
+        full.len()
+    );
+}
+
+#[test]
 fn remove_suffix_only_entry_is_noop() {
     // "ger" was never `add`ed, but it exists in the trie as a
     // back-reference key for "longer". Remove must no-op gracefully.
