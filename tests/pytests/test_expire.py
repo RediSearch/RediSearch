@@ -1250,3 +1250,30 @@ def test_aggregate_drops_doc_reindexed_during_load(env):
                     message=f'expected only doc:2 row, got {rows}')
     env.assertEqual(total, len(rows),
                     message=f'WITHCOUNT total {total} != returned rows {len(rows)}')
+
+
+@skip(cluster=True)
+def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
+    # A GROUPBY reducer overwrites totalResults with the group count
+    # (Grouper_rpAccum, group_by.c). The safe loader sits upstream of it
+    # (LOAD then GROUPBY), so a row dropped mid-load increments skippedResults
+    # before the grouper redefines totalResults. The reported count must be the
+    # group count itself, NOT group_count - skippedResults — otherwise dropping
+    # the only doc that would have been counted yields total_results=0 with a
+    # group row still present. doc:1 is re-indexed mid-load and dropped, leaving
+    # one group (doc:2, n=2).
+    env = Env(moduleArgs='WORKERS 1')
+    res = _run_query_with_reindex_during_load(
+        env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n', 'GROUPBY', '1', '@n'])
+    if res is None:
+        env.skip()
+        return
+    total, rows = res[0], res[1:]
+    env.assertEqual([r for r in rows if r is None], [],
+                    message=f'nil row in reply: {rows}')
+    # One surviving group (n=2); the count must match the groups returned, not be
+    # reduced by the dropped upstream row.
+    env.assertEqual(total, len(rows),
+                    message=f'group count {total} != returned groups {len(rows)}: {res}')
+    env.assertEqual(total, 1,
+                    message=f'expected exactly one surviving group, got {res}')

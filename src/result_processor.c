@@ -2481,6 +2481,9 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   // Update total results to reflect the number of unique documents we'll yield
   rp->parent->totalResults = dictSize(self->hybridResults);
+  // Merged-doc count excludes upstream loader drops; clear the skip correction
+  // (same invariant as the grouper). [MOD-16507]
+  rp->parent->skippedResults = 0;
 
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;
