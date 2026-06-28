@@ -2021,6 +2021,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.118",
+ "term_suffix_index_ffi",
  "toml",
  "triemap_ffi",
  "ttl_table_ffi",
@@ -2864,6 +2865,16 @@ dependencies = [
  "rstest",
  "string_utils",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_suffix_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+ "redis_mock",
+ "term_suffix_index",
  "workspace_hack",
 ]
 
