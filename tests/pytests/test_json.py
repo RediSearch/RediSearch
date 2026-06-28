@@ -1491,20 +1491,28 @@ def testHighlightSingleValueJson(env):
     no_return_error = "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names"
     env.expect('FT.SEARCH', 'idx', '@name:(Bluetooth)',
                'HIGHLIGHT', 'DIALECT', '2').error().contains(no_return_error)
+    env.expect('FT.SEARCH', 'idx', '@name:(Bluetooth)', 'RETURN', '0',
+               'HIGHLIGHT', 'DIALECT', '2').error().contains(no_return_error)
 
     # Guard: single-value JSONPath pointing to a JSON array value.
-    # The highlighter detects arrays and skips them (via RSValueType in DIALECT 1-2,
-    # and via Trio expanded array inspection in DIALECT 3+). If this test breaks
-    # (highlights appear), the array detection logic must be updated.
+    # The highlighter detects arrays and skips HIGHLIGHT/SUMMARIZE transformations
+    # (via RSValueType in DIALECT 1-2, and via Trio expanded array inspection in
+    # DIALECT 3+). The original loaded value should still be returned.
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON',
                'SCHEMA', '$.colors', 'AS', 'colors', 'TEXT').ok()
     conn.execute_command('JSON.SET', 'doc:3', '$',
                          '{"colors": ["red", "blue"]}')
     for dialect in range(1, MAX_DIALECT + 1):
+        expected = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
+                           'DIALECT', dialect)
+
         res = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
                       'HIGHLIGHT', 'TAGS', '<b>', '</b>', 'DIALECT', dialect)
-        env.assertEqual(res[0], 1, message=f'array guard DIALECT {dialect}')
-        env.assertNotContains('<b>', str(res[2]), message=f'array guard DIALECT {dialect}')
+        env.assertEqual(res, expected, message=f'array highlight guard DIALECT {dialect}')
+
+        res = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
+                      'SUMMARIZE', 'LEN', '1', 'FRAGS', '1', 'DIALECT', dialect)
+        env.assertEqual(res, expected, message=f'array summarize guard DIALECT {dialect}')
 
 @skip(no_json=True)
 def testHighlightMultiValueJsonRejected(env):
@@ -1536,6 +1544,21 @@ def testHighlightMultiValueJsonRejected(env):
         # HIGHLIGHT without FIELDS when any returned TEXT field has multi-value JSONPath
         env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '2', 'tags', 'name',
                    'HIGHLIGHT', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # RETURN aliases are validated against the schema field named by the original return path
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', 'tags', 'AS', 'tag_alias',
+                   'HIGHLIGHT', 'FIELDS', '1', 'tag_alias', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # Raw JSONPath returns are validated directly when they do not resolve to a schema field
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', '$.tags[*]', 'AS', 'tag_path',
+                   'HIGHLIGHT', 'FIELDS', '1', 'tag_path', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # Raw JSONPath validation still applies if the alias collides with a schema field name
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', '$.tags[*]', 'AS', 'name',
+                   'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', dialect).error()\
             .contains(multi_value_error)
 
         # But HIGHLIGHT on single-value fields only should still work
