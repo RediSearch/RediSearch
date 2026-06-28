@@ -57,7 +57,7 @@ impl SpellCheckDictionary {
         }
     }
 
-    /// Insert a term, stored verbatim (case-preserving). Empty or over-long
+    /// Insert a term, stored [verbatim](crate#case-model). Empty or over-long
     /// terms are rejected.
     ///
     /// Returns `true` only if the term was newly added.
@@ -73,7 +73,8 @@ impl SpellCheckDictionary {
         self.trie.insert(term, ()).is_none()
     }
 
-    /// Remove a term. Matched verbatim, so removal is case-sensitive.
+    /// Remove a term. Matching is verbatim, so removal is
+    /// [case-sensitive](crate#case-model).
     ///
     /// Returns `true` if the term was present.
     pub fn remove(&mut self, term: &str) -> bool {
@@ -96,8 +97,8 @@ impl SpellCheckDictionary {
         self.trie.iter().map(|(term, _)| term)
     }
 
-    /// Check whether a stored term equals `term`, ignoring case. Lowercased on
-    /// lookup; an over-long `term` never matches.
+    /// Check whether any stored term equals `term`, [ignoring case](crate#case-model).
+    /// An over-long `term` never matches.
     ///
     /// Returns `true` if such a term exists.
     pub fn contains(&self, term: &str) -> bool {
@@ -110,8 +111,8 @@ impl SpellCheckDictionary {
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
-    /// (in codepoints) of `term`. Lowercased on lookup, so matching ignores
-    /// case; an over-long `term` matches nothing.
+    /// (in codepoints) of `term`. Matching [ignores case](crate#case-model);
+    /// an over-long `term` matches nothing.
     ///
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
