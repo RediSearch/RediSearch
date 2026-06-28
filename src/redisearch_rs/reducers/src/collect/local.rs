@@ -28,10 +28,12 @@
 use std::ffi::CString;
 
 use bumpalo::Bump;
+use itertools::Either;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
+use crate::collect::ranking::RankedEntry;
 use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
@@ -281,7 +283,13 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain().map(|projected| {
+        // Both arms yield `ProjectedRow`s; the ranked arm drops each entry's
+        // `RankingKey`, which the client-facing reducer never re-emits.
+        let rows = match &mut self.storage {
+            Storage::Unranked(u) => Either::Left(u.drain()),
+            Storage::Ranked(r) => Either::Right(r.drain().map(RankedEntry::into_projected)),
+        };
+        SharedValue::new_array(rows.map(|projected| {
             let row = projected.row();
             SharedValue::new_map(
                 template

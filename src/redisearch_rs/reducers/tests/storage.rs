@@ -216,23 +216,6 @@ fn heap_uses_default_limit_when_no_explicit_limit() {
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
 }
 
-#[test]
-fn storage_drain_heap_yields_rows_best_first() {
-    // The `Storage::drain` convenience discards each entry's ranking key and
-    // yields values best→worst, which is all the client-facing local reducer
-    // needs.
-    let key = make_key();
-    let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
-    {
-        let h = as_ranked(&mut s);
-        for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-            h.consider(sort_vals(i), (), || projected(&key, i));
-        }
-    }
-    let drained: Vec<_> = s.drain().collect();
-    assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
-}
-
 // ===== ProjectedRow `Hash` / `Eq` =====
 
 /// Build a [`ProjectedRow`] with an exact `dyn_values` layout: slot `i` is left

@@ -126,15 +126,6 @@ impl<D: Ord> Storage<D> {
             Self::Unranked(UnrankedStorage::new(distinct, offset, count))
         }
     }
-
-    /// Yields the stored values best→worst (ranked) or in arrival order
-    /// (unranked); the ranked arm's [`RankingKey`]s are discarded.
-    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
-        match self {
-            Self::Unranked(u) => Either::Left(u.drain()),
-            Self::Ranked(r) => Either::Right(r.drain().map(RankedEntry::into_projected)),
-        }
-    }
 }
 
 /// Non-`SORTBY` path. Both variants retain at most `offset + count` rows;
