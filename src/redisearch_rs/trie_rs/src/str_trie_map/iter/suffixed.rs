@@ -17,7 +17,7 @@ use crate::{
 /// in lexicographical key order.
 ///
 /// Wrapper-only — [`crate::iter`] has no suffix iterator. Byte `ends_with`
-/// on UTF-8 keys agrees with `&str::ends_with` because UTF-8 is
+/// on UTF-8 keys agrees with [`str::ends_with`] because UTF-8 is
 /// self-synchronizing: a multibyte sequence cannot be a suffix of another
 /// codepoint. Empty `suffix` yields zero matches by delegating to an empty
 /// inner iterator.
