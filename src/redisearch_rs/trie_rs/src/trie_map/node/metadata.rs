@@ -232,7 +232,7 @@ impl<Data> PtrMetadata<Data> {
     pub(super) fn allocate(self) -> PtrWithMetadata<Data> {
         let ptr = {
             // SAFETY:
-            // `layout.size()` is greater than zero, see 1. in [`AllocationInfo::layout`]
+            // `layout.size()` is greater than zero, see 1. in [`Self::layout`]
             unsafe { std::alloc::alloc(self.layout()) as *mut NodeHeader }
         };
         let Some(ptr) = NonNull::new(ptr) else {
