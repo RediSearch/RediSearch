@@ -21,6 +21,10 @@
 //! Because matching lowercases verbatim-stored keys, those two queries scan
 //! every stored term rather than exploiting the trie's prefix structure.
 
+// Public methods link the private length constants rather than duplicate their
+// rationale in prose.
+#![allow(rustdoc::private_intra_doc_links)]
+
 use std::fmt::{self, Debug};
 
 use string_utils::{unicode_tolower, unicode_tolower_capped};
@@ -57,8 +61,8 @@ impl SpellCheckDictionary {
         }
     }
 
-    /// Insert a term, stored [verbatim](crate#case-model). Empty or over-long
-    /// terms are rejected.
+    /// Insert a term, stored [verbatim](crate#case-model). Empty terms, or terms
+    /// longer than [`TRIE_INITIAL_STRING_LEN`], are rejected.
     ///
     /// Returns `true` only if the term was newly added.
     pub fn add(&mut self, term: &str) -> bool {
@@ -98,7 +102,7 @@ impl SpellCheckDictionary {
     }
 
     /// Check whether any stored term equals `term`, [ignoring case](crate#case-model).
-    /// An over-long `term` never matches.
+    /// A `term` longer than [`TRIE_MAX_PREFIX`] never matches.
     ///
     /// Returns `true` if such a term exists.
     pub fn contains(&self, term: &str) -> bool {
@@ -112,7 +116,7 @@ impl SpellCheckDictionary {
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
     /// (in codepoints) of `term`. Matching [ignores case](crate#case-model);
-    /// an over-long `term` matches nothing.
+    /// a `term` longer than [`TRIE_MAX_PREFIX`] matches nothing.
     ///
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
