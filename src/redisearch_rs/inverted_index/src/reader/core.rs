@@ -24,7 +24,7 @@ use rqe_core::DocId;
 ///
 /// Parameterised over a [`Ref`] mode:
 ///
-/// - With [`Active<'a>`], the pointers in this struct are real `&'a` references
+/// - With [`Active<'index>`], the pointers in this struct are real `&'index` references
 ///   into the index and the [`IndexReader`] trait is implemented — see
 ///   [`IndexReaderCore`] for that instantiation.
 /// - With [`Suspended`](ref_mode::Suspended), the pointers are inert raw
@@ -41,7 +41,7 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     pub(crate) ii: SharedPtr<Rf, InvertedIndex<E>>,
 
     /// The buffer of the current block. In [`Active`] mode this is a real
-    /// `&'a [u8]` into the block buffer; in [`Suspended`](ref_mode::Suspended)
+    /// `&'index [u8]` into the block buffer; in [`Suspended`](ref_mode::Suspended)
     /// mode it is a raw pointer that may be stale and is refreshed when
     /// re-promoting to [`Active`].
     buf: SharedPtr<Rf, [u8]>,
@@ -77,14 +77,14 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
 pub type IndexReaderCore<'index, E> = RawIndexReaderCore<Active<'index>, E>;
 
 // Automatically implemented if the IndexReaderCore uses a NumericDecoder.
-impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder + NumericDecoder> NumericReader<'a>
-    for RawIndexReaderCore<Active<'a>, E>
+impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder + NumericDecoder> NumericReader<'index>
+    for RawIndexReaderCore<Active<'index>, E>
 {
 }
 
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'a, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'a, D: Decoder + TermDecoder> TermReader<'a>
-    for RawIndexReaderCore<Active<'a>, E>
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
+    TermReader<'index> for RawIndexReaderCore<Active<'index>, E>
 where
     E::Storage: HasInnerIndex<E>,
 {
@@ -95,11 +95,11 @@ where
     }
 }
 
-impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> IndexReader<'a>
-    for RawIndexReaderCore<Active<'a>, E>
+impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
+    for RawIndexReaderCore<Active<'index>, E>
 {
     #[inline(always)]
-    fn next_record(&mut self, result: &mut RSIndexResult<'a>) -> std::io::Result<bool> {
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         // Check if the current buffer is empty or the end of the buffer has been reached
         if (self.buf.get().len() as u64) <= self.buf_pos {
             if self.current_block_idx + 1 >= self.ii.get().blocks.len() {
@@ -126,7 +126,7 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> IndexReader<'a>
     fn seek_record(
         &mut self,
         doc_id: DocId,
-        result: &mut RSIndexResult<'a>,
+        result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         if !self.skip_to(doc_id) {
             return Ok(false);
@@ -223,12 +223,12 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> IndexReader<'a>
     }
 }
 
-impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> RawIndexReaderCore<Active<'a>, E> {
+impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<Active<'index>, E> {
     /// Create a new index reader that reads from the given [`InvertedIndex`].
     ///
     /// # Panic
     /// This function will panic if the inverted index is empty.
-    pub(crate) fn new(ii: &'a InvertedIndex<E>) -> Self {
+    pub(crate) fn new(ii: &'index InvertedIndex<E>) -> Self {
         let (buf, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
             (
                 SharedPtr::from_ref(first_block.buffer.as_slice()),
@@ -259,7 +259,7 @@ impl<'a, E: DecodedBy<Decoder = D> + 'a, D: Decoder> RawIndexReaderCore<Active<'
 
     /// Swap the inverted index of the reader with the supplied index. This is only used by the C
     /// tests to trigger a revalidation.
-    pub const fn swap_index(&mut self, index: &mut &'a InvertedIndex<E>) {
+    pub const fn swap_index(&mut self, index: &mut &'index InvertedIndex<E>) {
         let current = self.ii.get();
         let new_ii = std::mem::replace(index, current);
         self.ii = SharedPtr::from_ref(new_ii);
