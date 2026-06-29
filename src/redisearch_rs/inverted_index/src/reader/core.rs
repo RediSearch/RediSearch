@@ -85,7 +85,6 @@ impl<'a, E> SuspendableReader for RawIndexReaderCore<Active<'a>, E> {
 /// `IndexReaderCore<Active<'a>, E>` at any index lifetime `'a`.
 impl<E: 'static> ResumableReader for RawIndexReaderCore<Suspended, E>
 where
-    Self: IndexReader<'static>,
     for<'a> RawIndexReaderCore<Active<'a>, E>: IndexReader<'a>,
 {
     type Resumed<'a> = RawIndexReaderCore<Active<'a>, E>;

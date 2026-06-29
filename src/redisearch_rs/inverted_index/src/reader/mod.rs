@@ -89,11 +89,7 @@ pub trait SuspendableReader {
 /// associated type generically.
 ///
 /// The `'static` bound reflects that a suspended reader carries no live
-/// references into the index. The trait is therefore implementable on
-/// reader types whose layout does not embed an `&'index …` reference;
-/// readers that borrow query-side resources (e.g.
-/// [`FilterNumericReader`] / [`FilterGeoReader`]'s borrowed filter) are
-/// covered separately under the wrapping iterator's own design.
+/// references into the index.
 pub trait ResumableReader: 'static {
     /// The matching active reader type, parameterised by the index
     /// lifetime under which the suspended reader is being resumed.

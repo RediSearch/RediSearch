@@ -29,10 +29,10 @@
 //! allocation byte-identically — see [`RQEIteratorBoxed::suspend`] for the
 //! intended idiom.
 //!
-//! # R1 + R2 transitional shape
+//! # Transitional shape
 //!
-//! During R1 and R2 the new active-iterator trait is a **subtrait** of the
-//! legacy [`RQEIterator`]:
+//! During the first phrase of the revalidation work,
+//! the new `RQEIteratorBoxed` trait is a **subtrait** of the legacy [`RQEIterator`]:
 //!
 //! ```text
 //! trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
@@ -47,11 +47,10 @@
 //! sites that reach for `self.foo()`. The same goes for [`RQEDynIterator`]
 //! against the legacy trait on the dyn-erased side.
 //!
-//! In **R3** the legacy [`RQEIterator`] trait is
-//! deleted entirely; its method signatures (sans `revalidate`) are folded
+//! In the second phase of the revalidation work, the legacy [`RQEIterator`] trait will be
+//! deleted entirely; its method signatures (sans `revalidate`) will be folded
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
-//! [`RQEIteratorBoxed`] is renamed back to `RQEIterator`. That matches the
-//! end-state design described in the plan.
+//! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
 use ffi::{ValidateStatus, t_docId};
 use index_result::RSIndexResult;
@@ -68,19 +67,12 @@ use crate::{
 ///
 /// 1. [`suspend`](Self::suspend) consumes `self: Box<Self>` and returns
 ///    `Box<Self::Suspended>`. The intended implementation is a pure pointer
-///    cast (`Box::from_raw(Box::into_raw(self) as *mut _)`) on `#[repr(C)]`,
-///    layout-compatible `Active`/`Suspended` counterparts. This preserves
-///    the box's heap address — composite aggregate
-///    [`RawIndexResult`](index_result::RawIndexResult) pointers into
-///    children's interiors stay valid across the suspend/resume cycle.
+///    cast layout-compatible `Active`/`Suspended` counterparts. This preserves
+///    the box's heap address across the suspend/resume cycle, which matters
+///    for iterators that give out raw pointers to (parts of their) internal state.
 ///
 /// The [`Box<Self>`] receiver also makes this method object-safe, which is
 /// what lets the [`RQEDynIterator`] sibling exist as a free blanket impl.
-///
-/// During R1–R2 this trait is a **subtrait** of
-/// [`RQEIterator`] so that the read/skip/rewind surface
-/// is inherited without duplication. R3 folds those method signatures into
-/// this trait directly and renames it back to `RQEIterator`.
 pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
     /// The suspended counterpart of this iterator. Carries no live
     /// references into the index and can therefore be held across a lock
@@ -88,14 +80,6 @@ pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
     type Suspended: RQESuspendedIterator + 'static;
 
     /// Transition to the suspended state.
-    ///
-    /// Implementations should perform a pure pointer cast of the box:
-    /// the active and suspended types are `#[repr(C)]` layout-compatible
-    /// over [`SharedPtr`](ref_mode::SharedPtr) (a `#[repr(transparent)]`
-    /// `NonNull`) fields, so the same heap allocation can be relabelled as
-    /// the suspended type without reallocation. Preserving the heap address
-    /// is what keeps composite aggregate-result pointers valid across the
-    /// cycle.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
@@ -151,12 +135,7 @@ pub trait RQESuspendedIterator: 'static {
 
 /// Dyn-safe sibling of [`RQEIteratorBoxed`].
 ///
-/// During R1–R2 this trait is a **subtrait** of
-/// [`RQEIterator`] — the read/skip/rewind surface is
-/// reached via the supertrait, and only [`suspend`](Self::suspend) is new
-/// on top. R3 folds the legacy iter methods directly into this trait.
-///
-/// Implementors should not write this trait by hand; the blanket
+/// You shouldn't implement this trait by hand; the blanket
 /// `impl<T: RQEIteratorBoxed<'a> + 'a> RQEDynIterator<'a> for T` below
 /// produces it for every concrete iterator.
 pub trait RQEDynIterator<'a>: RQEIterator<'a> + 'a {
@@ -374,9 +353,8 @@ impl RQESuspendedIterator for BoxedRQESuspendedIterator {
         guard: &'a IndexSpecReadGuard<'a>,
     ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
         let BoxedRQESuspendedIterator(inner) = *self;
-        let (active, status) = <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(
-            inner, guard,
-        );
+        let (active, status) =
+            <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(inner, guard);
         (Box::new(active), status)
     }
 
