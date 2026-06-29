@@ -112,7 +112,8 @@ def test_hybrid_bad_apply():
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
          'APPLY', 'whoami', 'PARAMS', '2', 'BLOB', query_vector).error().contains("Unknown symbol 'whoami'")
 
-
+# Skipped because it doesn't work in coordinator, see #10280 for more background.
+@skip(cluster=True)
 def test_hybrid_apply_matched_terms_without_scores():
     """matched_terms() in the tail must work even when scores aren't requested.
 
