@@ -822,14 +822,11 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec);
+  bool withSuffix = FieldSpec_HasSuffixTrie(fs);
+  TagIndex *tidx = TagIndex_Ensure(&ctx->spec->fields[fs->index], ctx->spec->diskSpec, withSuffix);
   if (!tidx) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open tag index for indexing");
     return -1;
-  }
-
-  if (FieldSpec_HasSuffixTrie(fs) && !TagIndex_HasSuffix(tidx)) {
-    tidx->suffix = NewTrieMap();
   }
 
   if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,

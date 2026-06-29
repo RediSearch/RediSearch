@@ -18,7 +18,7 @@
 class TagIndexTest : public ::testing::Test {};
 
 TEST_F(TagIndexTest, testCreate) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   ASSERT_FALSE(idx == NULL);
   // ASSERT_STRING_EQ(idx->)
   const size_t N = 100000;
@@ -84,7 +84,7 @@ TEST_F(TagIndexTest, testCreate) {
 }
 
 TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   ASSERT_FALSE(idx == NULL);
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;

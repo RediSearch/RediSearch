@@ -118,8 +118,9 @@ typedef struct TagIndex {
 /* Create a new tag index
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
  * @param fieldIndex Field index for disk API calls
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex);
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix);
 
 void TagIndex_Free(TagIndex *index);
 
@@ -229,8 +230,9 @@ TagIndex *TagIndex_Open(const FieldSpec *spec);
 /* Open the tag index, creating it if it doesn't exist.
  * @param spec Field spec for the tag field
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec);
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.

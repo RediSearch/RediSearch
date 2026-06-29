@@ -32,11 +32,11 @@ static uint32_t tagUniqueId = 0;
 // Tags are limited to 4096 each
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex) {
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix) {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
-  idx->suffix = NULL;
+  idx->suffix = withSuffix ? NewTrieMap() : NULL;
   idx->diskSpec = diskSpec;
   idx->fieldIndex = fieldIndex;
   return idx;
@@ -334,10 +334,10 @@ TagIndex *TagIndex_Open(const FieldSpec *spec) {
 }
 
 /* Open the tag index, creating it if it doesn't exist. */
-TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
   if (!spec->tagOpts.tagIndex) {
-    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index);
+    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index, withSuffix);
   }
   return spec->tagOpts.tagIndex;
 }
