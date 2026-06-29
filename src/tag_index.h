@@ -171,6 +171,9 @@ void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minle
                                  const char *max, int maxlen, bool includeMax,
                                  TrieMapRangeCallback callback, void *ctx);
 
+/* Return an iterator over the TagIndex suffix or null */
+TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

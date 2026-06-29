@@ -370,6 +370,10 @@ void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minle
                        ctx);
 }
 
+TrieMapIterator *TagIndex_IterateSuffix(TagIndex *idx) {
+  return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);

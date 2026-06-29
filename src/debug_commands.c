@@ -869,7 +869,9 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
-    if (!TagIndex_HasSuffix(idx)) {
+
+    TrieMapIterator *it = TagIndex_IterateSuffix(idx);
+    if (!it) {
       RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
       goto end;
     }
@@ -877,7 +879,6 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    TrieMapIterator *it = TrieMap_Iterate(idx->suffix);
     char *str;
     tm_len_t len;
     void *value;
