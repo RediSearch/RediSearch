@@ -19,7 +19,7 @@
 //! | Suspended iterator   | [`RQESuspendedIterator`]          | [`RQEDynSuspendedIterator`]     |
 //! | Erasure wrapper type | [`BoxedRQEIterator`]              | [`BoxedRQESuspendedIterator`]   |
 //!
-//! Implementors only need to provide the *concrete* traits
+//! Implementers only need to provide the *concrete* traits
 //! ([`RQEIteratorBoxed`] / [`RQESuspendedIterator`]); blanket bridge impls
 //! produce the corresponding [`RQEDynIterator`] / [`RQEDynSuspendedIterator`]
 //! implementations automatically.
@@ -52,12 +52,13 @@
 //! directly into [`RQEIteratorBoxed`] / [`RQEDynIterator`], and
 //! [`RQEIteratorBoxed`] will be renamed back to `RQEIterator`.
 
-use ffi::{ValidateStatus, t_docId};
+use ffi::t_docId;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    c2rust,
 };
 
 /// Concrete-typed active iterator trait — the new shape of
@@ -86,7 +87,7 @@ pub trait RQEIteratorBoxed<'a>: RQEIterator<'a> + 'a {
 /// Concrete-typed suspended iterator trait — counterpart of
 /// [`RQEIteratorBoxed`].
 ///
-/// Implementors are typically the `Raw…<Suspended, …>` instantiations of
+/// Implementers are typically the `Raw…<Suspended, …>` instantiations of
 /// the same `#[repr(C)]` struct used in active mode. The `'static` bound
 /// reflects the absence of live index references: a suspended iterator
 /// can be held across a lock release.
@@ -99,27 +100,27 @@ pub trait RQESuspendedIterator: 'static {
     /// index and re-validating the iterator's state against any changes
     /// that happened while the iterator was suspended.
     ///
-    /// On success returns the active iterator alongside a [`ValidateStatus`]:
+    /// Returns a [`ResumeOutcome`], mirroring the legacy
+    /// [`RQEIterator::revalidate`]'s [`RQEValidateStatus`]:
     ///
-    /// - [`VALIDATE_OK`](ffi::ValidateStatus_VALIDATE_OK) — the iterator is
-    ///   at the same position it was before suspend.
-    /// - [`VALIDATE_MOVED`](ffi::ValidateStatus_VALIDATE_MOVED) — the
-    ///   iterator's position moved forward (the previous `last_doc_id` was
-    ///   deleted or otherwise no longer present); callers should query
-    ///   [`current`](RQEIterator::current).
-    /// - [`VALIDATE_ABORTED`](ffi::ValidateStatus_VALIDATE_ABORTED) — the
-    ///   iterator's underlying state is unrecoverable; it should be
-    ///   dropped.
+    /// - [`Ok`](ResumeOutcome::Ok) — resumed at the same position.
+    /// - [`Moved`](ResumeOutcome::Moved) — resumed but the position moved
+    ///   forward (the previous `last_doc_id` was deleted or otherwise no
+    ///   longer present); query [`current`](RQEIterator::current) on the
+    ///   returned iterator.
+    /// - [`Aborted`](ResumeOutcome::Aborted) — the iterator's underlying state
+    ///   is unrecoverable. No active iterator is produced; the suspended
+    ///   iterator is dropped.
     ///
-    /// Resume re-reads/seeks the index to restore position (mirroring the
-    /// legacy [`RQEIterator::revalidate`]), so it can fail with an
+    /// Resume re-reads/seeks the index to restore position (mirroring
+    /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
-    /// [`TimedOut`](RQEIteratorError::TimedOut)). On `Err` the suspended
-    /// iterator is consumed and dropped.
+    /// [`TimedOut`](RQEIteratorError::TimedOut)) — distinct from `Aborted`. On
+    /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> Result<(Box<Self::Resumed<'a>>, ValidateStatus), RQEIteratorError>;
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>;
 
     /// Read the cached `last_doc_id` from the suspended state without
     /// resuming. Composite iterators use this during resume to compare
@@ -151,7 +152,7 @@ pub trait RQEDynIterator<'a>: RQEIterator<'a> + 'a {
 
 /// Dyn-safe sibling of [`RQESuspendedIterator`].
 ///
-/// As with [`RQEDynIterator`], implementors don't write this directly — the
+/// As with [`RQEDynIterator`], implementers don't write this directly — the
 /// blanket bridge below produces it from any
 /// `T: RQESuspendedIterator`.
 pub trait RQEDynSuspendedIterator: 'static {
@@ -159,7 +160,7 @@ pub trait RQEDynSuspendedIterator: 'static {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> Result<(BoxedRQEIterator<'a>, ValidateStatus), RQEIteratorError>;
+    ) -> Result<ResumeOutcome<BoxedRQEIterator<'a>>, RQEIteratorError>;
 
     fn last_doc_id(&self) -> t_docId;
 
@@ -283,12 +284,16 @@ impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> Result<(BoxedRQEIterator<'a>, ValidateStatus), RQEIteratorError> {
-        let (active, status) = <S as RQESuspendedIterator>::resume(self, guard)?;
-        Ok((
-            BoxedRQEIterator(active as Box<dyn RQEDynIterator<'a> + 'a>),
-            status,
-        ))
+    ) -> Result<ResumeOutcome<BoxedRQEIterator<'a>>, RQEIteratorError> {
+        // This bridge is the *only* place the resumed iterator is type-erased:
+        // the concrete impl hands back its `Box<Self::Resumed>`, which we wrap
+        // into a `BoxedRQEIterator`. `Aborted` carries nothing, so it maps
+        // straight through.
+        Ok(match <S as RQESuspendedIterator>::resume(self, guard)? {
+            ResumeOutcome::Ok(it) => ResumeOutcome::Ok(BoxedRQEIterator::new(it)),
+            ResumeOutcome::Moved(it) => ResumeOutcome::Moved(BoxedRQEIterator::new(it)),
+            ResumeOutcome::Aborted => ResumeOutcome::Aborted,
+        })
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -380,11 +385,15 @@ impl RQESuspendedIterator for BoxedRQESuspendedIterator {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> Result<(Box<Self::Resumed<'a>>, ValidateStatus), RQEIteratorError> {
+    ) -> Result<ResumeOutcome<Box<BoxedRQEIterator<'a>>>, RQEIteratorError> {
         let BoxedRQESuspendedIterator(inner) = *self;
-        let (active, status) =
-            <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(inner, guard)?;
-        Ok((Box::new(active), status))
+        // The inner dyn resume already yields a `BoxedRQEIterator`; box it to
+        // satisfy the concrete `ResumeOutcome<Box<Self::Resumed>>` shape.
+        Ok(match inner.resume(guard)? {
+            ResumeOutcome::Ok(it) => ResumeOutcome::Ok(Box::new(it)),
+            ResumeOutcome::Moved(it) => ResumeOutcome::Moved(Box::new(it)),
+            ResumeOutcome::Aborted => ResumeOutcome::Aborted,
+        })
     }
 
     fn last_doc_id(&self) -> t_docId {
