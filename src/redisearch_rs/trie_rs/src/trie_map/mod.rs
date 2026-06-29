@@ -221,14 +221,7 @@ impl<Data> TrieMap<Data> {
 
     /// Iterate over all trie entries whose key matches the specified pattern,
     /// auto-selecting the most efficient backend for the pattern's atom
-    /// count:
-    ///
-    /// - ≤ 63 atoms → NFA backed by `u64`.
-    /// - 64..=127 atoms → NFA backed by `u128`.
-    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. Wider bitset
-    ///   representations and a sparse-set automaton were prototyped for
-    ///   this range; neither beat the filter's
-    ///   SIMD-`memcmp`-per-literal approach on real workloads.
+    /// count.
     pub fn wildcard_specialized_iter<'tm, 'p>(
         &'tm self,
         pattern: &WildcardPattern<'p>,
