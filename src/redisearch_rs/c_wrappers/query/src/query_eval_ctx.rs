@@ -209,22 +209,20 @@ impl QueryEvalContext {
     /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
     /// checks are skipped or no deadline is set) is derived from `sctx.time`.
     ///
-    /// The returned [`AnyTimeoutContext`] carries no lifetime tying it back to
-    /// this wrapper: in the Blocked Client case it holds a raw pointer to the
-    /// [`AREQ`](ffi::AREQ). Invariant (2) of [`new`](QueryEvalContext::new) requires that
-    /// [`AREQ`](ffi::AREQ) to outlive every iterator built from this context, so probing it
-    /// after the wrapper is dropped (e.g. from C) stays sound.
+    /// The returned [`AnyTimeoutContext`] borrows `self`: its `'_` lifetime ties
+    /// it (and any iterator built from it) to this wrapper, so it cannot outlive
+    /// the context.
     ///
     /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
-    pub fn build_timeout_context(&self) -> AnyTimeoutContext {
+    pub fn build_timeout_context(&self) -> AnyTimeoutContext<'_> {
         match NonNull::new(self.as_ref().bcTimeoutAreq) {
             Some(areq) => {
                 // SAFETY: invariant (2) of `new` guarantees a non-null
-                // `bcTimeoutAreq` points to a valid `AREQ` that stays valid for
-                // the lifetime of every iterator built from this context — which
-                // is exactly the span the resulting timeout context (and the
-                // iterator holding it) requires, satisfying the
-                // `TimeoutContextBlockedClient::new` contract.
+                // `bcTimeoutAreq` points to a valid `AREQ` that outlives every
+                // iterator built from this context. The returned context borrows
+                // `self`, so its lifetime cannot exceed that of `self` (and hence
+                // of the `AREQ`), satisfying the `TimeoutContextBlockedClient::new`
+                // contract that `'req` not outlive the request.
                 let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
                 AnyTimeoutContext::BlockedClient(timeout)
             }
