@@ -178,6 +178,11 @@ TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
 arrayof(char**) TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len,
                                         bool prefix, struct timespec timeout, bool skipTimeoutChecks);
 
+/* Return a list of terms which match the wildcard pattern or NULL
+ * If pattern does not match using suffix trie, return 0xBAAAAAAD */
+arrayof(char**) TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len,
+                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

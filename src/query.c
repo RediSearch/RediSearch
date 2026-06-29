@@ -1267,7 +1267,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
-    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
+    arrayof(char*) arr = TagIndex_SuffixTrieMap_Wildcard(idx, tok->str, tok->len,
                                                         q->sctx->time.timeout, q->config->maxPrefixExpansions, q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       // No matching terms
