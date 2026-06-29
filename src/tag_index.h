@@ -180,13 +180,15 @@ void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minle
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
 
 /* Return a list of list of terms which match the suffix or contains term or NULL */
-arrayof(char**) TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+arrayof(char **)
+    TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                           struct timespec timeout, bool skipTimeoutChecks);
 
 /* Return a list of terms which match the wildcard pattern or NULL
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
-arrayof(char**) TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+arrayof(char **)
+    TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                                    struct timespec timeout, bool skipTimeoutChecks);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
@@ -255,7 +257,7 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, b
  * a new index is created.
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
-*/
+ */
 struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
                                          size_t len, int create_if_missing, size_t *sz);
 

@@ -32,7 +32,8 @@ static uint32_t tagUniqueId = 0;
 // Tags are limited to 4096 each
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix) {
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex,
+                      bool withSuffix) {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
@@ -375,13 +376,15 @@ TrieMapIterator *TagIndex_IterateSuffix(TagIndex *idx) {
 }
 
 /* Return a list of list of terms which match the suffix or contains term or NULL */
-arrayof(char**) TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
+arrayof(char **)
+    TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                           struct timespec timeout, bool skipTimeoutChecks) {
   return idx->suffix ? GetList_SuffixTrieMap(idx->suffix) : NULL;
 }
 
-arrayof(char**) TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len,
-                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
+arrayof(char **)
+    TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                                    struct timespec timeout, bool skipTimeoutChecks) {
   return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix) : NULL;
 }
 

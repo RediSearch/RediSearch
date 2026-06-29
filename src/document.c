@@ -829,9 +829,8 @@ FIELD_BULK_INDEXER(tagIndexer) {
     return -1;
   }
 
-  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,
-                      (const char **)fdata->tags, array_len(fdata->tags),
-                      aCtx->doc->docId, &ctx->spec->stats)) {
+  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch, (const char **)fdata->tags,
+                      array_len(fdata->tags), aCtx->doc->docId, &ctx->spec->stats)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }
