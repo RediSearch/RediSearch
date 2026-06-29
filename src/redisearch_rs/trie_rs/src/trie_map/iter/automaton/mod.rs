@@ -35,8 +35,7 @@
 //! `Automaton` over a trie via a DFS that carries the post-edge state
 //! on its stack.
 //!
-//! The only `Automaton` implementation today is the wildcard NFA in
-//! [`wildcard`]. **Start there for a worked NFA primer** — the module
+//! **Start there for a worked NFA primer** — the module
 //! doc on [`wildcard`] explains positions, ε-closure, and the bitset
 //! state encoding with a concrete `*ab*` against `xaab` trace.
 //!

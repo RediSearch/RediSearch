@@ -131,9 +131,10 @@
 //!
 //! # Layout
 //!
-//! - [`atoms`] — the [`Atom`](atoms::Atom) enum, the [`NfaBitSet`] trait
-//!   with `u64`/`u128` impls, and the `flatten` helper that turns a
-//!   parsed [`WildcardPattern`] into a flat atom slice.
+//! - [`atoms`] — the [`Atom`](atoms::Atom) enum and the `flatten` helper
+//!   that turns a parsed [`WildcardPattern`] into a flat atom slice.
+//! - [`nfa_bit_set`] — the [`NfaBitSet`] trait with its `u64`/`u128`
+//!   impls (the active-position bitmask encoding).
 //! - [`nfa`] — [`WildcardNfa<S>`](nfa::WildcardNfa), the NFA itself.
 //!
 //! # Byte-level semantics
@@ -145,9 +146,10 @@
 
 pub mod atoms;
 pub mod nfa;
+pub mod nfa_bit_set;
 
-pub use atoms::NfaBitSet;
 pub use nfa::WildcardNfa;
+pub use nfa_bit_set::NfaBitSet;
 
 use super::AutomatonIter;
 use crate::trie_map::iter::wildcard::WildcardIter;

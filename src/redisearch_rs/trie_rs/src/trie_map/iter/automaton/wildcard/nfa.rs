@@ -23,7 +23,8 @@
 //!    run time.
 
 use super::super::{Automaton, StateClass};
-use super::atoms::{Atom, NfaBitSet, flatten};
+use super::atoms::{Atom, flatten};
+use super::nfa_bit_set::NfaBitSet;
 use rqe_wildcard::WildcardPattern;
 
 /// One row of the ε-closure table.
@@ -78,7 +79,7 @@ pub(super) fn build_epsilon_table<S: NfaBitSet>(atoms: &[Atom]) -> Vec<EpsilonRo
     table
 }
 
-/// The start state: the ε-closure of `{0}`. Built once at compile time
+/// The start state: the ε-closure of `{0}`. Built once at NFA-construction time
 /// and cloned at the top of every traversal.
 pub(super) fn initial_state<S: NfaBitSet>(
     n_atoms: usize,
@@ -117,48 +118,29 @@ pub(super) fn nfa_step_into<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
     byte: u8,
-    epsilon_table: Option<&[EpsilonRow<S>]>,
+    epsilon_table: &[EpsilonRow<S>],
     next: &mut S,
 ) {
     debug_assert!(next.is_empty());
-    match epsilon_table {
-        Some(table) => {
-            for pos in state.iter() {
-                // The accept position (`pos == atoms.len()`) has no atom and
-                // no outgoing transition — it's a sink. Any survival from
-                // here happens through other active positions.
-                if pos >= atoms.len() {
-                    continue;
-                }
-                let target = match atoms[pos] {
-                    Atom::Byte(b) if b == byte => pos + 1,
-                    Atom::Byte(_) => continue,
-                    Atom::One => pos + 1,
-                    Atom::Any => pos,
-                };
-                // SAFETY: `target` is a valid atom-or-accept index in
-                // `0..=atoms.len()`, matching the table's length `n + 1`.
-                let row = unsafe { table.get_unchecked(target) };
-                match row {
-                    EpsilonRow::Singleton(p) => next.insert(*p),
-                    EpsilonRow::Set(s) => next.union_in_place(s),
-                }
-            }
+    for pos in state.iter() {
+        // The accept position (`pos == atoms.len()`) has no atom and
+        // no outgoing transition — it's a sink. Any survival from
+        // here happens through other active positions.
+        if pos >= atoms.len() {
+            continue;
         }
-        None => {
-            for pos in state.iter() {
-                if pos >= atoms.len() {
-                    continue;
-                }
-                let target = match atoms[pos] {
-                    Atom::Byte(b) if b == byte => pos + 1,
-                    Atom::Byte(_) => continue,
-                    Atom::One => pos + 1,
-                    // Unreachable: `epsilon_table` is `None` iff no `Any`.
-                    Atom::Any => continue,
-                };
-                next.insert(target);
-            }
+        let target = match atoms[pos] {
+            Atom::Byte(b) if b == byte => pos + 1,
+            Atom::Byte(_) => continue,
+            Atom::One => pos + 1,
+            Atom::Any => pos,
+        };
+        // SAFETY: `target` is a valid atom-or-accept index in
+        // `0..=atoms.len()`, matching the table's length `n + 1`.
+        let row = unsafe { epsilon_table.get_unchecked(target) };
+        match row {
+            EpsilonRow::Singleton(p) => next.insert(*p),
+            EpsilonRow::Set(s) => next.union_in_place(s),
         }
     }
 }
@@ -169,7 +151,7 @@ pub(super) fn nfa_step<S: NfaBitSet>(
     atoms: &[Atom],
     state: &S,
     byte: u8,
-    epsilon_table: Option<&[EpsilonRow<S>]>,
+    epsilon_table: &[EpsilonRow<S>],
 ) -> S {
     let mut next = S::empty(atoms.len());
     nfa_step_into(atoms, state, byte, epsilon_table, &mut next);
@@ -209,7 +191,7 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     ///
     /// Callers should match the width to the atom count: `S = u64` for
     /// ≤ 63 atoms, `S = u128` for ≤ 127. Past 127 the NFA backends lose
-    /// to the per-key [`crate::trie_map::iter::wildcard::WildcardIter`], so route
+    /// to the per-key filter fallback, so route
     /// through [`super::WildcardSpecializedIter`] — it picks the right
     /// backend automatically.
     ///
@@ -264,7 +246,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
             Some(table) => {
                 // General path: the state set may contain multiple bits and
                 // ε-closure can spread it further.
-                let next = nfa_step(&self.atoms, state, byte, Some(table));
+                let next = nfa_step(&self.atoms, state, byte, table);
                 (!next.is_empty()).then_some(next)
             }
             None => {
@@ -310,7 +292,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
         // Fast path for fixed-length patterns: state is always a singleton,
         // so we can pre-extract its position and advance an integer counter
         // per byte instead of going through `step`.
-        if self.epsilon_table.is_none() {
+        let Some(epsilon_table) = &self.epsilon_table else {
             let mut pos = state.singleton_pos();
             for &byte in bytes {
                 let advances = match self.atoms.get(pos)? {
@@ -329,7 +311,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
             // yields the value and skips child traversal, so this state is
             // a sink — not a dead state.
             return Some(S::singleton(self.accept, pos));
-        }
+        };
 
         // General path: advance through the full ε-closure-aware step.
         //
@@ -337,15 +319,14 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
         // common short-label case doesn't pay for an upfront `state.clone()`
         // that the very next iteration would overwrite.
         //
-        // For multi-byte labels (common with edge-compressed trie edges),
+        // For multi-byte labels,
         // allocate one scratch `next` upfront and swap with `s` between
         // bytes. This recycles the bitset's storage instead of producing
         // a fresh `S::empty(...)` per byte.
         let Some((&first, rest)) = bytes.split_first() else {
             return Some(state.clone());
         };
-        let table = self.epsilon_table.as_deref();
-        let mut s = nfa_step(&self.atoms, state, first, table);
+        let mut s = nfa_step(&self.atoms, state, first, epsilon_table);
         if s.is_empty() {
             return None;
         }
@@ -357,7 +338,7 @@ impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
             // Invariant: `next` is empty here. On the first iteration the
             // fresh `S::empty` above made it so; on later iterations the
             // `swap` left the just-consumed `s` in `next`, which we clear.
-            nfa_step_into(&self.atoms, &s, byte, table, &mut next);
+            nfa_step_into(&self.atoms, &s, byte, epsilon_table, &mut next);
             if next.is_empty() {
                 return None;
             }
