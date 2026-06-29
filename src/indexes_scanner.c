@@ -132,7 +132,11 @@ double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanne
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
       size_t totalKeys = RedisModule_DbSize(ctx);
-      return totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
+      // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
+      // at-least-once) can push it past totalKeys; clamp so the reported percent never
+      // exceeds 100%.
+      double pct = totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
+      return pct > 1.0 ? 1.0 : pct;
     } else {
       return 0;
     }
@@ -206,8 +210,8 @@ void IndexesScanner_Cancel(IndexesScanner *scanner) {
 }
 
 void IndexesScanner_ResetProgression(IndexesScanner *scanner) {
-  scanner-> scanFailedOnOOM = false;
-  scanner-> scannedKeys = 0;
+  scanner->scanFailedOnOOM = false;
+  scanner->scannedKeys = 0;
 }
 
 DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
