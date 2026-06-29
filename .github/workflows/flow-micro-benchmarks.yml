@@ -94,10 +94,15 @@ jobs:
           sudo apt install python3-pip -y
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
       - name: Compare benchmark results
+        # The baseline branch is normally the PR's base branch, but adding the
+        # 'bench:vs-master' label forces the comparison against master instead,
+        # so a stacked PR shows the cumulative impact of the whole stack rather
+        # than just the delta on top of its parent. Kept in sync with the macro
+        # benchmark flow in benchmark-flow.yml.
         run: |
           redisbench-admin compare \
           --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
-          --baseline-branch ${{ github.event.pull_request.base.ref }} \
+          --baseline-branch ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }} \
           --auto-approve \
           --pull-request ${{ github.event.number }} \
           --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \

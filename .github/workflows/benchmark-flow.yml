@@ -215,10 +215,17 @@ jobs:
         # block instead of an empty table, and the cross-arch section
         # auto-suppresses. The last-to-finish upsert wins -- same behavior
         # as today, but with the richer multi-arch body.
+        #
+        # The baseline branch is normally the PR's base branch, but adding the
+        # 'bench:vs-master' label forces the comparison against master
+        # instead. This is for stacked PRs: when a PR is based on another PR's
+        # branch, the default base-branch comparison only shows the delta of
+        # this PR on top of its parent. Baselining against master instead shows
+        # the cumulative performance impact of the whole stack.
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
-              --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --baseline-branch ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
               --architectures x86_64,aarch64
               --auto-approve
               --pull-request ${{ github.event.number }}
