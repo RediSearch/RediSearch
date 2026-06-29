@@ -20,6 +20,13 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// Tracks where the child was in the original `children` vector so that
 /// we can restore the original order.
+///
+/// `#[repr(C)]` so that the `Vec<IndexedChild<I>>` elements stay
+/// layout-compatible across the `I` → `I::Suspended` swap: a default-repr
+/// struct is free to reorder its fields differently per instantiation, which
+/// would corrupt elements when the union is transmuted between Active and
+/// Suspended modes.
+#[repr(C)]
 pub(crate) struct IndexedChild<I> {
     /// Position of this child in the original `children` vector passed to
     /// [`UnionFlat::new`].
