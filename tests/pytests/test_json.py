@@ -1437,7 +1437,7 @@ def testTagAutoescaping(env):
     env.assertEqual(res, expected_result)
 
 @skip(no_json=True)
-def testHighlightSingleValueJson(env):
+def test_highlight_single_value_json(env):
     """ highlight/summarize works for JSON fields with single-value JSONPath across all dialects """
     conn = getConnectionByEnv(env)
     MAX_DIALECT = set_max_dialect(env)
@@ -1515,7 +1515,7 @@ def testHighlightSingleValueJson(env):
         env.assertEqual(res, expected, message=f'array summarize guard DIALECT {dialect}')
 
 @skip(no_json=True)
-def testHighlightMultiValueJsonRejected(env):
+def test_highlight_multi_value_json_rejected(env):
     """ highlight/summarize is not supported for JSON fields with multi-value JSONPath """
     MAX_DIALECT = set_max_dialect(env)
 
