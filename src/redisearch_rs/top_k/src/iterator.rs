@@ -252,7 +252,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                         continue;
                     }
                     if self.child.is_none() {
-                        // Adhoc-BF requires a child filter iterator.
+                        // Adhoc-BF requires a child filter iterator:
+                        // ignore the strategy switch.
                         continue;
                     }
                     self.mode = TopKMode::AdhocBF;
