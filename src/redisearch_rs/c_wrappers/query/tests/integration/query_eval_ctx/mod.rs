@@ -90,24 +90,24 @@ fn config_returns_iterators_config() {
 }
 
 #[test]
-fn not_subtree_default_false() {
+fn in_not_sub_tree_default_false() {
     let mut mock = MockQueryEvalCtx::new();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
-    assert!(!ctx.not_subtree());
+    assert!(!ctx.in_not_sub_tree());
 }
 
 #[test]
-fn set_not_subtree_returns_previous_and_updates() {
+fn set_in_not_sub_tree_returns_previous_and_updates() {
     let mut mock = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
-    let prev = ctx.set_not_subtree(true);
+    let prev = ctx.set_in_not_sub_tree(true);
     assert!(!prev);
-    assert!(ctx.not_subtree());
+    assert!(ctx.in_not_sub_tree());
 
-    let prev = ctx.set_not_subtree(false);
+    let prev = ctx.set_in_not_sub_tree(false);
     assert!(prev);
-    assert!(!ctx.not_subtree());
+    assert!(!ctx.in_not_sub_tree());
 }
 
 #[test]

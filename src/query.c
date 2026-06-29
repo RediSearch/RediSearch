@@ -1109,7 +1109,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->notSubtree || qn->opts.weight == 0;
+  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
   QueryIterator *ret = NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
@@ -1444,7 +1444,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->notSubtree || qn->opts.weight == 0;
+  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
   return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 }
 

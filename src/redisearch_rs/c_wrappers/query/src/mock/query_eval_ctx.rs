@@ -126,7 +126,7 @@ impl MockQueryEvalCtx {
             (*qctx).reqFlags = flags.bits();
             (*qctx).config = (config as *mut IteratorsConfig).cast();
             (*qctx).tokenId = 0;
-            (*qctx).notSubtree = false;
+            (*qctx).inNotSubTree = false;
 
             Self {
                 sctx,

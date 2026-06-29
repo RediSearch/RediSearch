@@ -37,7 +37,7 @@ use search_disk::SearchDiskHandle;
 ///   token iterator created during evaluation.
 /// - `numTokens` — incremented when term-expansion nodes (prefix, fuzzy, …)
 ///   produce additional iterators beyond those counted by the parser.
-/// - `notSubtree` — temporarily set to `true` while evaluating the child of
+/// - `inNotSubTree` — temporarily set to `true` while evaluating the child of
 ///   a `NOT` node so that descendant `UNION` nodes know they can exit early
 ///   on the first match. Restored to its previous value afterwards.
 pub struct QueryEvalContext(NonNull<ffi::QueryEvalCtx>);
@@ -189,15 +189,15 @@ impl QueryEvalContext {
     /// When `true`, `UNION` nodes may exit early on the first matching child
     /// because the NOT semantics only need to know *whether* a match exists,
     /// not its score.
-    pub const fn not_subtree(&self) -> bool {
-        self.as_ref().notSubtree
+    pub const fn in_not_sub_tree(&self) -> bool {
+        self.as_ref().inNotSubTree
     }
 
-    /// Set the `notSubtree` flag, returning the previous value.
-    pub const fn set_not_subtree(&mut self, value: bool) -> bool {
+    /// Set the `inNotSubTree` flag, returning the previous value.
+    pub const fn set_in_not_sub_tree(&mut self, value: bool) -> bool {
         let inner = self.as_mut();
-        let prev = inner.notSubtree;
-        inner.notSubtree = value;
+        let prev = inner.inNotSubTree;
+        inner.inNotSubTree = value;
         prev
     }
 

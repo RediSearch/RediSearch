@@ -413,10 +413,10 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
     // The previous value is saved and restored rather than just cleared: NOT
     // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
     // while the inner one is being evaluated and after it returns.
-    let prev_not_subtree = ctx.set_not_subtree(true);
+    let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
     let child_node = node.child(0);
     let child = eval_child_iterator(ctx, &child_node);
-    ctx.set_not_subtree(prev_not_subtree);
+    ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
     // SAFETY: the preconditions of `new_not_iterator` map to
     // `QueryEvalContext::new` invariants:
