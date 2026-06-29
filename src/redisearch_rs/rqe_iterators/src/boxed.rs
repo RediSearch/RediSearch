@@ -99,7 +99,7 @@ pub trait RQESuspendedIterator: 'static {
     /// index and re-validating the iterator's state against any changes
     /// that happened while the iterator was suspended.
     ///
-    /// Returns the active iterator alongside a [`ValidateStatus`]:
+    /// On success returns the active iterator alongside a [`ValidateStatus`]:
     ///
     /// - [`VALIDATE_OK`](ffi::ValidateStatus_VALIDATE_OK) — the iterator is
     ///   at the same position it was before suspend.
@@ -110,10 +110,16 @@ pub trait RQESuspendedIterator: 'static {
     /// - [`VALIDATE_ABORTED`](ffi::ValidateStatus_VALIDATE_ABORTED) — the
     ///   iterator's underlying state is unrecoverable; it should be
     ///   dropped.
+    ///
+    /// Resume re-reads/seeks the index to restore position (mirroring the
+    /// legacy [`RQEIterator::revalidate`]), so it can fail with an
+    /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or
+    /// [`TimedOut`](RQEIteratorError::TimedOut)). On `Err` the suspended
+    /// iterator is consumed and dropped.
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> (Box<Self::Resumed<'a>>, ValidateStatus);
+    ) -> Result<(Box<Self::Resumed<'a>>, ValidateStatus), RQEIteratorError>;
 
     /// Read the cached `last_doc_id` from the suspended state without
     /// resuming. Composite iterators use this during resume to compare
@@ -153,7 +159,7 @@ pub trait RQEDynSuspendedIterator: 'static {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> (BoxedRQEIterator<'a>, ValidateStatus);
+    ) -> Result<(BoxedRQEIterator<'a>, ValidateStatus), RQEIteratorError>;
 
     fn last_doc_id(&self) -> t_docId;
 
@@ -215,14 +221,35 @@ impl BoxedRQESuspendedIterator {
 /// * `I` and `I::Suspended` must have the same size and alignment — guaranteed
 ///   for all `RQEIteratorBoxed` impls in this crate by their `#[repr(C)]`
 ///   layouts over `SharedPtr`/fat-pointer fields.
+///
+/// Between the `ptr::read` and the matching `ptr::write` the slot is logically
+/// uninitialised while the caller (and any composite that owns it) still
+/// considers it live. `RQEIteratorBoxed::suspend` is a safe trait method that
+/// may dispatch to arbitrary (including dyn) implementations and could panic;
+/// if it did, unwinding past the uninitialised slot would let the owner drop a
+/// moved-from value (double drop). To keep the window sound, a panic from
+/// `suspend` is converted into a process abort rather than an unwind.
 pub unsafe fn suspend_child_slot_in_place<'a, I>(slot: *mut I)
 where
     I: RQEIteratorBoxed<'a> + 'a,
 {
+    /// Aborts the process if dropped during unwinding through the
+    /// uninitialised-slot window. Disarmed with [`std::mem::forget`] once the
+    /// slot has been reinitialised.
+    struct AbortOnUnwind;
+    impl Drop for AbortOnUnwind {
+        fn drop(&mut self) {
+            std::process::abort();
+        }
+    }
+
     // SAFETY: caller guarantees `slot` is exclusively owned and points to a
     // valid `I` value. `ptr::read` moves the value out; the slot bytes are
     // typed-but-moved-from until the matching `ptr::write` below.
     let active = unsafe { std::ptr::read(slot) };
+    // Armed across the uninitialised-slot window: if `suspend` panics, drop
+    // aborts instead of unwinding through the moved-from slot.
+    let bomb = AbortOnUnwind;
     // Dispatches via the vtable for dyn-erased `I` (e.g. `BoxedRQEIterator`);
     // a whole-box cast at the leaf level for concrete `I`. Either way the
     // inner concrete iterator's heap allocation is preserved — only the
@@ -233,6 +260,8 @@ where
     // above). The slot is uninitialised after the earlier `ptr::read`;
     // writing a valid `I::Suspended` reinitialises it.
     unsafe { std::ptr::write(slot as *mut I::Suspended, suspended) };
+    // Slot reinitialised — disarm the abort guard.
+    std::mem::forget(bomb);
 }
 
 // --- Blanket bridges: concrete → dyn-safe -----------------------------------
@@ -254,12 +283,12 @@ impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> (BoxedRQEIterator<'a>, ValidateStatus) {
-        let (active, status) = <S as RQESuspendedIterator>::resume(self, guard);
-        (
+    ) -> Result<(BoxedRQEIterator<'a>, ValidateStatus), RQEIteratorError> {
+        let (active, status) = <S as RQESuspendedIterator>::resume(self, guard)?;
+        Ok((
             BoxedRQEIterator(active as Box<dyn RQEDynIterator<'a> + 'a>),
             status,
-        )
+        ))
     }
 
     fn last_doc_id(&self) -> t_docId {
@@ -351,11 +380,11 @@ impl RQESuspendedIterator for BoxedRQESuspendedIterator {
     fn resume<'a>(
         self: Box<Self>,
         guard: &'a IndexSpecReadGuard<'a>,
-    ) -> (Box<Self::Resumed<'a>>, ValidateStatus) {
+    ) -> Result<(Box<Self::Resumed<'a>>, ValidateStatus), RQEIteratorError> {
         let BoxedRQESuspendedIterator(inner) = *self;
         let (active, status) =
-            <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(inner, guard);
-        (Box::new(active), status)
+            <dyn RQEDynSuspendedIterator as RQEDynSuspendedIterator>::resume(inner, guard)?;
+        Ok((Box::new(active), status))
     }
 
     fn last_doc_id(&self) -> t_docId {
