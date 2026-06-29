@@ -47,6 +47,13 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 ///
 /// Taken from the C++tests in
 /// `tests/cpptests/iterator_util.h`.
+///
+/// `#[repr(C)]` so that `Mock<'index, N>` and [`MockSuspended<N>`] are
+/// layout-compatible: `suspend`/`resume` relabel the same heap allocation
+/// between the two via [`Box::from_raw`], which is only sound if both have a
+/// fixed, matching field layout (default repr may order distinct types
+/// differently even when their fields match).
+#[repr(C)]
 pub struct Mock<'index, const N: usize> {
     result: RSIndexResult<'index>,
     doc_ids: [DocId; N],
@@ -355,20 +362,20 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
         data.read_count += 1;
 
-        // Already at or past `doc_id` — mirror real iterators
-        // (e.g. [`Term`](rqe_iterators::inverted_index::Term)) whose
-        // `seek_record(doc_id)` returns the current record when it's
-        // already ≥ `doc_id`. Without this, the assert would fire on
-        // resume-driven re-skips that target the iterator's pre-suspend
-        // position.
-        if self.result.doc_id >= doc_id {
+        // Re-skip to the current position returns the current record without
+        // advancing. Real iterators (e.g. [`Term`](rqe_iterators::inverted_index::Term))
+        // tolerate this because resume-driven re-skips target the iterator's
+        // pre-suspend position. Backwards skips (`result.doc_id > doc_id`) stay
+        // a contract violation, matching the real `skip_to`'s
+        // `debug_assert!(last_doc_id() < doc_id)`.
+        if self.result.doc_id == doc_id {
             data.read_count -= 1;
-            return Ok(Some(if self.result.doc_id == doc_id {
-                rqe_iterators::SkipToOutcome::Found(&mut self.result)
-            } else {
-                rqe_iterators::SkipToOutcome::NotFound(&mut self.result)
-            }));
+            return Ok(Some(rqe_iterators::SkipToOutcome::Found(&mut self.result)));
         }
+        debug_assert!(
+            self.result.doc_id < doc_id,
+            "skip_to called with a target below the current position (backwards skip)"
+        );
 
         if self.at_eof() {
             return if let Some(err) = data.error_at_done {
@@ -470,6 +477,10 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
 /// borrows (its `result` is a freshly-built [`RSIndexResult`] over owned data),
 /// so the suspended counterpart is byte-identical to the active form at any
 /// lifetime.
+///
+/// `#[repr(C)]` so the layout matches [`Mock`] for the `suspend`/`resume`
+/// pointer relabel (see [`Mock`]).
+#[repr(C)]
 pub struct MockSuspended<const N: usize> {
     _result: RSIndexResult<'static>,
     _doc_ids: [DocId; N],
@@ -510,7 +521,24 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
                 if self._next_index < N {
-                    self._result.doc_id = self._doc_ids[self._next_index];
+                    // Rebuild the full result (doc_id + offsets for positioned
+                    // mocks), mirroring `Mock::set_result` on the legacy
+                    // `revalidate` path. Without this, positioned mocks would
+                    // carry stale offsets after a resume-driven move.
+                    let index = self._next_index;
+                    let doc_id = self._doc_ids[index];
+                    if let Some(positions) = self._positions {
+                        let pos_byte = [positions[index]];
+                        let offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
+                        self._result = RSIndexResult::build_term()
+                            .doc_id(doc_id)
+                            .weight(1.)
+                            .field_mask(RS_FIELDMASK_ALL)
+                            .owned_record(None, offsets)
+                            .build();
+                    } else {
+                        self._result.doc_id = doc_id;
+                    }
                     self._next_index += 1;
                 }
                 true
@@ -529,10 +557,10 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
     }
 
     fn last_doc_id(&self) -> DocId {
-        self._doc_ids
-            .get(self._next_index.saturating_sub(1))
-            .copied()
-            .unwrap_or(0)
+        // Mirror the active `Mock::last_doc_id`, which returns `result.doc_id`.
+        // Suspend copies `result` into `_result`, so this matches exactly;
+        // composite resume compares children via this value.
+        self._result.doc_id
     }
 
     fn num_estimated(&self) -> usize {
@@ -543,6 +571,10 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.
 ///
 /// This is useful when the document IDs are determined at runtime.
+///
+/// `#[repr(C)]` so that `MockVec<'index>` and [`MockVecSuspended`] are
+/// layout-compatible for the `suspend`/`resume` pointer relabel (see [`Mock`]).
+#[repr(C)]
 pub struct MockVec<'index> {
     result: RSIndexResult<'index>,
     doc_ids: Vec<DocId>,
@@ -619,16 +651,17 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
         data.read_count += 1;
 
-        // See `Mock::skip_to` — already-at-or-past target returns the
-        // current record without advancing, mirroring real iterators.
-        if self.result.doc_id >= doc_id {
+        // See `Mock::skip_to` — re-skip to the current position returns the
+        // current record without advancing; backwards skips stay a contract
+        // violation.
+        if self.result.doc_id == doc_id {
             data.read_count -= 1;
-            return Ok(Some(if self.result.doc_id == doc_id {
-                rqe_iterators::SkipToOutcome::Found(&mut self.result)
-            } else {
-                rqe_iterators::SkipToOutcome::NotFound(&mut self.result)
-            }));
+            return Ok(Some(rqe_iterators::SkipToOutcome::Found(&mut self.result)));
         }
+        debug_assert!(
+            self.result.doc_id < doc_id,
+            "skip_to called with a target below the current position (backwards skip)"
+        );
 
         let n = self.doc_ids.len();
         if self.at_eof() {
@@ -715,6 +748,10 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 /// Layout-identical to [`MockVec`] (the lifetime parameter is purely phantom
 /// in this test helper: `result` is a freshly-built [`RSIndexResult`] over
 /// owned data).
+///
+/// `#[repr(C)]` so the layout matches [`MockVec`] for the `suspend`/`resume`
+/// pointer relabel (see [`Mock`]).
+#[repr(C)]
 pub struct MockVecSuspended {
     _result: RSIndexResult<'static>,
     _doc_ids: Vec<DocId>,
@@ -747,10 +784,8 @@ impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
     }
 
     fn last_doc_id(&self) -> DocId {
-        self._doc_ids
-            .get(self._next_index.saturating_sub(1))
-            .copied()
-            .unwrap_or(0)
+        // Mirror the active `MockVec::last_doc_id`, which returns `result.doc_id`.
+        self._result.doc_id
     }
 
     fn num_estimated(&self) -> usize {
