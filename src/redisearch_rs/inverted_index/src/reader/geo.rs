@@ -8,7 +8,8 @@
 */
 
 use super::{
-    IndexReader, IndexReaderCore, NumericFilter, NumericReader, ResumableReader, SuspendableReader,
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ResumableReader,
+    SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
@@ -94,10 +95,13 @@ impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
 /// the resumed core reader provides.
 impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.inner.refresh_pointers()
+    }
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {

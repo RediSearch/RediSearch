@@ -9,7 +9,9 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader, ResumableReader, SuspendableReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
@@ -117,10 +119,13 @@ impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
 /// the resumed core reader provides.
 impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
+
+    fn refresh_pointers(&mut self) -> RefreshOutcome {
+        self.inner.refresh_pointers()
+    }
 }
 
 impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {
