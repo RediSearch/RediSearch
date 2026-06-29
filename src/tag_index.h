@@ -134,6 +134,11 @@ static inline bool TagIndex_HasSuffix(const TagIndex *idx) {
   return idx->suffix != NULL;
 }
 
+/* Return 1 if TagIndex supports suffix searches */
+static inline bool TagIndex_HasDiskSpec(const TagIndex *idx) {
+  return idx->diskSpec != NULL;
+}
+
 /* Return an iterator over the TagIndex values */
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
 

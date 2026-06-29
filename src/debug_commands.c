@@ -794,7 +794,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   }
 
   // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (tagIndex->diskSpec) {
+  if (TagIndex_HasDiskSpec(tagIndex)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
@@ -1417,7 +1417,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (idx->diskSpec) {
+  if (TagIndex_HasDiskSpec(idx)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
