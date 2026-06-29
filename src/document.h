@@ -17,6 +17,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
+#include "ttl_table.h"
 
 // Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
 // Forward-declared here to avoid pulling the entire disk-API surface into document.h.
@@ -98,7 +99,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
@@ -232,7 +233,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
  * `t_fieldIndex`, which is the invariant the TTL table relies on.
  */
 void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
-                                      size_t ii, arrayof(FieldExpiration) *out);
+                                      size_t ii, FieldExpirations *out);
 
 /**
  * Load all the fields into the document.

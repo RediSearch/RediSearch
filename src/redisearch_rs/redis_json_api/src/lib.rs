@@ -8,12 +8,14 @@
 */
 
 mod key_values;
+#[cfg(feature = "test-mock")]
+pub mod mock;
 mod path;
 mod results;
 mod value;
 
 use ffi::RedisJSONAPI as RedisJsonApiVTable;
-use redis_module::RedisString;
+use redis_module::{RedisString, key::KeyFlags};
 use std::{error::Error, ffi::CStr, fmt};
 
 pub use key_values::KeyValuesIterator;
@@ -69,6 +71,12 @@ impl RedisJsonApi {
         }
 
         Some(Self { vtable })
+    }
+
+    /// Construct an API handle from a caller-provided vtable.
+    #[cfg(feature = "test-mock")]
+    pub const fn from_vtable(vtable: &'static RedisJsonApiVTable) -> Self {
+        Self { vtable }
     }
 
     /// Returns the current API version.
@@ -149,7 +157,7 @@ impl RedisJsonApi {
         &self,
         ctx: *mut ffi::RedisModuleCtx,
         key_name: &RedisString,
-        flags: i32,
+        flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
         let vtable = self.vtable();
         let open_key_with_flags = vtable
@@ -157,7 +165,13 @@ impl RedisJsonApi {
             .expect("RedisJSON API function `openKeyWithFlags` not available");
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key_with_flags(ctx, key_name.inner.cast(), flags) };
+        let ptr = unsafe {
+            open_key_with_flags(
+                ctx,
+                key_name.inner.cast(),
+                flags.bits() | redis_module::raw::REDISMODULE_READ as i32,
+            )
+        };
 
         if ptr.is_null() {
             None

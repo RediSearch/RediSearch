@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Verify that [`query_eval::string_utils::unicode_tolower`] matches the FFI
+//! Verify that [`string_utils::unicode_tolower`] matches the FFI
 //! `unicode_tolower_fn` for all BMP codepoints.
 
 #[cfg(not(miri))]
@@ -49,7 +49,7 @@ mod ffi_comparison {
 
     fn assert_tolower_matches_c(s: &str) {
         let c_result = c_unicode_tolower(s);
-        let rust_result = query_eval::string_utils::unicode_tolower(s);
+        let rust_result = string_utils::unicode_tolower(s);
         assert_eq!(
             rust_result, c_result,
             "mismatch for input {:?}: rust={:?}, c={:?}",

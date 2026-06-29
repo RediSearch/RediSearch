@@ -14,7 +14,9 @@
 //! - A direct-modulo bucket array (`slot = doc_id % max_size`) — no hashing,
 //!   so monotonically allocated docIds map to sequential slots and the CPU
 //!   prefetcher can stream upcoming bucket headers into L1.
-//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries).
+//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries),
+//!   grown by `MediumThinVec`'s native exponential strategy (doubling, seeded at
+//!   4), as are the per-entry field-expiration lists.
 //! - Lazy growth: the bucket array starts empty and grows geometrically
 //!   (+1.5×, capped at `1 << 20` and clamped to `max_size`) only as `add`
 //!   demands more slots.
@@ -34,7 +36,7 @@ use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
 use ffi::t_expirationTimePoint as timespec;
 pub use field::FieldExpirationPredicate;
 use rqe_core::{DocId, FieldIndex, FieldMask};
-use thin_vec::MediumThinVec;
+use thin_vec::{AlignedU32, MediumThinVec, ThinVec};
 
 /// A single field's expiration record.
 ///
@@ -58,8 +60,10 @@ pub struct FieldExpiration {
 pub struct FieldExpirations {
     /// Backing store for the field list.
     ///
-    /// We use [`MediumThinVec`] rather than the default `ThinVec` for performance reason.
-    inner: MediumThinVec<FieldExpiration>,
+    /// We use a `ThinVec` with an over-aligned [`AlignedU32`] capacity rather than
+    /// the default `ThinVec` for performance: the over-alignment lets `data_raw`
+    /// elide its `capacity == 0` guard on the verify hot path.
+    inner: ThinVec<FieldExpiration, AlignedU32>,
 }
 
 impl FieldExpirations {
@@ -68,7 +72,7 @@ impl FieldExpirations {
     /// No heap allocation is performed until the first insertion.
     pub const fn new() -> Self {
         Self {
-            inner: MediumThinVec::new(),
+            inner: ThinVec::new(),
         }
     }
 
@@ -76,7 +80,7 @@ impl FieldExpirations {
     /// at least `cap` entries.
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            inner: MediumThinVec::with_capacity(cap),
+            inner: ThinVec::with_capacity(cap),
         }
     }
 
@@ -147,12 +151,17 @@ impl FieldExpirations {
             }
         }
 
-        // Grow the collision chain linearly if needed.
-        if self.inner.capacity() == self.inner.len() {
-            self.inner.reserve_exact(1);
-        }
-
+        // `MediumThinVec::push` grows the chain exponentially when full.
         self.inner.push(fe);
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    /// Shrinks the backing store so its capacity equals its length.
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit();
     }
 }
 
@@ -255,9 +264,8 @@ impl TimeToLiveTable {
     /// - `doc_id` is not already present in the table.
     ///
     /// These invariants are load-bearing for the lookup hot paths
-    /// ([`verify_doc_and_field`](Self::verify_doc_and_field),
-    /// [`verify_doc_and_field_mask`](Self::verify_doc_and_field_mask),
-    /// [`verify_doc_and_wide_field_mask`](Self::verify_doc_and_wide_field_mask)),
+    /// ([`field_satisfies_predicate`](Self::field_satisfies_predicate),
+    /// [`field_mask_satisfies_predicate`](Self::field_mask_satisfies_predicate)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
     pub unsafe fn add_unchecked(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
@@ -276,10 +284,7 @@ impl TimeToLiveTable {
             "duplicate docId in TTL table"
         );
 
-        // Grow the collision chain linearly if needed.
-        if slot.capacity() == slot.len() {
-            slot.reserve_exact(1);
-        }
+        // `MediumThinVec::push` grows the chain exponentially when full.
         slot.push(TimeToLiveEntry {
             doc_id,
             field_expirations,
@@ -345,7 +350,7 @@ impl TimeToLiveTable {
     /// the document at all, the function returns `true` regardless of `predicate`,
     /// because none of the document's fields is expired, so the query trivially passes
     /// under either predicate.
-    pub fn verify_doc_and_field(
+    pub fn field_satisfies_predicate(
         &self,
         doc_id: DocId,
         field: u16,
@@ -384,8 +389,14 @@ impl TimeToLiveTable {
             .unwrap_or(predicate != FieldExpirationPredicate::Missing)
     }
 
-    /// Checks the expiration state of a set of fields described by a
-    /// 32-bit `field_mask`.
+    /// Checks the expiration state of a set of fields described by
+    /// `field_mask` under `predicate`.
+    ///
+    /// `field_mask` is always taken as a wide [`FieldMask`]. When `wide` is
+    /// `false` (the narrow-schema case, at most 32 fields) only the low 32
+    /// bits are meaningful and the mask is walked with the faster `u32`
+    /// bit-walk; when `wide` is `true` the full [`FieldMask`] width
+    /// (`u64`/`u128`, chosen by the C build) is walked.
     ///
     /// `ft_id_to_field_index[bit]` translates a bit position in the mask
     /// into the `FieldIndex` recorded in the table; it must contain at
@@ -401,51 +412,33 @@ impl TimeToLiveTable {
     /// least `highest_set_bit + 1` of `field_mask`. The bit-walk reads
     /// the translation slice via `_unchecked` once per set bit;
     /// violating the bound is undefined behavior in release builds.
-    pub fn verify_doc_and_field_mask(
-        &self,
-        doc_id: DocId,
-        field_mask: u32,
-        predicate: FieldExpirationPredicate,
-        expiration_point: &timespec,
-        ft_id_to_field_index: &[u16],
-    ) -> bool {
-        verify_mask::<u32>(
-            self.find_entry(doc_id),
-            field_mask,
-            predicate,
-            expiration_point,
-            ft_id_to_field_index,
-        )
-    }
-
-    /// Checks the expiration state of a set of fields described by a wide
-    /// [`FieldMask`] (the wide-schema variant).
-    ///
-    /// `FieldMask` is a compile-time alias chosen by the C build: it can be
-    /// either a 64-bit or a 128-bit unsigned integer. This function
-    /// dispatches to the matching bit-walk at compile time, based on the
-    /// target pointer width.
-    ///
-    /// See also [`TimeToLiveTable::verify_doc_and_field_mask`].
-    ///
-    /// # Panics
-    ///
-    /// See [`TimeToLiveTable::verify_doc_and_field_mask`].
-    pub fn verify_doc_and_wide_field_mask(
+    pub fn field_mask_satisfies_predicate(
         &self,
         doc_id: DocId,
         field_mask: FieldMask,
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
         ft_id_to_field_index: &[u16],
+        wide: bool,
     ) -> bool {
-        verify_mask::<FieldMask>(
-            self.find_entry(doc_id),
-            field_mask,
-            predicate,
-            expiration_point,
-            ft_id_to_field_index,
-        )
+        let entry = self.find_entry(doc_id);
+        if wide {
+            verify_mask::<FieldMask>(
+                entry,
+                field_mask,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        } else {
+            verify_mask::<u32>(
+                entry,
+                field_mask as u32,
+                predicate,
+                expiration_point,
+                ft_id_to_field_index,
+            )
+        }
     }
 
     /// Direct-modulo slot formula
@@ -782,6 +775,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn field_expirations_capacity_and_shrink_to_fit() {
+        let mut fields = FieldExpirations::new();
+        assert_eq!(fields.len(), 0);
+        assert_eq!(fields.capacity(), 0);
+
+        // The first push seeds the backing store's native exponential growth,
+        // leaving spare capacity beyond `len`.
+        fields.push(fe(FIELD_INDEX_1, FUTURE));
+        assert_eq!(fields.len(), 1);
+        assert!(fields.capacity() > fields.len());
+
+        // Shrinking releases the spare capacity so it matches `len`.
+        fields.shrink_to_fit();
+        assert_eq!(fields.capacity(), fields.len());
+        assert_eq!(fields.len(), 1);
+    }
+
+    #[test]
     fn verify_field_returns_true_for_doc_colliding_with_a_known_doc() {
         // doc_id 1 is in the table; doc_id 9 also hashes to slot 1 but is
         // absent. Per docs: if the document has no entry, both predicates
@@ -794,13 +805,13 @@ mod tests {
         // Be sure it is a collider
         assert_eq!(t.slot(DOC_ID_1), t.slot(unknown_collider));
 
-        assert!(t.verify_doc_and_field(
+        assert!(t.field_satisfies_predicate(
             unknown_collider,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Default,
             &NOW,
         ));
-        assert!(t.verify_doc_and_field(
+        assert!(t.field_satisfies_predicate(
             unknown_collider,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Missing,
@@ -826,21 +837,21 @@ mod tests {
         t.add(DOC_ID_1_COLLIDER_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
         t.remove(DOC_ID_1);
         // Doc 9: PAST ⇒ Default false.
-        assert!(!t.verify_doc_and_field(
+        assert!(!t.field_satisfies_predicate(
             DOC_ID_1_COLLIDER_1,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Default,
             &NOW,
         ));
         // Doc 17: FUTURE ⇒ Default true.
-        assert!(t.verify_doc_and_field(
+        assert!(t.field_satisfies_predicate(
             DOC_ID_1_COLLIDER_2,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Default,
             &NOW,
         ));
         t.remove(DOC_ID_1_COLLIDER_1);
-        assert!(t.verify_doc_and_field(
+        assert!(t.field_satisfies_predicate(
             DOC_ID_1_COLLIDER_2,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Default,
@@ -864,7 +875,7 @@ mod tests {
         t.remove(DOC_ID_1_COLLIDER);
 
         assert!(!t.is_empty());
-        assert!(t.verify_doc_and_field(
+        assert!(t.field_satisfies_predicate(
             DOC_ID_1,
             FIELD_INDEX_1,
             FieldExpirationPredicate::Default,
@@ -898,16 +909,17 @@ mod tests {
 
         let slot = t.slot(DOC_ID_1);
 
+        // `MediumThinVec`'s native growth seeds capacity at 4 on the first push.
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 1);
+        assert_eq!(t.buckets[slot].capacity(), 4);
 
         // Same bucket
         const DOC_ID_2: DocId = DOC_ID_1 + MAX as DocId;
         assert_eq!(slot, t.slot(DOC_ID_2));
 
-        // Increase the bucket capacity
+        // Spare capacity is still available: no reallocation.
         t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 2);
+        assert_eq!(t.buckets[slot].capacity(), 4);
 
         t.remove(DOC_ID_1);
 
@@ -915,9 +927,9 @@ mod tests {
         const DOC_ID_3: DocId = DOC_ID_1 + 2 * MAX as DocId;
         assert_eq!(slot, t.slot(DOC_ID_3));
 
-        // Don't increase the bucket capacity
+        // Reusing the freed slot stays within the high-water-mark capacity.
         t.add(DOC_ID_3, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 2);
+        assert_eq!(t.buckets[slot].capacity(), 4);
     }
 
     #[test]
@@ -935,7 +947,7 @@ mod tests {
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
         t.add(COLLIDER, fes([fe(FIELD_INDEX_1, PAST)]));
         let peak_cap = t.buckets[slot].capacity();
-        assert_eq!(peak_cap, t.buckets[slot].len());
+        assert!(peak_cap >= t.buckets[slot].len());
 
         // One entry left: allocation is retained at the high-water mark.
         t.remove(DOC_ID_1);
@@ -956,11 +968,24 @@ mod tests {
         t.add(1, fes([fe(FIELD_INDEX_1, PAST)]));
         t.add(2, fes([fe(FIELD_INDEX_1, FUTURE)]));
         assert_eq!(t.n_allocated_buckets(), 1);
-        assert!(t.verify_doc_and_field(0, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
-        assert!(
-            !t.verify_doc_and_field(1, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,)
-        );
-        assert!(t.verify_doc_and_field(2, FIELD_INDEX_1, FieldExpirationPredicate::Default, &NOW,));
+        assert!(t.field_satisfies_predicate(
+            0,
+            FIELD_INDEX_1,
+            FieldExpirationPredicate::Default,
+            &NOW,
+        ));
+        assert!(!t.field_satisfies_predicate(
+            1,
+            FIELD_INDEX_1,
+            FieldExpirationPredicate::Default,
+            &NOW,
+        ));
+        assert!(t.field_satisfies_predicate(
+            2,
+            FIELD_INDEX_1,
+            FieldExpirationPredicate::Default,
+            &NOW,
+        ));
 
         assert_eq!(t.slot(0), t.slot(1));
         assert_eq!(t.slot(0), t.slot(2));
@@ -1001,16 +1026,21 @@ mod tests {
             t.add(x + 2 * CAP, fes([fe(0, PAST)]));
         }
         for x in 1u64..8 {
-            assert!(!t.verify_doc_and_field(x, 0, FieldExpirationPredicate::Default, &NOW));
-            assert!(t.verify_doc_and_field(x + CAP, 0, FieldExpirationPredicate::Default, &NOW));
-            assert!(!t.verify_doc_and_field(
+            assert!(!t.field_satisfies_predicate(x, 0, FieldExpirationPredicate::Default, &NOW));
+            assert!(t.field_satisfies_predicate(
+                x + CAP,
+                0,
+                FieldExpirationPredicate::Default,
+                &NOW
+            ));
+            assert!(!t.field_satisfies_predicate(
                 x + 2 * CAP,
                 0,
                 FieldExpirationPredicate::Default,
                 &NOW,
             ));
             // A never-inserted docId hashing to the same slot must report "no TTL".
-            assert!(t.verify_doc_and_field(
+            assert!(t.field_satisfies_predicate(
                 x + 3 * CAP,
                 0,
                 FieldExpirationPredicate::Default,
@@ -1022,10 +1052,15 @@ mod tests {
             t.remove(x + CAP);
         }
         for x in 1u64..8 {
-            assert!(!t.verify_doc_and_field(x, 0, FieldExpirationPredicate::Default, &NOW));
+            assert!(!t.field_satisfies_predicate(x, 0, FieldExpirationPredicate::Default, &NOW));
             // Removed docs report "no TTL" ⇒ Default true.
-            assert!(t.verify_doc_and_field(x + CAP, 0, FieldExpirationPredicate::Default, &NOW));
-            assert!(!t.verify_doc_and_field(
+            assert!(t.field_satisfies_predicate(
+                x + CAP,
+                0,
+                FieldExpirationPredicate::Default,
+                &NOW
+            ));
+            assert!(!t.field_satisfies_predicate(
                 x + 2 * CAP,
                 0,
                 FieldExpirationPredicate::Default,

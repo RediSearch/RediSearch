@@ -783,7 +783,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     //   2. The Redis hash — owned by the main thread and not guarded by
     //      the spec lock at all; the spec rwlock protects index state,
     //      not the Redis keyspace.
-    arrayof(FieldExpiration) sorted = NULL;
+    FieldExpirations sorted = FieldExpirations_Empty();
     if (hashHasAnyFieldExpire) {
       for (size_t ii = 0; ii < spec->numFields; ++ii) {
         Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
@@ -795,17 +795,16 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
-      // Hands ownership of `sorted` to the doc table (or frees it if empty).
-      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
-      sorted = NULL;
+      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd,
+                                     DocTable_TakeFieldExpirations(&sorted));
       DMD_Return(cdmd);
     }
 
     RedisSearchCtx_UnlockSpec(&sctx);
 
-    // Doc not in this index (filter failed or never indexed): free the array
-    // we built speculatively. `array_free` is NULL-safe.
-    array_free(sorted);
+    // Doc not in this index (filter failed or never indexed): free the list
+    // we built speculatively. FieldExpirations_Free handles the empty sentinel.
+    FieldExpirations_Free(&sorted);
   }
 
   RedisModule_CloseKey(k);

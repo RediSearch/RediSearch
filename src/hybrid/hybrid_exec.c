@@ -215,11 +215,10 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
 
-  // Bail if the RETURN-STRICT timeout callback already claimed (it replies)
-  // or if it signaled timeout in parallel after we won (it will reply with
-  // our stored zero-result state).
+  // Bail if the RETURN-STRICT timeout callback already owns the reply.
+  // The timeout check MUST come first so it short-circuits the CAS.
   if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
-      (!HybridRequest_TryClaimAggregateResults(hreq) || HybridRequest_TimedOut(hreq))) {
+      (HybridRequest_TimedOut(hreq) || !HybridRequest_TryClaimAggregateResults(hreq))) {
     *rc = RS_RESULT_TIMEDOUT;
     return;
   }
@@ -448,8 +447,11 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 }
 
 // Helper for error handling in coordinator HREQ execution.
-// For FAIL policy (useReplyCallback=true): stores error for reply_callback to handle.
-// For RETURN policy: replies with error directly.
+// FAIL / RETURN_STRICT (useReplyCallback=true): store the error for the
+//   reply_callback to handle.
+// RETURN (useReplyCallback=false): reply directly - an empty result set with a
+//   timeout warning when the error is a non-fail-policy timeout (no result set
+//   was produced here), otherwise the error itself.
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status) {
   if (hreq->useReplyCallback) {
     // Deep copy since QueryError contains heap-allocated strings.
@@ -457,6 +459,13 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_ClearError(&hreq->storedReplyState.err);
     QueryError_CloneFrom(status, &hreq->storedReplyState.err);
     // Clear the original to avoid leaking heap-allocated strings.
+    QueryError_ClearError(status);
+  } else if (!ShouldReplyWithError(QueryError_GetCode(status),
+                                   hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
+    // Error is a timeout under a non-fail policy, which must not surface as an
+    // error: reply an empty result set with the timeout warning instead.
+    common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
+                                    IsInternal(hreq), IsProfile(hreq));
     QueryError_ClearError(status);
   } else {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, !IsInternal(hreq));
@@ -597,10 +606,7 @@ static inline void freeHybridParams(HybridPipelineParams *hybridParams) {
   if (hybridParams == NULL) {
     return;
   }
-  if (hybridParams->scoringCtx) {
-    HybridScoringContext_Free(hybridParams->scoringCtx);
-    hybridParams->scoringCtx = NULL;
-  }
+  HybridPipelineParams_Cleanup(hybridParams);
   rm_free(hybridParams);
 }
 
@@ -992,7 +998,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     BlockClientCtx blockClientCtx = {0};
 
-    blockClientCtx.ast = &hreq->requests[0]->ast;
     blockClientCtx.privdata = hreq;
     HybridRequest_IncrRef(hreq);
     blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;

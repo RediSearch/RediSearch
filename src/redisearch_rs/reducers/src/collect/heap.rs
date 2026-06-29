@@ -11,13 +11,13 @@
 //! top-K path.
 //!
 //! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
-//! [`HeapEntry<D, T>`], where the comparator only reads the [`EntryKey`] half. The
+//! [`HeapEntry<D, T>`], where the comparator only reads the [`RankingKey`] half. The
 //! split lets the heap defer payload projection until a candidate's survival is
 //! confirmed.
 //!
 //! ## Deferred projection
 //!
-//! [`EntryKey`] owns a *snapshot* of the sort-key values, severed from the
+//! [`RankingKey`] owns a *snapshot* of the sort-key values, severed from the
 //! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. The payload
 //! `T` is materialised by the caller only after the candidate has beaten the
 //! current worst — see [`super::storage`].
@@ -32,13 +32,13 @@ use value::comparison::cmp_fields;
 ///
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
 /// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
-pub struct EntryKey<D: Ord> {
+pub struct RankingKey<D: Ord> {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
     doc_id: D,
 }
 
-impl<D: Ord> EntryKey<D> {
+impl<D: Ord> RankingKey<D> {
     pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64, doc_id: D) -> Self {
         Self {
             sort_vals,
@@ -46,28 +46,33 @@ impl<D: Ord> EntryKey<D> {
             doc_id,
         }
     }
+
+    /// The sort-key snapshot, in `SORTBY` order (an absent key is `None`).
+    pub fn sort_vals(&self) -> &[Option<SharedValue>] {
+        &self.sort_vals
+    }
 }
 
-impl<D: Ord> PartialEq for EntryKey<D> {
+impl<D: Ord> PartialEq for RankingKey<D> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl<D: Ord> Eq for EntryKey<D> {}
+impl<D: Ord> Eq for RankingKey<D> {}
 
-impl<D: Ord> PartialOrd for EntryKey<D> {
+impl<D: Ord> PartialOrd for RankingKey<D> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<D: Ord> Ord for EntryKey<D> {
+impl<D: Ord> Ord for RankingKey<D> {
     fn cmp(&self, other: &Self) -> Ordering {
         debug_assert_eq!(
             self.sort_vals.len(),
             other.sort_vals.len(),
-            "EntryKey sort_vals length mismatch"
+            "RankingKey sort_vals length mismatch"
         );
         let pairs = self
             .sort_vals
@@ -88,20 +93,20 @@ impl<D: Ord> Ord for EntryKey<D> {
 
 /// Heap slot: the comparator key alongside the projected payload.
 ///
-/// `T` is the per-row payload the consumer (`Storage::Heap`) yields at
-/// finalize. Comparing only reads `key`, so the choice of `T` does not
-/// affect ranking.
+/// `T` is the per-row payload the consumer
+/// ([`HeapStorage`][super::storage::HeapStorage]) yields at finalize. Comparing
+/// only reads `key`, so the choice of `T` does not affect ranking.
 pub struct HeapEntry<D: Ord, T> {
-    key: EntryKey<D>,
+    key: RankingKey<D>,
     projected: T,
 }
 
 impl<D: Ord, T> HeapEntry<D, T> {
-    pub const fn new(key: EntryKey<D>, projected: T) -> Self {
+    pub const fn new(key: RankingKey<D>, projected: T) -> Self {
         Self { key, projected }
     }
 
-    pub const fn key(&self) -> &EntryKey<D> {
+    pub const fn key(&self) -> &RankingKey<D> {
         &self.key
     }
 
@@ -112,6 +117,15 @@ impl<D: Ord, T> HeapEntry<D, T> {
     /// Return the projected payload.
     pub fn into_projected(self) -> T {
         self.projected
+    }
+
+    /// Split into the ranking key and the projected payload.
+    ///
+    /// Unlike [`Self::into_projected`], this keeps the [`RankingKey`] so a
+    /// consumer can read its [`RankingKey::sort_vals`] — needed by the remote
+    /// reducer's deferred sort-key merge.
+    pub fn into_parts(self) -> (RankingKey<D>, T) {
+        (self.key, self.projected)
     }
 }
 

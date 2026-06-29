@@ -143,6 +143,7 @@ typedef struct {
 #define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
 #define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsCoordinator(r) ((r)->reqflags & QEXEC_F_IS_COORDINATOR)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
 // Indicates whether a query should run in the background.
@@ -221,6 +222,16 @@ static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   pthread_cond_init(&ctx->aggregateResultsCond, NULL);
   ctx->abortWakeChannel = NULL;
   pthread_mutex_init(&ctx->abortWakeLock, NULL);
+}
+
+static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
+  return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
+}
+static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
+}
+static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
@@ -571,10 +582,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+  RequestSyncCtx_SetTimedOut(&req->syncCtx);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`

@@ -91,7 +91,7 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
@@ -232,6 +232,17 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
+
+/**
+ * Free the heap-owned members of a HybridPipelineParams (scoring and EXPLAINSCORE
+ * contexts) and NULL them out, without freeing the params struct itself.
+ *
+ * Safe to call repeatedly and after ownership has been transferred to the merger
+ * (the relevant pointers are NULLed on transfer, so this becomes a no-op). Use it
+ * to release a stack- or caller-owned HybridPipelineParams on an error path before
+ * the merge pipeline is built; freeHybridParams() calls it for heap-allocated params.
+ */
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.

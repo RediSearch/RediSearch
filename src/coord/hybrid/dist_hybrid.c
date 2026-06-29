@@ -27,8 +27,10 @@
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
+#include "document.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
+#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -233,6 +235,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            bool sendExplainScore,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -333,6 +336,12 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
   }
 
+  // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
+  // tree and the shard's merger wraps it.
+  if (sendExplainScore) {
+    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
+  }
+
   // Add WITHCURSOR
   MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
 
@@ -410,7 +419,13 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
 }
 
 static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
-  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+  const bool isRRF = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF;
+  const size_t window =
+      isRRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  // RRF scores a doc by its rank, so tied branch scores need a tiebreaker; otherwise their order
+  // follows non-deterministic shard arrival order. Break ties by `__key` (multi-shard path only).
+  const char *scoreTieBreakField = isRRF ? UNDERSCORE_KEY : NULL;
 
   // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
   const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
@@ -418,8 +433,10 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 
   PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
   searchArrangeStep->limit = window;
+  searchArrangeStep->scoreTieBreakField = scoreTieBreakField;
 
   PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
+  vectorArrangeStep->scoreTieBreakField = scoreTieBreakField;
   if (isKNN) {
     // Vector subquery is a KNN query
     // Heapsize should be min(window, KNN K)
@@ -662,6 +679,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            HybridPipelineParams_Cleanup(&hybridParams);
             return REDISMODULE_ERR;
         }
     }
@@ -671,13 +689,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
+      HybridPipelineParams_Cleanup(&hybridParams);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &hreq->kArgIndex);
+    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
+                                 &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -769,9 +789,15 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+
+    const struct timespec *deadline =
+        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
+            ? (const struct timespec *)&hreq->sctx->time.timeout
+            : NULL;
+
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -1140,6 +1166,13 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
+    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+    // timeout takes effect here.
+    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                   debugParams.tail_timeout_count);
+    }
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
@@ -1148,6 +1181,18 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
     CurrentThread_ClearIndexSpec();
+}
+
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+static void wakeHybridAbortChannels(HybridRequest *hreq) {
+  if (!hreq) return;
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
 }
 
 // Timeout callback for Coordinator HybridRequest execution
@@ -1171,6 +1216,11 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
+  // exits, even though this callback replies the error itself.
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  wakeHybridAbortChannels(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1200,17 +1250,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
-  // Wake every subquery's abort channel so any depleter parked in
-  // MRIterator_NextWithTimeout observes the propagated `timedOut` flag and exits
-  // promptly. WakeAbortChannel is a no-op when no channel is registered yet, in
-  // which case the depleter instead observes `timedOut` on entry to the pop.
-  if (hreq) {
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      if (hreq->requests[i]) {
-        RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
-      }
-    }
-  }
+  wakeHybridAbortChannels(hreq);
 
   if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
     // Either the request is NULL or we were able to claim the aggregation results.
