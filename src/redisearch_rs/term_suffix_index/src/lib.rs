@@ -45,7 +45,7 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// Score handicap for anchor tokens followed by `*`: matching them
 /// scans a whole subtree instead of a single exact entry, so they
 /// must out-length an exact token by this many codepoints to win.
-const STARRED_ANCHOR_PENALTY: i32 = 5;
+const STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
 
 #[derive(Default)]
 pub struct TermSuffixIndex {

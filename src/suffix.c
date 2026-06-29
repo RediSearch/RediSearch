@@ -249,7 +249,7 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == '*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
@@ -303,7 +303,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
