@@ -828,7 +828,7 @@ FIELD_BULK_INDEXER(tagIndexer) {
     return -1;
   }
 
-  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+  if (FieldSpec_HasSuffixTrie(fs) && !TagIndex_HasSuffix(tidx)) {
     tidx->suffix = NewTrieMap();
   }
 

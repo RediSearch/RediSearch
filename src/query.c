@@ -1265,7 +1265,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
 
   bool fallbackBruteForce = false;
-  if (idx->suffix) {
+  if (TagIndex_HasSuffix(idx)) {
     // with suffix
     arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
                                                         q->sctx->time.timeout, q->config->maxPrefixExpansions, q->sctx->time.skipTimeoutChecks);
@@ -1296,7 +1296,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     }
   }
 
-  if (!idx->suffix || fallbackBruteForce) {
+  if (!TagIndex_HasSuffix(idx) || fallbackBruteForce) {
     // brute force wildcard query
     TrieMapIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);

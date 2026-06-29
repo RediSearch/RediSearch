@@ -869,7 +869,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
-    if (!idx->suffix) {
+    if (!TagIndex_HasSuffix(idx)) {
       RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
       goto end;
     }

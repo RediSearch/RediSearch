@@ -128,6 +128,11 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 /* Return the unique id generated in `NewTagIndex` */
 uint32_t TagIndex_GetId(const TagIndex *idx);
 
+/* Return 1 if TagIndex supports suffix searches */
+static inline bool TagIndex_HasSuffix(const TagIndex *idx) {
+  return idx->suffix != NULL;
+}
+
 /* Return an iterator over the TagIndex values */
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
 
