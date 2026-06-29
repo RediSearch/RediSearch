@@ -374,6 +374,12 @@ TrieMapIterator *TagIndex_IterateSuffix(TagIndex *idx) {
   return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
 }
 
+/* Return a list of list of terms which match the suffix or contains term or NULL */
+arrayof(char**) TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len,
+                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks) {
+  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix) : NULL;
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   TrieMapIterator *it = TagIndex_IterateValues(idx);

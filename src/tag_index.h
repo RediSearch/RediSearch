@@ -174,6 +174,10 @@ void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minle
 /* Return an iterator over the TagIndex suffix or null */
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
 
+/* Return a list of list of terms which match the suffix or contains term or NULL */
+arrayof(char**) TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len,
+                                        bool prefix, struct timespec timeout, bool skipTimeoutChecks);
+
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */

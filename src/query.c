@@ -1217,7 +1217,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
-    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
+    arrayof(char**) arr = TagIndex_SuffixTrieMap(idx, tok->str, tok->len,
                                                 qn->pfx.prefix, q->sctx->time.timeout, q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       rm_free(its);
