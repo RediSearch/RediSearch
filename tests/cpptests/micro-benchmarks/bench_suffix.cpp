@@ -31,6 +31,7 @@
 
 #include <malloc/malloc.h>
 
+#include <cctype>
 #include <cstdint>
 #include <random>
 #include <string>
@@ -69,6 +70,24 @@ std::vector<std::string> MakeNeedles(const std::vector<std::string>& corpus) {
     if (w.size() >= 4) needles.push_back(w.substr(1, 2));  // interior 2-gram
   }
   return needles;
+}
+
+// Upper-cased copy. `unicode_tolower_cow` borrows its input when it is already
+// lowercase (no allocation) but must allocate a folded `String` otherwise.
+// Upper-casing forces the allocating (`Cow::Owned`) path while leaving the
+// *lowered* bytes identical to the lowercase corpus, so the stored index and
+// match counts are unchanged — a Mixed-vs-plain delta is purely the COW alloc.
+// `toupper` leaves `*` (and other non-letters in wildcard patterns) untouched.
+std::string UpperCopy(const std::string& s) {
+  std::string out = s;
+  for (char& c : out) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return out;
+}
+std::vector<std::string> UpperAll(const std::vector<std::string>& v) {
+  std::vector<std::string> out;
+  out.reserve(v.size());
+  for (const auto& s : v) out.push_back(UpperCopy(s));
+  return out;
 }
 
 // Live bytes in the default malloc zone. Both the C trie (via `rm_malloc`) and
@@ -380,6 +399,79 @@ void BM_Suffix_DumpAll_Rust(benchmark::State& state) {
   TermSuffixIndex_Free(t);
 }
 
+// ===================== Mixed-case (COW alloc path), Rust-only =====================
+// Identical workloads to the lowercase Rust rows but with upper-cased input, so
+// `unicode_tolower_cow` must allocate on every term/needle. The A/B signal is
+// Mixed-vs-plain on the same branch, and plain-row A-vs-B across branches.
+
+void BM_Suffix_Insert_Rust_Mixed(benchmark::State& state) {
+  auto corpus = UpperAll(MakeCorpus(42));
+  for (auto _ : state) {
+    TermSuffixIndex* t = BuildRust(corpus);
+    benchmark::DoNotOptimize(t);
+    state.PauseTiming();
+    TermSuffixIndex_Free(t);
+    state.ResumeTiming();
+  }
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * corpus.size());
+}
+
+void RunQueryRustMixed(benchmark::State& state, bool contains) {
+  auto corpus = MakeCorpus(42);
+  auto needles = UpperAll(MakeNeedles(corpus));
+  TermSuffixIndex* t = BuildRust(corpus);
+
+  size_t count = 0;
+  for (auto _ : state) {
+    for (const auto& nd : needles) {
+      if (contains) {
+        TermSuffixIndex_IterateContains(t, nd.c_str(), nd.size(), count_cb, &count);
+      } else {
+        TermSuffixIndex_IterateSuffix(t, nd.c_str(), nd.size(), count_cb, &count);
+      }
+    }
+  }
+  benchmark::DoNotOptimize(count);
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * needles.size());
+
+  TermSuffixIndex_Free(t);
+}
+void BM_Suffix_Contains_Rust_Mixed(benchmark::State& state) { RunQueryRustMixed(state, true); }
+void BM_Suffix_Suffix_Rust_Mixed(benchmark::State& state) { RunQueryRustMixed(state, false); }
+
+void BM_Suffix_Wildcard_Rust_Mixed(benchmark::State& state) {
+  auto corpus = MakeCorpus(42);
+  auto pats = UpperAll(MakeWildcards(corpus));
+  TermSuffixIndex* t = BuildRust(corpus);
+
+  size_t count = 0;
+  for (auto _ : state) {
+    for (const auto& p : pats) {
+      TermSuffixIndex_IterateWildcard(t, p.c_str(), p.size(), count_cb, &count);
+    }
+  }
+  benchmark::DoNotOptimize(count);
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * pats.size());
+
+  TermSuffixIndex_Free(t);
+}
+
+void BM_Suffix_Delete_Rust_Mixed(benchmark::State& state) {
+  auto corpus = UpperAll(MakeCorpus(42));
+  for (auto _ : state) {
+    state.PauseTiming();
+    TermSuffixIndex* t = BuildRust(corpus);
+    state.ResumeTiming();
+    for (const auto& w : corpus) {
+      TermSuffixIndex_Remove(t, w.c_str(), w.size());
+    }
+    state.PauseTiming();
+    TermSuffixIndex_Free(t);
+    state.ResumeTiming();
+  }
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * corpus.size());
+}
+
 }  // namespace
 
 BENCHMARK(BM_Suffix_Insert_C)->Unit(benchmark::kMillisecond);
@@ -394,6 +486,12 @@ BENCHMARK(BM_Suffix_Delete_C)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_Suffix_Delete_Rust)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_Suffix_DumpAll_C)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_Suffix_DumpAll_Rust)->Unit(benchmark::kMicrosecond);
+
+BENCHMARK(BM_Suffix_Insert_Rust_Mixed)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_Suffix_Contains_Rust_Mixed)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_Suffix_Suffix_Rust_Mixed)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_Suffix_Wildcard_Rust_Mixed)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_Suffix_Delete_Rust_Mixed)->Unit(benchmark::kMillisecond);
 
 // Minimal module bootstrap: populate the redismock `RedisModule_*` table so the
 // C suffix trie's allocator calls resolve. The Rust side uses its own allocator
