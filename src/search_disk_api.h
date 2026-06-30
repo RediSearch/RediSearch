@@ -293,7 +293,6 @@ typedef struct BasicDiskAPI {
    * @param lk            Lookup the loaded fields are written into
    * @param keys          Keys to load; NULL with nkeys 0 means "load all"
    * @param nkeys         Number of entries in `keys`
-   * @param forceLoad     JSON multi-value compatibility flag; always false for HASH
    * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
    * @return A valid ResultProcessor. Like RPLoader_New, construction is infallible:
    *         allocation goes through the module allocator (aborts on OOM), so this
@@ -301,8 +300,7 @@ typedef struct BasicDiskAPI {
    */
   ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
                                                     RLookup *lk, const RLookupKey **keys,
-                                                    size_t nkeys, bool forceLoad,
-                                                    uint32_t *outStateFlags);
+                                                    size_t nkeys, uint32_t *outStateFlags);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
