@@ -370,6 +370,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
+    },
+    HeaderAllowlist {
         path: "src/tag_index.h",
         fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
         types: &[],
@@ -392,21 +398,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[],
         types: &[],
         vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
-    },
-    HeaderAllowlist {
-        path: "src/ttl_table/ttl_table.h",
-        fns: &[
-            "TimeToLiveTable_Add",
-            "TimeToLiveTable_VerifyDocAndField",
-            "TimeToLiveTable_VerifyDocAndFieldMask",
-            "TimeToLiveTable_VerifyDocAndWideFieldMask",
-            "TimeToLiveTable_VerifyInit",
-            // Used by bench.
-            "TimeToLiveTable_Destroy",
-            "TimeToLiveTable_IsEmpty",
-        ],
-        types: &[],
-        vars: &[],
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
@@ -461,7 +452,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
     // `FieldExpirationPredicate` is taken by value in TTL table function
-    // signatures (src/ttl_table/ttl_table.h).
+    // signatures (src/ttl_table.h).
     "field.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.

@@ -45,8 +45,9 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // privdata ownership: shared between blockedClientReqCtx (background thread) and BlockedQueryNode (timeout callback, reply callback).
   // Take a reference for the timeout callback access via node->privdata.
   // This reference is released in FreeQueryNode via the freePrivData callback after timeout/reply callback completes.
-  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, blockClientCtx->ast, blockClientCtx->privdata,
-                                                    blockClientCtx->freePrivData);
+  BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref,
+                                                   blockClientCtx->privdata,
+                                                   blockClientCtx->freePrivData);
 
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
@@ -71,8 +72,8 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   // privdata is shared between the worker and BlockedCursorNode (timeout/reply
   // callbacks). Caller takes the extra ref (e.g. AREQ_IncrRef on FAIL);
   // FreeCursorNode releases it via freePrivData.
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id,
-                                                     &cursor->execState->ast, count,
+  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref,
+                                                     cursor->id, count,
                                                      blockClientCtx->privdata,
                                                      blockClientCtx->freePrivData);
 

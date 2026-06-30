@@ -773,7 +773,8 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
 
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
-    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32) {
+    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
+        params->algoParams.hnswParams.type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support %s vector type", typeName);

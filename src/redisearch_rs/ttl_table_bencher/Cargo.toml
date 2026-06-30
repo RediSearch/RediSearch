@@ -14,11 +14,11 @@ name = "add"
 harness = false
 
 [[bench]]
-name = "verify_doc_and_field"
+name = "field_satisfies_predicate"
 harness = false
 
 [[bench]]
-name = "verify_doc_and_field_mask"
+name = "field_mask_satisfies_predicate"
 harness = false
 
 [build-dependencies]

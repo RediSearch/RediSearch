@@ -33,6 +33,7 @@ thiserror.workspace = true
 tracing.workspace = true
 trie_rs = { path = "../trie_rs" }
 redis_mock.workspace = true
+ttl_table.workspace = true
 types_ffi = { path = "../c_entrypoint/types_ffi" }
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 value.workspace = true

@@ -338,9 +338,14 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Merges results from multiple upstream processors using a hybrid scoring function.
  * Takes results from all upstreams and applies the provided function to combine their scores.
  *******************************************************************************************************************/
+// Forward declaration; full type is in hybrid/hybrid_search_result.h
+typedef struct HybridExplainContext HybridExplainContext;
+
 /*
  * Creates a new Hybrid Merger processor.
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+ * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
+ * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -350,7 +355,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx);
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx);
 
 /*
  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.
