@@ -370,6 +370,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
+    },
+    HeaderAllowlist {
         path: "src/tag_index.h",
         fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
         types: &[],

@@ -14,7 +14,9 @@ use crate::trie_map::node::Node;
 /// It only yields the values attached to the nodes, without reconstructing
 /// the corresponding keys.
 ///
-/// It can be instantiated by calling [`TrieMap::values`](crate::TrieMap::values).
+/// It can be instantiated by calling [`TrieMap::values`](crate::TrieMap::values)
+/// (whole trie) or [`TrieMap::prefixed_values`](crate::TrieMap::prefixed_values)
+/// (the subtree under a key prefix).
 pub struct Values<'tm, Data> {
     stack: Vec<&'tm Node<Data>>,
 }
