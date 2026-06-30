@@ -16,8 +16,8 @@ mod utils;
 use crate::trie_map::{
     iter::{
         Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
-        RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
-        WildcardSpecializedIter, filter::VisitAll,
+        RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter,
+        WildcardNfa, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -211,12 +211,14 @@ impl<Data> TrieMap<Data> {
         PrefixesIter::new(self.root.as_ref(), target)
     }
 
-    /// Iterate over all trie entries whose key matches the specified pattern.
-    pub fn wildcard_iter<'tm, 'p>(
+    /// Filter-based wildcard iterator. Internal — the only public
+    /// wildcard entry point is [`Self::wildcard_iter`], which routes
+    /// here for patterns past 127 atoms.
+    pub(crate) fn wildcard_filter_iter<'tm, 'p>(
         &'tm self,
         pattern: WildcardPattern<'p>,
-    ) -> WildcardIter<'tm, 'p, Data> {
-        WildcardIter::new(self.root.as_ref(), pattern)
+    ) -> WildcardFilterIter<'tm, 'p, Data> {
+        WildcardFilterIter::new(self.root.as_ref(), pattern)
     }
 
     /// Iterate over all trie entries whose key matches the specified pattern,
@@ -225,28 +227,30 @@ impl<Data> TrieMap<Data> {
     ///
     /// - ≤ 63 atoms → NFA backed by `u64`.
     /// - 64..=127 atoms → NFA backed by `u128`.
-    /// - ≥ 128 atoms → filter-based [`WildcardIter`]. Wider bitset
-    ///   representations and a sparse-set automaton were prototyped for
-    ///   this range; neither beat the filter's
-    ///   SIMD-`memcmp`-per-literal approach on real workloads.
-    pub fn wildcard_specialized_iter<'tm, 'p>(
+    /// - ≥ 128 atoms → per-key filter. Wider bitset representations and a
+    ///   sparse-set automaton were prototyped for this range; neither
+    ///   beat the filter's SIMD-`memcmp`-per-literal approach on real
+    ///   workloads.
+    pub fn wildcard_iter<'tm, 'p>(
         &'tm self,
-        pattern: &WildcardPattern<'p>,
-    ) -> WildcardSpecializedIter<'tm, 'p, Data> {
-        match WildcardBackend::for_pattern(pattern) {
+        pattern: WildcardPattern<'p>,
+    ) -> WildcardIter<'tm, 'p, Data> {
+        // The NFA arms only borrow `pattern` to compile into a
+        // `Vec<Atom>`; the filter arm needs to own it. Taking the
+        // pattern by value lets the filter arm move it in for free
+        // while the NFA arms simply drop it on return.
+        match WildcardBackend::for_pattern(&pattern) {
             WildcardBackend::U64 => {
-                let nfa = WildcardNfa::<u64>::compile(pattern);
+                let nfa = WildcardNfa::<u64>::compile(&pattern);
                 let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardSpecializedIter::U64(iter)
+                WildcardIter::U64(iter)
             }
             WildcardBackend::U128 => {
-                let nfa = WildcardNfa::<u128>::compile(pattern);
+                let nfa = WildcardNfa::<u128>::compile(&pattern);
                 let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardSpecializedIter::U128(iter)
+                WildcardIter::U128(iter)
             }
-            WildcardBackend::Filter => {
-                WildcardSpecializedIter::Filter(self.wildcard_iter(pattern.clone()))
-            }
+            WildcardBackend::Filter => WildcardIter::Filter(self.wildcard_filter_iter(pattern)),
         }
     }
 
