@@ -42,6 +42,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(tsi: *mut TermSuffixIndex) {
 /// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
 /// empty term is a no-op.
 ///
+/// Matching is case-insensitive: `term` is lowercased before insertion,
+/// so subsequent lookups and removals are case-insensitive too.
+///
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
@@ -77,6 +80,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 
 /// Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
 /// or empty term is a no-op.
+///
+/// Matching is case-insensitive: `term` is lowercased before lookup, so
+/// it matches the entry regardless of the case it was added with.
 ///
 /// # Safety
 ///
