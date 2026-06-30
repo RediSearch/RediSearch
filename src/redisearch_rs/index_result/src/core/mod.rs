@@ -419,17 +419,32 @@ impl RawIndexResult<Suspended> {
     ///
     /// # Safety
     ///
-    /// For the entire chosen lifetime `'a`, every pointer carried inside
-    /// this result (the inverted-index pointers behind any
-    /// [`SharedPtr`] fields, plus the document-metadata pointer in
-    /// [`Self::dmd`]) must be:
+    /// The caller must guarantee that all of the following hold for the entire
+    /// chosen lifetime `'a`:
     ///
-    /// - valid for reads of the type it would point to in active mode, and
-    /// - unaliased by any concurrent writer.
+    /// 1. Every single-value pointer — the document metadata ([`Self::dmd`])
+    ///    and each [`SharedPtr`] pointee (e.g. a metric's `RLookupKey`, a term
+    ///    record's borrowed query term) — is valid for reads of its pointee
+    ///    type.
+    /// 2. Every slice-backed pointer is valid for reads of its **entire stored
+    ///    length**, with provenance covering the whole region — e.g. a term
+    ///    record's offset slice ([`RawOffsetSlice`]), whose `*const u8` must
+    ///    cover all `len` bytes.
+    /// 3. No concurrent writer aliases any pointer covered by (1) or (2).
+    /// 4. Conditions (1)–(3) hold recursively for every child result reachable
+    ///    through aggregate records (the [`SharedPtr`]/`Box` entries of a
+    ///    union / intersection / hybrid-metric result).
     ///
-    /// How those invariants are upheld is the caller's concern — typically
-    /// by holding an appropriate read lock on the owning data structure, but
-    /// this method makes no specific lock assumption.
+    /// Typically the caller upholds these by holding the inverted-index read
+    /// lock for the whole of `'a`, so that neither GC nor a writer can free or
+    /// relocate a backing block; this method makes no specific lock assumption.
+    ///
+    /// Note that (2) is strictly stronger than per-pointee validity: a pointer
+    /// valid for a single `u8` does *not* satisfy it. If a GC cycle has freed
+    /// or relocated the backing block, the slice tail may be stale, and a safe
+    /// call such as `RSOffsetSlice::as_bytes` (or anything built on it) would
+    /// then read invalid memory — undefined behaviour reached through entirely
+    /// safe code.
     pub const unsafe fn into_active<'a>(self) -> RSIndexResult<'a> {
         // SAFETY: layout-identical (see the `const _` assertion block above).
         // Narrowing the validity from raw-pointer to `&'a`-style references
