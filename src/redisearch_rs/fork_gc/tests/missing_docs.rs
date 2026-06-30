@@ -39,7 +39,7 @@ fn add_entry(
     // the HiddenString itself, so we free the original immediately after insert.
     let hs = unsafe { ffi::NewHiddenString(field_name.as_ptr().cast(), field_name.len(), false) };
     let hs_ref = unsafe { HiddenStringRef::from_raw(hs) };
-    dict.insert(hs_ref, ii);
+    dict.try_insert(hs_ref, ii).unwrap();
     unsafe { ffi::HiddenString_Free(hs, false) };
 }
 
@@ -66,6 +66,7 @@ fn empty_dict_writes_only_terminator() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 /// An entry whose inverted index is empty produces no delta, so it is skipped.
@@ -89,6 +90,7 @@ fn empty_inverted_index_is_skipped() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 /// When an entry has docs absent from the DocTable, `scan_gc` produces a delta.
@@ -129,6 +131,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 /// Multiple entries each produce their own Data frame + delta, followed by a
@@ -165,10 +168,12 @@ fn multiple_entries_write_multiple_delta_frames() {
     let _: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
 
     let mut names = [name1.into_inner().into_vec(), name2.into_inner().into_vec()];
-    names.sort();
+    names.sort(); // Frames can come in any order because dict iteration order is undefined.
+
     assert_eq!(names, [b"field_a".to_vec(), b"field_b".to_vec()]);
     assert!(matches!(
         Frame::decode(&mut cursor).unwrap(),
         Frame::Terminator
     ));
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
