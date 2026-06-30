@@ -133,6 +133,12 @@ impl FieldSpecBuilder {
         self
     }
 
+    #[cfg_attr(miri, allow(unused))]
+    pub fn with_types(mut self, types: FieldSpecTypes) -> Self {
+        self.result.set_types(types.bits());
+        self
+    }
+
     /// If this field is sortable, the sortable index. Otherwise -1
     #[cfg_attr(miri, allow(unused))]
     pub fn with_sort_idx(mut self, sort_idx: i16) -> Self {

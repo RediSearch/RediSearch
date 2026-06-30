@@ -224,7 +224,7 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "f74ecbbc62e0ce867049af8ac12cbf41c1fd4a2b"
+rev = "7fb620f1ef42453dea4e22c9358d0d25d4224710"
 default-features = false
 
 [profile.release]
