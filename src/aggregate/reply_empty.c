@@ -104,7 +104,52 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
     return ret;
 }
 
-int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile) {
+// Shard->coord internal empty reply; cursor ids of 0 signal the shard error.
+static void build_hybrid_empty_internal_reply(RedisModule_Reply *reply, QueryError *status, bool isProfile) {
+    RedisModule_Reply_Map(reply); // outer/root {}
+
+    if (isProfile) {
+        Profile_PrepareMapForReply(reply); // opens "Results" map
+    }
+
+    RedisModule_ReplyKV_LongLong(reply, "SEARCH", 0);
+    RedisModule_ReplyKV_LongLong(reply, "VSIM", 0);
+    RedisModule_ReplyKV_Array(reply, "warnings"); // warnings []
+    if (QueryError_HasQueryOOMWarning(status)) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
+        RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_EOOM));
+    }
+    RedisModule_Reply_ArrayEnd(reply); // ~warnings
+
+    if (isProfile) {
+        RedisModule_Reply_MapEnd(reply); // close "Results" map
+        Profile_PrintInFormat(reply, NULL, NULL, NULL, NULL);
+    }
+
+    RedisModule_Reply_MapEnd(reply); // close outer / root map
+}
+
+// Client-facing empty hybrid reply.
+static void build_hybrid_empty_client_reply(RedisModule_Reply *reply, QueryError *status, bool isProfile) {
+    if (isProfile) {
+        // Outer profile map: "Results" (filled below) + "Profile".
+        RedisModule_Reply_Map(reply); // outer {}
+        if (reply->resp3) {
+            RedisModule_Reply_SimpleString(reply, "Results"); // key
+        }
+    }
+
+    sendChunk_ReplyOnly_HybridEmptyResults(reply, status);
+
+    if (isProfile) {
+        Profile_PrintInFormat(reply, NULL, NULL, NULL, NULL);
+        RedisModule_Reply_MapEnd(reply); // close outer map
+    }
+}
+
+// Fill a caller-owned reply with an empty hybrid result for errCode. The caller
+// manages the reply lifecycle; the ctx wrapper below is for when there's no reply yet.
+void common_hybrid_query_reply_empty_into(RedisModule_Reply *reply, QueryErrorCode errCode, bool internal, bool isProfile) {
 
     QueryError status = QueryError_Default();
     QueryError_SetError(&status, errCode, NULL);
@@ -113,60 +158,19 @@ int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode,
         QueryError_SetQueryOOMWarning(&status);
     }
 
-    // If internal - reply cursor information from shards to coord.
-    // Shards notify error by setting cursor id to 0
     if (internal) {
-        RedisModule_Reply _coordInfoReply = RedisModule_NewReply(ctx), *coordInfoReply = &_coordInfoReply;
-
-        RedisModule_Reply_Map(coordInfoReply); // outer/root {}
-
-        if (isProfile) {
-            // Profile wrapping: open an outer map, then nest "Results" and "Profile"
-            // inside it, consistent with search/aggregate profile reply structure.
-            Profile_PrepareMapForReply(coordInfoReply); // opens "Results" map
-        }
-
-        RedisModule_ReplyKV_LongLong(coordInfoReply, "SEARCH", 0);
-        RedisModule_ReplyKV_LongLong(coordInfoReply, "VSIM", 0);
-        RedisModule_ReplyKV_Array(coordInfoReply,"warnings"); // warnings []
-        if (QueryError_HasQueryOOMWarning(&status)) {
-            QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
-            RedisModule_Reply_SimpleString(coordInfoReply, QueryError_Strerror(QUERY_EOOM));
-        }
-        RedisModule_Reply_ArrayEnd(coordInfoReply); // ~warnings
-
-        if (isProfile) {
-            RedisModule_Reply_MapEnd(coordInfoReply); // close "Results" map
-            Profile_PrintInFormat(coordInfoReply, NULL, NULL, NULL, NULL);
-        }
-
-        RedisModule_Reply_MapEnd(coordInfoReply); // close outer / root map
-        RedisModule_EndReply(coordInfoReply);
-        QueryError_ClearError(&status);
-        return REDISMODULE_OK;
+        build_hybrid_empty_internal_reply(reply, &status, isProfile);
+    } else {
+        build_hybrid_empty_client_reply(reply, &status, isProfile);
     }
 
-    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-
-    if (isProfile) {
-        // Profile wrapping: open outer map containing "Results" and "Profile" sections.
-        // sendChunk_ReplyOnly_HybridEmptyResults opens/closes its own map, so we use it
-        // directly as the value of the "Results" key.
-        RedisModule_Reply_Map(reply); // outer {}
-        if (reply->resp3) {
-            RedisModule_Reply_SimpleString(reply, "Results"); // key
-        }
-    }
-
-    sendChunk_ReplyOnly_HybridEmptyResults(reply, &status);
-
-    if (isProfile) {
-        Profile_PrintInFormat(reply, NULL, NULL, NULL, NULL);
-        RedisModule_Reply_MapEnd(reply); // close outer map
-    }
-
-    RedisModule_EndReply(reply);
     QueryError_ClearError(&status);
+}
+
+int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile) {
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+    common_hybrid_query_reply_empty_into(reply, errCode, internal, isProfile);
+    RedisModule_EndReply(reply);
     return REDISMODULE_OK;
 }
 
