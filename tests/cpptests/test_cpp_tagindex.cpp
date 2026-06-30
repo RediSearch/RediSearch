@@ -34,6 +34,30 @@ static FieldSpec makeTagFieldSpec(char sep, TagFieldFlags flags, FieldSpecOption
   return fs;
 }
 
+// Run TagIndex_Preprocess and assert the returned status and tag list.
+static void checkPreprocess(const FieldSpec &fs, const DocumentField &df, int expectedRet,
+                            const char *const *expected, size_t nExpected) {
+  FieldIndexerData fdata{};
+  int ret = TagIndex_Preprocess(&fs, &df, &fdata);
+  EXPECT_EQ(ret, expectedRet);
+  ASSERT_EQ(array_len(fdata.tags), nExpected);
+  for (size_t i = 0; i < nExpected; i++) {
+    EXPECT_STREQ(fdata.tags[i], expected[i]);
+  }
+  TagIndex_FreePreprocessedData(fdata.tags);
+}
+
+// Tokenize a single C-string TAG value and assert the resulting tags.
+static void checkPreprocessCStr(char sep, TagFieldFlags flags, FieldSpecOptions options,
+                                const char *value, const char *const *expected, size_t nExpected) {
+  FieldSpec fs = makeTagFieldSpec(sep, flags, options);
+  DocumentField df{};
+  df.unionType = FLD_VAR_T_CSTR;
+  df.strval = (char *)value;
+  df.strlen = strlen(value);
+  checkPreprocess(fs, df, /*expectedRet=*/1, expected, nExpected);
+}
+
 TEST_F(TagIndexTest, testCreate) {
   TagIndex *idx = NewTagIndex(NULL, 0, false);
   ASSERT_FALSE(idx == NULL);
@@ -191,120 +215,52 @@ TEST_F(TagIndexTest, testSepStringIndexEmpty) {
 TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
   // --- normal separator, case-insensitive (ASCII, in-place lowercase) ---
   {
-    FieldSpec fs = makeTagFieldSpec(',', (TagFieldFlags)0, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"Hello,World";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    int ret = TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(ret, 1);
-    ASSERT_EQ(array_len(fdata.tags), 2u);
-    ASSERT_STREQ(fdata.tags[0], "hello");
-    ASSERT_STREQ(fdata.tags[1], "world");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"hello", "world"};
+    checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "Hello,World", e, 2);
   }
 
   // --- normal separator, case-insensitive, lowercase needs MORE bytes ---
   // 'İ' (U+0130, 2 bytes) lowercases to 'i' + combining dot above (3 bytes),
   // so unicode_tolower returns a freshly allocated longer buffer.
   {
-    FieldSpec fs = makeTagFieldSpec(',', (TagFieldFlags)0, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"İSTANBUL";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 1u);
-    ASSERT_STREQ(fdata.tags[0], "i̇stanbul");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"i̇stanbul"};
+    checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "İSTANBUL", e, 1);
   }
 
   // --- normal separator, case-sensitive (no lowercasing) ---
   {
-    FieldSpec fs = makeTagFieldSpec(',', TagField_CaseSensitive, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"Hello,World";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 2u);
-    ASSERT_STREQ(fdata.tags[0], "Hello");
-    ASSERT_STREQ(fdata.tags[1], "World");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"Hello", "World"};
+    checkPreprocessCStr(',', TagField_CaseSensitive, (FieldSpecOptions)0, "Hello,World", e, 2);
   }
 
   // --- JSON default separator: the whole string is a single token ---
   {
     // case-insensitive, ASCII -> lowercased in place
-    FieldSpec fs =
-        makeTagFieldSpec(TAG_FIELD_DEFAULT_JSON_SEP, (TagFieldFlags)0, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"Hello, World";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 1u);
-    ASSERT_STREQ(fdata.tags[0], "hello, world");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"hello, world"};
+    checkPreprocessCStr(TAG_FIELD_DEFAULT_JSON_SEP, (TagFieldFlags)0, (FieldSpecOptions)0,
+                        "Hello, World", e, 1);
   }
   {
     // case-insensitive, longer-output realloc branch
-    FieldSpec fs =
-        makeTagFieldSpec(TAG_FIELD_DEFAULT_JSON_SEP, (TagFieldFlags)0, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"İSTANBUL";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 1u);
-    ASSERT_STREQ(fdata.tags[0], "i̇stanbul");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"i̇stanbul"};
+    checkPreprocessCStr(TAG_FIELD_DEFAULT_JSON_SEP, (TagFieldFlags)0, (FieldSpecOptions)0,
+                        "İSTANBUL", e, 1);
   }
   {
     // case-sensitive: tolower block skipped entirely
-    FieldSpec fs =
-        makeTagFieldSpec(TAG_FIELD_DEFAULT_JSON_SEP, TagField_CaseSensitive, (FieldSpecOptions)0);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"Hello, World";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 1u);
-    ASSERT_STREQ(fdata.tags[0], "Hello, World");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"Hello, World"};
+    checkPreprocessCStr(TAG_FIELD_DEFAULT_JSON_SEP, TagField_CaseSensitive, (FieldSpecOptions)0,
+                        "Hello, World", e, 1);
   }
 
   // --- index-empty: empty input and trailing-separator input both add "" ---
   {
-    FieldSpec fs = makeTagFieldSpec(',', (TagFieldFlags)0, FieldSpec_IndexEmpty);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"";
-    df.strlen = 0;
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 1u);
-    ASSERT_STREQ(fdata.tags[0], "");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {""};
+    checkPreprocessCStr(',', (TagFieldFlags)0, FieldSpec_IndexEmpty, "", e, 1);
   }
   {
-    FieldSpec fs = makeTagFieldSpec(',', (TagFieldFlags)0, FieldSpec_IndexEmpty);
-    DocumentField df{};
-    df.unionType = FLD_VAR_T_CSTR;
-    df.strval = (char *)"foo,";
-    df.strlen = strlen(df.strval);
-    FieldIndexerData fdata{};
-    TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(array_len(fdata.tags), 2u);
-    ASSERT_STREQ(fdata.tags[0], "foo");
-    ASSERT_STREQ(fdata.tags[1], "");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"foo", ""};
+    checkPreprocessCStr(',', (TagFieldFlags)0, FieldSpec_IndexEmpty, "foo,", e, 2);
   }
 
   // --- FLD_VAR_T_ARRAY: each element is tokenized independently ---
@@ -315,14 +271,8 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     const char *vals[] = {"red,green", "blue"};
     df.multiVal = (char **)vals;
     df.arrayLen = 2;
-    FieldIndexerData fdata{};
-    int ret = TagIndex_Preprocess(&fs, &df, &fdata);
-    ASSERT_EQ(ret, 1);
-    ASSERT_EQ(array_len(fdata.tags), 3u);
-    ASSERT_STREQ(fdata.tags[0], "red");
-    ASSERT_STREQ(fdata.tags[1], "green");
-    ASSERT_STREQ(fdata.tags[2], "blue");
-    TagIndex_FreePreprocessedData(fdata.tags);
+    const char *e[] = {"red", "green", "blue"};
+    checkPreprocess(fs, df, /*expectedRet=*/1, e, 3);
   }
 
   // --- FLD_VAR_T_NULL: nothing to index, isNull is set, returns 0 ---
