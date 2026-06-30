@@ -162,3 +162,28 @@ TEST_F(TagIndexTest, testSepString) {
 
   TEST_MY_SEP(' ', "   foo    bar   ")
 }
+
+TEST_F(TagIndexTest, testSepStringIndexEmpty) {
+  char *orig, *s, *token;
+  size_t tokenLen;
+
+  // Leading space then a separator -> an empty value is returned, then the
+  // following non-empty token.
+  orig = s = strdup(" ,foo");
+  token = TagIndex_SepString(',', &s, &tokenLen, true);
+  EXPECT_STREQ(token, "");
+  token = TagIndex_SepString(',', &s, &tokenLen, true);
+  EXPECT_STREQ(token, "foo");
+  ASSERT_EQ(tokenLen, 3);
+  token = TagIndex_SepString(',', &s, &tokenLen, true);
+  ASSERT_FALSE(token);
+  free(orig);
+
+  // Leading spaces then end-of-string -> one empty value, then NULL.
+  orig = s = strdup("   ");
+  token = TagIndex_SepString(',', &s, &tokenLen, true);
+  EXPECT_STREQ(token, "");
+  token = TagIndex_SepString(',', &s, &tokenLen, true);
+  ASSERT_FALSE(token);
+  free(orig);
+}
