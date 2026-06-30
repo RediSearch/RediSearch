@@ -520,8 +520,11 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
+  } else if (qctx->totalResults >= qctx->skippedResults) {
+    // totalResults survives this reset, so fold the dropped rows into it
+    // permanently — otherwise later reads revert to the uncorrected total.
+    qctx->totalResults -= qctx->skippedResults;
   }
-  // Per-chunk loader-drop correction — always reset, even when totalResults is kept.
   qctx->skippedResults = 0;
   QueryError_ClearError(qctx->err);
 }
