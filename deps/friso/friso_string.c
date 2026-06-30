@@ -108,7 +108,7 @@ FRISO_API void string_buffer_append(
     register uint_t __len__ = strlen( __str );
 
     //check the necessity to resize the buffer.
-    if ( sb->length + __len__ > sb->allocs ) {
+    if ( __len__ > sb->allocs - sb->length ) {
         sb = resize_buffer( sb, ( sb->length + __len__ ) * 2 + 1 );
     }
 
@@ -125,7 +125,7 @@ FRISO_API void string_buffer_append_char(
     string_buffer_t sb, char ch ) 
 {
     //check the necessity to resize the buffer.
-    if ( sb->length + 1 > sb->allocs ) {
+    if ( 1 > sb->allocs - sb->length ) {
         sb = resize_buffer( sb, sb->length * 2 + 1 );
     }
 
