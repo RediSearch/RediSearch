@@ -1310,6 +1310,37 @@ def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
 
+def _normalize_cluster_shards(reply):
+    """Coerce a CLUSTER SHARDS reply (RESP2 nested arrays or RESP3 maps) into a
+    list of {'slots': [s1,e1,...], 'nodes': [{'id','role',...}]} dicts."""
+    shards = []
+    for sh in reply:
+        d = sh if isinstance(sh, dict) else {sh[i]: sh[i + 1] for i in range(0, len(sh), 2)}
+        nodes = [n if isinstance(n, dict) else {n[i]: n[i + 1] for i in range(0, len(n), 2)}
+                 for n in d['nodes']]
+        shards.append({'slots': list(d['slots']), 'nodes': nodes})
+    return shards
+
+def distinct_shard_tags(conn):
+    """Yield hash tags that each land on a different shard, verified live via
+    CLUSTER SHARDS + CLUSTER KEYSLOT. One tag per shard, deterministic order."""
+    shards = _normalize_cluster_shards(conn.execute_command('CLUSTER', 'SHARDS'))
+    def owner(slot):
+        for sh in shards:
+            r = sh['slots']
+            if any(a <= slot <= b for a, b in zip(r[::2], r[1::2])):
+                return next(n['id'] for n in sh['nodes'] if n['role'] in ('master', 'primary'))
+        raise AssertionError(f'no shard owns slot {slot}')
+    seen = set()
+    for n in itertools.count():
+        tag = str(n)
+        sid = owner(int(conn.execute_command('CLUSTER', 'KEYSLOT', tag)))
+        if sid not in seen:
+            seen.add(sid)
+            yield tag
+            if len(seen) == len(shards):
+                return
+
 def waitForIndexFinishScan(env, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support

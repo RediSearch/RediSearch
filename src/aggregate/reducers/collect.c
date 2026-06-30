@@ -263,6 +263,10 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
 
+  ArgParser_AddFlag(parser, "DISTINCT",
+    "Deduplicate by projected fields",
+    &pctx.args->distinct);
+
   ArgParseResult result = ArgParser_Parse(parser);
 
   if (QueryError_HasError(options->status)) {
@@ -344,7 +348,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       args.sortAscMap,
       args.has_limit,
       args.limit_offset,
-      args.limit_count
+      args.limit_count,
+      args.distinct
     );
   } else {
     arrayof(const RLookupKey *) field_keys = NULL;
@@ -375,7 +380,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       args.has_limit,
       args.limit_offset,
       args.limit_count,
-      ReducerOpts_IsInternal(options)
+      ReducerOpts_IsInternal(options),
+      args.distinct
     );
     array_free(field_keys);
     array_free(sort_keys);
