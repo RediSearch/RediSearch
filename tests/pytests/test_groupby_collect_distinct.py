@@ -218,9 +218,13 @@ def test_collect_distinct_cluster_cross_shard():
                'SCHEMA', 'grp', 'TAG', 'SORTABLE',
                'cat', 'TAG', 'SORTABLE', 'p', 'NUMERIC', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
-    # cat=a on two shards (p=5 and p=1); cat=b on a third (p=3). The coordinator
-    # must dedup a across shards and keep its best (p=1).
-    docs = [('d:0{s0}', 'a', 5), ('d:1{s1}', 'a', 1), ('d:2{s2}', 'b', 3)]
+    # Each key lands on a different shard, so the two cat=a docs straddle a
+    # boundary and the coordinator must dedup across shards and keep the best
+    # (p=1).
+    tags = distinct_shard_tags(conn)
+    docs = [(f'd:0{{{next(tags)}}}', 'a', 5),
+            (f'd:1{{{next(tags)}}}', 'a', 1),
+            (f'd:2{{{next(tags)}}}', 'b', 3)]
     for key, cat, p in docs:
         conn.execute_command('HSET', key, 'grp', 'G', 'cat', cat, 'p', p)
 
