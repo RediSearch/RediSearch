@@ -767,24 +767,36 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
 // Begin a consistent on-disk save window.
-// Shared by the SST replication fork (flush = SearchDisk_PreFork) and the
-// foreground hot-restart save (flush = SearchDisk_PreCheckpoint), so the two
-// callers cannot drift apart on the lock/flag protocol. Pairs with
-// DiskConsistencyWindow_End.
+// Shared by the SST replication checkpoint (flush = SearchDisk_PreCheckpoint),
+// the SST replication fork (flush = SearchDisk_PreFork) and the foreground
+// hot-restart save (flush = SearchDisk_PreCheckpoint), so the callers cannot
+// drift apart on the lock/flag protocol. Pairs with DiskConsistencyWindow_End
+// or DiskConsistencyWindow_Close.
 static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
   VecSimDisk_AcquireConsistencyLock();
   vecsimdisk_sst_consistency_lock_held = true;
   ForEachIndex(flush);
 }
 
-// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin.
+// Release the consistency lock opened by DiskConsistencyWindow_Begin without
+// running any per-index finalize work. Used where there is no matching disk
+// hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
+//
+// The caller must check vecsimdisk_sst_consistency_lock_held before calling
+// this on a path where the window may never have been opened.
+static void DiskConsistencyWindow_Close(void) {
+  VecSimDisk_ReleaseConsistencyLock();
+  vecsimdisk_sst_consistency_lock_held = false;
+}
+
+// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin,
+// running `finalize` against every disk-backed index before releasing the lock.
 //
 // The caller must check vecsimdisk_sst_consistency_lock_held before calling
 // this on a path where the window may never have been opened (e.g. SST ABORT).
 static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
   ForEachIndex(finalize);
-  VecSimDisk_ReleaseConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = false;
+  DiskConsistencyWindow_Close();
 }
 
 // SST replication event handler.
@@ -805,10 +817,18 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
-      ForEachIndex(SearchDisk_PreCheckpoint);
+      // Hold the consistency lock across the checkpoint so background vector
+      // index jobs cannot mutate on-disk state while the checkpoint is taken.
+      // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
+      // fresh window afterwards.
+      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      // POST_CHECKPOINT has no matching disk hook - just close the window
+      // opened at PRE_CHECKPOINT.
+      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      DiskConsistencyWindow_Close();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
