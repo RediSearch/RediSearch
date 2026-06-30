@@ -408,6 +408,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "dictIterator",
             "RS_dictAdd",
+            "RS_dictAddRaw",
             "RS_dictCreate",
             "RS_dictDelete",
             "RS_dictFetchValue",

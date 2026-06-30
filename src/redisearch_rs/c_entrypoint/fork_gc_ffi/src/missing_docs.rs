@@ -15,15 +15,18 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// Iterates the `missingFieldDict`, and for each entry with a non-null
 /// `InvertedIndex` calls `scan_gc` which sends the field name header
-/// followed by the serialised GC delta.  Sends a terminator once all
+/// followed by the serialised GC delta. Sends a terminator once all
 /// entries are processed.
+///
+/// # Panic
+///
+/// Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an open,
-///    writable file descriptor.
-/// 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is
-///    a non-null `IndexSpec` with a populated `missingFieldDict`.
+/// 1. `gc` must point to a valid [`ffi::ForkGC`].
+/// 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+/// 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_childCollectMissingDocs(
     gc: *mut ffi::ForkGC,
