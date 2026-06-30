@@ -383,3 +383,28 @@ TEST_F(TagIndexTest, testGetIteratorFromTrieMapValueNull) {
   ASSERT_TRUE(itNull == NULL);
   TagIndex_Free(idx);
 }
+
+TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
+  TagIndex *idx = NewTagIndex(NULL, 0);
+  idx->suffix = NewTrieMap();
+
+  const char *v[] = {"hello", "world"};
+  IndexStats stats = {0};
+  TagIndex_Commit(idx, &v[0], 1, &stats);
+  ASSERT_EQ(stats.numRecords, 1u);
+
+  // Overhead with a live index that has a populated suffix trie.
+  FieldSpec fs{};
+  fs.types = INDEXFLD_T_TAG;
+  fs.tagOpts.tagIndex = idx;
+  size_t overhead = TagIndex_GetOverhead(&fs);
+  ASSERT_GT(overhead, 0u);
+
+  TagIndex_Free(idx);
+
+  // No tag index -> zero overhead.
+  FieldSpec emptyFs{};
+  emptyFs.types = INDEXFLD_T_TAG;
+  emptyFs.tagOpts.tagIndex = NULL;
+  ASSERT_EQ(TagIndex_GetOverhead(&emptyFs), 0u);
+}
