@@ -15,10 +15,38 @@ use std::marker::PhantomData;
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{RQEIterator, RQEIteratorError};
+use rqe_iterators::{RQEIterator, RQEIteratorError, inverted_index::Numeric, metric::Metric};
 use top_k::{BatchStrategy, ScoreSource};
 
 use crate::score_batch::NumericScoreBatch;
+
+/// An [`RQEIterator`] whose records are guaranteed to be numeric.
+///
+/// [`NumericScoreSource`] is generic over its source iterator, but reads each
+/// record's score via [`as_numeric_unchecked`](RSIndexResult::as_numeric_unchecked),
+/// which is undefined behavior on a non-numeric record. This trait restricts the
+/// source to iterators that uphold that guarantee.
+///
+/// # Safety
+///
+/// Implementers must guarantee that every record produced by
+/// [`read`](RQEIterator::read) is numeric — its [`kind`](RSIndexResult::kind) is
+/// either [`RSResultKind::Numeric`] or [`RSResultKind::Metric`].
+pub unsafe trait NumericRecords<'index>: RQEIterator<'index> {}
+
+// SAFETY: every record is built via `RSIndexResult::build_metric`, so its kind is
+// always `Metric`.
+unsafe impl<'index, const SORTED_BY_ID: bool> NumericRecords<'index>
+    for Metric<'index, SORTED_BY_ID>
+{
+}
+
+// SAFETY: the wrapped reader decodes into a result seeded with
+// `RSIndexResult::build_numeric`, so its kind is always `Numeric`.
+unsafe impl<'index, R, E> NumericRecords<'index> for Numeric<'index, R, E> where
+    Self: RQEIterator<'index>
+{
+}
 
 /// Scores each document by a numeric field, for top-k queries like
 /// `SORTBY <numeric field>`.
@@ -41,7 +69,7 @@ use crate::score_batch::NumericScoreBatch;
 /// - TODO: MOD-14948 Performance validation
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
-pub struct NumericScoreSource<'index, S: RQEIterator<'index>> {
+pub struct NumericScoreSource<'index, S: NumericRecords<'index>> {
     /// Numeric iterator whose per-document value is used as the score.
     source: S,
     /// Whether [`next_batch`](ScoreSource::next_batch) has already emitted its
@@ -53,7 +81,7 @@ pub struct NumericScoreSource<'index, S: RQEIterator<'index>> {
     _index: PhantomData<&'index ()>,
 }
 
-impl<'index, S: RQEIterator<'index>> NumericScoreSource<'index, S> {
+impl<'index, S: NumericRecords<'index>> NumericScoreSource<'index, S> {
     /// Wrap a numeric `source` iterator as a score source.
     pub fn new(source: S) -> Self {
         let num_estimated = source.num_estimated();
@@ -66,7 +94,7 @@ impl<'index, S: RQEIterator<'index>> NumericScoreSource<'index, S> {
     }
 }
 
-impl<'index, S: RQEIterator<'index>> ScoreSource for NumericScoreSource<'index, S> {
+impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'index, S> {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -81,8 +109,8 @@ impl<'index, S: RQEIterator<'index>> ScoreSource for NumericScoreSource<'index, 
                 "NumericScoreSource: wrapped iterator yielded a non-numeric record ({})",
                 result.kind()
             );
-            // SAFETY: the wrapped iterator is a numeric index iterator, whose
-            // records are always numeric (asserted above in debug builds).
+            // SAFETY: the `S: NumericRecords` bound guarantees every record read
+            // from `source` is numeric.
             let score = unsafe { result.as_numeric_unchecked() };
             items.push((result.doc_id, score));
         }

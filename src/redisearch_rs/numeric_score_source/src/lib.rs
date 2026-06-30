@@ -19,7 +19,7 @@ pub mod score_batch;
 pub mod source;
 
 pub use score_batch::NumericScoreBatch;
-pub use source::NumericScoreSource;
+pub use source::{NumericRecords, NumericScoreSource};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
@@ -47,7 +47,7 @@ fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
 /// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
 /// with no child) performs the selection. `ascending` selects the sort
 /// direction (`SORTBY field ASC`/`DESC`).
-pub fn new_numeric_top_k_unfiltered<'index, S: RQEIterator<'index> + 'index>(
+pub fn new_numeric_top_k_unfiltered<'index, S: NumericRecords<'index> + 'index>(
     source: NumericScoreSource<'index, S>,
     k: NonZeroUsize,
     ascending: bool,
@@ -59,7 +59,7 @@ pub fn new_numeric_top_k_unfiltered<'index, S: RQEIterator<'index> + 'index>(
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
 /// child filter, and the heap keeps the top `k` by numeric value.
-pub fn new_numeric_top_k_filtered<'index, S: RQEIterator<'index> + 'index>(
+pub fn new_numeric_top_k_filtered<'index, S: NumericRecords<'index> + 'index>(
     source: NumericScoreSource<'index, S>,
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
