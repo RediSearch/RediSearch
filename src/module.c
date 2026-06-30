@@ -4299,8 +4299,12 @@ static void DistSearchCommandHandler(void* pd) {
   // Out of the coord queue: advance the search request's execution-phase marker so a
   // blocked-client timeout from here on is attributed to PIPELINE (fan-out/reduce)
   // rather than QUEUE. Read by DistSearch timeout callbacks on the main thread.
+  // Skip the advance if the timeout callback already fired (FlatSearchCommandHandler
+  // bails immediately on MRCtx_IsTimedOut): a job dequeued after its deadline timed
+  // out while queued, so the marker must stay at QUEUE. This freezes the search
+  // marker on timeout, mirroring RequestSyncCtx_SetExecutionStage.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
-  if (sReq) {
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     __atomic_store_n(&sReq->execPhase, QUERY_TIMEOUT_STAGE_PIPELINE, __ATOMIC_RELAXED);
   }
   FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
