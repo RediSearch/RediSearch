@@ -32,19 +32,13 @@ use top_k::{TopKIterator, TopKMode};
 /// [`new_numeric_top_k_filtered`].
 pub type NumericTopKIterator<'index, S> = TopKIterator<'index, NumericScoreSource<'index, S>>;
 
-/// Ascending comparator — lower numeric value is "better" (`SORTBY field ASC`).
-fn asc_cmp(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
-}
-
-/// Descending comparator — higher numeric value is "better" (`SORTBY field DESC`).
-fn desc_cmp(a: f64, b: f64) -> Ordering {
-    asc_cmp(a, b).reverse()
-}
-
 /// Pick the heap comparator for the query's sort direction.
-fn cmp_for(ascending: bool) -> fn(f64, f64) -> Ordering {
-    if ascending { asc_cmp } else { desc_cmp }
+fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
+    if ascending {
+        f64::total_cmp
+    } else {
+        |a, b| b.total_cmp(a)
+    }
 }
 
 /// Construct an unfiltered [`NumericTopKIterator`] (no filter child).

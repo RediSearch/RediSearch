@@ -69,8 +69,8 @@ impl ScoreSource for TimingOutSource {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+fn asc(a: &f64, b: &f64) -> Ordering {
+    a.total_cmp(&b)
 }
 
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
