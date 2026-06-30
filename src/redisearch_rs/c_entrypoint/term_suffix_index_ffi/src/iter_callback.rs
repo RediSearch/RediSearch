@@ -191,11 +191,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
 /// the iterate function. Return 0 to continue the iteration; any other
 /// value stops it.
 ///
-/// `payload` is always NULL. The signature mirrors C's
-/// `TrieSuffixCallback` (`term, len, ctx, payload`), whose fourth slot
-/// carries a trie node's payload — but a term suffix index stores no
-/// per-term payload, so, like C's own suffix iterator, this always
-/// passes NULL. The slot is retained only for ABI compatibility.
+/// `payload` is always NULL: a term suffix index stores no per-term
+/// payload. The slot exists only to keep the callback signature uniform
+/// with the other trie iterate callbacks.
 pub type TermSuffixIterateCallback = Option<
     unsafe extern "C" fn(
         term: *const c_char,
