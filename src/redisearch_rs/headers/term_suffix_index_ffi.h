@@ -70,7 +70,8 @@ void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. `tsi` must not be modified or freed while the iterator lives.
+ * 2. No other call on `tsi` (mutating or read-only) may run while the
+ *    iterator lives, and `tsi` must not be freed until then.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -85,8 +86,8 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
- *    this call.
+ *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+ *    read-only) running concurrently.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -143,7 +144,7 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
  * 2. `str` and `len` must be [valid], non-null pointers to writable
  *    locations.
  * 3. The [`TermSuffixIndex`] the iterator was obtained from must still
- *    be alive and unmodified.
+ *    be alive, with no other call on it running concurrently.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -158,8 +159,8 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
- *    this call.
+ *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+ *    read-only) running concurrently.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -219,8 +220,8 @@ void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. `tsi` must not be mutated (e.g. via [`TermSuffixIndex_Add`] or
- *    [`TermSuffixIndex_Remove`]) concurrently with this call.
+ * 2. No other call on `tsi` (mutating or read-only) may run
+ *    concurrently with this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -239,8 +240,8 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
- *    this call.
+ *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+ *    read-only) running concurrently.
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
