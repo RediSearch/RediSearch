@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
 use std::collections::HashSet;
 use std::ffi::{c_char, c_int, c_void};
