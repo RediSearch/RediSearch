@@ -325,6 +325,40 @@ pub struct RawIndexResult<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSIndexResult<'a> = RawIndexResult<Active<'a>>;
 
+// Compile-time proof that the [`Active`] and [`Suspended`] instantiations of
+// [`RawIndexResult`] are layout-identical, which is what makes the
+// `transmute`-based [`RSIndexResult::into_suspended`] /
+// [`RawIndexResult::<Suspended>::into_active`] conversions sound.
+//
+// `RawIndexResult` is `#[repr(C)]`, so checking that every field shares an
+// identical offset and that each `R`-dependent field type shares an identical
+// size pins the layout down completely. If a future change makes the two
+// instantiations diverge, this block fails to compile.
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+
+    type A = RawIndexResult<Active<'static>>;
+    type S = RawIndexResult<Suspended>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, doc_id) == offset_of!(S, doc_id));
+    assert!(offset_of!(A, dmd) == offset_of!(S, dmd));
+    assert!(offset_of!(A, field_mask) == offset_of!(S, field_mask));
+    assert!(offset_of!(A, freq) == offset_of!(S, freq));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+    assert!(offset_of!(A, metrics) == offset_of!(S, metrics));
+    assert!(offset_of!(A, weight) == offset_of!(S, weight));
+
+    // The two `R`-dependent field types have identical size (the non-`R`
+    // fields are the same type on both sides, so only these can differ).
+    assert!(size_of::<RawResultData<Active<'static>>>() == size_of::<RawResultData<Suspended>>());
+    assert!(size_of::<RawMetricsVec<Active<'static>>>() == size_of::<RawMetricsVec<Suspended>>());
+
+    // Whole-struct backstop: equal total size + alignment.
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'a> PartialEq for RSIndexResult<'a> {
     fn eq(&self, other: &Self) -> bool {
         let Self {
@@ -363,19 +397,14 @@ impl<'a> Default for RSIndexResult<'a> {
 
 impl<'a> RSIndexResult<'a> {
     /// Convert this active result into its [`Suspended`] counterpart.
-    ///
-    /// `RawIndexResult<Rf>` is layout-compatible across `Rf` instantiations
-    /// because every `Rf`-dependent field threads through [`SharedPtr<Rf,
-    /// T>`](ref_mode::SharedPtr), which is `#[repr(transparent)]` over
-    /// `NonNull<T>`. Going from `Active<'a>` to [`Suspended`] is a widening
-    /// transition (it loosens validity invariants — `'a`-bound references
-    /// become inert raw pointers), so this method is safe.
     pub const fn into_suspended(self) -> RawIndexResult<Suspended> {
-        let md = std::mem::ManuallyDrop::new(self);
-        // SAFETY: layout-compatible via SharedPtr transparency; widening
-        // transition is sound. `ManuallyDrop` prevents the active
-        // destructor from running on bytes that have been logically moved.
-        unsafe { std::mem::transmute_copy(&md) }
+        // SAFETY: `RawIndexResult<Active<'a>>` and `RawIndexResult<Suspended>`
+        // are layout-identical (enforced by the `const _` assertion block above).
+        // Going Active -> Suspended is a widening transition: it only loosens
+        // validity invariants (`'a`-bound references become inert raw pointers),
+        // so it is sound. `transmute` moves `self`, so no destructor runs on the
+        // logically-moved bytes.
+        unsafe { std::mem::transmute(self) }
     }
 }
 
@@ -402,11 +431,12 @@ impl RawIndexResult<Suspended> {
     /// by holding an appropriate read lock on the owning data structure, but
     /// this method makes no specific lock assumption.
     pub const unsafe fn into_active<'a>(self) -> RSIndexResult<'a> {
-        let md = std::mem::ManuallyDrop::new(self);
-        // SAFETY: layout-compatible — see `RSIndexResult::into_suspended`.
+        // SAFETY: layout-identical (see the `const _` assertion block above).
         // Narrowing the validity from raw-pointer to `&'a`-style references
         // is sound under the caller's contract documented on this method.
-        unsafe { std::mem::transmute_copy(&md) }
+        // `transmute` moves `self`, so no destructor runs on the logically-moved
+        // bytes.
+        unsafe { std::mem::transmute(self) }
     }
 }
 
