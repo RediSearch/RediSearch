@@ -79,19 +79,6 @@ struct RSValue * *RSValue_NewArrayBuilder(uint32_t len);
 struct RSValue *RSValue_NewUndefined(void);
 
 /**
- * Computes a 64-bit FNV-1a hash of an [`RSValue`], using `hval` as the initial offset basis.
- *
- * The hashing is recursive for composite types (arrays, maps, references, trios).
- *
- * # Safety
- *
- * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
-
-/**
  * Convert the [`RSValue`] to a number. Returns `true` when this value is a number
  * or a numeric string that can be converted and writes the number to `d`. If
  * the value cannot be converted `false` is returned and nothing is written to `d`.
@@ -135,6 +122,26 @@ sds RSValue_DumpSds(const struct RSValue *value, sds sds, bool obfuscate);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double RSValue_Number_Get(const struct RSValue *value);
+
+/**
+ * Computes a HashDoS-resistant 64-bit hash of an [`RSValue`], mixing in `hval` so that
+ * the hashes of multiple values (e.g. the fields making up a GROUPBY key) can be
+ * combined into a single hash by chaining: `RSValue_Hash(b, RSValue_Hash(a, hval))`.
+ *
+ * The hashing is recursive for composite types (arrays, maps, references, trios).
+ *
+ * Since the hasher is keyed with a per-process secret, the result is only
+ * meaningful within the current process: it must not be compared, merged, or
+ * persisted across processes (e.g. across cluster shards). For that, use
+ * [`RSValue_HashStable`] instead.
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t RSValue_Hash(const struct RSValue *value, uint64_t hval);
 
 /**
  * Converts an [`RSValue`] to a number type in-place.
@@ -257,6 +264,25 @@ struct RSValue *RSValue_NewNumber(double value);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
+
+/**
+ * Computes a deterministic 64-bit hash of an [`RSValue`], mixing in `hval` as
+ * described in [`RSValue_Hash`].
+ *
+ * Unlike [`RSValue_Hash`], this is *not* keyed with a per-process secret, so
+ * the same value hashes identically across processes and restarts. Use this
+ * when the hash is compared, merged, or persisted across processes - e.g.
+ * the per-shard HyperLogLog registers fed by `COUNT_DISTINCTISH`, which are
+ * merged across shards by `HLL_SUM` and therefore must agree on how values
+ * map to register/rank pairs.
+ *
+ * # Safety
+ *
+ * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+uint64_t RSValue_HashStable(const struct RSValue *value, uint64_t hval);
 
 /**
  * Converts an [`RSValue`] to null type in-place.

@@ -17,6 +17,12 @@
 
 class TagIndexTest : public ::testing::Test {};
 
+static bool indexTags(TagIndex *idx, std::vector<const char *> &values, t_docId docId,
+                      IndexStats *stats) {
+  TagIndexIndexCtx ctx = {NULL, values.data(), values.size(), docId, false, stats};
+  return TagIndex_Index(NULL, idx, &ctx);
+}
+
 TEST_F(TagIndexTest, testCreate) {
   TagIndex *idx = NewTagIndex(NULL, 0);
   ASSERT_FALSE(idx == NULL);
@@ -29,10 +35,10 @@ TEST_F(TagIndexTest, testCreate) {
   t_docId d;
   IndexStats stats = {0};
   for (d = 1; d <= N; d++) {
-    TagIndex_Index(NULL, idx, NULL, &v[0], v.size(), d, false, &stats);
+    indexTags(idx, v, d, &stats);
     const size_t sz = stats.invertedSize;
     // make sure repeating push of the same vector doesn't get indexed
-    TagIndex_Index(NULL, idx, NULL, &v[0], v.size(), d, false, &stats);
+    indexTags(idx, v, d, &stats);
     ASSERT_EQ(sz, stats.invertedSize);
   }
 
@@ -47,19 +53,21 @@ TEST_F(TagIndexTest, testCreate) {
 
   // The size of the inverted index structure is 24 bytes
   size_t iv_index_size = 24;
+  size_t index_block_size = 64;
 
-  // Each index block is 48 bytes + its buffer capacity + the header of the block vector
-  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
+  // Each index block is 64 bytes + its buffer capacity + the header of the block vector
+  size_t expectedTotalSZ =
+      v.size() * (iv_index_size + (8 + (buffer_cap + index_block_size) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
-  TagIndex_Index(NULL, idx, NULL, &v2[0], v2.size(), ++d, false, &stats);
+  indexTags(idx, v2, ++d, &stats);
   // A base inverted index is 24 bytes
   // The header of the block vector is 8 bytes
-  // An index block is 48 bytes
+  // An index block is 64 bytes
   // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 24 + 8 + 48 + 1;
+  size_t last_block_size = 24 + 8 + index_block_size + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
@@ -89,7 +97,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   IndexStats stats = {0};
-  TagIndex_Index(NULL, idx, NULL, &v[0], v.size(), docId, false, &stats);
+  indexTags(idx, v, docId, &stats);
   MockQueryEvalCtx mockQctx(1, 1);
   QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   IteratorStatus rc = it->Read(it);

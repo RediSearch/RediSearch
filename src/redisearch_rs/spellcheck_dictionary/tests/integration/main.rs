@@ -7,6 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod str_to_lower_runes;
-mod tag_strtolower;
-mod unicode_tolower;
+mod spellcheck_dictionary;

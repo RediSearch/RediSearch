@@ -133,14 +133,10 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 // `ftId` — so a term posting's inline expiration bit is set iff its field mask
 // intersects this mask.
 static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId) {
-  const arrayof(FieldExpiration) fes = DocTable_GetFieldExpirations(&spec->docs, docId);
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, docId);
   t_fieldMask mask = 0;
-  if (!fes) {
-    return mask;
-  }
-  const size_t n = array_len((arrayof(FieldExpiration))fes);
-  for (size_t i = 0; i < n; ++i) {
-    const FieldSpec *fs = &spec->fields[fes[i].index];
+  for (size_t i = 0; i < fes.len; ++i) {
+    const FieldSpec *fs = &spec->fields[fes.ptr[i].index];
     if (FieldSpec_IsIndexableText(fs)) {
       mask |= FIELD_BIT(fs);
     }
@@ -396,15 +392,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->byteOffsets = NULL;
       }
       Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
       if (hasExpiration) {
-        // No need to mark the DMD with Document_HasExpiration: the result
-        // processor already fetches the DMD from the doc table on every hit,
-        // so it can read `expirationTimeNs` directly without going through
-        // a flag-gated branch.
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
-
-        doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
+        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
       }
       DMD_Return(md);
 
@@ -588,7 +579,8 @@ static void reopenCb(void *arg) {}
 // Index missing field docs.
 // Add field names to missingFieldDict if it is missing in the document
 // and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
@@ -614,8 +606,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
-  for (uint32_t sortedIndex = 0; sortedIndex < array_len(sortedFieldWithExpiration); sortedIndex++) {
-    FieldExpiration* fe = &sortedFieldWithExpiration[sortedIndex];
+  for (size_t sortedIndex = 0; sortedIndex < sortedFieldWithExpiration.len; sortedIndex++) {
+    const FieldExpiration* fe = &sortedFieldWithExpiration.ptr[sortedIndex];
     FieldSpec* fs = spec->fields + fe->index;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
@@ -709,7 +701,7 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  * `doAssignIds`, so there is no `applyDocTable` step here.
  */
 static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                arrayof(FieldExpiration) fes) {
+                                FieldExpirationSlice fes) {
   if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
     indexText(aCtx, ctx);
   }
@@ -805,8 +797,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
-    arrayof(FieldExpiration) fes =
-        (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+    struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
     indexDocumentMemory(aCtx, &ctx, fes);
   }
 }

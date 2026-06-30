@@ -265,14 +265,15 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
  * In disk mode the postings are staged onto `batch` (committed by
  * `commitDocument`). In memory mode they are written inline into the per-tag
  * `InvertedIndex` and `batch` is ignored. */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
-                    const char **values, size_t n, t_docId docId, bool hasFieldExpiration,
-                    IndexStats *stats) {
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *indexCtx) {
+  RS_LOG_ASSERT(indexCtx, "TagIndex_Index requires an indexing context");
   if (idx->diskSpec) {
-    if (!values) return true;
-    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+    if (!indexCtx->values) return true;
+    return SearchDisk_IndexTags(ctx, idx->diskSpec, indexCtx->batch, indexCtx->values, indexCtx->n,
+                                indexCtx->docId, idx->fieldIndex);
   }
-  TagIndex_WritePostings(idx, values, n, docId, hasFieldExpiration, stats);
+  TagIndex_WritePostings(idx, indexCtx->values, indexCtx->n, indexCtx->docId,
+                         indexCtx->hasFieldExpiration, indexCtx->stats);
   return true;
 }
 

@@ -714,21 +714,30 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
 // sorted ascending by field index; either may be NULL (treated as empty). Used
 // to decide whether an HEXPIRE/HPERSIST must reindex the document so the inline
 // per-field expiration bit on that field's postings flips from 0 to 1.
-static bool fieldExpirationGained(const arrayof(FieldExpiration) before,
-                                  const arrayof(FieldExpiration) after) {
-  const size_t blen = before ? array_len((arrayof(FieldExpiration))before) : 0;
-  const size_t alen = after ? array_len((arrayof(FieldExpiration))after) : 0;
+static bool fieldExpirationGained(const struct FieldExpirationSlice before,
+                                  const FieldExpirations *after) {
+  const struct FieldExpirationSlice afterSlice = FieldExpirations_AsSlice(after);
   size_t bi = 0;
-  for (size_t ai = 0; ai < alen; ++ai) {
-    const t_fieldIndex idx = after[ai].index;
-    while (bi < blen && before[bi].index < idx) {
+  for (size_t ai = 0; ai < afterSlice.len; ++ai) {
+    const t_fieldIndex idx = afterSlice.ptr[ai].index;
+    while (bi < before.len && before.ptr[bi].index < idx) {
       ++bi;
     }
-    if (bi >= blen || before[bi].index != idx) {
+    if (bi >= before.len || before.ptr[bi].index != idx) {
       return true;  // `idx` is in `after` but not in `before`
     }
   }
   return false;
+}
+
+static void reindexDocAfterFieldExpirationGain(RedisModuleCtx *ctx, IndexSpec *spec,
+                                               RedisModuleString *key, DocumentType type) {
+  // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
+  // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
+  // table in one pass.
+  if (SchemaRule_ShouldIndex(spec, key, type)) {
+    IndexSpec_UpdateDoc(spec, ctx, key, type);
+  }
 }
 
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
@@ -805,7 +814,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     //   2. The Redis hash — owned by the main thread and not guarded by
     //      the spec lock at all; the spec rwlock protects index state,
     //      not the Redis keyspace.
-    arrayof(FieldExpiration) sorted = NULL;
+    FieldExpirations sorted = FieldExpirations_Empty();
     if (hashHasAnyFieldExpire) {
       for (size_t ii = 0; ii < spec->numFields; ++ii) {
         Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
@@ -827,33 +836,28 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       // metadata-only refresh below — a stale set bit only costs a harmless extra
       // TTL lookup that resolves to "not expired" — so only a field gaining its
       // first expiration falls back to a full reindex.
-      const arrayof(FieldExpiration) before =
+      const struct FieldExpirationSlice before =
           DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
 
-      if (fieldExpirationGained(before, sorted)) {
+      if (fieldExpirationGained(before, &sorted)) {
         DMD_Return(cdmd);
         RedisSearchCtx_UnlockSpec(&sctx);
-        array_free(sorted);
-        // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's
-        // field TTLs, so it rewrites the postings (with the bit set) and
-        // refreshes the TTL table in one pass.
-        if (SchemaRule_ShouldIndex(spec, key, type)) {
-          IndexSpec_UpdateDoc(spec, ctx, key, type);
-        }
+        FieldExpirations_Free(&sorted);
+        reindexDocAfterFieldExpirationGain(ctx, spec, key, type);
         continue;
       }
 
       // Hands ownership of `sorted` to the doc table (or frees it if empty).
-      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
-      sorted = NULL;
+      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd,
+                                     DocTable_TakeFieldExpirations(&sorted));
       DMD_Return(cdmd);
     }
 
     RedisSearchCtx_UnlockSpec(&sctx);
 
-    // Doc not in this index (filter failed or never indexed): free the array
-    // we built speculatively. `array_free` is NULL-safe.
-    array_free(sorted);
+    // Doc not in this index (filter failed or never indexed): free the list
+    // we built speculatively. FieldExpirations_Free handles the empty sentinel.
+    FieldExpirations_Free(&sorted);
   }
 
   RedisModule_CloseKey(k);

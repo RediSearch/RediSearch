@@ -2,10 +2,29 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include "query_flags.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Referenced only by pointer here; defined in hybrid/hybrid_search_result.h.
+typedef struct HybridExplainContext HybridExplainContext;
+
+/**
+ * Whether a buffering result processor must preserve each result's
+ * `RSIndexResult` past the point where it is buffered across an iterator
+ * advance, by deep-copying it.
+ *
+ * The index result is only read downstream of the buffering point by the
+ * highlighter (`QEXEC_F_SEND_HIGHLIGHT`) and by the `matched_terms()` aggregate
+ * function, which in turn only sees rich results when scores are requested.
+ * When neither is the case, the borrow can simply be dropped instead of copied.
+ */
+static inline bool QEFlags_RequireIndexResultsDownstream(QEFlags flags) {
+  return (flags & QEXEC_F_SEND_HIGHLIGHT) ||
+         (flags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD));
+}
 
 /**
  * Common parameters shared across different pipeline types in RediSearch.
@@ -140,6 +159,12 @@ typedef struct HybridPipelineParams {
      *  are combined and scored. The pipeline takes ownership of this pointer and will
      *  free it during cleanup. Can be NULL for default scoring behavior. */
     HybridScoringContext *scoringCtx;
+
+    /** EXPLAINSCORE wrapper context (see HybridExplainContext), built at parse
+     *  time when EXPLAINSCORE is set. Ownership transfers to the hybrid merger in
+     *  HybridRequest_BuildMergePipeline; freed via HybridPipelineParams_Cleanup if
+     *  the merge pipeline is never built. NULL ⇒ no EXPLAINSCORE wrapping. */
+    HybridExplainContext *explainCtx;
 } HybridPipelineParams;
 
 /**

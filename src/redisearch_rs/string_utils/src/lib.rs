@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! String utility functions for query evaluation.
+//! Shared string utility functions.
 //!
 //! These are pure-Rust replacements for C helpers that were previously
 //! implemented using `libnu` for Unicode operations.
@@ -22,6 +22,22 @@ use std::borrow::Cow;
 /// `unicode_tolower` function backed by libnu.
 pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
+}
+
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Returns `None` — without allocating the full lowercase copy — once the
+/// result would exceed `max` codepoints.
+pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
+    let mut out = String::new();
+    for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
+        if count == max {
+            return None;
+        }
+        out.push(c);
+    }
+    Some(out)
 }
 
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.

@@ -73,7 +73,7 @@ def test_dist_hybrid_index_drop_after_sctx_allocation(env):
 @require_enable_assert
 def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     """A no-reply shard dispatch failure must surface as an error
-    rather than hanging FT.HYBRID on ProcessHybridCursorMappings' completionCond.
+    rather than hanging FT.HYBRID on ProcessHybridCursorMappings' channel wait.
     FT.DEBUG SEND_ERROR forces the next MRCluster_SendCommand to return REDIS_ERR."""
     conn, query_vec, doc_vec = _setup_hybrid_index(env)
     for i in range(10):
@@ -109,3 +109,55 @@ def test_dist_hybrid_shard_dispatch_failure_does_not_hang(env):
     env.assertEqual(len(error_holder), 1,
                     message=f'Expected a communication error, got results: {result_holder}')
     env.assertContains('Could not send query to cluster', str(error_holder[0]))
+
+
+def _hybrid_score_groups(response):
+    """Ordered list of (score, set-of-keys) groups for a hybrid reply.
+
+    Docs sharing a combined RRF score are grouped together, so a comparison ignores the order
+    within a tie (broken by doc id on the tail, which is intentionally not cross-shard stable)
+    while still asserting the per-branch ranks: the score sequence and the docs at each score."""
+    results, _ = get_results_from_hybrid_response(response)
+    groups = []
+    for key, fields in results.items():
+        score = fields.get('__score')
+        if groups and groups[-1][0] == score:
+            groups[-1][1].add(key)
+        else:
+            groups.append((score, {key}))
+    return groups
+
+
+@skip(cluster=False)
+def test_dist_hybrid_rrf_score_tie_order_is_stable(env):
+    """RRF scoring must stay stable regardless of which shard serves as coordinator. The numeric
+    SEARCH branch (all text scores 0) and low-cardinality vectors force per-branch ties."""
+    n_docs = 1000
+    dim = 3
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'n', 'NUMERIC', 'SORTABLE',
+               'text', 'TEXT',
+               'vector', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', str(dim), 'DISTANCE_METRIC', 'L2').ok()
+
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            vec = np.array([float(i % 10), float((i * 2) % 10), float((i * 3) % 10)], dtype=np.float32)
+            con.execute_command('HSET', f'doc:{i}', 'n', i, 'text', f'document {i}', 'vector', vec.tobytes())
+    waitForIndex(env, 'idx')
+
+    # WINDOW = n_docs so every matching doc is returned, with no tie straddling the window cutoff.
+    query_vec = np.array([5.0] * dim, dtype=np.float32).tobytes()
+    query = ('FT.HYBRID', 'idx',
+             'SEARCH', f'@n:[0 {n_docs}]',
+             'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(n_docs),
+             'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', str(n_docs),
+             'LIMIT', '0', str(n_docs),
+             'PARAMS', '2', 'BLOB', query_vec)
+
+    expected = _hybrid_score_groups(env.cmd(*query))
+    env.assertGreater(len(expected), 0, message='query returned no results')
+
+    for i, shard in enumerate(env.getOSSMasterNodesConnectionList()):
+        got = _hybrid_score_groups(shard.execute_command(*query))
+        env.assertEqual(got, expected, message=f'shard {i} returned different scores/docs', depth=1)

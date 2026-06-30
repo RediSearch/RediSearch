@@ -1147,7 +1147,7 @@ def test_expire_past_timestamp_removes_doc(env):
 
 
 @skip(redis_less_than='7.3')
-def testInlineFieldExpirationBitReindexOnHexpire(env):
+def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     # Each inverted-index entry carries a per-field "this field has a TTL" bit,
     # set at index time, that expiration-aware iterators use to skip the
     # TTL-table lookup when it is clear. A document indexed WITHOUT any field TTL
@@ -1178,7 +1178,7 @@ def testInlineFieldExpirationBitReindexOnHexpire(env):
 
 
 @skip(redis_less_than='7.3')
-def testInlineFieldExpirationBitReindexWhenSiblingFieldAlreadyExpiring(env):
+def test_inline_field_expiration_bit_reindex_when_sibling_field_already_expiring(env):
     # Field-granular regression: a document is indexed with field `b` already
     # carrying a TTL but field `a` not. So `a`'s postings have the bit cleared
     # even though the document is already in the TTL table (because of `b`). When

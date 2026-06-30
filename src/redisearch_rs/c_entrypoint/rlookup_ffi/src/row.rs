@@ -132,7 +132,7 @@ pub unsafe extern "C" fn RLookupRow_Reset(row: Option<NonNull<OpaqueRLookupRow>>
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn RLookupRow_MoveFieldsFrom(
+pub unsafe extern "C" fn RLookupRow_MoveFieldsFrom(
     lookup: *const RLookup,
     src_row: Option<NonNull<OpaqueRLookupRow>>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
@@ -284,7 +284,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn RLookupRow_WriteFieldsFrom<'a>(
+pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     src_row: *const OpaqueRLookupRow,
     src_lookup: *const RLookup<'a>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,

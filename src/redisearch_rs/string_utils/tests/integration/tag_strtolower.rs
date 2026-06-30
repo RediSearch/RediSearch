@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use query_eval::string_utils::tag_strtolower;
+use string_utils::tag_strtolower;
 
 #[test]
 fn unescape_punct() {
@@ -74,7 +74,7 @@ fn sigma_lowercased_per_character() {
 
 #[test]
 fn case_insensitive_matches_unicode_tolower() {
-    use query_eval::string_utils::unicode_tolower;
+    use string_utils::unicode_tolower;
 
     for s in ["ΣΣΣΣΣ", "ΝΕΑΝΊΑΣ", "Straße", "HELLO", "σίγμα"] {
         assert_eq!(
@@ -91,13 +91,14 @@ fn case_insensitive_matches_unicode_tolower() {
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use query_eval::string_utils::tag_strtolower;
     use std::ffi::c_void;
+    use string_utils::tag_strtolower;
 
     /// Call C `tag_strtolower` via FFI and return the resulting string.
     fn c_tag_strtolower(s: &str, case_sensitive: bool) -> String {
         // SAFETY: extern are initialized by the test harness (mock allocator).
         let rm_alloc = unsafe { ffi::RedisModule_Alloc.expect("Redis allocator not available") };
+        // SAFETY: as above — the allocator externs are set up by the test harness.
         let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
 
         // Allocate with rm_malloc: C code may rm_free this pointer.
@@ -105,11 +106,12 @@ mod ffi_comparison {
         // SAFETY: `buf_len` is non-zero; allocator is initialized by the test harness.
         let buf = unsafe { rm_alloc(buf_len) }.cast::<u8>();
         assert!(!buf.is_null());
-        // SAFETY: `buf` is a valid allocation of `buf_len` bytes.
-        unsafe {
-            std::ptr::copy_nonoverlapping(s.as_ptr(), buf, s.len());
-            *buf.add(s.len()) = 0; // null terminator
-        }
+        // SAFETY: `buf` is a valid `buf_len`-byte allocation and `s.len() < buf_len`.
+        unsafe { std::ptr::copy_nonoverlapping(s.as_ptr(), buf, s.len()) };
+        // SAFETY: `s.len()` indexes the final (null-terminator) byte of the allocation.
+        let terminator = unsafe { buf.add(s.len()) };
+        // SAFETY: `terminator` points to the null-terminator slot within the allocation.
+        unsafe { terminator.write(0) }; // null terminator
 
         let mut ptr = buf.cast::<std::os::raw::c_char>();
         let mut len = s.len();
@@ -214,7 +216,7 @@ mod ffi_comparison {
 #[cfg(not(miri))]
 mod proptest_checks {
     use proptest::prelude::*;
-    use query_eval::string_utils::{tag_strtolower, unicode_tolower};
+    use string_utils::{tag_strtolower, unicode_tolower};
 
     /// Generate ASCII strings biased toward backslashes and punctuation.
     fn tag_input() -> impl Strategy<Value = String> {

@@ -843,9 +843,15 @@ FIELD_BULK_INDEXER(tagIndexer) {
   // set iff that field has a field-level expiration for this document.
   const bool fieldHasExpiration =
       DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
-  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,
-                      (const char **)fdata->tags, array_len(fdata->tags),
-                      aCtx->doc->docId, fieldHasExpiration, &ctx->spec->stats)) {
+  TagIndexIndexCtx indexCtx = {
+      .batch = aCtx->disk.batch,
+      .values = (const char **)fdata->tags,
+      .n = array_len(fdata->tags),
+      .docId = aCtx->doc->docId,
+      .hasFieldExpiration = fieldHasExpiration,
+      .stats = &ctx->spec->stats,
+  };
+  if (!TagIndex_Index(ctx->redisCtx, tidx, &indexCtx)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }

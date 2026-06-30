@@ -28,8 +28,8 @@ pub struct RepairContext<'a> {
     /// The block the surviving record was decoded from.
     pub block: &'a IndexBlock,
     /// The block's logical index within the inverted index. Use this instead of
-    /// pointer-equality on `block` — pointer identity isn't reliable when blocks
-    /// are read through a snapshot.
+    /// pointer-equality on `block` — pointer identity isn't reliable if blocks are
+    /// ever decoded into temporary buffers rather than read in place.
     pub block_idx: usize,
 }
 
@@ -133,17 +133,17 @@ impl IndexBlock {
     /// carrying the block and its logical index within the inverted index. Comparing
     /// `ctx.block_idx` against `index.number_of_blocks() - 1` answers "is this the last
     /// block?" without relying on pointer identity — pointer equality won't be stable
-    /// once blocks are read through a snapshot in a later epic.
+    /// if blocks are ever decoded into temporary buffers rather than read in place.
     ///
     /// `None` is returned when there is nothing to repair in this block.
-    pub(crate) fn repair<'index, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
-        &'index self,
+    pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
+        &'block self,
         block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
+        mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
-        let mut cursor: std::io::Cursor<&'index [u8]> = std::io::Cursor::new(&self.buffer);
+        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
         let mut unique_read = 0;
@@ -210,11 +210,17 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     ///
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
+    /// The higher-ranked bound (`for<'call> FnMut(&RSIndexResult<'call>, ..)`) scopes the
+    /// record and context borrows to a single callback invocation: `repair` must accept any
+    /// lifetime, so it cannot stash a borrow and use it after the call returns. This keeps the
+    /// callback sound regardless of whether records are read in place or decoded into a
+    /// short-lived buffer for the duration of the call.
+    ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
-    pub fn scan_gc<'index>(
-        &'index self,
+    pub fn scan_gc(
+        &self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl FnMut(&RSIndexResult<'index>, &RepairContext<'index>)>,
+        mut repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         let mut results = Vec::new();
 

@@ -7,9 +7,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "redisearch.h"
 #include "field.h"
 #include "rqe_core.h"
 #include "ttl_table_rs.h"
+
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+
 
 /**
  * Borrowed view of a contiguous run of [`FieldExpiration`] entries.
@@ -98,6 +103,19 @@ bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
 struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct TimeToLiveTable *table, t_docId doc_id);
 
 /**
+ * Borrow the entries of an owned [`FieldExpirations`] value without taking
+ * ownership.
+ *
+ * Returns an empty slice for a null pointer. The returned pointer is
+ * invalidated by any later mutation/drop of `fields` and must not be freed by
+ * the caller.
+ *
+ * # Safety
+ *  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
+ */
+struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *fields);
+
+/**
  * Single-field expiration check.
  *
  * # Returns
@@ -115,10 +133,15 @@ struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct Tim
  *  - `table` must point to a valid, initialized [`TimeToLiveTable`].
  *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
  */
-bool TimeToLiveTable_VerifyDocAndField(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
+bool TimeToLiveTable_FieldSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, uint16_t field_index, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point);
 
 /**
- * 32-bit field-mask expiration check.
+ * Field-mask expiration check.
+ *
+ * `field_mask` is always passed as a wide [`FieldMask`]. When `wide` is
+ * `false` (narrow schema, at most 32 fields) only the low 32 bits are
+ * meaningful and the faster `u32` bit-walk is used; when `wide` is `true`
+ * the full [`FieldMask`] width is walked.
  *
  * `ft_id_to_field_index` must point to at least
  * `highest_set_bit(field_mask) + 1` valid `u16` entries.
@@ -139,19 +162,7 @@ bool TimeToLiveTable_VerifyDocAndField(const struct TimeToLiveTable *table, t_do
  *  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
  *  - `ft_id_to_field_index` must satisfy the bound above.
  */
-bool TimeToLiveTable_VerifyDocAndFieldMask(const struct TimeToLiveTable *table, t_docId doc_id, uint32_t field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index);
-
-/**
- * Wide field-mask version of [`TimeToLiveTable_VerifyDocAndFieldMask`].
- *
- * # Returns
- * Same semantics as [`TimeToLiveTable_VerifyDocAndFieldMask`] — see that
- * function for the predicate / no-entry cases.
- *
- * # Safety
- * Same contract as [`TimeToLiveTable_VerifyDocAndFieldMask`].
- */
-bool TimeToLiveTable_VerifyDocAndWideFieldMask(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index);
+bool TimeToLiveTable_FieldMaskSatisfiesPredicate(const struct TimeToLiveTable *table, t_docId doc_id, t_fieldMask field_mask, enum FieldExpirationPredicate predicate, const t_expirationTimePoint *expiration_point, const uint16_t *ft_id_to_field_index, bool wide);
 
 /**
  * Test-only: number of buckets currently allocated.
@@ -208,18 +219,6 @@ void FieldExpirations_Push(FieldExpirations *v, struct FieldExpiration fe);
 size_t FieldExpirations_Len(const FieldExpirations *v);
 
 /**
- * Borrow the contents of `*v` as a [`FieldExpirationSlice`].
- *
- * The returned pointer aliases storage owned by `*v`.
- *
- * # Safety
- *  - `v` must be non-null.
- *  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
- *    constructor in this module).
- */
-struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *v);
-
-/**
  * Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
  * reusable state.
  *
@@ -242,6 +241,11 @@ struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *v);
  *  - No other reference to `*v` may exist for the duration of the call.
  */
 void FieldExpirations_Free(FieldExpirations *v);
+
+/**
+ * Return empty FieldExpirationSlice
+ */
+struct FieldExpirationSlice FieldExpirationsSlice_Empty(void);
 
 #ifdef __cplusplus
 }  // extern "C"

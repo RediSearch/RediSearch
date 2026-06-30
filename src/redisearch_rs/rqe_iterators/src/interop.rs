@@ -46,7 +46,7 @@ where
         inner: I,
         profile_children: Option<unsafe extern "C" fn(*mut QueryIterator) -> *mut QueryIterator>,
     ) -> *mut QueryIterator {
-        let mut wrapper = Box::new(Self {
+        let wrapper = Box::new(Self {
             header: QueryIterator {
                 type_: inner.type_(),
                 atEOF: inner.at_eof(),
@@ -63,14 +63,16 @@ where
             },
             inner,
         });
-        if let Some(current) = wrapper
-            .inner
-            .current()
-            .map(|c| c as *mut RSIndexResult as *mut ffi::RSIndexResult)
-        {
-            wrapper.header.current = current;
+        // Derive the self-referential `current` pointer only *after* the box is
+        // stable behind a raw pointer. `sync_current` reads `inner` and writes
+        // `header.current` through a single `&mut self`, so the borrow never
+        // escapes across `Box::into_raw`'s `Unique` retag (which would pop it).
+        let raw = Box::into_raw(wrapper);
+        // SAFETY: `raw` was just produced by `Box::into_raw`, so it is non-null,
+        unsafe {
+            (*raw).sync_current();
         }
-        Box::into_raw(wrapper) as *mut QueryIterator
+        raw as *mut QueryIterator
     }
 }
 

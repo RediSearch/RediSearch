@@ -448,6 +448,51 @@ def test_flex_disk_hnsw_rerank_value(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_float16(env):
+    # MOD-15148: disk HNSW vector indexes accept FLOAT16 in addition to FLOAT32,
+    # while every other element type is still rejected. Creation only.
+    env.expect(
+        'FT.CREATE', 'idx_fp16', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT16',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # FLOAT32 remains accepted (no regression).
+    env.expect(
+        'FT.CREATE', 'idx_fp32', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # Unsupported element types are still rejected on disk.
+    for vec_type in ('FLOAT64', 'BFLOAT16', 'INT8', 'UINT8'):
+        env.expect(
+            'FT.CREATE', f'idx_{vec_type.lower()}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', vec_type,
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK', 'TRUE',
+        ).error().contains('Disk index does not support')
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(False)
 def test_ram_hnsw_rerank_rejected(env):
     # In RAM mode RERANK is a disk-only option and must be rejected outright,
@@ -745,6 +790,56 @@ def test_flex_blocks_summarize_argument(env):
 
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SUMMARIZE') \
         .error().contains('SUMMARIZE is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_dialect_4(env):
+    """Test that DIALECT 4 is blocked in Redis Flex while dialects 1-3 work.
+
+    DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE) by default, which
+    relies on RAM-only structures (DocTable / NumericRangeTree) that disk specs
+    do not populate, so it is unsupported on disk (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    # Dialects 1-3 still return the document on a disk index.
+    for dialect in (1, 2, 3):
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', str(dialect)) \
+            .equal([1, 'doc:1'])
+
+    # DIALECT 4 is rejected.
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', '4') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withoutcount_argument(env):
+    """Test that WITHOUTCOUNT is blocked in Redis Flex.
+
+    WITHOUTCOUNT explicitly enables the query optimizer (QEXEC_OPTIMIZE), which
+    is unsupported on disk for the same reason as DIALECT 4 (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'WITHOUTCOUNT') \
+        .error().contains('WITHOUTCOUNT is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_configured_default_dialect_4(env):
+    """Test that a configured default of DIALECT 4 is also blocked in Redis Flex.
+
+    When the query omits an explicit DIALECT it inherits search-default-dialect,
+    so a default of 4 must be rejected too (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('CONFIG', 'SET', 'search-default-dialect', '4').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
 
 
 @skip(cluster=True)

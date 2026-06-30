@@ -32,11 +32,17 @@ pub enum QEFlag {
     IsCursor = 0x20,
     /// Send multiple required fields.
     RequiredFields = 0x40,
-    /// Do not create the root result processor. Only process those
-    /// components which process fully-formed, fully-scored results.
-    /// This also means that a scorer is not created. It will also not
-    /// initialize the first step or the initial lookup table.
-    BuildPipelineNoRoot = 0x80,
+    /// The AREQ is running on the cluster coordinator (i.e. it fans out
+    /// to shards and reads their replies) rather than on a shard or a
+    /// standalone deployment that owns a local index.
+    ///
+    /// Used to skip pipeline components that only make sense when this AREQ
+    /// owns a local root iterator: the root result processor is not created,
+    /// no scorer is created, and the first step / initial lookup table are
+    /// not initialized. The pipeline only processes fully-formed,
+    /// fully-scored results that arrive from upstream (e.g. RPNet, or a
+    /// sibling depleter in a hybrid sub-pipeline).
+    IsCoordinator = 0x80,
     /// Run the query in a multi-threaded environment.
     RunInBackground = 0x100,
     /// The query is a search command.

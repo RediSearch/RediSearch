@@ -169,7 +169,11 @@ ResultProcessor *RPMetricsLoader_New();
  */
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
-ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+/**
+ * Creates a sorter result processor that sorts by score.
+ * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
+ */
+ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
@@ -334,9 +338,14 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Merges results from multiple upstream processors using a hybrid scoring function.
  * Takes results from all upstreams and applies the provided function to combine their scores.
  *******************************************************************************************************************/
+// Forward declaration; full type is in hybrid/hybrid_search_result.h
+typedef struct HybridExplainContext HybridExplainContext;
+
 /*
  * Creates a new Hybrid Merger processor.
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+ * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
+ * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -346,7 +355,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx);
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx);
 
 /*
  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

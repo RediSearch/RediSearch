@@ -168,7 +168,8 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
       TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 
-      if (tagIdx->suffix) {
+      // Empty values (INDEXEMPTY) are never inserted into the suffix triemap, so skip the delete.
+      if (tagIdx->suffix && tagValLen) {
         deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
       }
     }
