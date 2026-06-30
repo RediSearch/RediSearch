@@ -14,6 +14,7 @@
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "debug_commands.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -184,6 +185,12 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec_ReleaseWriteLock(sp);
 }
 
+#ifdef ENABLE_ASSERT
+static void Compaction_BetweenChunksSyncPoint(void) {
+    SyncPoint_Wait(SYNC_POINT_AFTER_COMPACTION_TERM_REMOVED);
+}
+#endif
+
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
 // IndexSpec's compaction listener; the C-side struct itself does not need to
 // outlive the openIndexSpec call.
@@ -193,6 +200,13 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
+        // Debug/test sync point; NULL outside ENABLE_ASSERT so the Rust side
+        // skips it and there is no production cost.
+#ifdef ENABLE_ASSERT
+        .betweenChunksSyncPoint = Compaction_BetweenChunksSyncPoint,
+#else
+        .betweenChunksSyncPoint = NULL,
+#endif
     };
 }
 
