@@ -49,11 +49,14 @@ pub enum BatchStrategy {
     /// The iterator will rewind the child and start calling
     /// [`ScoreSource::lookup_score`] for each document the child yields.
     SwitchToAdhoc,
-    /// Restart batch collection (e.g. after the source has expanded its range).
+    /// Advance to the next, disjoint window of the source.
     ///
-    /// The iterator rewinds both the source and the child, then re-enters
-    /// Batches mode from the beginning.
-    SwitchToBatches,
+    /// The source has already re-resolved itself to a new window whose
+    /// documents do not overlap any previously emitted window, so the running
+    /// heap stays valid and keeps accumulating the global top `k`. The iterator
+    /// rewinds **only the child** and keeps collecting; it does **not** clear
+    /// the heap or rewind the source.
+    ExpandWindow,
     /// Collection is complete — stop and yield whatever is in the heap.
     Stop,
 }
