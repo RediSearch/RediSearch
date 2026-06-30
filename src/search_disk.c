@@ -200,7 +200,13 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
     RS_ASSERT(disk_db && c_index_spec);
     SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
+    RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
+    if (result) {
+        // Open atomically registers with BigModule, so the spec needs a
+        // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
+        c_index_spec->diskRegistered = true;
+    }
+    return result;
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -214,19 +220,12 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
-    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
-    RS_ASSERT(!spec->diskRegistered);
-    disk->basic.registerIndex(ctx, spec->diskSpec);
-    spec->diskRegistered = true;
-}
-
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
     if (!spec->diskRegistered) {
         return;
     }
-    disk->basic.unregisterIndex(ctx, spec->diskSpec);
+    disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
 }
 
@@ -253,7 +252,13 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             IndexSpec *c_index_spec) {
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
+  if (result) {
+    // Open atomically registers with BigModule, so the spec needs a
+    // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
+    c_index_spec->diskRegistered = true;
+  }
+  return result;
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
