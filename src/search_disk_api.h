@@ -966,7 +966,8 @@ typedef struct MetricsDiskAPI {
    * @param ftId  Text field id — the field's bit position in the field mask
    * @return Per-field text byte metrics
    */
-  PerFieldTextDiskMetrics (*getTextFieldMetrics)(RedisSearchDiskIndexSpec *index, t_fieldId ftId);
+  PerFieldTextDiskMetrics (*getTextFieldMetrics)(const RedisSearchDiskIndexSpec *index,
+                                                 t_fieldId ftId);
 
   /**
    * @brief Get per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
@@ -984,7 +985,7 @@ typedef struct MetricsDiskAPI {
    * @param fieldIndex Unique field index identifying the field's column family
    * @return Per-field column-family metrics
    */
-  PerFieldCfDiskMetrics (*getCfFieldMetrics)(RedisSearchDiskIndexSpec *index,
+  PerFieldCfDiskMetrics (*getCfFieldMetrics)(const RedisSearchDiskIndexSpec *index,
                                              t_fieldIndex fieldIndex);
 } MetricsDiskAPI;
 

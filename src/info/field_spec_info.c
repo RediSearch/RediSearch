@@ -245,12 +245,7 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   }
 }
 
-// Populate per-field disk metrics on `stats` for the disk-backed field `fs`.
-// Callers gate on `sp->diskSpec` before invoking. Text fields are keyed by
-// their bit position (`ftId`) in the shared fulltext column family;
-// tag/numeric/vector fields are keyed by their unique field index. The disk
-// side reports `available = false` for field types or data it cannot serve, so
-// only populated metrics are later emitted.
+// Populate disk-backed FT.INFO metrics for field `fs`.
 static void FieldSpecStats_PopulateDiskMetrics(FieldSpecStats *stats, const IndexSpec *sp,
                                                const FieldSpec *fs) {
   if (FieldSpec_IsIndexableText(fs)) {

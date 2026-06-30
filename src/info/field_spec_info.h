@@ -24,11 +24,7 @@ typedef struct FieldSpecStats {
     VectorIndexStats vecStats;
   };
   FieldType type;
-  // Per-field disk metrics for FT.INFO `field statistics`. Populated only for
-  // disk-backed indexes; each struct's `available` flag gates its own output
-  // (zero-initialized -> not available -> nothing emitted). Text fields use
-  // `textDisk` (exclusive/shared posting bytes); tag/numeric/vector fields use
-  // `cfDisk` (the field's column-family footprint).
+  // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
   PerFieldTextDiskMetrics textDisk;
   PerFieldCfDiskMetrics cfDisk;
 } FieldSpecStats;

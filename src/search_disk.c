@@ -539,13 +539,13 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   disk->metrics.outputInfoMetrics(disk_db, ctx);
 }
 
-PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec* index,
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                        t_fieldId ftId) {
   RS_ASSERT(disk && index);
   return disk->metrics.getTextFieldMetrics(index, ftId);
 }
 
-PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(RedisSearchDiskIndexSpec* index,
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex) {
   RS_ASSERT(disk && index);
   return disk->metrics.getCfFieldMetrics(index, fieldIndex);

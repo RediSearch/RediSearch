@@ -769,7 +769,7 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
  * @param ftId  Text field id — the field's bit position in the field mask
  * @return Per-field text byte metrics; `available` is false when no data exists
  */
-PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec* index,
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                        t_fieldId ftId);
 
 /**
@@ -787,7 +787,7 @@ PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(RedisSearchDiskIndexSpec*
  * @param fieldIndex Unique field index identifying the field's column family
  * @return Per-field column-family metrics; `available` is false when no data exists
  */
-PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(RedisSearchDiskIndexSpec* index,
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex);
 
 /**
