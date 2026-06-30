@@ -1497,7 +1497,9 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "index_result",
+ "inverted_index",
  "itertools 0.15.0",
+ "numeric_range_tree",
  "numeric_score_source",
  "redis_mock",
  "redisearch_rs",

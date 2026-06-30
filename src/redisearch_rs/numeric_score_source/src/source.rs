@@ -7,152 +7,226 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`NumericScoreSource`] — [`ScoreSource`] implementation backed by a numeric
-//! [`RQEIterator`].
+//! [`NumericScoreSource`] — a [`ScoreSource`] that scores documents by a
+//! numeric field, reading the field's value-ordered ranges directly from a
+//! [`NumericRangeTree`].
 
-use std::marker::PhantomData;
-
-use index_result::{RSIndexResult, RSResultKind};
+use index_result::RSIndexResult;
+use inverted_index::NumericFilter;
+use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{RQEIterator, RQEIteratorError, inverted_index::Numeric, metric::Metric};
+use rqe_iterators::RQEIteratorError;
 use top_k::{BatchStrategy, ScoreSource};
 
+use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
 
-/// An [`RQEIterator`] whose records are guaranteed to be numeric.
+/// Default number of value-ordered ranges materialized into a single batch.
 ///
-/// [`NumericScoreSource`] is generic over its source iterator, but reads each
-/// record's score via [`as_numeric_unchecked`](RSIndexResult::as_numeric_unchecked),
-/// which is undefined behavior on a non-numeric record. This trait restricts the
-/// source to iterators that uphold that guarantee.
+/// Larger batches amortize the per-batch child rewind in the surrounding
+/// [`TopKIterator`]'s `intersect_batch_with_child`; smaller batches tighten the
+/// early-`Stop` granularity, since a batch boundary is also a score-bracket
+/// boundary. Callers (chiefly tests) override it to force multi-batch behavior.
 ///
-/// # Safety
-///
-/// Implementers must guarantee that every record produced by
-/// [`read`](RQEIterator::read) is numeric — its [`kind`](RSIndexResult::kind) is
-/// either [`RSResultKind::Numeric`] or [`RSResultKind::Metric`].
-pub unsafe trait NumericRecords<'index>: RQEIterator<'index> {}
+/// [`TopKIterator`]: top_k::TopKIterator
+const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
 
-// SAFETY: every record is built via `RSIndexResult::build_metric`, so its kind is
-// always `Metric`.
-unsafe impl<'index, const SORTED_BY_ID: bool> NumericRecords<'index>
-    for Metric<'index, SORTED_BY_ID>
-{
-}
+/// Maximum number of expand-and-retry iterations before the next retry reads
+/// every remaining document.
+const MAX_ITERATIONS: usize = 3;
 
-// SAFETY: the wrapped reader decodes into a result seeded with
-// `RSIndexResult::build_numeric`, so its kind is always `Numeric`.
-unsafe impl<'index, R, E> NumericRecords<'index> for Numeric<'index, R, E> where
-    Self: RQEIterator<'index>
-{
-}
-
-/// Default per-batch record cap for [`next_batch`](ScoreSource::next_batch).
-///
-/// At 16 bytes per `(DocId, f64)` pair this caps a batch at ~64 KiB. It is large
-/// enough to amortize the per-batch child rewind in `intersect_batch_with_child`
-/// (the child is rewound and merge-joined once per batch) yet small enough that a
-/// filtered top-k query over a huge numeric field no longer allocates one entry
-/// per record.
-const MATERIALIZE_BATCH_SIZE: usize = 4096;
+/// Below this hit ratio for a consumed window, the next retry abandons
+/// estimation and reads every remaining document.
+const MIN_SUCCESS_RATIO: f64 = 0.01;
 
 /// Scores each document by a numeric field, for top-k queries like
 /// `SORTBY <numeric field>`.
 ///
-/// A document's score is the numeric value read from the wrapped `source`
-/// iterator, so taking the top `k` here means taking the `k` highest values of
-/// that field.
+/// A document's score is its value in the numeric field. The source asks the
+/// [`NumericRangeTree`] for the field's ranges in score order (per `ascending`),
+/// windowed by the filter's `offset`/`limit`, and hands them to the surrounding
+/// [`TopKIterator`] as doc-id-ordered batches. Because batches arrive
+/// best-score-first, a full heap (`heap_count >= k`) means no later batch can
+/// improve the result, so [`batch_strategy`](ScoreSource::batch_strategy) can
+/// `Stop` early — the value-ordering is what makes that sound.
 ///
-/// The wrapped source yields records in doc-id order, not score order, so the
-/// surrounding [`TopKIterator`] does the top-k selection with its heap. To keep
-/// peak memory bounded, [`next_batch`](ScoreSource::next_batch) drains the source
-/// in chunks of at most `batch_size` records rather than materializing the whole
-/// index at once; the iterator pushes each chunk through the heap (intersecting
-/// with the filter child first, when present) and keeps the running top `k`.
+/// # Filtered retry
 ///
-/// Both the filtered and unfiltered numeric top-k iterators run in
-/// [`TopKMode::Batches`], so every query path flows through
-/// [`next_batch`](ScoreSource::next_batch) and the heap — there is no
-/// heap-bypassing single-batch path here, and bounded batches keep memory
-/// bounded in both cases.
+/// With a filter child, the initial window may be too small to fill the heap.
+/// When a window is drained with `heap_count < k`,
+/// [`batch_strategy`](ScoreSource::batch_strategy) expands the window
+/// (`offset`/`limit`) and returns [`BatchStrategy::SwitchToBatches`] so the
+/// surrounding iterator re-collects against the larger window. The unfiltered
+/// path reads an unbounded window and never retries.
 ///
-/// [`TopKMode::Batches`]: top_k::TopKMode::Batches
-///
-/// Adhoc-BF strategy has not been implemented
+/// [`TopKIterator`]: top_k::TopKIterator
 ///
 /// Not implemented yet:
-/// - TODO: MOD-14207 Proper batching logic through numeric filter
 /// - TODO: MOD-14945 Timeout handling
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
 /// - TODO: MOD-14948 Performance validation
-///
-/// [`TopKIterator`]: top_k::TopKIterator
-pub struct NumericScoreSource<'index, S: NumericRecords<'index>> {
-    /// Numeric iterator whose per-document value is used as the score.
-    source: S,
-    /// Maximum number of records [`next_batch`](ScoreSource::next_batch) reads
-    /// into a single batch. Always `>= 1`.
-    batch_size: usize,
-    /// Upper-bound result estimate captured at construction, so it stays stable
-    /// after the source is drained.
+pub struct NumericScoreSource<'index> {
+    /// Value-ordered range stream over the numeric index.
+    ranges: NumericRangeIterator<'index>,
+    /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
+    /// window is mutated in place by the retry expansion.
+    filter: NumericFilter,
+    /// Sort direction (`SORTBY field ASC`/`DESC`), also written into `filter`.
+    ascending: bool,
+    /// Number of value-ordered ranges materialized per batch. Always `>= 1`.
+    range_batch_size: usize,
+    /// Window document estimate captured at construction, kept stable after the
+    /// window is drained or expanded.
     num_estimated: usize,
-    _index: PhantomData<&'index ()>,
+    /// Whether the filtered expand-and-retry path is active.
+    retry_enabled: bool,
+    /// Total documents in the index, used to bound and cap window expansion.
+    num_docs: usize,
+    /// Filter child's selectivity estimate, used to size the next window.
+    child_estimate: usize,
+    /// Limit of the window currently being consumed, the denominator of the
+    /// success ratio.
+    last_limit_estimate: usize,
+    /// Heap count at the start of the current window, the baseline for counting
+    /// hits collected from it.
+    heap_old_size: usize,
+    /// Number of expand-and-retry iterations performed so far.
+    num_iterations: usize,
 }
 
-impl<'index, S: NumericRecords<'index>> NumericScoreSource<'index, S> {
-    /// Wrap a numeric `source` iterator as a score source, using the default
-    /// `MATERIALIZE_BATCH_SIZE` per-batch cap.
-    pub fn new(source: S) -> Self {
-        Self::with_batch_size(source, MATERIALIZE_BATCH_SIZE)
+impl<'index> NumericScoreSource<'index> {
+    /// Build an unfiltered source: an unbounded value-ordered window with no
+    /// retry. `LIMIT k` is served by the heap plus the early `Stop`.
+    pub fn unfiltered(
+        tree: &'index NumericRangeTree,
+        filter: NumericFilter,
+        ascending: bool,
+    ) -> Self {
+        Self::with_range_batch_size(tree, filter, ascending, DEFAULT_RANGE_BATCH_SIZE)
     }
 
-    /// Like [`new`](Self::new) but with an explicit per-batch record cap, so
-    /// callers (chiefly tests) can force multi-batch behavior on small inputs.
-    /// `batch_size` is clamped to at least `1`.
-    pub fn with_batch_size(source: S, batch_size: usize) -> Self {
-        let num_estimated = source.num_estimated();
+    /// Like [`unfiltered`](Self::unfiltered) but with an explicit per-batch range
+    /// count, so tests can force multi-batch behavior on small inputs.
+    pub fn with_range_batch_size(
+        tree: &'index NumericRangeTree,
+        mut filter: NumericFilter,
+        ascending: bool,
+        range_batch_size: usize,
+    ) -> Self {
+        filter.ascending = ascending;
+        filter.limit = 0;
+        Self::build(tree, filter, ascending, range_batch_size, 0, 0, false)
+    }
+
+    /// Build a filtered source with the expand-and-retry path enabled.
+    ///
+    /// `num_docs` is the total document count and `child_estimate` the filter
+    /// child's selectivity estimate; both size the retry windows. `filter.limit`
+    /// is the initial window size.
+    pub fn filtered(
+        tree: &'index NumericRangeTree,
+        mut filter: NumericFilter,
+        ascending: bool,
+        range_batch_size: usize,
+        num_docs: usize,
+        child_estimate: usize,
+    ) -> Self {
+        filter.ascending = ascending;
+        Self::build(
+            tree,
+            filter,
+            ascending,
+            range_batch_size,
+            num_docs,
+            child_estimate,
+            true,
+        )
+    }
+
+    fn build(
+        tree: &'index NumericRangeTree,
+        filter: NumericFilter,
+        ascending: bool,
+        range_batch_size: usize,
+        num_docs: usize,
+        child_estimate: usize,
+        retry_enabled: bool,
+    ) -> Self {
+        let ranges = NumericRangeIterator::new(tree, &filter);
+        let num_estimated = ranges.total_docs_estimate();
         Self {
-            source,
-            batch_size: batch_size.max(1),
+            ranges,
+            last_limit_estimate: filter.limit,
+            filter,
+            ascending,
+            range_batch_size: range_batch_size.max(1),
             num_estimated,
-            _index: PhantomData,
+            retry_enabled,
+            num_docs,
+            child_estimate,
+            heap_old_size: 0,
+            num_iterations: 0,
         }
     }
 
-    /// Drain up to [`batch_size`](Self::batch_size) records from the source into a
-    /// doc-id-ordered batch, so a top-k query never materializes the whole numeric
-    /// index at once. Returns `Ok(None)` once the source is exhausted.
-    fn read_batch(&mut self) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
-        let mut items = Vec::with_capacity(self.batch_size.min(self.num_estimated));
-        while items.len() < self.batch_size {
-            let Some(result) = self.source.read()? else {
-                break;
-            };
-            debug_assert!(
-                matches!(result.kind(), RSResultKind::Numeric | RSResultKind::Metric),
-                "NumericScoreSource: wrapped iterator yielded a non-numeric record ({})",
-                result.kind()
-            );
-            // SAFETY: the `S: NumericRecords` bound guarantees every record read
-            // from `source` is numeric.
-            let score = unsafe { result.as_numeric_unchecked() };
-            items.push((result.doc_id, score));
+    /// Sort direction the source reads in, for the heap comparator.
+    pub fn ascending(&self) -> bool {
+        self.ascending
+    }
+
+    /// Hit ratio of the window just consumed: results collected from it over the
+    /// window's limit. Returns `0.0` when the limit is `0`, guarding the
+    /// division.
+    fn success_ratio(&self, heap_count: usize) -> f64 {
+        if self.last_limit_estimate == 0 {
+            return 0.0;
+        }
+        let collected = heap_count.saturating_sub(self.heap_old_size);
+        collected as f64 / self.last_limit_estimate as f64
+    }
+
+    /// Advance the filter window past the drained one and size the next.
+    ///
+    /// Returns `true` if the window was expanded (so the caller should
+    /// `SwitchToBatches`), `false` if no expansion is possible (already
+    /// unbounded, out of retries, or retry disabled).
+    fn expand_window(&mut self, heap_count: usize, k: usize) -> bool {
+        if !self.retry_enabled || self.num_iterations >= MAX_ITERATIONS {
+            return false;
+        }
+        // `limit == 0` is unbounded, and `limit >= num_docs` already reads the
+        // whole index: in both cases there is nothing left to expand into.
+        if self.filter.limit == 0 || self.filter.limit >= self.num_docs {
+            return false;
         }
 
-        if items.is_empty() {
-            return Ok(None);
+        self.filter.offset += self.ranges.total_docs_estimate();
+        let success_ratio = self.success_ratio(heap_count);
+
+        if success_ratio < MIN_SUCCESS_RATIO || self.num_iterations + 1 >= MAX_ITERATIONS {
+            // Hits are too sparse, or this is the last allowed retry: stop
+            // estimating and read every remaining document.
+            self.filter.limit = self.num_docs;
+        } else {
+            let results_missing = k.saturating_sub(heap_count);
+            let estimate = estimate_limit(self.num_docs, self.child_estimate, results_missing);
+            self.last_limit_estimate = ((estimate as f64) * success_ratio) as usize;
+            self.filter.limit = self.last_limit_estimate.max(1);
         }
-        Ok(Some(NumericScoreBatch::new(items)))
+
+        self.num_iterations += 1;
+        self.heap_old_size = heap_count;
+        true
     }
 }
 
-impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'index, S> {
+impl<'index> ScoreSource for NumericScoreSource<'index> {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        self.read_batch()
+        Ok(self.ranges.next_n(self.range_batch_size))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -165,7 +239,10 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
     }
 
     fn rewind(&mut self) {
-        self.source.rewind();
+        // Re-resolve whatever window the filter currently holds: the original
+        // one for an outer rewind, or the expanded one set by `expand_window`
+        // just before a `SwitchToBatches`.
+        self.ranges.refind(&self.filter);
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -175,18 +252,38 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
         RSIndexResult::build_numeric(score).doc_id(doc_id).build()
     }
 
-    fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
-        // Records arrive in doc-id order, so a batch is an arbitrary doc-id slice,
-        // not a score bracket: a higher score may still appear in a later batch.
-        // The heap can therefore only know the true top-k once every record has
-        // been offered, so always keep pulling until the source reaches EOF
-        // (`next_batch` returns `Ok(None)`). Unlike the vector source — whose
-        // batches are successive score brackets — we must never `Stop` early on a
-        // full heap, or we would drop higher-scored documents from later batches.
-        BatchStrategy::Continue
+    fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
+        // Batches arrive best-score-first, so a full heap can never be improved
+        // by a later (worse-scored) batch.
+        if heap_count >= k {
+            return BatchStrategy::Stop;
+        }
+        // More ranges remain in this window: keep draining before deciding.
+        if !self.ranges.is_exhausted() {
+            return BatchStrategy::Continue;
+        }
+        // Window drained with the heap still short of k: expand and retry if we
+        // can, otherwise `Continue` so `next_batch` reports EOF and finalizes.
+        if self.expand_window(heap_count, k) {
+            BatchStrategy::SwitchToBatches
+        } else {
+            BatchStrategy::Continue
+        }
     }
 
     fn iterator_type(&self) -> IteratorType {
         IteratorType::Optimus
     }
+}
+
+/// Estimate the window limit needed to collect `limit` more results, given the
+/// child's selectivity (`estimate`/`num_docs`).
+///
+/// Returns `0` when `num_docs` or `estimate` is `0`, guarding the division.
+fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
+    if num_docs == 0 || estimate == 0 {
+        return 0;
+    }
+    let ratio = estimate as f64 / num_docs as f64;
+    (limit as f64 / ratio) as usize + 1
 }
