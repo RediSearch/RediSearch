@@ -186,8 +186,8 @@ static void Compaction_EndUpdate(void *update_ctx) {
 }
 
 #ifdef ENABLE_ASSERT
-static void Compaction_BetweenChunksSyncPoint(void) {
-    SyncPoint_Wait(SYNC_POINT_AFTER_COMPACTION_TERM_REMOVED);
+static void Compaction_BeforeApplySyncPoint(void) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COMPACTION_APPLY);
 }
 #endif
 
@@ -203,9 +203,9 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
         // Debug/test sync point; NULL outside ENABLE_ASSERT so the Rust side
         // skips it and there is no production cost.
 #ifdef ENABLE_ASSERT
-        .betweenChunksSyncPoint = Compaction_BetweenChunksSyncPoint,
+        .beforeApplySyncPoint = Compaction_BeforeApplySyncPoint,
 #else
-        .betweenChunksSyncPoint = NULL,
+        .beforeApplySyncPoint = NULL,
 #endif
     };
 }

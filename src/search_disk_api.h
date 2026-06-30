@@ -94,7 +94,7 @@ typedef struct SearchDiskCompactionCallbacks {
   void (*endUpdate)(void *update_ctx);
 
   // Debug/test-only sync point
-  void (*betweenChunksSyncPoint)(void);
+  void (*beforeApplySyncPoint)(void);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
