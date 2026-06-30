@@ -48,13 +48,14 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
     }))
 }
 
-/// Advance the iterator. Returns 1 and stores the next string into
-/// `(*str, *len)` if there is one, or returns 0 once exhausted.
+/// Advance the iterator. Returns 1 and points `*str`/`*len` at the next
+/// string — borrowed from the iterator, not copied into caller-provided
+/// storage — if there is one, or returns 0 once exhausted.
 ///
 /// Returning 0 does not free the iterator; it must still be released
 /// with [`TermSuffixIndexIterator_Free`].
 ///
-/// The string written to `*str` is NOT NUL-terminated, owned by the
+/// The string `*str` points at is NOT NUL-terminated, owned by the
 /// iterator, and only valid until the next call to
 /// [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
 ///
