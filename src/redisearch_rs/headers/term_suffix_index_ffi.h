@@ -24,8 +24,12 @@ typedef struct TermSuffixIndexIterator TermSuffixIndexIterator;
  *
  * `term` points to `len` UTF-8 bytes, NOT NUL-terminated, valid only
  * for the duration of the call. `ctx` is the caller context passed to
- * the iterate function; `payload` is always NULL. Return 0 to continue
- * the iteration; any other value stops it.
+ * the iterate function. Return 0 to continue the iteration; any other
+ * value stops it.
+ *
+ * `payload` is always NULL: a term suffix index stores no per-term
+ * payload. The slot exists only to keep the callback signature uniform
+ * with the other trie iterate callbacks.
  */
 typedef int (*TermSuffixIterateCallback)(const char *term, size_t len, void *ctx, void *payload);
 
@@ -81,7 +85,8 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
+ *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
+ *    this call.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -98,11 +103,17 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
  * empty term is a no-op.
  *
+ * Matching is case-insensitive: `term` is lowercased before insertion,
+ * so subsequent lookups and removals are case-insensitive too.
+ *
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `tsi` may be alive.
+ * 2. No other access to `tsi` may occur concurrently with this call —
+ *    neither another mutator nor a read-only call such as
+ *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
+ *    may be alive.
  * 3. `term` must point to a [valid] byte sequence of length `len`.
  *
  * # Panics
@@ -114,13 +125,14 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
 void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
- * Advance the iterator. Returns 1 and stores the next string into
- * `(*str, *len)` if there is one, or returns 0 once exhausted.
+ * Advance the iterator. Returns 1 and points `*str`/`*len` at the next
+ * string — borrowed from the iterator, not copied into caller-provided
+ * storage — if there is one, or returns 0 once exhausted.
  *
  * Returning 0 does not free the iterator; it must still be released
  * with [`TermSuffixIndexIterator_Free`].
  *
- * The string written to `*str` is NOT NUL-terminated, owned by the
+ * The string `*str` points at is NOT NUL-terminated, owned by the
  * iterator, and only valid until the next call to
  * [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
  *
@@ -138,25 +150,6 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
- * or empty term is a no-op.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `tsi` may be alive.
- * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
-
-/**
  * Invoke `cb` once per member term ending with the UTF-8 needle
  * `(needle, len)`; each matching term is reported exactly once. Iteration
  * stops early when the callback returns a non-zero value. An empty
@@ -165,7 +158,8 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
+ *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
+ *    this call.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -177,6 +171,31 @@ void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
+
+/**
+ * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+ * or empty term is a no-op.
+ *
+ * Matching is case-insensitive: `term` is lowercased before lookup, so
+ * it matches the entry regardless of the case it was added with.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. No other access to `tsi` may occur concurrently with this call —
+ *    neither another mutator nor a read-only call such as
+ *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
+ *    may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
@@ -200,6 +219,8 @@ void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
+ * 2. `tsi` must not be mutated (e.g. via [`TermSuffixIndex_Add`] or
+ *    [`TermSuffixIndex_Remove`]) concurrently with this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -218,7 +239,8 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
+ *    [`TermSuffixIndex_New`], and must not be mutated concurrently with
+ *    this call.
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.

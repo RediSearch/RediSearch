@@ -29,7 +29,8 @@ use super::*;
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `tsi` must not be modified or freed while the iterator lives.
+/// 2. No other call on `tsi` (mutating or read-only) may run while the
+///    iterator lives, and `tsi` must not be freed until then.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -66,7 +67,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// 2. `str` and `len` must be [valid], non-null pointers to writable
 ///    locations.
 /// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
-///    be alive and unmodified.
+///    be alive, with no other call on it running concurrently.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

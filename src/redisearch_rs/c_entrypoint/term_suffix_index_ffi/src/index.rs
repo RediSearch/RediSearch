@@ -123,8 +123,8 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. `tsi` must not be mutated (e.g. via [`TermSuffixIndex_Add`] or
-///    [`TermSuffixIndex_Remove`]) concurrently with this call.
+/// 2. No other call on `tsi` (mutating or read-only) may run
+///    concurrently with this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
