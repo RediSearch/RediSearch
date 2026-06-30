@@ -5,10 +5,14 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #include "tag_index.h"
 #include "triemap_ffi.h"
+#include "field_spec.h"
+#include "document.h"
+#include "indexer.h"
+#include "util/arr.h"
 #include "gtest/gtest.h"
 #include "index_utils.h"
 
@@ -16,6 +20,19 @@
 #include <string>
 
 class TagIndexTest : public ::testing::Test {};
+
+// Build a minimal stack FieldSpec for a TAG field. `tokenizeTagString` /
+// `TagIndex_Preprocess` only read `tagOpts.tagSep`, `tagOpts.tagFlags` and
+// `options` (via FieldSpec_IndexesEmpty), so no full IndexSpec is required.
+static FieldSpec makeTagFieldSpec(char sep, TagFieldFlags flags, FieldSpecOptions options) {
+  FieldSpec fs{};
+  fs.types = INDEXFLD_T_TAG;
+  fs.options = options;
+  fs.tagOpts.tagFlags = flags;
+  fs.tagOpts.tagSep = sep;
+  fs.tagOpts.tagIndex = NULL;
+  return fs;
+}
 
 TEST_F(TagIndexTest, testCreate) {
   TagIndex *idx = NewTagIndex(NULL, 0, false);
@@ -63,7 +80,8 @@ TEST_F(TagIndexTest, testCreate) {
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
+  QueryIterator *it =
+      TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -91,7 +109,8 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   IndexStats stats = {0};
   TagIndex_Index(NULL, idx, NULL, &v[0], v.size(), docId, &stats);
   MockQueryEvalCtx mockQctx(1, 1);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
+  QueryIterator *it =
+      TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
   ASSERT_EQ(it->lastDocId, docId);
