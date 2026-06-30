@@ -196,3 +196,61 @@ fn rewind_restarts_iteration() {
     let second = drain_all(&mut source);
     assert_eq!(first, second);
 }
+
+#[test]
+fn filtered_retry_keeps_high_match_across_windows() {
+    // Multi-leaf tree, doc_id == value == i. DESC, k=2, and the child matches the
+    // highest- and lowest-valued docs, which fall in different value-windows. The
+    // high match (doc 20) is collected in the first window; it must survive the
+    // expansion that reaches the low match (doc 1), so the heap accumulates
+    // across windows rather than restarting on each retry.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+
+    let mut filter = full_range();
+    filter.limit = 1;
+    let source = NumericScoreSource::filtered(&tree, filter, false, 1, 20, 2);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(vec![1u64, 20u64]),
+        NonZeroUsize::new(2).unwrap(),
+    );
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(20, 20.0), (1, 1.0)]);
+}
+
+#[test]
+fn filtered_rewind_after_expansion_repeats_results() {
+    // Driving to completion forces at least one window expansion; an outer rewind
+    // must reset to the initial window and reproduce the same results.
+    let tree = build_tree(20, false, 0);
+    let child = vec![1u64, 20u64];
+
+    let mut filter = full_range();
+    filter.limit = 1;
+    let source = NumericScoreSource::filtered(&tree, filter, false, 1, 20, 2);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(child),
+        NonZeroUsize::new(2).unwrap(),
+    );
+
+    let mut first = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        first.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+
+    it.rewind();
+
+    let mut second = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        second.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+
+    assert_eq!(first, second);
+    assert_eq!(first, vec![(20, 20.0), (1, 1.0)]);
+}

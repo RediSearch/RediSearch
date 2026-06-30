@@ -538,20 +538,23 @@ fn strategy_switch_to_adhoc() {
 }
 
 #[test]
-fn strategy_switch_to_batches_rewinds() {
-    // Call 0 → SwitchToBatches (rewinds source+child, restarts loop).
-    // Call 1 → Stop (to exit on the second pass).
+fn strategy_expand_window_preserves_heap() {
+    // Two disjoint windows; the match from the first window (doc 1) must survive
+    // into the result after the second window is collected. A cleared heap would
+    // drop it and yield only [2].
+    // Call 0 → ExpandWindow (advance to the next window, keep the heap).
+    // Call 1 → Stop.
     let call_count = std::cell::Cell::new(0u32);
     let strategy = move |_: usize, _: usize| {
         let n = call_count.get();
         call_count.set(n + 1);
         if n == 0 {
-            BatchStrategy::SwitchToBatches
+            BatchStrategy::ExpandWindow
         } else {
             BatchStrategy::Stop
         }
     };
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], strategy);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)], vec![(2, 2.0)]], vec![], strategy);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2]),

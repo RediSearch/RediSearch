@@ -55,10 +55,13 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// With a filter child, the initial window may be too small to fill the heap.
 /// When a window is drained with `heap_count < k`,
-/// [`batch_strategy`](ScoreSource::batch_strategy) expands the window
-/// (`offset`/`limit`) and returns [`BatchStrategy::SwitchToBatches`] so the
-/// surrounding iterator re-collects against the larger window. The unfiltered
-/// path reads an unbounded window and never retries.
+/// [`batch_strategy`](ScoreSource::batch_strategy) advances `offset`/`limit` to
+/// the next disjoint window and returns [`BatchStrategy::ExpandWindow`]. The
+/// windows are disjoint in value space, so the heap keeps accumulating the
+/// global top `k` across them. The unfiltered path reads an unbounded window and
+/// never retries.
+///
+/// [`BatchStrategy::ExpandWindow`]: top_k::BatchStrategy::ExpandWindow
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
 ///
@@ -73,6 +76,9 @@ pub struct NumericScoreSource<'index> {
     /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
     /// window is mutated in place by the retry expansion.
     filter: NumericFilter,
+    /// Initial `offset`/`limit` of `filter`, restored by [`rewind`](ScoreSource::rewind).
+    initial_offset: usize,
+    initial_limit: usize,
     /// Sort direction (`SORTBY field ASC`/`DESC`), also written into `filter`.
     ascending: bool,
     /// Number of value-ordered ranges materialized per batch. Always `>= 1`.
@@ -159,6 +165,8 @@ impl<'index> NumericScoreSource<'index> {
         Self {
             ranges,
             last_limit_estimate: filter.limit,
+            initial_offset: filter.offset,
+            initial_limit: filter.limit,
             filter,
             ascending,
             range_batch_size: range_batch_size.max(1),
@@ -187,11 +195,15 @@ impl<'index> NumericScoreSource<'index> {
         collected as f64 / self.last_limit_estimate as f64
     }
 
-    /// Advance the filter window past the drained one and size the next.
+    /// Advance the window past the drained one, size the next, and re-resolve
+    /// the range stream onto it.
     ///
-    /// Returns `true` if the window was expanded (so the caller should
-    /// `SwitchToBatches`), `false` if no expansion is possible (already
-    /// unbounded, out of retries, or retry disabled).
+    /// Returns `true` if a new (disjoint) window was resolved, so the caller can
+    /// return [`BatchStrategy::ExpandWindow`]; `false` if no expansion is
+    /// possible (already unbounded, out of retries, or retry disabled), leaving
+    /// the window untouched.
+    ///
+    /// [`BatchStrategy::ExpandWindow`]: top_k::BatchStrategy::ExpandWindow
     fn expand_window(&mut self, heap_count: usize, k: usize) -> bool {
         if !self.retry_enabled || self.num_iterations >= MAX_ITERATIONS {
             return false;
@@ -218,6 +230,7 @@ impl<'index> NumericScoreSource<'index> {
 
         self.num_iterations += 1;
         self.heap_old_size = heap_count;
+        self.ranges.refind(&self.filter);
         true
     }
 }
@@ -230,8 +243,9 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
-        // Adhoc-BF is not used by the numeric path.
-        None
+        // The numeric path never returns `SwitchToAdhoc`, so Adhoc-BF is never
+        // entered and this is unreachable.
+        unimplemented!("numeric top-k does not use Adhoc-BF")
     }
 
     fn num_estimated(&self) -> usize {
@@ -239,9 +253,14 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
     }
 
     fn rewind(&mut self) {
-        // Re-resolve whatever window the filter currently holds: the original
-        // one for an outer rewind, or the expanded one set by `expand_window`
-        // just before a `SwitchToBatches`.
+        // Full reset to the initial window. The expand-and-retry path resolves
+        // its own windows inside `expand_window`, so this is only reached for an
+        // outer rewind that restarts the whole query.
+        self.filter.offset = self.initial_offset;
+        self.filter.limit = self.initial_limit;
+        self.last_limit_estimate = self.initial_limit;
+        self.num_iterations = 0;
+        self.heap_old_size = 0;
         self.ranges.refind(&self.filter);
     }
 
@@ -262,10 +281,11 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
         if !self.ranges.is_exhausted() {
             return BatchStrategy::Continue;
         }
-        // Window drained with the heap still short of k: expand and retry if we
-        // can, otherwise `Continue` so `next_batch` reports EOF and finalizes.
+        // Window drained with the heap still short of k: advance to the next
+        // disjoint window if we can, otherwise `Continue` so `next_batch`
+        // reports EOF and finalizes.
         if self.expand_window(heap_count, k) {
-            BatchStrategy::SwitchToBatches
+            BatchStrategy::ExpandWindow
         } else {
             BatchStrategy::Continue
         }
