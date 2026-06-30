@@ -25,8 +25,8 @@ use super::*;
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
-///    [`TermSuffixIndex_New`], and must not be mutated concurrently with
-///    this call.
+///    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+///    read-only) running concurrently.
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` must not modify or free `tsi`, nor retain the term
 ///    pointer beyond the call.
@@ -78,8 +78,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
-///    [`TermSuffixIndex_New`], and must not be mutated concurrently with
-///    this call.
+///    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+///    read-only) running concurrently.
 /// 2. `needle` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` must not modify or free `tsi`, nor retain the term
 ///    pointer beyond the call.
@@ -135,8 +135,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// # Safety
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
-///    [`TermSuffixIndex_New`], and must not be mutated concurrently with
-///    this call.
+///    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
+///    read-only) running concurrently.
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` must not modify or free `tsi`, nor retain the term
 ///    pointer beyond the call.

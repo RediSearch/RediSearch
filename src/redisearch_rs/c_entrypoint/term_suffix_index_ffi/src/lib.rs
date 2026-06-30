@@ -11,6 +11,12 @@
 //!
 //! All string parameters are byte pointers with an explicit length and
 //! must be valid UTF-8. Passing invalid UTF-8 panics.
+//!
+//! The index is **not** thread-safe and requires exclusive access: no two
+//! calls may run concurrently on the same index — including two read-only
+//! calls — and while an iterator is alive no other call on the index it
+//! came from may run. (Read-only calls race too: wildcard iteration clones
+//! the index's non-atomic reference-counted term handles.)
 
 mod index;
 mod iter_callback;
