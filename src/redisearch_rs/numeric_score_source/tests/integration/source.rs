@@ -10,8 +10,9 @@
 //! Tests for [`NumericScoreSource`], driven by a `MetricSortedById`
 //! source (a pure-Rust numeric-valued iterator).
 
-use std::num::NonZeroUsize;
+use std::{iter, num::NonZeroUsize};
 
+use itertools::Itertools;
 use numeric_score_source::{NumericScoreSource, new_numeric_top_k_unfiltered};
 use rqe_core::DocId;
 use rqe_iterators::RQEIterator;
@@ -27,18 +28,17 @@ fn source(pairs: &[(DocId, f64)]) -> NumericScoreSource<'static, MetricSortedByI
 
 /// Drain a batch into a `Vec`.
 fn drain<B: ScoreBatch>(mut batch: B) -> Vec<(DocId, f64)> {
-    let mut got = Vec::new();
-    while let Some(pair) = batch.next() {
-        got.push(pair);
-    }
-    got
+    iter::from_fn(|| batch.next()).collect()
 }
 
 #[test]
 fn next_batch_yields_every_record_in_doc_id_order() {
     let mut src = source(&[(1, 3.0), (2, 1.0), (3, 2.0)]);
-    let batch = src.next_batch().unwrap().expect("a batch");
-    assert_eq!(drain(batch), vec![(1, 3.0), (2, 1.0), (3, 2.0)]);
+    let mut batch = src.next_batch().unwrap().expect("a batch");
+    assert_eq!(
+        iter::from_fn(|| batch.next()).collect_vec(),
+        vec![(1, 3.0), (2, 1.0), (3, 2.0)]
+    );
 }
 
 #[test]
@@ -55,8 +55,11 @@ fn source_emits_one_batch_then_rewinds() {
     assert!(src.next_batch().unwrap().is_none());
 
     src.rewind();
-    let batch = src.next_batch().unwrap().expect("a batch after rewind");
-    assert_eq!(drain(batch), vec![(1, 1.0), (2, 2.0)]);
+    let mut batch = src.next_batch().unwrap().expect("a batch after rewind");
+    assert_eq!(
+        iter::from_fn(|| batch.next()).collect_vec(),
+        vec![(1, 1.0), (2, 2.0)]
+    );
 }
 
 /// Drive an unfiltered top-k iterator to exhaustion, collecting the yielded
