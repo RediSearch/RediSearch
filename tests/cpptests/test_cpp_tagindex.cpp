@@ -338,3 +338,25 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     TagIndex_FreePreprocessedData(fdata.tags);
   }
 }
+
+TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
+  MockQueryEvalCtx mockQctx(1, 1);
+
+  // NULL index -> NULL reader
+  {
+    ASSERT_TRUE(
+        TagIndex_OpenReader(NULL, &mockQctx.sctx, "x", 1, 1, RS_INVALID_FIELD_INDEX, NULL) == NULL);
+  }
+
+  // Absent tag -> NULL reader
+  {
+    TagIndex *idx = NewTagIndex(NULL, 0);
+    const char *v[] = {"hello"};
+    IndexStats stats = {0};
+    TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
+
+    ASSERT_TRUE(TagIndex_OpenReader(idx, &mockQctx.sctx, "missing", 7, 1, RS_INVALID_FIELD_INDEX,
+                                    NULL) == NULL);
+    TagIndex_Free(idx);
+  }
+}
