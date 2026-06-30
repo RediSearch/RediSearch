@@ -789,6 +789,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+    bool shardTimedOutWarning = false;
 
     const struct timespec *deadline =
         (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
@@ -797,11 +798,17 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
+                                     oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
+                                     &shardTimedOutWarning, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    if (shardTimedOutWarning) {
+        hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
     }
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
@@ -1080,6 +1087,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
 
 #ifdef ENABLE_ASSERT
@@ -1178,6 +1189,10 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
     scheduleHybridTail(hreq, strong_ref, cmdCtx, &status);
     CurrentThread_ClearIndexSpec();
@@ -1258,6 +1273,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
