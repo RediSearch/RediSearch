@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   labeler:
-    uses: redislabsdev/redisearch-ci-common/.github/workflows/pr-size-label.yml@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/pr-size-label.yml@v1

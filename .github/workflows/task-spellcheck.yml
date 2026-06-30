@@ -9,4 +9,4 @@ on: [workflow_call]
 
 jobs:
   spellcheck:
-    uses: redislabsdev/redisearch-ci-common/.github/workflows/spellcheck.yml@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/spellcheck.yml@v1

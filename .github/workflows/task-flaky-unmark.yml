@@ -20,11 +20,11 @@ on:
 
 jobs:
   unmark:
-    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-unmark.yml@5d3485c26571f609cec76dad6ad0b27bd1b1d0d7 # v1.0.1
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-unmark.yml@v1
     with:
       branch: ${{ inputs.branch }}
       test_id: ${{ inputs.test_id }}
       reason: ${{ inputs.reason }}
-      ci-common-ref: 5d3485c26571f609cec76dad6ad0b27bd1b1d0d7
+      ci-common-ref: v1
     secrets:
       redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
