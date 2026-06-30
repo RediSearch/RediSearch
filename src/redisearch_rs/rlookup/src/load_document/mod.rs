@@ -9,6 +9,10 @@
 
 #![allow(dead_code, reason = "used by later PRs")]
 
+mod hash;
+
+pub use hash::HashDocumentFormat;
+
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::ptr;
@@ -36,16 +40,29 @@ pub enum LoadFieldError {
     #[error("document key does not exist")]
     KeyNotFound,
 
-    /// Key exists but is not a hash.
+    /// Key exists but is of the wrong type.
     #[error("document key has the wrong type")]
-    WrongHashKeyType,
+    WrongKeyType,
+
+    /// Failed to open the underlying redis key.
+    #[error("Redis API error: {0}")]
+    Redis(redis_module::RedisError),
+}
+
+// TODO remove once upstream redis_module::RedisError implements std::error::Error
+// <https://github.com/RedisLabsModules/redismodule-rs/pull/467>
+impl From<redis_module::RedisError> for LoadFieldError {
+    fn from(err: redis_module::RedisError) -> Self {
+        Self::Redis(err)
+    }
 }
 
 impl LoadFieldError {
     pub const fn to_query_error_code(&self) -> QueryErrorCode {
         match self {
             Self::KeyNotFound => QueryErrorCode::NoDoc,
-            Self::WrongHashKeyType => QueryErrorCode::RedisKeyType,
+            Self::WrongKeyType => QueryErrorCode::RedisKeyType,
+            Self::Redis(_) => QueryErrorCode::Generic,
         }
     }
 }
@@ -54,7 +71,7 @@ impl LoadFieldError {
 pub enum LoadAllError {
     /// `RedisModule_OpenKey` / `japi->openKeyWithFlags` returned NULL.
     #[error("document key is missing or has the wrong type")]
-    KeyNotFound,
+    OpenKeyFailed,
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
@@ -70,16 +87,15 @@ pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
 ///
 /// This abstracts away the details of hash vs json documents.
 pub trait DocumentFormat {
-    /// A handle to a single opened document.
-    type Document<'key>: OpenDocument
+    type FieldLoader<'key>: FieldLoader
     where
         Self: 'key;
 
-    /// Open a specific document for per-field loading.
+    /// Open a specific key for per-field loading.
     fn open<'key>(
         &'key self,
         key_name: &'key RedisString,
-    ) -> Result<Self::Document<'key>, LoadFieldError>;
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
 
     /// Bulk-load all fields at once (HGETALL / JSON root scan).
     ///
@@ -94,8 +110,8 @@ pub trait DocumentFormat {
     ) -> Result<(), LoadAllError>;
 }
 
-/// Handle to an opened document. Load individual fields from it.
-pub trait OpenDocument {
+/// A type that knows how to load individual fields from an open document.
+pub trait FieldLoader {
     fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError>;
 }
 

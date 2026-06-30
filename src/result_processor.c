@@ -1240,7 +1240,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
   // before the Redis lock, so a timeout callback observes it and preempts.
-  SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+  SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
   // Then, lock Redis to guarantee safe access to Redis keyspace
