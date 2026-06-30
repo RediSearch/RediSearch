@@ -39,6 +39,7 @@ members = [
     "sorting_vector",
     "spellcheck_dictionary",
     "string_utils",
+    "tag_index",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",

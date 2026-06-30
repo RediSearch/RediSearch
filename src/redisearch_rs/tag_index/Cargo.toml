@@ -1,0 +1,20 @@
+[package]
+name = "tag_index"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ffi.workspace = true
+index_result.workspace = true
+inverted_index.workspace = true
+thin_vec.workspace = true
+trie_rs.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }

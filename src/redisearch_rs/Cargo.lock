@@ -2883,6 +2883,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tag_index"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "inverted_index",
+ "proptest",
+ "thin_vec",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
