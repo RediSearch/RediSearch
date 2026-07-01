@@ -104,6 +104,10 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   bool printProfileClock;
+  // Experimental: release the spec read lock per result during query iteration
+  // (lock-free-read snapshot path). Off by default; for benchmarking the COW
+  // snapshot work. See docs/design/snapshot-cow-benchmark-plan.md.
+  bool lockFreeReads;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy
@@ -418,6 +422,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
+    .requestConfigParams.lockFreeReads = false,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \
