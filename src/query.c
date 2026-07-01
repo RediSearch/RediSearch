@@ -937,38 +937,6 @@ static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
                               TRIE_MATCH_EDIT_DISTANCE, &qn->opts);
 }
 
-static QueryIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
-  QueryPhraseNode *node = &qn->pn;
-  // an intersect stage with one child is the same as the child, so we just
-  // return it
-  if (QueryNode_NumChildren(qn) == 1) {
-    qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
-    return Query_EvalNode_Rs(q, qn->children[0]);
-  }
-
-  // recursively eval the children
-  QueryIterator **iters = rm_calloc(QueryNode_NumChildren(qn), sizeof(QueryIterator *));
-  for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-    qn->children[ii]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[ii] = Query_EvalNode_Rs(q, qn->children[ii]);
-  }
-  QueryIterator *ret;
-
-  if (node->exact) {
-    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), 0, true, qn->opts.weight);
-  } else {
-    // Let the query node override the slop/order parameters
-    int slop = qn->opts.maxSlop;
-    if (slop == -1) slop = q->opts->slop;
-
-    // Let the query node override the inorder of the whole query
-    bool inOrder = (q->opts->flags & Search_InOrder) || qn->opts.inOrder;
-
-    ret = NewIntersectionIterator(iters, QueryNode_NumChildren(qn), slop, inOrder, qn->opts.weight);
-  }
-  return ret;
-}
-
 // Probe the Blocked Client Timeout flag for a query iterator. Called from
 // Rust via a direct `extern "C"` declaration when a NOT iterator is wired
 // to an AREQ; the sync point makes the check deterministically pauseable
@@ -1456,12 +1424,11 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_MISSING:
     case QN_OPTIONAL:
     case QN_NOT:
+    case QN_PHRASE:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
-    case QN_PHRASE:
-      return Query_EvalPhraseNode(q, n);
     case QN_UNION:
       return Query_EvalUnionNode(q, n);
     case QN_TAG:
