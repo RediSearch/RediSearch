@@ -20,6 +20,7 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+hidden_string.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
 nix.workspace = true
@@ -33,7 +34,6 @@ workspace_hack.workspace = true
 [dev-dependencies]
 dict.workspace = true
 ffi.workspace = true
-hidden_string.workspace = true
 index_result.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
 rqe_core = { workspace = true }

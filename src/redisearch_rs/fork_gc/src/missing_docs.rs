@@ -15,6 +15,7 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
+use crate::util::with_hidden_string_ref;
 use crate::{ForkGC, Frame};
 
 /// Successful outcome of [`handle_missing_docs`].
@@ -121,27 +122,29 @@ pub fn apply_missing_docs(
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<ApplyInfo, HandleError> {
-    let Some(ii) = guard.missing_field_mut(field_name) else {
-        return Err(HandleError::FieldNotFound);
-    };
+    with_hidden_string_ref(field_name, |key| {
+        let Some(ii) = guard.missing_field_dict_mut().fetch_mut(key) else {
+            return Err(HandleError::FieldNotFound);
+        };
 
-    let gc_info = ii.apply_gc(delta);
+        let gc_info = ii.apply_gc(delta);
 
-    let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
-        let extra = ii.memory_usage();
-        let remaining_blocks = ii.number_of_blocks();
-        guard.remove_missing_field(field_name);
-        (extra, remaining_blocks)
-    } else {
-        (0, 0)
-    };
+        let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
+            let extra = ii.memory_usage();
+            let remaining_blocks = ii.number_of_blocks();
+            guard.missing_field_dict_mut().remove(key);
+            (extra, remaining_blocks)
+        } else {
+            (0, 0)
+        };
 
-    Ok(ApplyInfo {
-        added_block_count: gc_info.block_count_delta - remaining_blocks as i64,
-        bytes_freed: gc_info.bytes_freed + extra,
-        bytes_allocated: gc_info.bytes_allocated,
-        entries_removed: gc_info.entries_removed,
-        ignored_last_block: gc_info.ignored_last_block,
+        Ok(ApplyInfo {
+            added_block_count: gc_info.block_count_delta - remaining_blocks as i64,
+            bytes_freed: gc_info.bytes_freed + extra,
+            bytes_allocated: gc_info.bytes_allocated,
+            entries_removed: gc_info.entries_removed,
+            ignored_last_block: gc_info.ignored_last_block,
+        })
     })
 }
 

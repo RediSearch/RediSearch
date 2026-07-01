@@ -15,8 +15,8 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     Frame,
     missing_docs::{HandleError, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+    util::with_hidden_string_ref,
 };
-use hidden_string::HiddenStringRef;
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
@@ -32,19 +32,13 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 ///
 /// `MissingFieldDictType` uses `missingFieldDictType`, which copies the key via
 /// `keyDup` and owns the value via `valDestructor` (→ `InvertedIndex_Free`).
-/// The temporary `HiddenString` key is freed immediately after insertion;
-/// ownership of `ii` is transferred to the dict.
+/// Ownership of `ii` is transferred to the dict.
 fn add_entry(
     dict: &mut OwnedDict<MissingFieldDictType>,
     field_name: &[u8],
     ii: Box<OpaqueInvertedIndex>,
 ) {
-    // SAFETY: NewHiddenString copies `field_name`; the dict's keyDup copies
-    // the HiddenString itself, so we free the original immediately after insert.
-    let hs = unsafe { ffi::NewHiddenString(field_name.as_ptr().cast(), field_name.len(), false) };
-    let hs_ref = unsafe { HiddenStringRef::from_raw(hs) };
-    dict.try_insert(hs_ref, ii).unwrap();
-    unsafe { ffi::HiddenString_Free(hs, false) };
+    with_hidden_string_ref(field_name, |key| dict.try_insert(key, ii).unwrap());
 }
 
 fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
@@ -256,7 +250,12 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     let info = apply_missing_docs(&field_name, delta, &mut *write_guard).unwrap();
 
-    assert!(write_guard.missing_field_mut(b"age").is_none());
+    assert!(
+        with_hidden_string_ref(b"age", |key| write_guard
+            .missing_field_dict_mut()
+            .fetch_mut(key))
+        .is_none()
+    );
     assert!(info.bytes_freed > 0);
     assert!(info.entries_removed > 0);
 
