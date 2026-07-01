@@ -126,10 +126,10 @@ fn assert_expanded_matches(actual: &SharedValue, expected: &serde_json::Value) {
             };
             assert_eq!(m.len(), map.len());
             for (k, v) in map {
-                let got = m
+                let item = m
                     .get(k.as_bytes())
                     .unwrap_or_else(|| panic!("expanded Map missing key {k:?}"));
-                assert_expanded_matches(got, v);
+                assert_expanded_matches(item, v);
             }
         }
         serde_json::Value::Array(arr) => {
@@ -145,7 +145,7 @@ fn assert_expanded_matches(actual: &SharedValue, expected: &serde_json::Value) {
     }
 }
 
-/// JSON scalars. Integers stay within `i64` (RedisJSON's `getInt`); floats finite.
+/// JSON scalars.
 fn arb_json_scalar() -> impl Strategy<Value = serde_json::Value> {
     prop_oneof![
         Just(serde_json::Value::Null),
@@ -154,12 +154,11 @@ fn arb_json_scalar() -> impl Strategy<Value = serde_json::Value> {
         any::<f64>()
             .prop_filter("finite", |f| f.is_finite())
             .prop_map(|f| json!(f)),
-        "[ -~]{0,16}".prop_map(serde_json::Value::String),
+        any::<String>().prop_map(serde_json::Value::String)
     ]
 }
 
-/// Recursive JSON values. Object keys come from a `HashMap`, so uniqueness is
-/// baked into the strategy rather than filtered at runtime.
+/// Recursive JSON values.
 fn arb_json_value() -> impl Strategy<Value = serde_json::Value> {
     arb_json_scalar().prop_recursive(3, 32, 5, |inner| {
         prop_oneof![
@@ -267,7 +266,7 @@ proptest! {
         let serialized = serde_json::to_string(&json!([scalar])).unwrap();
         assert_eq!(trio.middle().as_str_bytes(), Some(serialized.as_bytes()));
         // .2 — expanded array over the matches (a single scalar here).
-        let Value::Array(expanded) = &**trio.right() else { panic!("Trio.2 must be an Array") };
+        let Value::Array(expanded) = &**trio.right() else { panic!("trio.right must be an Array") };
         assert_eq!(expanded.len(), 1);
         assert_value_matches(&expanded[0], &scalar);
     }
@@ -307,7 +306,7 @@ proptest! {
         let val = load_field_value(json!({ "x": value.clone() }), MULTI, c"$.x")
             .expect("value should be loaded");
         let Value::Trio(trio) = &*val else { panic!("expected Trio") };
-        let Value::Array(expanded) = &**trio.right() else { panic!("Trio.2 must be an Array") };
+        let Value::Array(expanded) = &**trio.right() else { panic!("trio.right must be an Array") };
         assert_eq!(expanded.len(), 1);
         assert_expanded_matches(&expanded[0], &value);
     }

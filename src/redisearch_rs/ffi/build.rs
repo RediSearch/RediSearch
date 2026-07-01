@@ -356,13 +356,13 @@ const HEADERS: &[HeaderAllowlist] = &[
             "SearchTime_IsTimedOut",
         ],
         types: &[],
-        vars: &[],
+        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
     HeaderAllowlist {
         path: "src/search_disk.h",
         fns: &["SearchDisk_GetMaxDocId"],
         types: &[],
-        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
+        vars: &[],
     },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
