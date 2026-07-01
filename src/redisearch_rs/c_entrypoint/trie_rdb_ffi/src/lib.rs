@@ -11,18 +11,19 @@
 //!
 //! Bridges the pure-Rust framing in [`trie_rdb`] to Redis' RDB IO
 //! primitives (`RedisModule_SaveUnsigned`, `RedisModule_LoadStringBuffer`,
-//! and friends), exposed through the higher-level wrappers in
-//! [`redis_module::raw`].
+//! and friends), driven through the ergonomic [`redis_module::RedisModuleIO`]
+//! wrapper and its `read_*` / `write_*` methods.
 //!
 //! [`trie_rdb`] models save/load as the [`RdbWrite`]/[`RdbRead`] traits;
-//! this crate supplies impls backed by a `*mut RedisModuleIO`. The
-//! `extern "C"` entry points below let C callers drive the round-trip
-//! without touching the Rust generics.
+//! this crate supplies impls backed by a [`redis_module::RedisModuleIO`]
+//! wrapping the caller's `*mut RedisModuleIO`. The `extern "C"` entry
+//! points below let C callers drive the round-trip without touching the
+//! Rust generics.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
 use ffi::RedisModuleIO;
-use redis_module::raw;
+use redis_module::{RedisModuleIO as RmIo, raw};
 use trie_rdb::TrieEntry;
 use trie_rdb::str as str_rdb;
 use trie_rdb::{RdbError, RdbOpts, RdbRead, RdbWrite};
@@ -37,52 +38,53 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// [`LexTrieRs_New`] or [`LexTrieRs_RdbLoad`]; free via [`LexTrieRs_Free`].
 pub struct LexTrieRs(pub StrTrieMap<TrieEntry>);
 
-/// [`RdbWrite`] backed by a raw `RedisModuleIO*`.
+/// [`RdbWrite`] backed by a [`RmIo`] wrapping the caller's `RedisModuleIO*`.
 ///
-/// The pointer is captured at construction and never stored anywhere else.
-/// Validity is the caller's responsibility (see the `Safety` blocks on the
-/// `extern "C"` entry points below). NUL framing and the scratch buffer
-/// that amortizes its allocation are owned by [`trie_rdb::byte::save`]; this
-/// impl just forwards each slice straight to `RedisModule_SaveStringBuffer`.
+/// The wrapper holds the raw pointer captured at construction and never
+/// stores it anywhere else. Validity is the caller's responsibility (see the
+/// `Safety` blocks on the `extern "C"` entry points below). NUL framing and
+/// the scratch buffer that amortizes its allocation are owned by
+/// [`trie_rdb::byte::save`]; this impl just forwards each slice straight to
+/// `RedisModule_SaveStringBuffer` via [`RmIo::write_slice`].
 struct RmIoWriter {
-    io: *mut raw::RedisModuleIO,
+    io: RmIo,
 }
 
 impl RdbWrite for RmIoWriter {
     fn save_u64(&mut self, v: u64) {
-        raw::save_unsigned(self.io, v);
+        self.io.write_unsigned(v);
     }
 
     fn save_f64(&mut self, v: f64) {
-        raw::save_double(self.io, v);
+        self.io.write_double(v);
     }
 
     fn save_bytes(&mut self, b: &[u8]) {
-        raw::save_slice(self.io, b);
+        self.io.write_slice(b);
     }
 }
 
-/// [`RdbRead`] backed by a raw `RedisModuleIO*`.
+/// [`RdbRead`] backed by a [`RmIo`] wrapping the caller's `RedisModuleIO*`.
 ///
-/// The wrapped `redis_module::raw::load_*` calls already poll
-/// `RedisModule_IsIOError` after each underlying `RedisModule_Load*` and
-/// surface failures as `Err(short_read)`, so we do not need a separate
-/// `IsIOError` check.
+/// The wrapped `read_*` methods already poll `RedisModule_IsIOError` after
+/// each underlying `RedisModule_Load*` and surface failures as `Err`, so we
+/// do not need a separate `IsIOError` check.
 struct RmIoReader {
-    io: *mut raw::RedisModuleIO,
+    io: RmIo,
 }
 
 impl RdbRead for RmIoReader {
     fn load_u64(&mut self) -> Result<u64, RdbError> {
-        raw::load_unsigned(self.io).map_err(|_| RdbError::Io)
+        self.io.read_unsigned().map_err(|_| RdbError::Io)
     }
 
     fn load_f64(&mut self) -> Result<f64, RdbError> {
-        raw::load_double(self.io).map_err(|_| RdbError::Io)
+        self.io.read_double().map_err(|_| RdbError::Io)
     }
 
     fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
-        raw::load_string_buffer(self.io)
+        self.io
+            .read_string_buffer()
             .map(|buf| buf.as_ref().to_vec())
             .map_err(|_| RdbError::Io)
     }
@@ -143,7 +145,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbSave(
     // and that no aliasing mutable references exist for the call.
     let map = unsafe { &*map };
     let mut w = RmIoWriter {
-        io: io.cast::<raw::RedisModuleIO>(),
+        io: RmIo::new(io.cast::<raw::RedisModuleIO>()),
     };
     let opts = RdbOpts {
         payloads: save_payloads,
@@ -175,7 +177,7 @@ pub unsafe extern "C" fn LexTrieRs_RdbLoad(
     debug_assert!(!io.is_null(), "io cannot be NULL");
 
     let mut r = RmIoReader {
-        io: io.cast::<raw::RedisModuleIO>(),
+        io: RmIo::new(io.cast::<raw::RedisModuleIO>()),
     };
     let opts = RdbOpts {
         payloads: load_payloads,
