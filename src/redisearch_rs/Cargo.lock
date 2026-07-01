@@ -1167,6 +1167,8 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
+ "vector_score_source",
  "workspace_hack",
 ]
 

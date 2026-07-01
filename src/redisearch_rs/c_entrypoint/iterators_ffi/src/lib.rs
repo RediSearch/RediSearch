@@ -18,4 +18,5 @@ pub mod optional;
 pub mod profile;
 mod profile_print;
 pub mod union;
+pub mod vector_top_k;
 pub mod wildcard;
