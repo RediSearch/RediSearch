@@ -115,7 +115,7 @@ pub unsafe extern "C" fn QAST_Iterate(
         docTable: unsafe { &raw mut (*spec).docs },
         reqFlags: reqflags,
         config: &raw mut qast.config,
-        notSubtree: false,
+        inNotSubTree: false,
         bcTimeoutAreq: bc_timeout_areq,
     };
 
