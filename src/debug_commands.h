@@ -162,6 +162,11 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// Like SyncPoint_Arm, but a parked SyncPoint_Wait self-releases after
+// `auto_release_ms` even without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm).
+// For tests where the thread that would SIGNAL is itself blocked waiting on the
+// parked work (e.g. disable_compactions() during FT.DROPINDEX).
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
