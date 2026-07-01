@@ -2888,7 +2888,9 @@ version = "0.0.1"
 dependencies = [
  "redis-module",
  "redis_mock",
+ "redisearch_rs",
  "term_suffix_index",
+ "term_suffix_index_ffi",
  "workspace_hack",
 ]
 

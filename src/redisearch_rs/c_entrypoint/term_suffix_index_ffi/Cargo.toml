@@ -8,11 +8,17 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+unittest = []
+
 [dependencies]
 term_suffix_index = { workspace = true }
 workspace_hack.workspace = true
 
 [dev-dependencies]
+# Crate required to invoke C symbols
+term_suffix_index_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../redisearch_rs" }
 redis_mock.workspace = true
 
 [target.'cfg(miri)'.dependencies]
