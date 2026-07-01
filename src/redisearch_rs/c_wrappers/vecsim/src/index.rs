@@ -103,71 +103,25 @@ fn expected_blob_len(ptr: NonNull<VecSimIndex>) -> usize {
     info.dim * bytes_per_elem
 }
 
-/// Query blob the guard hands to per-id distance lookups.
-enum AdhocQuery {
+/// Query blob for per-id distance lookups.
+enum PreparedAdhocQueryBlob {
     /// Cosine: a freshly normalized copy owned by the guard.
     Normalized(Vec<u8>),
     /// Non-cosine: aliases the caller's blob with no copy, valid for the guard's
     /// lifetime per `acquire_shared_locks`' safety contract.
-    Borrowed { ptr: NonNull<u8> },
+    Borrowed(NonNull<u8>),
 }
 
-impl AdhocQuery {
+impl PreparedAdhocQueryBlob {
     /// Pointer to the query blob, valid for the bytes VecSim reads on a distance
     /// lookup. For [`Borrowed`](Self::Borrowed) this is the caller's blob, valid
     /// per the `acquire_shared_locks` safety contract.
     const fn ptr(&self) -> *const c_void {
         match self {
-            AdhocQuery::Normalized(blob) => blob.as_ptr().cast::<c_void>(),
-            AdhocQuery::Borrowed { ptr } => ptr.as_ptr().cast_const().cast::<c_void>(),
+            PreparedAdhocQueryBlob::Normalized(blob) => blob.as_ptr().cast::<c_void>(),
+            PreparedAdhocQueryBlob::Borrowed(ptr) => ptr.as_ptr().cast_const().cast::<c_void>(),
         }
     }
-}
-
-/// Returns a query blob ready for direct distance lookups against this index.
-///
-/// Cosine indexes require normalized queries, so cosine inputs are normalized
-/// into an owned [`Normalized`](AdhocQuery::Normalized) copy (see
-/// [`VecSim_Normalize`]); all other metrics borrow `query_vector` unchanged as
-/// [`Borrowed`](AdhocQuery::Borrowed), copying nothing.
-///
-/// # Safety
-///
-/// The non-cosine [`Borrowed`](AdhocQuery::Borrowed) result aliases
-/// `query_vector` by raw pointer. For as long as the returned [`AdhocQuery`] is
-/// used, that blob must:
-///
-/// 1. stay allocated — VecSim reads it on every distance lookup;
-/// 2. keep a stable address — the stored pointer is never refreshed, so moving
-///    the buffer (e.g. a reallocation) would dangle it;
-/// 3. stay unmodified — lookups must observe the original query bytes.
-///
-/// The cosine [`Normalized`](AdhocQuery::Normalized) result owns its copy and
-/// imposes none of these.
-unsafe fn prepare_query(ptr: NonNull<VecSimIndex>, query_vector: &[u8]) -> AdhocQuery {
-    // SAFETY: `ptr` is a valid VecSimIndex for at least as long as the caller's borrow.
-    let info = unsafe { VecSimIndex_BasicInfo(ptr.as_ptr()) };
-    if info.metric != VecSimMetric_VecSimMetric_Cosine {
-        // No copy: alias the caller's blob. `NonNull::dangling` is only reached
-        // for an empty blob (len 0), which is never dereferenced.
-        let ptr = NonNull::new(query_vector.as_ptr().cast_mut()).unwrap_or(NonNull::dangling());
-        return AdhocQuery::Borrowed { ptr };
-    }
-
-    // SAFETY: reads only immutable index metadata.
-    let blob_len = unsafe { VecSimParams_GetQueryBlobSize(info.type_, info.dim, info.metric) };
-    // The normalized blob is at least as large as the input; the extra tail (if
-    // any) is the appended norm slot, left zeroed for `VecSim_Normalize` to fill.
-    debug_assert!(blob_len >= query_vector.len());
-    let mut blob = vec![0u8; blob_len];
-    blob[..query_vector.len()].copy_from_slice(query_vector);
-    // SAFETY:
-    // 1. `blob` is `blob_len` bytes, the size VecSim requires for a normalized
-    //    query of this `dim`/`type`, so the in-place normalization (and any
-    //    appended norm) stays in bounds.
-    // 2. `info.dim` and `info.type_` come from this index's own metadata.
-    unsafe { VecSim_Normalize(blob.as_mut_ptr().cast::<c_void>(), info.dim, info.type_) };
-    AdhocQuery::Normalized(blob)
 }
 
 impl<'index> IndexRef<'index> {
@@ -292,14 +246,13 @@ impl<'index> IndexRef<'index> {
     /// VecSim only takes real locks for tiered indexes; on any other index the
     /// underlying `VecSimTieredIndex_AcquireSharedLocks` is a no-op.
     ///
-    /// The query is normalized for cosine indexes (see [`prepare_query`]), so
-    /// the caller passes a plain query just like for
-    /// [`top_k_query`](Self::top_k_query).
+    /// The query is normalized for cosine indexes, so the caller passes a plain
+    /// query just like for [`top_k_query`](Self::top_k_query).
     ///
     /// # Safety
     ///
     /// Only non-cosine indexes rely on this — they borrow the blob without
-    /// copying (see [`AdhocQuery::Borrowed`]); cosine indexes own a normalized
+    /// copying (see [`PreparedAdhocQueryBlob::Borrowed`]); cosine indexes own a normalized
     /// copy and are unaffected. For a non-cosine index, `query_vector`'s blob
     /// must uphold [`prepare_query`]'s conditions for the entire lifetime of the
     /// returned [`SharedLockGuard`]:
@@ -314,7 +267,7 @@ impl<'index> IndexRef<'index> {
         // SAFETY: the caller upholds conditions (1)–(3) on `query_vector` for
         // the guard's lifetime, which is exactly what `prepare_query`'s
         // `Borrowed` result requires.
-        let query = unsafe { prepare_query(self.inner, query_vector.as_bytes()) };
+        let query = unsafe { self.prepare_query(query_vector) };
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimTieredIndex_AcquireSharedLocks(self.inner.as_ptr()) };
         SharedLockGuard {
@@ -345,6 +298,54 @@ impl<'index> IndexRef<'index> {
         // holds.
         Some(unsafe { AdhocBfCtx::from_raw(ptr) })
     }
+
+    /// Returns a query blob ready for direct distance lookups against this index.
+    ///
+    /// Cosine indexes require normalized queries, so cosine inputs are normalized
+    /// into an owned [`Normalized`](PreparedAdhocQueryBlob::Normalized) copy (see
+    /// [`VecSim_Normalize`]); all other metrics borrow `query_vector` unchanged as
+    /// [`Borrowed`](PreparedAdhocQueryBlob::Borrowed), copying nothing.
+    ///
+    /// # Safety
+    ///
+    /// The non-cosine [`Borrowed`](PreparedAdhocQueryBlob::Borrowed) result aliases
+    /// `query_vector` by raw pointer. For as long as the returned [`PreparedAdhocQueryBlob`] is
+    /// used, that blob must:
+    ///
+    /// 1. stay allocated — VecSim reads it on every distance lookup;
+    /// 2. keep a stable address — the stored pointer is never refreshed, so moving
+    ///    the buffer (e.g. a reallocation) would dangle it;
+    /// 3. stay unmodified — lookups must observe the original query bytes.
+    ///
+    /// The cosine [`Normalized`](PreparedAdhocQueryBlob::Normalized) result owns its copy and
+    /// imposes none of these.
+    unsafe fn prepare_query(&self, query_vector: &QueryVector) -> PreparedAdhocQueryBlob {
+        let query_vector = query_vector.as_bytes();
+        let ptr = self.inner;
+        // SAFETY: `self.inner` upholds its invariant.
+        let info = unsafe { VecSimIndex_BasicInfo(ptr.as_ptr()) };
+        if info.metric != VecSimMetric_VecSimMetric_Cosine {
+            // No copy: alias the caller's blob. `NonNull::dangling` is only reached
+            // for an empty blob (len 0), which is never dereferenced.
+            let ptr = NonNull::new(query_vector.as_ptr().cast_mut()).unwrap_or(NonNull::dangling());
+            return PreparedAdhocQueryBlob::Borrowed(ptr);
+        }
+
+        // SAFETY: reads only immutable index metadata.
+        let blob_len = unsafe { VecSimParams_GetQueryBlobSize(info.type_, info.dim, info.metric) };
+        // The normalized blob is at least as large as the input; the extra tail (if
+        // any) is the appended norm slot, left zeroed for `VecSim_Normalize` to fill.
+        debug_assert!(blob_len >= query_vector.len());
+        let mut blob = vec![0u8; blob_len];
+        blob[..query_vector.len()].copy_from_slice(query_vector);
+        // SAFETY:
+        // 1. `blob` is `blob_len` bytes, the size VecSim requires for a normalized
+        //    query of this `dim`/`type`, so the in-place normalization (and any
+        //    appended norm) stays in bounds.
+        // 2. `info.dim` and `info.type_` come from this index's own metadata.
+        unsafe { VecSim_Normalize(blob.as_mut_ptr().cast::<c_void>(), info.dim, info.type_) };
+        PreparedAdhocQueryBlob::Normalized(blob)
+    }
 }
 
 /// RAII guard holding the tiered-index shared locks acquired by
@@ -358,8 +359,8 @@ pub struct SharedLockGuard<'index> {
     index: IndexRef<'index>,
     /// Query blob reused by every [`get_distance_from`](Self::get_distance_from)
     /// call: an owned normalized copy for cosine indexes, or a borrow of the
-    /// caller's blob (no copy) for non-cosine — see [`AdhocQuery`].
-    query: AdhocQuery,
+    /// caller's blob (no copy) for non-cosine — see [`PreparedAdhocQueryBlob`].
+    query: PreparedAdhocQueryBlob,
 }
 
 impl SharedLockGuard<'_> {
