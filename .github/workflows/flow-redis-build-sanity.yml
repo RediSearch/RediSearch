@@ -36,7 +36,6 @@ on:
         type: choice
         options:
           - all
-          - ubuntu:latest
           - ubuntu:resolute
           - ubuntu:noble
           - ubuntu:jammy
