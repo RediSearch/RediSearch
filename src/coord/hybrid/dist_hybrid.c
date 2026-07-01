@@ -768,8 +768,8 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
         // error: no cursor mappings were established, so reply an empty result set
         // carrying the timeout warning (and the FT.PROFILE envelope when applicable),
         // matching the read-phase RETURN behavior.
-        common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
-                                        hreq->tailPipeline->qctx.isProfile);
+        common_hybrid_query_reply_empty_into(reply, QUERY_ERROR_CODE_TIMED_OUT, false,
+                                             hreq->tailPipeline->qctx.isProfile);
         QueryError_ClearError(status);
     } else {
         QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
