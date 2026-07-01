@@ -1661,7 +1661,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     AREQ_IncrRef(r);
     blockClientCtx.freePrivData = AREQ_DecrRefWrapper;
     blockClientCtx.privdata = r;
-    blockClientCtx.ast = &r->ast;
 
     // Determine timeout and reply callbacks based on policy.
     if (r->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
@@ -2057,10 +2056,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   }
 
   if (RunInThread(ctx) && !upstreamBC) {
-    // Shard/local path: block and dispatch to worker. FAIL arms the
-    // blocked-client timer with reply/timeout callbacks;
-    // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
-    // for the AST).
+    // Shard/standalone path: block and dispatch to worker. FAIL arms the
+    // blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail) {

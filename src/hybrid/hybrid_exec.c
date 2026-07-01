@@ -958,7 +958,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     BlockClientCtx blockClientCtx = {0};
 
-    blockClientCtx.ast = &hreq->requests[0]->ast;
     blockClientCtx.privdata = hreq;
     HybridRequest_IncrRef(hreq);
     blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
