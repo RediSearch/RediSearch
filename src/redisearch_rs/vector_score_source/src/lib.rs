@@ -50,6 +50,8 @@ use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
 ///
+/// Its type is [`rqe_iterators::IteratorType::Hybrid`].
+///
 /// Use [`new_vector_top_k_unfiltered`] or [`new_vector_top_k_filtered`]
 /// to construct one; these constructors encode the mode-selection logic.
 ///

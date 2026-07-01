@@ -13,7 +13,8 @@
 use std::{num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams, timespec};
-use rqe_iterators::{ExpirationChecker, IteratorType, RQEIterator, c2rust::CRQEIterator};
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
 use top_k::TopKIterator;
 
 use crate::{
