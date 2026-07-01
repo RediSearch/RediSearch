@@ -10,6 +10,7 @@
 #include "dist_hybrid.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
+#include "aggregate/reply_empty.h"
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
@@ -700,7 +701,9 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    const struct timespec *deadline =
+        hreq->sctx ? (const struct timespec *)&hreq->sctx->time.timeout : NULL;
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, deadline)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -752,9 +755,19 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     RS_ASSERT(QueryError_HasError(status));
 
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-
-    QueryError_ReplyAndClear(ctx, status);
+    if (hreq && QueryError_GetCode(status) == QUERY_ETIMEDOUT &&
+        hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
+        // A cursor-setup timeout under RETURN must not surface as an
+        // error: no cursor mappings were established, so reply an empty result set
+        // carrying the timeout warning (and the FT.PROFILE envelope when applicable),
+        // matching the read-phase RETURN behavior.
+        common_hybrid_query_reply_empty_into(reply, QUERY_ETIMEDOUT, false,
+                                             hreq->tailPipeline->qctx.isProfile);
+        QueryError_ClearError(status);
+    } else {
+        QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+        QueryError_ReplyAndClear(ctx, status);
+    }
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
         IndexSpecRef_Release(*strong_ref);

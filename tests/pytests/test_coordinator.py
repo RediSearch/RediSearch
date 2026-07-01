@@ -315,8 +315,8 @@ def test_queries_fail_on_all_shards_unreachable(env: Env):
     must be routed through the user callback so that:
     - FT.SEARCH: The reducer receives the error and returns it to the client
     - FT.AGGREGATE: The error is pushed to the channel and consumed by rpnetNext
-    - FT.HYBRID: The processCursorMappingCallback increments responseCount and signals
-      the condition variable, allowing ProcessHybridCursorMappings to unblock
+    - FT.HYBRID: The no-reply errorCB records the error and the iterator's completion
+      countdown unblocks ProcessHybridCursorMappings' channel wait
     """
     # Create an index and add data before breaking topology
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
