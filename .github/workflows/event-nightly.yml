@@ -48,7 +48,7 @@ jobs:
     uses: ./.github/workflows/flow-redis-build-sanity.yml
     secrets: inherit
     with:
-      platform: all
+      platform: all,ubuntu:latest
       architecture: all
       # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
       redis-repository: TalBarYakar/redis
