@@ -1,0 +1,49 @@
+version: 0.5
+name: "search-msmarco-6M-documents-mixed-50-50"
+description: |
+  MS MARCO 6M documents - mixed 50/50 read/write benchmark.
+
+  Purpose: measure the inverted-index lock-free-read / copy-on-write snapshot
+  under concurrent read+write load, comparing master (read lock held for the whole
+  query) against the snapshot branch (lock held only for capture). Writes re-index
+  existing docs (HSET on the doc: prefix) to generate block churn; a low fork-GC
+  interval + clean threshold keep GC active during the run so superseded blocks are
+  reclaimed (and, on the snapshot branch, deep-copied when pinned by a live reader).
+
+metadata:
+  component: "search"
+  dataset: "MS MARCO document-v2"
+  doc_count: 6000000
+  query_type: "mixed"
+  use_case: "Concurrent read/write throughput, latency, and memory under snapshot COW"
+
+timeout_seconds: 3600
+dataset_load_timeout_secs: 3600
+
+setups:
+  - oss-cluster-08-primaries-250gb-threads-8
+
+remote:
+  - setup: redisearch-msmarco
+
+dbconfig:
+  - dataset_name: "6M-msmarco-documents"
+  - init_commands:
+    - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
+    # Keep fork-GC active during the run so block churn is reclaimed and, on the
+    # snapshot branch, COW/retention of reader-pinned blocks is exercised.
+    - '"FT.CONFIG" "SET" "FORK_GC_RUN_INTERVAL" "1"'
+    - '"FT.CONFIG" "SET" "FORK_GC_CLEAN_THRESHOLD" "1"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 5s
+    - max-token-size-mb: 10
+    - input: "s3://benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 5978761
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 5900000 --command 'HSET __key__ body __data__' --command-ratio 1 --command 'FT.SEARCH ms_marco_idx information --limit 0 10' --command-ratio 1"
