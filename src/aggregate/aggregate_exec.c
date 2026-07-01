@@ -485,7 +485,7 @@ long calc_results_len(AREQ *req, size_t limit) {
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
   // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
-  size_t reported = qctx->totalResults > qctx->skippedResults ? qctx->totalResults - qctx->skippedResults : 0;
+  size_t reported = QITR_ReportedTotal(qctx);
   size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
@@ -520,10 +520,10 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
-  } else if (qctx->totalResults >= qctx->skippedResults) {
-    // totalResults survives this reset, so fold the dropped rows into it
-    // permanently — otherwise later reads revert to the uncorrected total.
-    qctx->totalResults -= qctx->skippedResults;
+  } else {
+    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
+    // permanently so later cursor reads stay corrected.
+    qctx->totalResults = QITR_ReportedTotal(qctx);
   }
   qctx->skippedResults = 0;
   QueryError_ClearError(qctx->err);
@@ -606,7 +606,7 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   RedisModule_Reply_Array(reply);
   // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_Reply_LongLong(reply,
-      qctx->totalResults > qctx->skippedResults ? qctx->totalResults - qctx->skippedResults : 0);
+      QITR_ReportedTotal(qctx));
 
   return resultsLen;
 }
@@ -887,7 +887,7 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
 
   // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
   RedisModule_ReplyKV_LongLong(reply, "total_results",
-      qctx->totalResults > qctx->skippedResults ? qctx->totalResults - qctx->skippedResults : 0);
+      QITR_ReportedTotal(qctx));
 
   // <error>
   _replyWarnings(req, reply, rc);

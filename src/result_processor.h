@@ -25,6 +25,7 @@
 #include "result_processor_ffi.h"
 #include "search_result.h"
 #include "slot_ranges.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct RLookupKey RLookupKey;
 
@@ -90,6 +91,20 @@ struct RLookup;
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
+
+// Result count to report to the client: matches minus the rows a loader dropped
+// (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
+// — drops are a subset of counted matches, and any stage that replaces totalResults
+// with an unrelated count (grouper, hybrid merge) clears skippedResults first. The
+// assert enforces that invariant; the subtraction is saturating only as a
+// release-build backstop.
+static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
+  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
+                "skippedResults must not exceed totalResults");
+  return qctx->totalResults > qctx->skippedResults
+             ? qctx->totalResults - qctx->skippedResults
+             : 0;
+}
 
 /* Result processor return codes */
 

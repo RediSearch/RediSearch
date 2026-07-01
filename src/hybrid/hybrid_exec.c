@@ -285,8 +285,7 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   RedisModule_Reply_Map(reply);
 
   // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
-  RedisModule_ReplyKV_LongLong(reply, "total_results",
-      qctx->totalResults > qctx->skippedResults ? qctx->totalResults - qctx->skippedResults : 0);
+  RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 }
