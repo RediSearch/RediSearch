@@ -86,7 +86,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskMaxOpenFiles);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
@@ -588,6 +589,28 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
       disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
+  RS_ASSERT(disk && disk_db);
+
+  // Store the configured value on the shared context so new DBs pick it up.
+  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
+  // Reapply to every existing index's database.
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      disk->index.updateMaxOpenFiles(sp->diskSpec, maxOpenFiles);
     }
   }
   dictReleaseIterator(iter);
