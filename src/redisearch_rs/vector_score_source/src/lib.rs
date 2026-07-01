@@ -108,8 +108,8 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
 /// Delegates mode selection to source.
 ///
 /// When `can_trim_deep_results` is `true`, the pipeline needs no rich results,
-/// so matches yield a metric-only result carrying just the vector score instead
-/// of the child's deep-copied scoring subtree.
+/// so matches yield the child's metrics with the vector score attached instead
+/// of its deep-copied scoring subtree.
 ///
 /// [`VectorScoreSource::requested_search_mode`]: source::VectorScoreSource::requested_search_mode
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch

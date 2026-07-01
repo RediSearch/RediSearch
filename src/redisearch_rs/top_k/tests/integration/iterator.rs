@@ -11,7 +11,7 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_core::DocId;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use index_result::RSIndexResult;
 use rqe_iterator_type::IteratorType;
@@ -961,8 +961,8 @@ fn batches_preserves_child_scoring_fields() {
 
 /// The dual of [`batches_preserves_child_scoring_fields`]: when the pipeline can
 /// trim deep results, the child's scoring subtree is never captured, so each
-/// match yields the source's metric-only result (default freq/field_mask) rather
-/// than the child's rich record.
+/// match yields a metric-only result carrying the `build_metric` defaults
+/// (freq 0, [`RS_FIELDMASK_ALL`]) rather than the child's rich record.
 #[test]
 fn batches_trim_deep_results_yields_metric_only() {
     use index_result::RSIndexResult;
@@ -992,9 +992,12 @@ fn batches_trim_deep_results_yields_metric_only() {
     }
 
     // Same doc ids and best-first order as the rich path, but the child's
-    // freq/field_mask are absent — the yielded record is the source's
-    // metric-only result.
-    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+    // freq/field_mask are dropped — the yielded record carries the metric-only
+    // defaults instead.
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
 }
 
 /// Adhoc-BF counterpart of [`batches_trim_deep_results_yields_metric_only`]:
@@ -1029,7 +1032,10 @@ fn adhoc_trim_deep_results_yields_metric_only() {
         emitted.push((r.doc_id, r.freq, r.field_mask));
     }
 
-    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
 }
 
 /// Trimming skips the child's scoring subtree but must still carry its yielded
@@ -1066,7 +1072,45 @@ fn batches_trim_deep_results_preserves_child_metrics() {
         emitted.push((r.doc_id, r.freq, r.field_mask, metric));
     }
 
-    // Rich subtree is trimmed (freq/field_mask are the source's defaults), but
-    // the child's yielded metric rides along on every result.
-    assert_eq!(emitted, vec![(2, 0, 0, Some(42.0)), (1, 0, 0, Some(42.0))]);
+    // Rich subtree is trimmed (freq/field_mask carry the metric-only defaults),
+    // but the child's yielded metric rides along on every result.
+    assert_eq!(
+        emitted,
+        vec![
+            (2, 0, RS_FIELDMASK_ALL, Some(42.0)),
+            (1, 0, RS_FIELDMASK_ALL, Some(42.0))
+        ]
+    );
+}
+
+/// A trimmed result stands in for the source's own scored record, so its numeric
+/// payload must hold the source score — not the zero the metric-only carrier is
+/// built with — for consumers that read the record numerically rather than
+/// through a lookup key.
+#[test]
+fn batches_trim_deep_results_payload_carries_source_score() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child = IdList::<true>::with_result(vec![1, 2], RSIndexResult::build_virt().build());
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.as_numeric()));
+    }
+
+    // Best-first ASC order, each payload holding that document's source score.
+    assert_eq!(emitted, vec![(2, Some(0.5)), (1, Some(0.9))]);
 }
