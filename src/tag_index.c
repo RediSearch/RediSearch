@@ -371,21 +371,21 @@ void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minle
                        ctx);
 }
 
-TrieMapIterator *TagIndex_IterateSuffix(TagIndex *idx) {
+TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
   return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
 }
 
 /* Return a list of list of terms which match the suffix or contains term or NULL */
 arrayof(char **)
-    TagIndex_SuffixTrieMap(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+    TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
                            struct timespec timeout, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix) : NULL;
+  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, timeout, skipTimeoutChecks) : NULL;
 }
 
-arrayof(char **)
-    TagIndex_SuffixTrieMap_Wildcard(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
-                                    struct timespec timeout, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix) : NULL;
+arrayof(char *)
+    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks) : NULL;
 }
 
 /* Serialize all the tags in the index to the redis client */

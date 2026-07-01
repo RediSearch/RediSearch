@@ -1218,7 +1218,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     TrieMapIterator_Free(it);
   } else {  // TAG field has suffix triemap
     arrayof(char **) arr =
-        TagIndex_SuffixTrieMap(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
+        TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
                                q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       rm_free(its);
@@ -1268,7 +1268,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
-    arrayof(char *) arr = TagIndex_SuffixTrieMap_Wildcard(
+    arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
         idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
         q->sctx->time.skipTimeoutChecks);
     if (!arr) {
