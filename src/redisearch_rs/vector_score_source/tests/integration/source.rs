@@ -182,7 +182,7 @@ fn filtered_full_child_yields_best_first() {
     let child = make_child((1..=n as t_docId).collect());
     // Public constructor auto-selects batches vs adhoc; either way the heap is
     // drained best-first, so ordering is deterministic.
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     // Best (lowest distance) first → highest ids first.
     let ids = collect_ids(&mut it);

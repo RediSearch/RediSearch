@@ -24,6 +24,7 @@ extern crate redisearch_rs;
 #[cfg(test)]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 #[cfg(feature = "unittest")]
@@ -31,6 +32,7 @@ pub mod test_utils;
 
 use rqe_iterators::c2rust::CRQEIterator;
 use rqe_iterators::profile_print::ProfilePrint;
+pub use reducer::{NewVectorTopK, new_vector_top_k};
 pub use score_batch::VecSimScoreBatch;
 pub use source::VectorScoreSource;
 
@@ -87,6 +89,10 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
 ///
 /// Delegates mode selection to source.
 ///
+/// When `can_trim_deep_results` is `true`, the pipeline needs no rich results,
+/// so matches yield a metric-only result carrying just the vector score instead
+/// of the child's deep-copied scoring subtree.
+///
 /// [`VectorScoreSource::requested_search_mode`]: source::VectorScoreSource::requested_search_mode
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
 /// [`BatchStrategy::SwitchToAdhoc`]: top_k::BatchStrategy::SwitchToAdhoc
@@ -94,6 +100,7 @@ pub fn new_vector_top_k_filtered<'index, E, C>(
     source: VectorScoreSource<'index, E>,
     child: C,
     k: NonZeroUsize,
+    can_trim_deep_results: bool,
 ) -> TopKIterator<'index, VectorScoreSource<'index, E>, C>
 where
     E: ExpirationChecker + 'index,
@@ -118,6 +125,7 @@ where
         }
     };
     TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+        .with_trim_deep_results(can_trim_deep_results)
 }
 
 impl TopKSourceProfile for VectorScoreSource<'_> {

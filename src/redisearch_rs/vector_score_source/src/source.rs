@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    QueryIterator, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
-    VecSimIndex, VecSimQueryParams, timespec,
+    RLookupKeyHandle, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
 use rlookup::RLookupKey;
@@ -99,8 +99,6 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
     /// Highest `num_iterations` value observed so far. Reset on rewind. Read
     /// by the profile printer.
     pub max_batch_iteration: usize,
-    /// Raw child iterator handle exposed to the C profile printer.
-    pub child_raw: *mut QueryIterator,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
@@ -119,6 +117,21 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
 
     /// Score key for this iterator's metric output; set by the metrics loader.
     pub own_key: *mut RLookupKey<'index>,
+    /// Back-reference to the handle that points to [`own_key`](Self::own_key).
+    /// Set by the C side alongside `own_key`; null until then.
+    pub key_handle: *mut RLookupKeyHandle,
+}
+
+impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
+    fn drop(&mut self) {
+        if !self.key_handle.is_null() {
+            // SAFETY: key_handle is non-null only when VectorTopK_SetKeyHandle
+            // stored a valid, live RLookupKeyHandle pointer here.
+            unsafe {
+                (*self.key_handle).is_valid = false;
+            }
+        }
+    }
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -186,13 +199,13 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             num_iterations: 0,
             max_batch_size: 0,
             max_batch_iteration: 0,
-            child_raw: ptr::null_mut(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
             own_key: ptr::null_mut(),
+            key_handle: ptr::null_mut(),
         }
     }
 
