@@ -288,7 +288,7 @@ uv pip install -r ./tests/benchmarks/requirements.txt
 To run a specific benchmark, use the following command:
 
 ```sh
-uv redisbench-admin run-local \
+uv run redisbench-admin run-local \
     --module_path $(find $(pwd)/bin -name "redisearch.so" | head -1) \
     --required-module search \
     --allowed-setups oss-standalone \
@@ -313,7 +313,7 @@ samply record redis-server --loadmodule $(find $(pwd)/bin -name "redisearch.so" 
 In the other terminal panel run:
 
 ```sh
-uv redisbench-admin run-local \
+uv run redisbench-admin run-local \
     --skip-redis-spin True \
     --required-module search \
     --allowed-setups oss-standalone \
