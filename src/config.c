@@ -60,6 +60,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
+  {"_LOCK_FREE_READS",                "search-_lock-free-reads"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
@@ -1080,6 +1081,10 @@ CONFIG_BOOLEAN_GETTER(getFreeResourcesThread, freeResourcesThread, 0)
 CONFIG_BOOLEAN_SETTER(setPrintProfileClock, requestConfigParams.printProfileClock)
 CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileClock, 0)
 
+// _LOCK_FREE_READS
+CONFIG_BOOLEAN_SETTER(setLockFreeReads, requestConfigParams.lockFreeReads)
+CONFIG_BOOLEAN_GETTER(getLockFreeReads, requestConfigParams.lockFreeReads, 0)
+
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
 CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
@@ -1726,6 +1731,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
+        {.name = "_LOCK_FREE_READS",
+         .helpText = "Experimental: release the spec read lock per result during query "
+                     "iteration (lock-free-read snapshot path). For benchmarking only.",
+         .setValue = setLockFreeReads,
+         .getValue = getLockFreeReads},
         {.name = "RAW_DOCID_ENCODING",
          .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
          .setValue = setRawDocIDEncoding,
@@ -2488,6 +2498,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.printProfileClock)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_lock-free-reads", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.lockFreeReads)
     )
   )
 

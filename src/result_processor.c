@@ -237,8 +237,9 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
-static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
+static bool handleSpecLockAndRevalidate(RPQueryIterator *self, bool *acquiredLock) {
   RedisSearchCtx *sctx = self->sctx;
+  if (acquiredLock) *acquiredLock = false;
 
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
@@ -253,6 +254,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
+  if (acquiredLock) *acquiredLock = true;
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -274,7 +276,8 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
-  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
+  bool acquiredLock = false;
+  bool needToValidateCurrent = handleSpecLockAndRevalidate(self, &acquiredLock);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -323,6 +326,15 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
     setSearchResult(base, res, it->current, dmd);
+    // Lock-free-read path (experimental, off by default): if this call acquired the
+    // spec read lock, release it now that Read + dmd retrieval are done, so writers
+    // and GC can interleave before the next round. Only release what we acquired —
+    // the disk path never locks, and an already-held outer lock is not ours to drop.
+    // The reader keeps its own immutable snapshot, so its iterator state survives the
+    // release window; the buffered SearchResult already outlives it->current today.
+    if (acquiredLock && RSGlobalConfig.requestConfigParams.lockFreeReads) {
+      RedisSearchCtx_UnlockSpec(sctx);
+    }
     return RS_RESULT_OK;
   }
 }
@@ -335,7 +347,8 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
   // Handle spec lock and revalidation
   // no need store the return value since validate current result is not needed for async disk path
-  handleSpecLockAndRevalidate(self);
+  // (disk path never acquires the spec lock, so no acquisition to track)
+  handleSpecLockAndRevalidate(self, NULL);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
