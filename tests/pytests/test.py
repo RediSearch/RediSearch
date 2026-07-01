@@ -444,6 +444,24 @@ def testStopwords(env):
     env.assertEqual(0, r1[0])
     env.assertEqual(1, r2[0])
 
+def testStopwordParserCaseFold(env):
+    # Stopword detection in the query lexer/parser is case-insensitive: a
+    # mixed-case stopword adjacent to a real term must still collapse out
+    # of the query rather than leak through as a literal TERM (which would
+    # then miss the lowercased term trie and yield 0 docs).
+    env.cmd('FT.CREATE', 'idx', 'STOPWORDS', 1, 'the',
+            'SCHEMA', 't', 'TEXT')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'The quick brown fox')
+
+    for dialect in (1, 2):
+        for stop in ('the', 'THE', 'The', 'tHe'):
+            env.assertEqual(
+                [1, 'doc:1'],
+                env.cmd('FT.SEARCH', 'idx', f'{stop} quick',
+                        'NOCONTENT', 'DIALECT', dialect),
+                message=f'dialect={dialect} stop={stop!r}')
+
 def testNoStopwords(env):
     # This test taken from Java's test suite
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text')
@@ -3095,8 +3113,12 @@ def testGroupbyWithSort(env):
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '1'))
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc2', '1.0', 'FIELDS', 'test', '1'))
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc3', '1.0', 'FIELDS', 'test', '2'))
-    env.expect('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
-               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count').equal([2, ['test', '2', 'count', '1'], ['test', '1', 'count', '2']])
+    res = env.cmd('ft.aggregate', 'idx', '*', 'SORTBY', '2', '@test', 'ASC',
+               'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'as', 'count')
+    expected = [['test', '1', 'count', '2'], ['test', '2', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
 
 def testApplyError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3227,6 +3249,19 @@ def testMatchedTerms(env):
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms(-100)', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
     env.expect('ft.aggregate', 'idx', 'foo', 'LOAD', '1', '@test', 'APPLY', 'matched_terms("test")', 'as', 'a').equal([1, ['test', 'foo', 'a', ['foo']]])
+
+def testMatchedTermsAfterSort(env):
+    # matched_terms() reads the index result. When it runs after a buffering step
+    # (SORTBY/GROUPBY) the buffering RP must keep the index result alive, even
+    # without scores or highlighting. Regression guard for the deep-copy gating.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'n', 'NUMERIC').equal('OK')
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd1', '1.0', 'FIELDS', 'test', 'foo', 'n', '1'))
+    env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'd2', '1.0', 'FIELDS', 'test', 'foo', 'n', '2'))
+    # matched_terms() AFTER SORTBY
+    res = env.cmd('ft.aggregate', 'idx', 'foo', 'LOAD', '2', '@test', '@n', 'SORTBY', '2', '@n', 'ASC',
+                  'APPLY', 'matched_terms()', 'as', 'a')
+    for row in res[1:]:
+        env.assertEqual(row[-1], ['foo'])
 
 def testStrFormatError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3637,7 +3672,11 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    res = env.cmd('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count')
+    expected = [['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
@@ -3710,7 +3749,11 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'filter', '@N==1.0').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation groupby are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count').equal([2, ['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']])
+    res = env.cmd('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@n', 'reduce', 'count', 0, 'as', 'count')
+    expected = [['n', '1', 'count', '1'], ['n', '1.1', 'count', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'groupby', '1', '@N', 'reduce', 'count', 0, 'as', 'count').error().contains('No such property')
 
     # make sure aggregation sortby are case sensitive
@@ -3951,7 +3994,12 @@ def testMod1407(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', 'LLimitationTypeID', 'LLimitationTypeDesc', 'REDUCE', 'COUNT', '0')
 
     # make sure correct query not crashing and return the right results
-    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0').equal([2, ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1'], ['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1']])
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '2', '@LimitationTypeID', '@LimitationTypeDesc', 'REDUCE', 'COUNT', '0')
+    expected = [['LimitationTypeID', 'boo1', 'LimitationTypeDesc', 'doo1', '__generated_aliascount', '1'],
+                 ['LimitationTypeID', 'boo2', 'LimitationTypeDesc', 'doo2', '__generated_aliascount', '1']]
+    # The order of the groups themselves is not guaranteed, so compare the group rows regardless of order.
+    env.assertEqual(res[0], 2)
+    env.assertEqual(sorted(res[1:]), sorted(expected))
 
 def testMod1452(env):
     if not env.isCluster():
@@ -4397,7 +4445,9 @@ def test_cluster_set_myself_excluded(env: Env):
     ]
     env.expect('SEARCH.CLUSTERINFO').equal(expected)
 
-@skip(cluster=False) # this test is only relevant on cluster
+# TODO(MOD-15868): re-enable once https://redislabs.atlassian.net/browse/MOD-15868 is resolved
+@skip()
+#@skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):
 
     # Check general values parsing

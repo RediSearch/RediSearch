@@ -263,8 +263,10 @@ impl<'a> JsonValueRef<'a> {
         // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
         let ptr = NonNull::new(ptr.cast_mut())?;
 
+        let len = self.len().unwrap_or(0);
+
         // Safety: (1.): ensured by caller. (2.): we obtained this pointer from `getKeyValues`.
-        Some(unsafe { KeyValuesIterator::from_non_null(ptr, ctx, self.api) })
+        Some(unsafe { KeyValuesIterator::from_non_null(ptr, ctx, self.api, len) })
     }
 
     /// Returns an iterator over values matched by `path`.

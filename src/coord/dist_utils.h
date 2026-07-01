@@ -18,13 +18,13 @@
 extern "C" {
 #endif
 
-// Cursor callback for network responses that uses barrier passed via privateData
-// privateData is expected to be a ShardResponseBarrier* (or NULL)
+// Cursor callback for network responses: re-dispatches cursor reads, handles
+// errors, and pushes replies onto the iterator channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
-// Cursor callback for network responses that takes barrier explicitly
-// Use this when privateData is a different type that contains a ShardResponseBarrier*
-void netCursorCallbackWithBarrier(MRIteratorCallbackCtx *ctx, MRReply *rep, ShardResponseBarrier *barrier);
+// Helper function to extract total_results from a shard reply.
+// Returns true if total_results was found, false otherwise.
+bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total);
 
 #ifdef __cplusplus
 }

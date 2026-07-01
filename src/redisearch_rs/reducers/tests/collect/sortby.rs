@@ -89,6 +89,7 @@ fn remote_sortby_mixed_directions() {
         0b01,
         Some((0, 3)),
         false,
+        false, // distinct
     );
     let mut ctx = RemoteCollectCtx::new(&r);
 
@@ -123,7 +124,8 @@ fn remote_sortby_internal_emits_sort_snapshot() {
         vec![&s].into_boxed_slice(),
         SORT_ASC,
         Some((0, 2)),
-        true, // is_internal
+        true,  // is_internal
+        false, // distinct
     );
     let mut ctx = RemoteCollectCtx::new(&r);
     for n in [3.0_f64, 1.0, 4.0, 2.0] {
@@ -167,6 +169,7 @@ fn local_sortby_keeps_top_k_across_shards() {
         Box::new([CString::new("s").unwrap()]),
         SORT_ASC,
         Some((0, 3)),
+        false, // distinct
     );
     let mut ctx = LocalCollectCtx::new(&r);
 

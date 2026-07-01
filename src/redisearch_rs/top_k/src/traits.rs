@@ -35,15 +35,24 @@ pub trait ScoreBatch {
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
 }
 
-/// Decision returned by [`ScoreSource::collection_strategy`] after each batch,
-/// telling [`TopKIterator`] how to proceed.
+/// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
+/// telling [`TopKIterator`] how to proceed in Batches mode.
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollectionStrategy {
-    /// Keep iterating — fetch the next batch.
+pub enum BatchStrategy {
+    /// Keep fetching batches.
     Continue,
-
+    /// Switch from Batches mode to Adhoc-BF mode.
+    ///
+    /// The iterator will rewind the child and start calling
+    /// [`ScoreSource::lookup_score`] for each document the child yields.
+    SwitchToAdhoc,
+    /// Restart batch collection (e.g. after the source has expanded its range).
+    ///
+    /// The iterator rewinds both the source and the child, then re-enters
+    /// Batches mode from the beginning.
+    SwitchToBatches,
     /// Collection is complete — stop and yield whatever is in the heap.
     Stop,
 }
@@ -52,7 +61,10 @@ pub enum CollectionStrategy {
 ///
 /// A [`ScoreSource`] knows how to:
 /// 1. Produce score-ordered batches ([`next_batch`]).
-/// 2. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
+/// 2. Produce all results in a single shot ([`all_results_unfiltered_batch`]), used in Unfiltered mode.
+/// 3. Look up the score for an individual document ([`lookup_score`]), used in Adhoc-BF mode.
+/// 4. Build the final [`RSIndexResult`] for a `(doc_id, score)` pair ([`build_result`]).
+/// 5. Decide, after each batch, whether to continue or switch strategy ([`batch_strategy`]).
 ///
 /// # Result lifetime
 ///
@@ -66,28 +78,44 @@ pub enum CollectionStrategy {
 ///
 /// [`TopKIterator`]: crate::TopKIterator
 /// [`next_batch`]: ScoreSource::next_batch
+/// [`all_results_unfiltered_batch`]: ScoreSource::all_results_unfiltered_batch
+/// [`lookup_score`]: ScoreSource::lookup_score
 /// [`build_result`]: ScoreSource::build_result
+/// [`batch_strategy`]: ScoreSource::batch_strategy
 pub trait ScoreSource {
     /// The type of batch cursor this source produces.
     type Batch: ScoreBatch;
 
     /// Fetch the next score-ordered batch.
     ///
+    /// Called repeatedly by [`TopKIterator`] in Batches mode.
+    ///
     /// Returns:
     /// - `Ok(Some(batch))` — a new batch is available.
     /// - `Ok(None)` — the source is exhausted; no more batches.
     /// - `Err(RQEIteratorError::TimedOut)` — the query time limit was reached.
     ///
-    /// # Multi-batch support
-    ///
-    /// The API allows an implementation to spread results across multiple
-    /// batches (the caller loops until `Ok(None)`). However, [`TopKMode::Unfiltered`]
-    /// only calls this method once; sources used in that mode **must** return
-    /// all their results in the first batch.  Returning a second batch there
-    /// is a logic error — results would be silently lost.
-    ///
     /// [`TopKMode::Unfiltered`]: crate::TopKMode::Unfiltered
+    /// [`TopKIterator`]: crate::TopKIterator
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError>;
+
+    /// Single-shot query returning all results directly, without a heap.
+    ///
+    /// Called exactly once by [`TopKIterator`] in [`Unfiltered`](crate::TopKMode::Unfiltered)
+    /// mode. Implementations that can answer the full query in one call (e.g.
+    /// `VecSimIndex_TopKQuery`) should override this; the default delegates to
+    /// [`next_batch`](Self::next_batch).
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.next_batch()
+    }
+
+    /// Return the score for `doc_id`, or `None` if the document is not in
+    /// the source's index.
+    ///
+    /// Used in Adhoc-BF mode where the child iterator drives traversal.
+    fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
 
     /// Return an upper-bound estimate for the number of documents this source
     /// can produce.
@@ -109,13 +137,19 @@ pub trait ScoreSource {
     where
         Self: 'r;
 
-    /// Called after each batch to decide how collection should proceed.
+    /// Called after each batch (Batches mode only) to decide how collection
+    /// should proceed.
+    ///
+    /// May update internal estimates as a side effect (e.g., refine child
+    /// selectivity).
+    ///
+    /// Must **not** be called from Adhoc-BF mode.
     ///
     /// # Arguments
     ///
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.
-    fn collection_strategy(&mut self, heap_count: usize, k: usize) -> CollectionStrategy;
+    fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///

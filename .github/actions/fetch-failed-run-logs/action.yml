@@ -33,8 +33,37 @@ inputs:
   max-bytes:
     description: >
       Truncate the final file to its last N bytes. Bounds Codex token spend.
+      Ignored when `cap` is `false`.
     required: false
     default: '204800'
+  highlight-patterns:
+    description: >
+      Optional newline-separated list of extended-regex (`grep -E`) patterns.
+      When set, every line of the full log that matches any pattern is
+      extracted *before* the tail-cap and prepended under a
+      `KEY FAILURE LINES` banner, so a root cause buried mid-log survives
+      truncation. Empty (default) disables extraction, leaving behavior
+      byte-identical to before. Only meaningful together with `cap: 'true'`
+      (the banner is added on top, after the body has been capped); pairing it
+      with `cap: 'false'` is pointless because a caller's later external cap
+      would chop the banner back off.
+    required: false
+    default: ''
+  max-key-lines:
+    description: >
+      Cap on the number of extracted highlight lines (deduplicated, in log
+      order) prepended to the file. Bounds token spend when a pattern is noisy.
+    required: false
+    default: '150'
+  cap:
+    description: >
+      If `true` (default), truncate `output-file` to its last `max-bytes`
+      bytes after writing. Callers that intend to append higher-signal
+      content after this action (so the tail-cap should absorb job logs,
+      not those later entries) should pass `cap: 'false'` and apply their
+      own cap once they have written everything.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -48,6 +77,9 @@ runs:
         OUTPUT_FILE: ${{ inputs.output-file }}
         APPEND: ${{ inputs.append }}
         MAX_BYTES: ${{ inputs.max-bytes }}
+        CAP: ${{ inputs.cap }}
+        HIGHLIGHT_PATTERNS: ${{ inputs.highlight-patterns }}
+        MAX_KEY_LINES: ${{ inputs.max-key-lines }}
       run: |
         set +e
         if [ "$APPEND" != "true" ]; then
@@ -64,10 +96,53 @@ runs:
             gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/logs" >> "$OUTPUT_FILE" 2>&1
             printf '\n##[endgroup]\n' >> "$OUTPUT_FILE"
           done
-        if [ "$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
+        # Extract high-signal lines from the *full* log before tail-capping, so a
+        # root cause buried mid-log (e.g. a benchmark that fails early while later
+        # benchmarks keep running and push the cause far above the tail) is not
+        # lost. Runs against the uncapped body; the banner is prepended after the
+        # cap below so it always survives.
+        KEY_FILE=""
+        if [ -n "$HIGHLIGHT_PATTERNS" ]; then
+          PAT_FILE="$(mktemp)"
+          printf '%s\n' "$HIGHLIGHT_PATTERNS" | grep -v '^[[:space:]]*$' > "$PAT_FILE"
+          KEY_FILE="$(mktemp)"
+          # -n: keep line numbers for locatability; cut: bound pathological long
+          # lines (some log lines are multi-KB JSON); awk: dedupe preserving
+          # order; head: bound total volume.
+          # The dedupe key strips the `grep -n` line-number prefix and the
+          # GH-Actions and Python-logger timestamps, so the same message
+          # repeated on many lines (e.g. recurring "Connection reset by peer"
+          # warnings) collapses to one entry instead of filling the cap and
+          # pushing the decisive CRITICAL/Traceback line out. Only `+` quantifiers
+          # are used (no `{n}` intervals) to stay portable across mawk/gawk.
+          grep -nE -f "$PAT_FILE" "$OUTPUT_FILE" 2>/dev/null \
+            | cut -c1-500 \
+            | awk '{
+                key = $0
+                sub(/^[0-9]+:/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+:[0-9]+,[0-9]+/, "", key)
+                if (!seen[key]++) print
+              }' \
+            | head -n "$MAX_KEY_LINES" > "$KEY_FILE"
+          rm -f "$PAT_FILE"
+          [ -s "$KEY_FILE" ] || { rm -f "$KEY_FILE"; KEY_FILE=""; }
+        fi
+        if [ "$CAP" = "true" ] && [ "$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)" -gt "$MAX_BYTES" ]; then
           tail -c "$MAX_BYTES" "$OUTPUT_FILE" > "${OUTPUT_FILE}.tmp"
           printf '[truncated to last %s bytes]\n' "$MAX_BYTES" > "$OUTPUT_FILE"
           cat "${OUTPUT_FILE}.tmp" >> "$OUTPUT_FILE"
           rm "${OUTPUT_FILE}.tmp"
+        fi
+        if [ -n "$KEY_FILE" ]; then
+          {
+            printf '##[group]KEY FAILURE LINES (grepped from full pre-truncation log; line numbers included)\n'
+            cat "$KEY_FILE"
+            printf '##[endgroup]\n'
+            printf -- '--- full job log(s) follow (may be tail-truncated) ---\n'
+          } > "${OUTPUT_FILE}.tmp"
+          cat "$OUTPUT_FILE" >> "${OUTPUT_FILE}.tmp"
+          mv "${OUTPUT_FILE}.tmp" "$OUTPUT_FILE"
+          rm -f "$KEY_FILE"
         fi
         exit 0

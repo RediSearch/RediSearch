@@ -23,8 +23,7 @@ extern "C" {
 #include <stdatomic.h>
 #endif
 
-/* Internal definition of the disk GC context (each disk index has one).
- * Stats are maintained in disk info; we do not duplicate them here. */
+/* Internal definition of the disk GC context (each disk index has one). */
 typedef struct DiskGC {
   WeakRef index;
   RS_Atomic(size_t) intervalSec;
@@ -34,6 +33,17 @@ typedef struct DiskGC {
   RS_Atomic(size_t) deletesFromLastRun;
   // Tracks only updates for global stats (no pure writes or deletes)
   RS_Atomic(size_t) updatesFromLastRun;
+
+  // Cumulative bytes freed across all GC cycles run on this index.
+  // Signed to match `InfoGCStats::totalCollectedBytes` / fork-GC semantics
+  // (some compaction strategies may transiently allocate more than they free).
+  RS_Atomic(ssize_t) totalCollectedBytes;
+  // Total number of GC cycles that have completed on this index.
+  RS_Atomic(size_t) totalCycles;
+  // Sum of wall-clock cycle durations in milliseconds.
+  RS_Atomic(size_t) totalTimeMs;
+  // Wall-clock duration of the most recent cycle, in milliseconds.
+  RS_Atomic(size_t) lastRunTimeMs;
 } DiskGC;
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);

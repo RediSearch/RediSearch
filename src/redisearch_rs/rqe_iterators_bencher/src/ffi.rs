@@ -10,9 +10,10 @@
 pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
-    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_OK,
-    RedisModule_Alloc, RedisModule_Free, ValidateStatus,
+    IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_EOF,
+    IteratorStatus_ITERATOR_OK, RedisModule_Alloc, RedisModule_Free, ValidateStatus,
 };
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
@@ -46,6 +47,27 @@ impl QueryIterator {
         };
 
         Self(unsafe { iterators_ffi::id_list::NewSortedIdListIterator(ids_ptr, num, 1.0) })
+    }
+
+    /// Create the C++ GeoShape iterator (`NewGeometryQueryIterator_Bench`) over
+    /// a copy of `ids`. The iterator copies the ids internally, so `ids` is left
+    /// untouched.
+    #[inline(always)]
+    pub fn new_geo_shape_cpp(ctx: &GeoBenchCtx, ids: &[DocId]) -> Self {
+        // SAFETY: `ctx.sctx`/`ctx.filter_ctx` are valid for the iterator's
+        // lifetime; `ids`/`ids.len()` describe a valid (read-only) buffer the
+        // C++ side copies from; `ctx.allocated` outlives the iterator. The
+        // filter-context pointer is cast to the bindgen-generated (opaque) type;
+        // it has the same layout as `field::FieldFilterContext`.
+        Self(unsafe {
+            ffi::NewGeometryQueryIterator_Bench(
+                ctx.sctx,
+                ptr::from_ref(&ctx.filter_ctx).cast(),
+                ids.as_ptr() as *mut DocId,
+                ids.len(),
+                ctx.allocated,
+            )
+        })
     }
 
     /// Give up ownership of the raw pointer without calling `Free`.
@@ -182,7 +204,7 @@ impl QueryIterator {
     #[inline(always)]
     pub fn current(&self) -> Option<&RSIndexResult<'static>> {
         let current = unsafe { (*self.0).current };
-        unsafe { current.cast::<RSIndexResult>().as_ref() }
+        unsafe { current.cast::<RSIndexResult<'static>>().as_ref() }
     }
 }
 
@@ -213,6 +235,57 @@ fn free_search_ctx(sctx: *mut ffi::RedisSearchCtx) {
     unsafe {
         RedisModule_Free.unwrap()((*sctx).spec as *mut c_void);
         RedisModule_Free.unwrap()(sctx as *mut c_void);
+    }
+}
+
+/// Owns the minimal context needed to construct geometry-query iterators in
+/// benchmarks, shared by the Rust and C++ constructors so both see identical
+/// inputs.
+///
+/// The search context has a zeroed spec — so its document table has no TTL and
+/// field-expiration is disabled — and timeout checks are skipped, isolating the
+/// benchmark to the iterator's read/skip machinery. The filter context selects
+/// an invalid field index, the second guard that keeps field-expiration off.
+pub struct GeoBenchCtx {
+    sctx: *mut ffi::RedisSearchCtx,
+    filter_ctx: FieldFilterContext,
+    /// Externally-owned memory counter both iterators report into. Heap-boxed so
+    /// its address is stable and outlives every iterator built from this context
+    /// (the C++ iterator's allocator holds a reference to it).
+    allocated: *mut usize,
+}
+
+impl Default for GeoBenchCtx {
+    fn default() -> Self {
+        let sctx = new_search_ctx();
+        // Skip timeout checks: the Rust iterator selects `NoTimeout`, the C++
+        // iterator a `REDISEARCH_UNINITIALIZED` counter, so neither probes the
+        // clock in the measured loop.
+        //
+        // SAFETY: `sctx` was just returned by `new_search_ctx`, which allocates
+        // and zero-initializes a valid `RedisSearchCtx`, so the dereference and
+        // field write are in-bounds and properly aligned.
+        unsafe {
+            (*sctx).time.skipTimeoutChecks = true;
+        }
+
+        Self {
+            sctx,
+            filter_ctx: FieldFilterContext {
+                field: FieldMaskOrIndex::index_invalid(),
+                predicate: FieldExpirationPredicate::Default,
+            },
+            allocated: Box::into_raw(Box::new(0usize)),
+        }
+    }
+}
+
+impl Drop for GeoBenchCtx {
+    fn drop(&mut self) {
+        free_search_ctx(self.sctx);
+        // SAFETY: `allocated` was created with `Box::into_raw` and is not freed
+        // anywhere else.
+        drop(unsafe { Box::from_raw(self.allocated) });
     }
 }
 

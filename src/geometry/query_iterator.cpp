@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_iterator.hpp"
+#include "geometry_api.h"
 #include "doc_table.h"
 #include "iterators_ffi.h"
 #include "search_ctx.h"
@@ -36,6 +37,7 @@ auto CPPQueryIterator::base() noexcept -> QueryIterator * {
 
 IteratorStatus CPPQueryIterator::read_single() noexcept {
   if (!has_next()) {
+    base_.atEOF = true;
     return ITERATOR_EOF;
   }
   t_docId docId = iter_[index_++];
@@ -74,14 +76,33 @@ IteratorStatus CPPQueryIterator::skip_to(t_docId docId) {
   const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
+
+  const t_docId found = *it;
+  if (check_field_expiration_
+      && !DocTable_CheckFieldExpirationPredicate(&sctx_->spec->docs, found,
+                                                 filterCtx_.field.index,
+                                                 filterCtx_.predicate, &sctx_->time.current)) {
+    // The matched entry's field has expired. Fall back to read(), which loops
+    // past expired entries to the next valid one (updating current/lastDocId,
+    // and setting atEOF on EOF), so the iterator never settles on an expired
+    // doc. read() resumes from index_, i.e. the entry right after this expired
+    // match.
+    const IteratorStatus rc = read();
+    if (rc == ITERATOR_OK) {
+      // A valid entry beyond docId was found; the target itself did not match.
+      return ITERATOR_NOTFOUND;
+    }
+    return rc;
+  }
+
   if (!has_next()) {
     base_.atEOF = true;
   }
 
-  base_.current->docId = *it;
-  base_.lastDocId = *it;
+  base_.current->docId = found;
+  base_.lastDocId = found;
 
-  if (*it == docId) {
+  if (found == docId) {
     return ITERATOR_OK;
   }
   return ITERATOR_NOTFOUND;
@@ -148,3 +169,21 @@ QueryIterator CPPQueryIterator::init_base() {
 }
 }  // namespace GeoShape
 }  // namespace RediSearch
+
+extern "C" QueryIterator *NewGeometryQueryIterator_Bench(const RedisSearchCtx *sctx,
+                                                         const FieldFilterContext *filterCtx,
+                                                         t_docId *ids, std::size_t num,
+                                                         std::size_t *allocated) {
+  using RediSearch::GeoShape::CPPQueryIterator;
+  using alloc_type = RediSearch::Allocator::TrackingAllocator<CPPQueryIterator>;
+  auto alloc = alloc_type{*allocated};
+  const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
+  // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when skipTimeoutChecks is set,
+  // mirroring RTree::query.
+  const uint32_t timeoutCounter =
+      (sctx && sctx->time.skipTimeoutChecks) ? REDISEARCH_UNINITIALIZED : 0;
+  const auto range = std::ranges::subrange{ids, ids + num};
+  std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, range, *allocated,
+                                               timeoutCounter);
+  return qi->base();
+}

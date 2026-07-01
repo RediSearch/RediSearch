@@ -215,6 +215,43 @@ def test_basic_hybrid_internal_withcursor(env):
         env.assertTrue(isinstance(search_cursor, (int, str)))
 
 
+@skip(cluster=True)
+def test_hybrid_internal_without_slots_info(env):
+    """_FT.HYBRID without _SLOTS_INFO (as sent by coordinators older than 8.4) must not
+    fail; the shard falls back to its local slots (MOD-16047)."""
+    setup_hybrid_test_data(env)
+
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+             'VSIM', '@embedding', '$BLOB',
+             'WITHCURSOR', 'PARAMS', '2', 'BLOB', query_vec.tobytes(),
+             '_COORD_DISPATCH_TIME', COORD_DISPATCH_TIME)
+
+    # Should return a map with VSIM and SEARCH cursor IDs, like a fully-specified query
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+
+@skip(cluster=True)
+def test_hybrid_internal_without_coord_dispatch_time(env):
+    """_FT.HYBRID without _COORD_DISPATCH_TIME (as sent by coordinators older than 8.6)
+    must not fail."""
+    setup_hybrid_test_data(env)
+
+    query_vec = create_np_array_typed([0.0, 0.0], 'FLOAT32')
+    query = ('_FT.HYBRID', 'idx', 'SEARCH', '@description:running',
+             'VSIM', '@embedding', '$BLOB',
+             'WITHCURSOR', '_SLOTS_INFO', generate_slots(),
+             'PARAMS', '2', 'BLOB', query_vec.tobytes())
+
+    result = env.cmd(*query)
+    result_dict = to_dict(remove_warnings(result))
+    env.assertIn('VSIM', result_dict)
+    env.assertIn('SEARCH', result_dict)
+
+
 def test_hybrid_internal_with_count_parameter(env):
     """Test _FT.HYBRID with WITHCURSOR and COUNT parameter"""
     setup_hybrid_test_data(env)

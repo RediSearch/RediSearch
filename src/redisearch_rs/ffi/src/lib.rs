@@ -84,6 +84,18 @@ pub struct QueryProcessingCtx {
     /// RETURN-STRICT timeout path to drain queued shard replies on the main
     /// thread after the background pipeline has aborted.
     pub canYieldPartialResults: bool,
+    /// Whether a buffering result processor may *skip* deep-copying a result's
+    /// `RSIndexResult` and instead drop the borrow when storing it across an
+    /// iterator advance.
+    ///
+    /// Only the highlighter and the `matched_terms()` aggregate function read
+    /// the index result downstream of the buffering point, so this is set iff
+    /// the request needs neither highlighting nor scores.
+    ///
+    /// Polarity is deliberate: the safe (always deep-copy) behavior is the zero
+    /// value, so any qctx that is zero-initialized outside the constructor
+    /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
+    pub skipIndexResultDeepCopy: bool,
 }
 
 impl QueryProcessingCtx {
@@ -104,6 +116,7 @@ impl QueryProcessingCtx {
             isProfile: false,
             timeoutPolicy: 0,
             canYieldPartialResults: false,
+            skipIndexResultDeepCopy: false,
         };
 
         Box::pin(ctx)

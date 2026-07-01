@@ -37,17 +37,17 @@ typedef struct FieldExpiration {
   t_expirationTimePoint point;
 } FieldExpiration;
 
-#ifndef THINVEC_FIELDEXPIRATION__U64_DEFINED
-#define THINVEC_FIELDEXPIRATION__U64_DEFINED
+#ifndef THINVEC_FIELDEXPIRATION__ALIGNEDU32_DEFINED
+#define THINVEC_FIELDEXPIRATION__ALIGNEDU32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_FieldExpiration__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_FieldExpiration__u64;
-#endif /* THINVEC_FIELDEXPIRATION__U64_DEFINED */
+typedef struct ThinVec_FieldExpiration__AlignedU32 {
+  struct Header_AlignedU32 *ptr;
+} ThinVec_FieldExpiration__AlignedU32;
+#endif /* THINVEC_FIELDEXPIRATION__ALIGNEDU32_DEFINED */
 
 /**
  * An ascending-by-`index`, duplicate-free list of [`FieldExpiration`] entries.
  */
-typedef struct ThinVec_FieldExpiration__u64 FieldExpirations;
+typedef struct ThinVec_FieldExpiration__AlignedU32 FieldExpirations;
