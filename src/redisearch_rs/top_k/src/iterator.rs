@@ -253,12 +253,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.collect_adhoc()?;
                     return Ok(());
                 }
-                BatchStrategy::SwitchToBatches => {
-                    // Clear the heap: the source restarts with new parameters
-                    // (e.g. expanded numeric range) and will re-emit previously
-                    // collected docs. Keeping stale entries would cause duplicates.
-                    self.heap = TopKHeap::new(self.k, self.compare);
-                    self.source.rewind();
+                BatchStrategy::ExpandWindow => {
+                    // The source already re-resolved itself to the next disjoint
+                    // window, so the heap stays valid and keeps accumulating.
+                    // Only the child is rewound for re-intersection.
                     if let Some(child) = &mut self.child {
                         child.rewind();
                     }

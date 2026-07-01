@@ -14,8 +14,8 @@ use top_k::ScoreBatch;
 
 /// A [`ScoreBatch`] backed by a doc-id-ordered `Vec<(DocId, f64)>`.
 ///
-/// Doc IDs must be strictly increasing — the numeric index reader yields them
-/// in ascending order; this is asserted in debug builds.
+/// Doc IDs must be strictly increasing, so [`skip_to`](ScoreBatch::skip_to) can
+/// `partition_point`; this is asserted in debug builds.
 pub struct NumericScoreBatch {
     items: Vec<(DocId, f64)>,
     pos: usize,
