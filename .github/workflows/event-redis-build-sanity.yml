@@ -27,9 +27,9 @@ on:
     - cron: "50 22 * * *"
 
 env:
-  # Keep this to the version lines where Redis build sanity is expected after
-  # backport. The repository variable can override it without a code change.
-  DEFAULT_REDISEARCH_VERSION_REFS: 8.10,8.8,8.6-rse,8.6,8.4,8.2
+  # Master smoke coverage runs in event-nightly.yml. Start scheduled
+  # version-branch coverage with the first branch that gets this backported.
+  DEFAULT_REDISEARCH_VERSION_REFS: 8.10
 
 jobs:
   prepare-refs:
