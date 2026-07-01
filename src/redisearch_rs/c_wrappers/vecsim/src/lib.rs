@@ -26,5 +26,5 @@ mod reply;
 
 pub use batch::BatchIterator;
 pub use index::{AdhocBfCtx, IndexRef, QueryVector, SharedLockGuard};
-pub use params::{DiskRerank, QueryError, ReplyOrder};
+pub use params::{QueryError, ReplyOrder};
 pub use reply::{QueryReply, ReplyResults};
