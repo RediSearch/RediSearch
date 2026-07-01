@@ -28,32 +28,36 @@ extern crate redisearch_rs;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Add one entry to `dict` keyed by `field_name`, with value `ii`.
-///
-/// `MissingFieldDictType` uses `missingFieldDictType`, which copies the key via
-/// `keyDup` and owns the value via `valDestructor` (→ `InvertedIndex_Free`).
-/// Ownership of `ii` is transferred to the dict.
-fn add_entry(
-    dict: &mut OwnedDict<MissingFieldDictType>,
-    field_name: &[u8],
-    ii: Box<OpaqueInvertedIndex>,
-) {
-    with_hidden_string_ref(field_name, |key| dict.try_insert(key, ii).unwrap());
+/// Creates an inverted index containing `count` documents.
+fn index(count: u64) -> Box<OpaqueInvertedIndex> {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in 1..=count {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+    Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
 }
 
-fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
+/// Builds an `IndexSpec` with a `missingFieldDict` with the provided entries.
+fn make_spec(
+    entries: impl IntoIterator<Item = (&'static [u8], Box<OpaqueInvertedIndex>)>,
+) -> (ffi::IndexSpec, OwnedDict<MissingFieldDictType>) {
+    let mut dict = OwnedDict::create();
+    for (field_name, ii) in entries {
+        with_hidden_string_ref(field_name, |key| dict.try_insert(key, ii).unwrap());
+    }
+
     // SAFETY: zeroed IndexSpec is valid for read-only field access through the guard.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
     spec.missingFieldDict = dict.as_mut_ptr();
-    spec
+    (spec, dict)
 }
 
 /// When the dict has no entries, only a Terminator is written.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_dict_writes_only_terminator() {
-    let dict = OwnedDict::create();
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -71,13 +75,7 @@ fn empty_dict_writes_only_terminator() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_inverted_index_is_skipped() {
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
-        InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-    ));
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"empty_field", ii);
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"empty_field"[..], index(0))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -100,16 +98,7 @@ fn empty_inverted_index_is_skipped() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn entry_with_deleted_docs_writes_delta_frame() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
-        .unwrap();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
-        .unwrap();
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"age", ii);
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"age"[..], index(2))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -137,17 +126,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn multiple_entries_write_multiple_delta_frames() {
-    let make_ii = |doc_id| {
-        let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
-            .unwrap();
-        Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
-    };
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"field_a", make_ii(1));
-    add_entry(&mut dict, b"field_b", make_ii(2));
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"field_a"[..], index(1)), (&b"field_b"[..], index(1))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -208,8 +187,7 @@ fn receive_data_frame_returns_field_name_and_delta() {
 
 #[test]
 fn apply_returns_err_when_field_not_found() {
-    let dict = OwnedDict::<MissingFieldDictType>::create();
-    let mut spec = make_spec(&dict);
+    let (mut spec, _dict) = make_spec([]);
     let delta = GcScanDelta::empty_for_testing();
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
@@ -219,20 +197,28 @@ fn apply_returns_err_when_field_not_found() {
     ));
 }
 
+/// A successful apply with a no-op delta leaves the dict entry in place.
+#[test]
+fn apply_succeeds_and_keeps_entry_when_docs_remain() {
+    let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
+    let delta = GcScanDelta::empty_for_testing();
+
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    let info = apply_missing_docs(b"age", delta, &mut *write_guard).unwrap();
+
+    assert_eq!(info.entries_removed, 0);
+    assert!(
+        with_hidden_string_ref(b"age", |key| write_guard
+            .missing_field_dict_mut()
+            .fetch_mut(key))
+        .is_some()
+    );
+}
+
 /// Full child-to-parent roundtrip: when all docs are deleted the dict entry is removed.
 #[test]
 fn roundtrip_all_docs_deleted_removes_entry() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
-        .unwrap();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
-        .unwrap();
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-    let ii_ptr = Box::into_raw(ii);
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"age", Some(unsafe { &*ii_ptr }));
-    let mut spec = make_spec(&dict);
+    let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
 
     // Child side: collect.
     let mut buf = Vec::new();
@@ -258,8 +244,4 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     );
     assert!(info.bytes_freed > 0);
     assert!(info.entries_removed > 0);
-
-    // The test dict (dictTypeHeapHiddenStrings) has no valDestructor, so the II
-    // is not freed on RS_dictDelete — free it manually here.
-    unsafe { drop(Box::from_raw(ii_ptr)) };
 }
