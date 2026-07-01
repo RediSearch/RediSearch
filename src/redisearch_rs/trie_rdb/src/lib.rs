@@ -22,7 +22,7 @@
 //!
 //! IO is abstracted behind the [`RdbWrite`] / [`RdbRead`] traits so this crate
 //! carries no Redis dependency: the C entrypoints implement them over
-//! `RedisModuleIO` (in the `triemap_ffi` crate), and pure-Rust callers can
+//! `RedisModuleIO` (in the `trie_rdb_ffi` crate), and pure-Rust callers can
 //! implement them over any buffer.
 //!
 //! # Wire format
