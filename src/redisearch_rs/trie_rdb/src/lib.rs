@@ -68,6 +68,8 @@ pub mod byte;
 pub mod entry;
 pub mod str;
 
+use std::io;
+
 pub use entry::TrieEntry;
 
 /// Read the entry stream shared by both key flavors and feed each decoded
@@ -168,22 +170,31 @@ pub trait RdbWrite {
 
 /// Source for the typed RDB load primitives.
 ///
-/// Counterpart to [`RdbWrite`]. Every primitive may fail with [`RdbError`].
+/// Counterpart to [`RdbWrite`]. Every primitive returns [`std::io::Result`]:
+/// the trait models raw IO, so the only failure at this layer is an IO error.
+/// Framing failures ([`RdbError::MissingTrailingNul`], [`RdbError::InvalidUtf8`])
+/// are raised one layer up, by the helpers that consume these primitives.
 pub trait RdbRead {
     /// Read a 64-bit unsigned integer.
-    fn load_u64(&mut self) -> Result<u64, RdbError>;
+    fn load_u64(&mut self) -> io::Result<u64>;
     /// Read a 64-bit IEEE-754 double.
-    fn load_f64(&mut self) -> Result<f64, RdbError>;
+    fn load_f64(&mut self) -> io::Result<f64>;
     /// Read one length-prefixed buffer and return its raw bytes. The caller
     /// applies any trailing-NUL stripping the wire format requires (see
     /// [`load_nul_terminated`]).
-    fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError>;
+    fn load_bytes(&mut self) -> io::Result<Vec<u8>>;
 }
 
 /// Errors that can occur while reading a trie RDB payload.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RdbError {
     /// The underlying RDB read failed (EOF, corrupted stream, etc.).
+    ///
+    /// The originating [`std::io::Error`] is intentionally not retained: the
+    /// only consumer (the C load entry point) collapses every failure to a
+    /// NULL return, so the detail is discarded regardless. Dropping it keeps
+    /// [`RdbError`] `Clone + PartialEq + Eq`, which the wire-shape tests rely
+    /// on to assert exact error values.
     #[error("rdb io error")]
     Io,
     /// A bytes buffer expected to end with a NUL terminator did not.
@@ -193,6 +204,14 @@ pub enum RdbError {
     /// [`crate::str`] wrapper that requires UTF-8 keys.
     #[error("rdb key bytes not valid UTF-8")]
     InvalidUtf8,
+}
+
+impl From<io::Error> for RdbError {
+    /// Lift an IO failure from the [`RdbRead`] primitives into the framing
+    /// error type, so `?` threads `io::Result` through the framing helpers.
+    fn from(_: io::Error) -> Self {
+        RdbError::Io
+    }
 }
 
 /// In-memory [`RdbWrite`] / [`RdbRead`] mocks shared by the byte-keyed and
@@ -231,7 +250,7 @@ pub(crate) mod test_helpers {
     }
 
     /// [`RdbRead`] impl that replays a recorded [`Op`] trace. Optionally
-    /// short-circuits with [`RdbError::Io`] after `n` calls to exercise
+    /// short-circuits with an [`std::io::Error`] after `n` calls to exercise
     /// mid-stream IO failure paths.
     pub(crate) struct Replayer {
         ops: std::vec::IntoIter<Op>,
@@ -256,31 +275,36 @@ pub(crate) mod test_helpers {
             }
         }
 
-        fn step(&mut self) -> Result<Op, RdbError> {
+        fn step(&mut self) -> io::Result<Op> {
             if let Some(n) = self.fail_after
                 && self.calls >= n
             {
-                return Err(RdbError::Io);
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "mock: injected io failure",
+                ));
             }
             self.calls += 1;
-            self.ops.next().ok_or(RdbError::Io)
+            self.ops.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "mock: op stream exhausted")
+            })
         }
     }
 
     impl RdbRead for Replayer {
-        fn load_u64(&mut self) -> Result<u64, RdbError> {
+        fn load_u64(&mut self) -> io::Result<u64> {
             match self.step()? {
                 Op::U64(v) => Ok(v),
                 op => panic!("mock: expected U64, got {op:?}"),
             }
         }
-        fn load_f64(&mut self) -> Result<f64, RdbError> {
+        fn load_f64(&mut self) -> io::Result<f64> {
             match self.step()? {
                 Op::F64(v) => Ok(v),
                 op => panic!("mock: expected F64, got {op:?}"),
             }
         }
-        fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
+        fn load_bytes(&mut self) -> io::Result<Vec<u8>> {
             match self.step()? {
                 Op::Bytes(v) => Ok(v),
                 op => panic!("mock: expected Bytes, got {op:?}"),

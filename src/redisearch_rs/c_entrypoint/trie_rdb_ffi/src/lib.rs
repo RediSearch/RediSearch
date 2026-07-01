@@ -24,9 +24,10 @@
 
 use ffi::RedisModuleIO;
 use redis_module::{RedisModuleIO as RmIo, raw};
+use std::io;
 use trie_rdb::TrieEntry;
 use trie_rdb::str as str_rdb;
-use trie_rdb::{RdbError, RdbOpts, RdbRead, RdbWrite};
+use trie_rdb::{RdbOpts, RdbRead, RdbWrite};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Opaque FFI handle for a [`StrTrieMap<TrieEntry>`].
@@ -74,19 +75,19 @@ struct RmIoReader {
 }
 
 impl RdbRead for RmIoReader {
-    fn load_u64(&mut self) -> Result<u64, RdbError> {
-        self.io.read_unsigned().map_err(|_| RdbError::Io)
+    fn load_u64(&mut self) -> io::Result<u64> {
+        self.io.read_unsigned().map_err(io::Error::other)
     }
 
-    fn load_f64(&mut self) -> Result<f64, RdbError> {
-        self.io.read_double().map_err(|_| RdbError::Io)
+    fn load_f64(&mut self) -> io::Result<f64> {
+        self.io.read_double().map_err(io::Error::other)
     }
 
-    fn load_bytes(&mut self) -> Result<Vec<u8>, RdbError> {
+    fn load_bytes(&mut self) -> io::Result<Vec<u8>> {
         self.io
             .read_string_buffer()
             .map(|buf| buf.as_ref().to_vec())
-            .map_err(|_| RdbError::Io)
+            .map_err(io::Error::other)
     }
 }
 
