@@ -19,7 +19,7 @@ use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
 use std::ptr::NonNull;
-use value::{Array, Map, SharedValue, Trio, Value};
+use value::SharedValue;
 
 const JSON_ROOT: &CStr = c"$";
 
@@ -48,6 +48,17 @@ impl<'a> JsonDocumentFormat<'a> {
             api_version,
         }
     }
+
+    fn open_key(&self, key_name: &RedisString) -> Option<JsonValueRef<'a>> {
+        // SAFETY: `self.ctx` is a valid Redis module context held for the lifetime of `JsonFormat`.
+        unsafe {
+            self.japi.open_key_with_flags(
+                self.ctx.cast().as_ptr(),
+                key_name,
+                DOCUMENT_OPEN_KEY_QUERY_FLAGS,
+            )
+        }
+    }
 }
 
 impl DocumentFormat for JsonDocumentFormat<'_> {
@@ -60,18 +71,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         &'key self,
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
-        // SAFETY: `self.ctx` is a valid Redis module context held for the lifetime of `JsonFormat`.
-        let key = unsafe {
-            self.japi.open_key_with_flags(
-                self.ctx.cast().as_ptr(),
-                key_name,
-                DOCUMENT_OPEN_KEY_QUERY_FLAGS,
-            )
-        };
-
-        let Some(value) = key else {
-            return Err(LoadFieldError::KeyNotFound);
-        };
+        let value = self.open_key(key_name).ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {
             ctx: self.ctx,
@@ -87,16 +87,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
-        // SAFETY: `self.ctx` is a valid Redis module context held for the lifetime of `JsonFormat`.
-        let json_root = unsafe {
-            self.japi
-                .open_key_with_flags(
-                    self.ctx.cast().as_ptr(),
-                    key_name,
-                    DOCUMENT_OPEN_KEY_QUERY_FLAGS,
-                )
-                .ok_or(LoadAllError::OpenKeyFailed)?
-        };
+        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
 
         let json_iter = json_root
             .get(JSON_ROOT)
@@ -122,8 +113,8 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 }
 
 impl FieldLoader for JsonFieldLoader<'_> {
-    fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
-        let path = match kk.path() {
+    fn load_field(&self, key: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
+        let path = match key.path() {
             Some(p) => p.as_ref(),
             // No path set — nothing to load.
             None => return Ok(()),
@@ -149,7 +140,7 @@ impl FieldLoader for JsonFieldLoader<'_> {
             return Ok(());
         };
 
-        dst_row.write_key(kk, val);
+        dst_row.write_key(key, val);
 
         Ok(())
     }
@@ -187,10 +178,9 @@ fn json_iter_to_value(
 
     // Second, get the first JSON value. `is_empty()` returned false above, so the
     // iterator is contractually obligated to yield at least one value here.
-    let Some(json) = iter.next() else {
-        debug_assert!(false, "ResultsIter::is_empty()/next() disagree");
-        return Ok(None);
-    };
+    let json = iter
+        .next()
+        .expect("ResultsIter::is_empty()/next() disagree");
 
     let val = if matches!(json.get_type(), JsonType::Array) {
         // If the value is an array, we currently try using the first element.
@@ -204,11 +194,13 @@ fn json_iter_to_value(
     };
 
     let otherval = SharedValue::new_string(serialized.to_vec());
+
+    // NB: make sure the iterator is reset to the beginning, so we correctly
+    // get the full expanded value.
+    iter.reset();
     let expand = json_iter_to_value_expanded(ctx, iter);
 
-    Ok(Some(SharedValue::new(Value::Trio(Trio::new(
-        val, otherval, expand,
-    )))))
+    Ok(Some(SharedValue::new_trio(val, otherval, expand)))
 }
 
 // Return an array of expanded values from an iterator.
@@ -216,16 +208,15 @@ fn json_iter_to_value(
 // Required japi_ver >= 4
 fn json_iter_to_value_expanded(
     ctx: NonNull<ffi::RedisModuleCtx>,
-    mut iter: redis_json_api::ResultsIter<'_>,
+    iter: redis_json_api::ResultsIter<'_>,
 ) -> SharedValue {
     debug_assert!(!iter.is_empty(), "should be checked by caller");
-    iter.reset();
 
     let values: Box<_> = iter
         .map_into_iter(|json_val| json_val_to_value_expanded(ctx, json_val))
         .collect();
 
-    SharedValue::new(Value::Array(Array::new(values)))
+    SharedValue::new_array(values)
 }
 
 fn json_val_to_value_expanded(
@@ -234,42 +225,28 @@ fn json_val_to_value_expanded(
 ) -> SharedValue {
     match json.get_type() {
         JsonType::Object => {
-            let len = json.len().unwrap();
+            // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
+            let iter = unsafe { json.key_values(ctx.cast().as_ptr()).unwrap() };
 
-            if len > 0 {
-                // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
-                let iter = unsafe { json.key_values(ctx.cast().as_ptr()).unwrap() };
+            let values = iter.map(|(key, value)| {
+                let key = SharedValue::new_string(key.to_vec());
+                let value = json_val_to_value_expanded(ctx, value.as_ref());
 
-                let values: Box<_> = iter
-                    .map(|(key, value)| {
-                        let key = SharedValue::new_string(key.to_vec());
-                        let value = json_val_to_value_expanded(ctx, value.as_ref());
+                (key, value)
+            });
 
-                        (key, value)
-                    })
-                    .collect();
-
-                SharedValue::new(Value::Map(Map::new(values)))
-            } else {
-                SharedValue::new(Value::Map(Map::new(Box::new([]))))
-            }
+            SharedValue::new_map(values)
         }
         JsonType::Array => {
             let len = json.len().unwrap();
 
-            if len > 0 {
-                let values: Box<_> = (0..len)
-                    .map(|i| {
-                        let json = json.get_at(i).unwrap();
+            let values = (0..len).map(|i| {
+                let json = json.get_at(i).unwrap();
 
-                        json_val_to_value_expanded(ctx, json.as_ref())
-                    })
-                    .collect();
+                json_val_to_value_expanded(ctx, json.as_ref())
+            });
 
-                SharedValue::new(Value::Array(Array::new(values)))
-            } else {
-                SharedValue::new(Value::Array(Array::new(Box::new([]))))
-            }
+            SharedValue::new_array(values)
         }
         // Scalar
         _ => json_val_to_value(ctx, json),
@@ -298,7 +275,7 @@ fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) 
         JsonType::Object | JsonType::Array => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
             let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
-            SharedValue::new_string(v.to_string_lossy().into_bytes())
+            SharedValue::new_string(v.to_vec())
         }
         JsonType::Null => SharedValue::null_static(),
     }

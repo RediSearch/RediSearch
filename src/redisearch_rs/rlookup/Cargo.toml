@@ -21,7 +21,6 @@ value.workspace = true
 redis_mock.workspace = true
 query_error.workspace = true
 redis_json_api.workspace = true
-
 enumflags2.workspace = true
 libc.workspace = true
 pin-project.workspace = true
