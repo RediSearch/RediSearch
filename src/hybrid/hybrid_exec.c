@@ -818,10 +818,9 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Acquire the spec read lock around pipeline building: QAST_Iterate consults
-  // the trie/stats, which GC can mutate concurrently, so building them unlocked
-  // can race with GC. The lock is held only for the build phase; how it is
-  // released depends on the depletion mode (see the unlock comments below).
+  // Hold the spec read lock for the pipeline build: QAST_Iterate reads the
+  // trie/stats, which GC can mutate concurrently. Release semantics differ per
+  // depletion mode (see below).
   RedisSearchCtx_LockSpecRead(sctx);
 
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
@@ -846,17 +845,11 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
       goto error;
   }
 
-  // Foreground (WORKERS == 0) depletion runs synchronously on this thread via
-  // RPDepleter, and each query-iterator re-acquires the spec read lock itself
-  // (with iterator revalidation). Holding the lock across that inline depletion
-  // would issue a second read-lock on the same writer-preferring, non-recursive
-  // rwlock from this thread and deadlock against a queued writer (e.g. fork-GC).
-  // Release it now; the depletion path locks and revalidates as needed.
-  //
-  // The background path keeps the lock held: RPSafeDepleter hands it off to its
-  // worker threads and releases it once they have each taken their own read lock
-  // (see RPSafeDepleter_WaitForDepletionToStart), guaranteeing a consistent
-  // index snapshot across the depleters.
+  // Foreground (WORKERS == 0) depletion runs inline via RPDepleter, whose
+  // query-iterators re-acquire the read lock themselves; holding it here would
+  // re-lock the non-recursive, writer-preferring rwlock and deadlock against a
+  // queued writer (e.g. fork-GC). The background path instead keeps the lock,
+  // handing it off to its worker threads (see RPSafeDepleter_WaitForDepletionToStart).
   if (!depleteInBackground) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
@@ -867,19 +860,15 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     goto error;
   }
 
-  // Idempotent: releases the lock still held by the background path after a
-  // successful run. The foreground path already released it above, and the
-  // background handoff may have too.
+  // Release the lock still held by the background path. Idempotent: no-op if
+  // the foreground path or background handoff already released it.
   RedisSearchCtx_UnlockSpec(sctx);
   freeHybridParams(hybridParams);
   return REDISMODULE_OK;
 
 error:
-  // Single cleanup path for every build/execute failure above, so a future
-  // early return cannot accidentally leak the read lock. UnlockSpec is
-  // idempotent: the foreground path may have already released the lock before
-  // the failure, and the background depleter may have released it during its
-  // handoff (see RPSafeDepleter_WaitForDepletionToStart).
+  // Single cleanup path for all failures above. UnlockSpec is idempotent, so
+  // this is safe whether or not the lock was already released.
   RedisSearchCtx_UnlockSpec(sctx);
   return REDISMODULE_ERR;
 }
@@ -1058,12 +1047,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     return REDISMODULE_OK;
   } else {
-    // Single-threaded execution path. The spec read lock is taken and released
-    // inside buildPipelineAndExecute, scoped to the pipeline build: it is
-    // released before the inline (foreground) depletion runs, since each
-    // query-iterator re-acquires the read lock itself and holding it across the
-    // inline depletion would deadlock on the writer-preferring rwlock against a
-    // queued writer (e.g. fork-GC).
+    // Single-threaded execution path. buildPipelineAndExecute takes and
+    // releases the spec read lock internally, scoped to the pipeline build.
     return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
   }
 }
@@ -1285,9 +1270,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
-  // The spec read lock is taken and released inside buildPipelineAndExecute,
-  // scoped to the pipeline build (see the unlock comments there for the
-  // foreground/background release semantics).
+  // buildPipelineAndExecute takes and releases the spec read lock internally
+  // (see the unlock comments there).
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
