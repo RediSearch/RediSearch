@@ -3382,6 +3382,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vector_score_source"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "rqe_core",
+ "rqe_iterators",
+ "top_k",
+ "tracing",
+ "vecsim",
+ "workspace_hack",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
