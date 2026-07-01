@@ -48,10 +48,8 @@ jobs:
     uses: ./.github/workflows/flow-redis-build-sanity.yml
     secrets: inherit
     with:
-      # Scheduled workflows only run on master. Version branch coverage runs in
-      # event-redis-build-sanity.yml so the main nightly stays minimal.
-      platform: ubuntu:latest
-      architecture: x86_64
+      platform: all
+      architecture: all
       # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
       redis-repository: TalBarYakar/redis
       redis-ref: tal.ba/feat/add_redis_docker_files
