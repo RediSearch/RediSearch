@@ -81,21 +81,44 @@ seconds-to-minutes → reliably overlaps GC → the natural C2/C3 driver. For a 
 cursor, releasing the lock between reads is doubly required: otherwise it starves
 GC and writers for its whole lifetime.
 
-**Caveat — not a clean one-liner.** The read lock also guards the doc table
-(content/sortables), spec schema, field specs, and TTL table;
-`InvertedIndexSnapshot` covers only II block storage. Blanket lock removal leaves
-those unsynchronized — that is the scope of the full lock-free program
-(`design.md`), not a benchmark prerequisite.
+**Locking model (corrected — do NOT release the lock around `Read`).** The read
+lock guards more than II blocks, and crucially the **TTL/expiration table**: the
+per-round work touches `spec->docs.ttl` in two places —
+`getDocumentMetadata → DocTable_IsDocExpired` (result_processor.c) *and*
+`it->Read → DocTable_CheckFieldExpirationPredicate` for field-expiration filtering
+(hybrid_reader.c). So `Read` itself races the TTL table if run unlocked. The correct
+structure holds the read lock around the **whole round (`Read` + dmd)** and releases
+it **between** rounds:
 
-**Decision (measurement scaffold):**
-- Gate an **experimental cursor lock-release behind a hidden config/debug flag**
-  (feature-branch only): capture the snapshot under the lock, release it, paginate
-  lock-free off the II snapshot, free on close/timeout/exhaustion.
-- Keep benchmark queries **II-centric** (aggregate/count on indexed fields; avoid
-  heavy doc-table loads) so the scaffold is as sound as possible for the runs.
-- Add `FT.DEBUG` accounting (below) so retained bytes are directly observable.
-- This is a measurement scaffold, **not** the shippable integration (which must
-  also snapshot/synchronize the non-II structures).
+```
+loop {
+  lock_read();
+  revalidate();               // spec may have changed during the release window
+  Read();                     // may touch spec->docs.ttl — must be locked
+  getDocumentMetadata();      // doc + field expiration — must be locked
+  unlock();                   // writers/GC interleave here; snapshot keeps our view stable
+}
+```
+
+The snapshot's role is **not** intra-round memory safety (the lock covers that) — it
+is surviving the **release windows**: because its blocks are immutable (COW), a
+writer/GC running while the lock is released cannot invalidate the reader's iterator
+state, so no per-round block-pointer refresh is needed and results stay point-in-time
+consistent. COW fires exactly when GC runs during a release window while the snapshot
+pins blocks. Per-round acquire/release is the safe baseline; releasing every N rounds
+is the tuning knob if rwlock churn shows up.
+
+**No SWAP / id gating.** `InvertedIndexSnapshot` has no internal ids, and doc-ids are
+monotonic (`DocTable_Put: ++maxDocId`, never recycled); stale/deleted ids resolve to a
+NULL dmd and are skipped. The SWAP slot-reuse gating in the HNSW/VecSim design does
+**not** apply to this inverted-index track.
+
+**Benchmark selection:** avoid the expiration/HFE configs (`search-expire-*`,
+`search-hfe-*`) — their Read exercises the TTL path and muddies the lock measurement.
+`search-msmarco-6M-documents-mixed-50-50.yml` has no TTL and is clean.
+
+**Decision:** gate the per-round lock-release behind a **hidden config/debug flag**,
+enabled for the benchmark runs.
 
 ## Instrumentation to add (both layers depend on it)
 
