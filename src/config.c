@@ -255,7 +255,7 @@ static int set_search_disk_max_open_files_config(const char *name, long long val
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(int *)privdata = (int)val;
-  // Reapply the new cap to every live SpeedB database (mirrors buffer-percentage).
+  // Reapply the new cap to every live disk database (mirrors buffer-percentage).
   if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
     SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val);
   }

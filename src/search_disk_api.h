@@ -133,7 +133,7 @@ typedef struct BasicDiskAPI {
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
-   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (RocksDB default)
+   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
    * @return Pointer to the disk context, or NULL on error
    */
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
@@ -299,7 +299,7 @@ typedef struct BasicDiskAPI {
    *
    * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (RocksDB default)
+   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
    */
   void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
 } BasicDiskAPI;
@@ -565,13 +565,13 @@ typedef struct IndexDiskAPI {
   void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
 
   /**
-   * @brief Apply a new SpeedB max_open_files cap to this index's database at runtime.
+   * @brief Apply a new max_open_files cap to this index's database at runtime.
    *
-   * Dynamically changes the database-level max_open_files option via SetDBOptions,
-   * resizing the table cache so SpeedB recycles least-recently-used file readers.
+   * Bounds the number of files this index's database keeps open, recycling the
+   * least-recently-used ones and reopening on demand.
    *
    * @param index Pointer to the disk index
-   * @param maxOpenFiles New per-DB cap; -1 = unlimited (RocksDB default)
+   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
    */
   void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 

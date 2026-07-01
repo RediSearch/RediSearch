@@ -829,14 +829,14 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
 
 /**
- * @brief Reapply the SpeedB max_open_files cap to all live databases.
+ * @brief Reapply the max_open_files cap to all live disk databases.
  *
  * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
  * the configured value on the shared disk context (so newly created indexes use it)
  * and applies the resolved per-DB cap to every existing index's database at runtime.
  *
  * @param ctx Redis module context
- * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (RocksDB default)
+ * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
  */
 void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 
