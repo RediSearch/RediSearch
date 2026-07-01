@@ -981,26 +981,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
-  QueryIterator *child = NULL;
-  bool currently_notSubtree = q->notSubtree;
-  q->notSubtree = true;
-  child = Query_EvalNode_Rs(q, qn->children[0]);
-  q->notSubtree = currently_notSubtree;
-
-  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewNotIterator(child, maxDocId, qn->opts.weight, q->sctx->time.timeout,
-                        q->bcTimeoutAreq, q);
-}
-
-static QueryIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
-  RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-  t_docId maxDocId = q->sctx->spec->diskSpec ? SearchDisk_GetMaxDocId(q->sctx->spec->diskSpec) : q->docTable->maxDocId;
-  return NewOptionalIterator(Query_EvalNode_Rs(q, qn->children[0]), q, maxDocId, qn->opts.weight);
-}
-
 static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
@@ -1131,7 +1111,7 @@ static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->notSubtree || qn->opts.weight == 0;
+  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
   QueryIterator *ret = NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
   return ret;
 }
@@ -1466,7 +1446,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   // We want to get results with all the matching children (`quickExit == false`), unless:
   // 1. We are a `Not` sub-tree, so we only care about the set of IDs
   // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->notSubtree || qn->opts.weight == 0;
+  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
   return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 }
 
@@ -1476,6 +1456,8 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_WILDCARD:
     case QN_NULL:
     case QN_MISSING:
+    case QN_OPTIONAL:
+    case QN_NOT:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
@@ -1486,8 +1468,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalUnionNode(q, n);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_NOT:
-      return Query_EvalNotNode(q, n);
     case QN_PREFIX:
       return Query_EvalPrefixNode(q, n);
     case QN_LEXRANGE:
@@ -1496,8 +1476,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalFuzzyNode(q, n);
     case QN_NUMERIC:
       return Query_EvalNumericNode(q, n);
-    case QN_OPTIONAL:
-      return Query_EvalOptionalNode(q, n);
     case QN_GEO:
       return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:

@@ -82,6 +82,11 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                                struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
 
+/* Score handicap for an anchor token followed by '*': matching it scans a whole
+ * subtree instead of a single exact entry, so it must out-length an exact token
+ * by this many characters to be chosen. */
+#define SUFFIX_STARRED_ANCHOR_PENALTY 5
+
 /* Breaks wildcard at '*'s and finds the best token to get iterate the suffix trie.
  * tokenIdx and tokenLen arrays should sufficient space for all tokens. Max (len / 2) + 1.
  * The function does not assume str is NULL terminated. */

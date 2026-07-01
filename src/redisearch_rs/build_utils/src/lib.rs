@@ -16,17 +16,14 @@ use std::{
 };
 
 /// Return the root folder of the repository.
-pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let mut path = std::env::current_dir()?;
-    // Jujutsu (`jj`) doesn't colocate with `git` when using `jj workspace add`,
-    // so looking for `.git` won't be enough.
-    while !(path.join(".git").exists() || path.join(".jj").exists()) {
-        path = path
-            .parent()
-            .ok_or("Could not find git root")?
-            .to_path_buf();
-    }
-    Ok(path)
+///
+/// `build_utils` lives at `src/redisearch_rs/build_utils`, so its Cargo manifest
+/// directory is a stable anchor even when source archives omit VCS metadata.
+pub fn repository_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Keep this lexical rather than canonicalizing it. Callers only join paths
+    // below this root, and `canonicalize` requires `realpath`, which Miri does
+    // not support with filesystem isolation enabled.
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
@@ -93,7 +90,13 @@ pub fn force_link_time_symbol_resolution() {
 /// When the top-level build coordinator sets `BINDIR`, that value is used
 /// directly. Otherwise we fall back to the conventional release layout
 /// derived from the git root.
+///
+/// The chosen directory is baked into the `-L` link-search flags this crate
+/// emits, so the `rerun-if-env-changed` below re-evaluates it whenever
+/// `BINDIR` changes — otherwise Cargo replays a stale cached `-L` (e.g. a
+/// release path captured during a `BINDIR`-less run) into a later build.
 fn bin_root() -> PathBuf {
+    println!("cargo::rerun-if-env-changed=BINDIR");
     if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
@@ -250,4 +253,39 @@ pub fn generate_c_bindings(
         .write_to_file(out_dir.join("bindings.rs"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_root;
+    use std::path::PathBuf;
+
+    #[test]
+    fn repository_root_resolves_to_redisearch_source_root() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = repository_root()?;
+
+        assert_eq!(
+            root,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+        );
+
+        // Miri runs with filesystem isolation enabled, so metadata checks such
+        // as `is_file` are unavailable there. The path construction above is
+        // still covered by Miri; the source-root marker checks run in normal
+        // test execution.
+        #[cfg(not(miri))]
+        {
+            assert!(root.join("CMakeLists.txt").is_file());
+            assert!(
+                root.join("src")
+                    .join("redisearch_rs")
+                    .join("Cargo.toml")
+                    .is_file()
+            );
+            assert!(root.join("src").join("version.h").is_file());
+        }
+
+        Ok(())
+    }
 }

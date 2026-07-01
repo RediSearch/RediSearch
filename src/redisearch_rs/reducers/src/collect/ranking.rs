@@ -7,20 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Min-max heap building blocks for the bounded `COLLECT … SORTBY [LIMIT]`
-//! top-K path.
-//!
-//! Wraps an `Ord`-driven [`MinMaxHeap`][min_max_heap::MinMaxHeap] over
-//! [`HeapEntry<D, T>`], where the comparator only reads the [`EntryKey`] half. The
-//! split lets the heap defer payload projection until a candidate's survival is
-//! confirmed.
+//! Ranking primitives for the bounded `COLLECT … SORTBY [LIMIT]` top-K path:
+//! [`RankingKey`] is the comparator; [`RankedEntry`] is the ranked storage's
+//! element, pairing a key with its payload.
 //!
 //! ## Deferred projection
 //!
-//! [`EntryKey`] owns a *snapshot* of the sort-key values, severed from the
-//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. The payload
-//! `T` is materialised by the caller only after the candidate has beaten the
-//! current worst — see [`super::storage`].
+//! [`RankingKey`] owns a *snapshot* of the sort-key values, severed from the
+//! reused upstream [`RLookupRow`][rlookup::RLookupRow] buffer. On the
+//! non-DISTINCT path the payload `T` is materialised only after the candidate
+//! beats the current worst — see [`super::storage`].
 //!
 
 use std::cmp::Ordering;
@@ -32,13 +28,13 @@ use value::comparison::cmp_fields;
 ///
 /// Bit `i` of `sort_asc_map` (LSB-first) selects ASC for the `i`-th key
 /// (set) or DESC (clear), matching `SORTASCMAP_GETASC` / `cmp_fields`.
-pub struct EntryKey<D: Ord> {
+pub struct RankingKey<D: Ord> {
     sort_vals: Box<[Option<SharedValue>]>,
     sort_asc_map: u64,
     doc_id: D,
 }
 
-impl<D: Ord> EntryKey<D> {
+impl<D: Ord> RankingKey<D> {
     pub const fn new(sort_vals: Box<[Option<SharedValue>]>, sort_asc_map: u64, doc_id: D) -> Self {
         Self {
             sort_vals,
@@ -46,28 +42,34 @@ impl<D: Ord> EntryKey<D> {
             doc_id,
         }
     }
+
+    /// Consumes the key, yielding its sort-key snapshot in `SORTBY` order (an
+    /// absent key is `None`).
+    pub fn into_sort_vals(self) -> Box<[Option<SharedValue>]> {
+        self.sort_vals
+    }
 }
 
-impl<D: Ord> PartialEq for EntryKey<D> {
+impl<D: Ord> PartialEq for RankingKey<D> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl<D: Ord> Eq for EntryKey<D> {}
+impl<D: Ord> Eq for RankingKey<D> {}
 
-impl<D: Ord> PartialOrd for EntryKey<D> {
+impl<D: Ord> PartialOrd for RankingKey<D> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<D: Ord> Ord for EntryKey<D> {
+impl<D: Ord> Ord for RankingKey<D> {
     fn cmp(&self, other: &Self) -> Ordering {
         debug_assert_eq!(
             self.sort_vals.len(),
             other.sort_vals.len(),
-            "EntryKey sort_vals length mismatch"
+            "RankingKey sort_vals length mismatch"
         );
         let pairs = self
             .sort_vals
@@ -80,28 +82,25 @@ impl<D: Ord> Ord for EntryKey<D> {
         // C `RPSorter`'s `mmh_pop_max` consumer.
         //
         // On a tie, break by doc id. Reversing the comparison makes a
-        // smaller doc id "stronger" (greater), so the heap prefers it.
+        // smaller doc id "stronger" (greater), so ranking prefers it.
         cmp_fields(pairs, self.sort_asc_map, None)
             .then_with(|| self.doc_id.cmp(&other.doc_id).reverse())
     }
 }
 
-/// Heap slot: the comparator key alongside the projected payload.
-///
-/// `T` is the per-row payload the consumer (`Storage::Heap`) yields at
-/// finalize. Comparing only reads `key`, so the choice of `T` does not
-/// affect ranking.
-pub struct HeapEntry<D: Ord, T> {
-    key: EntryKey<D>,
+/// Ordering and equality read only `key`, so the payload `T` never affects
+/// ranking.
+pub struct RankedEntry<K, T> {
+    key: K,
     projected: T,
 }
 
-impl<D: Ord, T> HeapEntry<D, T> {
-    pub const fn new(key: EntryKey<D>, projected: T) -> Self {
+impl<K, T> RankedEntry<K, T> {
+    pub const fn new(key: K, projected: T) -> Self {
         Self { key, projected }
     }
 
-    pub const fn key(&self) -> &EntryKey<D> {
+    pub const fn key(&self) -> &K {
         &self.key
     }
 
@@ -109,27 +108,30 @@ impl<D: Ord, T> HeapEntry<D, T> {
         &self.projected
     }
 
-    /// Return the projected payload.
     pub fn into_projected(self) -> T {
         self.projected
     }
+
+    pub fn into_parts(self) -> (K, T) {
+        (self.key, self.projected)
+    }
 }
 
-impl<D: Ord, T> PartialEq for HeapEntry<D, T> {
+impl<K: PartialEq, T> PartialEq for RankedEntry<K, T> {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
     }
 }
 
-impl<D: Ord, T> Eq for HeapEntry<D, T> {}
+impl<K: Eq, T> Eq for RankedEntry<K, T> {}
 
-impl<D: Ord, T> PartialOrd for HeapEntry<D, T> {
+impl<K: Ord, T> PartialOrd for RankedEntry<K, T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<D: Ord, T> Ord for HeapEntry<D, T> {
+impl<K: Ord, T> Ord for RankedEntry<K, T> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.cmp(&other.key)
     }

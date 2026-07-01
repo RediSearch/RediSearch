@@ -1765,6 +1765,12 @@ int SetFtAggregateInfo(RedisModuleCommand *cmd) {
                           {0}
                         },
                       },
+                      {
+                        .name = "distinct",
+                        .token = "DISTINCT",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                      },
                       {0}
                     },
                   },
@@ -2751,6 +2757,12 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
         },
       },
       {
+        .name = "explainscore",
+        .token = "EXPLAINSCORE",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {
         .name = "params",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
@@ -3045,6 +3057,12 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                           },
                           {0}
                         },
+                      },
+                      {
+                        .name = "distinct",
+                        .token = "DISTINCT",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                       },
                       {0}
                     },

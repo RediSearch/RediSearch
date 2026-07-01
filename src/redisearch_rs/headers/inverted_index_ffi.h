@@ -14,11 +14,6 @@
 #include "rqe_core.h"
 
 /**
- * The result of an inverted index
- */
-typedef struct RSIndexResult RSIndexResult;
-
-/**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
  * based on the index type and filter provided when creating the reader. This allows us to have a
  * single interface for all index reader types while still being able to optimize the storage
@@ -67,6 +62,14 @@ typedef struct II_GCCallback {
    */
   void (*call)(void *ctx);
 } II_GCCallback;
+
+/**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
 
 /**
  * The mask of flags that determine the index storage type. This includes all flags that affect
@@ -141,7 +144,7 @@ struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -437,7 +440,7 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Next(struct IndexReader *ir, struct RSIndexResult *res);
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
 /**
  * Skip the internal block of the inverted index reader to the block that may contain the given
@@ -464,7 +467,7 @@ bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, struct RSIndexResult *res);
+bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
 
 /**
  * Check if the index reader can return multiple entries for the same document ID.

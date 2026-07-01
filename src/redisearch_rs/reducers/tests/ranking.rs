@@ -7,21 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Unit tests for the min-max heap building blocks shared by the COLLECT
-//! reducer's bounded SORTBY path.
+//! Unit tests for the ranking primitives ([`RankingKey`] and [`RankedEntry`])
+//! shared by the COLLECT reducer's bounded SORTBY path.
 
 extern crate redisearch_rs;
 
 use min_max_heap::MinMaxHeap;
-use reducers::collect::heap::{EntryKey, HeapEntry};
+use reducers::collect::ranking::{RankedEntry, RankingKey};
 use std::cmp::Ordering;
 use value::SharedValue;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Builds an [`EntryKey`] from `f64`s — `f64::NAN` projects to `None` so tests
+/// Builds an [`RankingKey`] from `f64`s — `f64::NAN` projects to `None` so tests
 /// can exercise the missing-worst policy.
-fn key(vals: &[f64], asc: u64) -> EntryKey<()> {
+fn key(vals: &[f64], asc: u64) -> RankingKey<()> {
     let snapshot: Box<[Option<SharedValue>]> = vals
         .iter()
         .map(|v| {
@@ -32,7 +32,7 @@ fn key(vals: &[f64], asc: u64) -> EntryKey<()> {
             }
         })
         .collect();
-    EntryKey::new(snapshot, asc, ())
+    RankingKey::new(snapshot, asc, ())
 }
 
 /// Bit `i` ASC.
@@ -116,25 +116,25 @@ fn ord_both_missing_falls_through() {
 }
 
 #[test]
-fn heap_entry_ord_delegates_to_key() {
+fn ranked_entry_ord_delegates_to_key() {
     // Payload differs; comparator must ignore it entirely.
-    let a = HeapEntry::new(key(&[1.0], asc(0)), "payload-a");
-    let b = HeapEntry::new(key(&[2.0], asc(0)), "payload-b");
+    let a = RankedEntry::new(key(&[1.0], asc(0)), "payload-a");
+    let b = RankedEntry::new(key(&[2.0], asc(0)), "payload-b");
     assert_eq!(a.cmp(&b), Ordering::Greater);
 }
 
 #[test]
-fn heap_entry_into_projected_returns_payload() {
-    let e = HeapEntry::new(key(&[7.0], asc(0)), 42u64);
+fn ranked_entry_into_projected_returns_payload() {
+    let e = RankedEntry::new(key(&[7.0], asc(0)), 42u64);
     assert_eq!(e.into_projected(), 42);
 }
 
 #[test]
 fn min_max_heap_top_k_under_asc() {
-    let mut heap: MinMaxHeap<HeapEntry<(), u64>> = MinMaxHeap::with_capacity(3);
+    let mut heap: MinMaxHeap<RankedEntry<RankingKey<()>, u64>> = MinMaxHeap::with_capacity(3);
     // ASC bit 0 set → smaller is better. Top-3 of {5,1,4,2,3} = {1,2,3}.
-    let push = |heap: &mut MinMaxHeap<HeapEntry<(), u64>>, v: f64| {
-        heap.push(HeapEntry::new(key(&[v], asc(0)), v as u64));
+    let push = |heap: &mut MinMaxHeap<RankedEntry<RankingKey<()>, u64>>, v: f64| {
+        heap.push(RankedEntry::new(key(&[v], asc(0)), v as u64));
     };
     push(&mut heap, 5.0);
     push(&mut heap, 1.0);
@@ -146,7 +146,7 @@ fn min_max_heap_top_k_under_asc() {
 
     // Bounded skip-or-replace against the worst.
     for v in [2.0, 3.0] {
-        let cand = HeapEntry::new(key(&[v], asc(0)), v as u64);
+        let cand = RankedEntry::new(key(&[v], asc(0)), v as u64);
         // Only replace if candidate beats current worst.
         if cand.cmp(heap.peek_min().unwrap()) == Ordering::Greater {
             heap.push_pop_min(cand);
@@ -159,24 +159,24 @@ fn min_max_heap_top_k_under_asc() {
     assert_eq!(members, vec![1, 2, 3]);
 
     // Sorted drain best→worst = ASC top-K = 1,2,3.
-    let drained: Vec<u64> = heap.drain_desc().map(HeapEntry::into_projected).collect();
+    let drained: Vec<u64> = heap.drain_desc().map(RankedEntry::into_projected).collect();
     assert_eq!(drained, vec![1, 2, 3]);
 }
 
 #[test]
-fn entry_key_compares_doc_id_only_after_sort_values_tie() {
+fn ranking_key_compares_doc_id_only_after_sort_values_tie() {
     let primary = Some(SharedValue::new_num(1.0));
-    let a = EntryKey::new(Box::new([primary.clone()]), asc(0), 10u64);
-    let b = EntryKey::new(Box::new([primary]), asc(0), 20u64);
+    let a = RankingKey::new(Box::new([primary.clone()]), asc(0), 10u64);
+    let b = RankingKey::new(Box::new([primary]), asc(0), 20u64);
     // Sort values tie -> smaller doc id is "better".
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);
 }
 
 #[test]
-fn entry_key_sort_values_take_precedence_over_doc_id() {
-    let a = EntryKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
-    let b = EntryKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
+fn ranking_key_sort_values_take_precedence_over_doc_id() {
+    let a = RankingKey::new(Box::new([Some(SharedValue::new_num(1.0))]), asc(0), 20u64);
+    let b = RankingKey::new(Box::new([Some(SharedValue::new_num(2.0))]), asc(0), 10u64);
     // Sort value wins first; doc id is only a tie-breaker.
     assert_eq!(a.cmp(&b), Ordering::Greater);
     assert_eq!(b.cmp(&a), Ordering::Less);

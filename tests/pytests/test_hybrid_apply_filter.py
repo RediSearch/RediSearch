@@ -111,3 +111,36 @@ def test_hybrid_bad_apply():
     env.expect('FT.HYBRID', 'idx', 'SEARCH', search_query, 'VSIM' ,'@embedding', '$BLOB',\
         'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'WINDOW', '10',
          'APPLY', 'whoami', 'PARAMS', '2', 'BLOB', query_vector).error().contains("Unknown symbol 'whoami'")
+
+# Skipped because it doesn't work in coordinator, see #10280 for more background.
+@skip(cluster=True)
+def test_hybrid_apply_matched_terms_without_scores():
+    """matched_terms() in the tail must work even when scores aren't requested.
+
+    The per-subquery depleters must preserve each row's index result so the tail
+    APPLY can read it; without the fix they drop it and every row yields None.
+    """
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0, 0]).astype(np.float32).tobytes()
+
+    def run_matched_terms(*extra_search_args):
+        response = env.cmd('FT.HYBRID', 'idx',
+            'SEARCH', 'shoes', *extra_search_args,
+            'VSIM', '@embedding', '$BLOB', 'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'LOAD', '1', '@__key', 'APPLY', 'matched_terms()', 'AS', 'terms',
+            'PARAMS', '2', 'BLOB', query_vector)
+        results, _ = get_results_from_hybrid_response(response)
+        return {key: row.get('terms') for key, row in results.items()}
+
+    terms = run_matched_terms()
+    # Docs whose text matches "shoes" expose the matched (stemmed) terms.
+    for key in ('doc:1', 'doc:2', 'doc:4'):
+        env.assertIsNotNone(terms[key], message=key)
+        env.assertContains('shoes', terms[key], message=key)
+    # "running gear" matches only the vector subquery, so it has no matched terms.
+    env.assertIsNone(terms['doc:3'])
+
+    # Requesting a score must not change the matched_terms() output: the no-score
+    # path now agrees with the path that already preserved the index result.
+    env.assertEqual(run_matched_terms('YIELD_SCORE_AS', 's_score'), terms)

@@ -30,7 +30,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
 
-      AREQ_AddRequestFlags(areq, QEXEC_F_BUILDPIPELINE_NO_ROOT);
+      AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {

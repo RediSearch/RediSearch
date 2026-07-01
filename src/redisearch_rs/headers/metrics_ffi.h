@@ -46,7 +46,7 @@ void RSYieldableMetric_Concat(MetricsVec *parent, MetricsVec *child);
  * 2. `key` must be a valid `*const RLookupKey` that outlives the result
  *    (or null).
  */
-void ResultMetrics_Add(struct RSIndexResult *r, const RLookupKey *key, double val);
+void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, double val);
 
 /**
  * Clears all entries from the result's metrics collection.
@@ -55,7 +55,7 @@ void ResultMetrics_Add(struct RSIndexResult *r, const RLookupKey *key, double va
  *
  * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
  */
-void ResultMetrics_Reset(struct RSIndexResult *r);
+void ResultMetrics_Reset(RSIndexResult *r);
 
 /**
  * Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
@@ -65,7 +65,7 @@ void ResultMetrics_Reset(struct RSIndexResult *r);
  *
  * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
  */
-void IndexResult_ResetAggregate(struct RSIndexResult *r);
+void IndexResult_ResetAggregate(RSIndexResult *r);
 
 /**
  * Returns a read-only slice view of the metrics collection for zero-copy
@@ -77,7 +77,7 @@ void IndexResult_ResetAggregate(struct RSIndexResult *r);
  * 2. The returned slice borrows from the `MetricsVec`; the caller must
  *    not mutate or free the `MetricsVec` while the slice is in use.
  */
-struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
+MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 
 /**
  * Finds the first metric whose key matches `key` (pointer equality) and

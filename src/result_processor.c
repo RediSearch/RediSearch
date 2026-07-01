@@ -201,10 +201,29 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
   RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
   base->parent->totalResults++;
   SearchResult_SetDocId(res, dmd->id);
-  SearchResult_SetIndexResult(res, indexResult);
+  SearchResult_SetBorrowedIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   SearchResult_SetDocumentMetadata(res, dmd);
   RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
+}
+
+/**
+ * Prepare a result's borrowed RSIndexResult before a buffering RP stores the
+ * result across an iterator advance.
+ *
+ * The borrow points into the source iterator's `it->current` slot, which the
+ * next Read() overwrites. Unless the pipeline has opted into skipping the copy
+ * (`qctx.skipIndexResultDeepCopy`, set only when nothing downstream — highlighter
+ * or matched_terms() — reads the index result), promote the borrow to an owned
+ * deep copy. Otherwise drop the borrow so the buffered result never retains a
+ * dangling pointer, without paying for the copy.
+ */
+static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchResult *res) {
+  if (rp->parent->skipIndexResultDeepCopy) {
+    SearchResult_SetBorrowedIndexResult(res, NULL);
+  } else {
+    SearchResult_DeepCopyAndOwnIndexResult(res);
+  }
 }
 
 /**
@@ -693,8 +712,12 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   // If the queue is not full - we just push the result into it
   if (self->pq->count < self->pq->size) {
 
-    // copy the index result to make it thread safe - but only if it is pushed to the heap
-    SearchResult_SetIndexResult(self->pooledResult, NULL);
+    // The pooled result currently borrows `it->current` from the source
+    // iterator; the next Read() overwrites that slot, so the borrow would
+    // dangle once the SearchResult lives in the heap across reads. Preserve it
+    // as an owned deep copy when something downstream needs it, otherwise drop
+    // the borrow.
+    SearchResult_BufferIndexResult(rp, self->pooledResult);
     mmh_insert(self->pq, self->pooledResult);
     if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
       rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
@@ -713,7 +736,9 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 
     // if needed - pop it and insert a new result
     if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      SearchResult_SetIndexResult(self->pooledResult, NULL);
+      // Preserve or drop the borrowed RSIndexResult before the SearchResult
+      // enters the heap; see the matching insert path above for the rationale.
+      SearchResult_BufferIndexResult(rp, self->pooledResult);
       self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
@@ -1040,10 +1065,13 @@ typedef struct RPSafeLoader {
 
 /************************* Safe Loader private functions *************************/
 
-static void SetResult(SearchResult *buffered_result,  SearchResult *result_output) {
-  // Free the RLookup row before overriding it.
-  RLookupRow_Reset(SearchResult_GetRowDataMut(result_output));
-  *result_output = *buffered_result;
+static void SetResult(SearchResult *buffered_result, SearchResult *result_output) {
+  // Move ownership from the buffer slot into result_output, dropping result_output's
+  // old resources (RLookupRow, owned _index_result) in the process.
+  SearchResult_Override(result_output, buffered_result);
+  // Reinitialize the now-consumed buffer slot so rpSafeLoaderFree (or any future
+  // traversal) never sees a dangling owned _index_result pointer there.
+  *buffered_result = SearchResult_New();
 }
 
 static SearchResult *GetResultsBlock(RPSafeLoader *self, size_t idx) {
@@ -1166,6 +1194,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
     rp->parent->resultLimit--;
+    // Buffered SearchResults outlive the source iterator's `it->current` slot;
+    // preserve any borrowed RSIndexResult as an owned copy when something
+    // downstream needs it, otherwise drop the borrow before storing.
+    SearchResult_BufferIndexResult(rp, &resToBuffer);
     // Buffer the result.
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
@@ -1208,7 +1240,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 #ifdef ENABLE_ASSERT
   // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
   // before the Redis lock, so a timeout callback observes it and preempts.
-  SyncPoint_Wait(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE);
+  SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
   // Then, lock Redis to guarantee safe access to Redis keyspace
@@ -1585,8 +1617,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   }
 
   self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
-  // copy the index result to make it thread safe - but only if it is pushed to the heap
-  SearchResult_SetIndexResult(self->pooledResult, NULL);
+  // The pooled result outlives the upstream iterator's `it->current` slot;
+  // preserve or drop the borrowed RSIndexResult before storing in the pool.
+  SearchResult_BufferIndexResult(rp, self->pooledResult);
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
@@ -1824,6 +1857,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   SearchResult *r = rm_calloc(1, sizeof(*r));
   *r = SearchResult_New();
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // Buffered SearchResults outlive the source iterator's `it->current`
+    // slot; preserve or drop the borrowed RSIndexResult before buffering.
+    SearchResult_BufferIndexResult(&self->base, r);
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
@@ -2231,6 +2267,7 @@ dictType dictTypeHybridSearchResult = {
  const RLookupKey *docKey;        // Key for reading document key when dmd is not available
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
+ HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
 
 } RPHybridMerger;
 
@@ -2294,6 +2331,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   }
 
    SearchResult_SetScore(r, score);
+   // The merger holds `r` in its dictionary across further upstream Reads;
+   // preserve or drop the borrowed RSIndexResult so it does not dangle.
+   SearchResult_BufferIndexResult(&self->base, r);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
    return true;
  }
@@ -2344,7 +2384,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
   RS_ASSERT(hybridResult);
 
-  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx);
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
     return RS_RESULT_ERROR;
   }
@@ -2440,6 +2480,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
      HybridLookupContext_Free(self->lookupCtx);
    }
 
+   if (self->explainCtx) {
+     HybridExplainContext_Free(self->explainCtx);
+   }
+
    // Free the processor itself
    rm_free(self);
  }
@@ -2460,7 +2504,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx) {
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx) {
   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
   ret->sctx = sctx;
@@ -2478,6 +2523,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
   ret->scoreKey = scoreKey;
 
   ret->docKey = docKey;
+
+  ret->explainCtx = explainCtx;
 
   // Store reference to the hybrid request's subqueries return codes array
   RS_ASSERT(subqueriesReturnCodes);
@@ -2835,6 +2882,9 @@ static void RPDepleter_Deplete(RPDepleter *self) {
 
   // Deplete all results from upstream
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // Buffered SearchResults outlive the source iterator's `it->current`
+    // slot; preserve or drop the borrowed RSIndexResult before buffering.
+    SearchResult_BufferIndexResult(&self->base, r);
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();

@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{CStr, c_char};
+use std::{
+    ffi::{CStr, c_char},
+    mem::ManuallyDrop,
+    sync::Arc,
+};
 
 /// Mock implementation of RedisModuleString from redismodule.h for testing purposes.
 #[derive(Default, Copy, Clone)]
@@ -16,6 +20,15 @@ pub(crate) struct UserString {
     pub(crate) user: *const c_char,
     pub(crate) length: usize,
 }
+
+// Safety: `UserString` is a non-owning, read-only view.
+// As such it may be freely moved as long as the caller
+// ensures the backing allocation stays valid and unmutated.
+unsafe impl Send for UserString {}
+// Safety: `UserString` is a non-owning, read-only view.
+// As such it may be freely accessed by other treads as long
+// as the caller ensures the backing allocation stays valid and unmutated.
+unsafe impl Sync for UserString {}
 
 /// Mock implementation of RedisModule_CreateString from redismodule.h for testing purposes.
 ///
@@ -28,11 +41,14 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateString(
     ptr: *const ::std::ffi::c_char,
     len: usize,
 ) -> *mut redis_module::raw::RedisModuleString {
-    let val = Box::new(UserString {
+    let val = Arc::new(UserString {
         user: ptr,
         length: len,
     });
-    Box::into_raw(val).cast()
+
+    Arc::into_raw(val)
+        .cast::<redis_module::raw::RedisModuleString>()
+        .cast_mut()
 }
 
 /// Mock implementation of RedisModule_StringPtrLen from redismodule.h for testing purposes.
@@ -45,8 +61,9 @@ pub(crate) unsafe extern "C" fn RedisModule_StringPtrLen(
     s: *const redis_module::raw::RedisModuleString,
     len: *mut usize,
 ) -> *const ::std::ffi::c_char {
-    // Safety: we know we're using UserString here (1)
-    let s = unsafe { &*(s.cast::<UserString>()) };
+    // Safety: The caller ensured the ptr is correct (1.)
+    let s = ManuallyDrop::new(unsafe { Arc::from_raw(s.cast::<UserString>()) });
+
     // Safety: Caller provides valid len pointer (2)
     unsafe {
         *len = s.length;
@@ -65,7 +82,7 @@ pub(crate) unsafe extern "C" fn RedisModule_FreeString(
     s: *mut redis_module::raw::RedisModuleString,
 ) {
     // Safety: we own the memory (1) and the caller promised to call this only once (2)
-    drop(unsafe { Box::from_raw(s.cast::<UserString>()) });
+    drop(unsafe { Arc::from_raw(s.cast::<UserString>()) })
 }
 
 /// Mock implementation of RedisModule_Strdup from redismodule.h for testing purposes.
@@ -113,10 +130,26 @@ pub(crate) unsafe extern "C" fn RedisModule_HoldString(
     _ctx: *mut redis_module::raw::RedisModuleCtx,
     s: *mut redis_module::raw::RedisModuleString,
 ) -> *mut redis_module::raw::RedisModuleString {
-    // Safety: we know we're using UserString here (1)
-    let s = unsafe { &*(s.cast::<UserString>()) };
-    let val = Box::new(*s);
-    Box::into_raw(val).cast()
+    // Safety: The caller ensured the ptr is correct (1.)
+    unsafe {
+        Arc::increment_strong_count(s.cast::<UserString>());
+    }
+    s
+}
+
+/// Mock implementation of RedisModule_RetainString from redismodule.h for testing purposes.
+///
+/// Safety:
+/// 1. `s` must be a valid pointer to a RedisModuleString created by this mock
+#[expect(non_snake_case)]
+pub(crate) unsafe extern "C" fn RedisModule_RetainString(
+    _ctx: *mut redis_module::raw::RedisModuleCtx,
+    s: *mut redis_module::raw::RedisModuleString,
+) {
+    // Safety: The caller ensured the ptr is correct (1.)
+    unsafe {
+        Arc::increment_strong_count(s.cast::<UserString>());
+    }
 }
 
 /// Mock implementation of RedisModule_CreateStringPrintf from redismodule.h for testing purposes.

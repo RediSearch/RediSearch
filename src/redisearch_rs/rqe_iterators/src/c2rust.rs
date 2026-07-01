@@ -8,6 +8,7 @@
 */
 // TODO: remove once we have compound iterators written in Rust that leverage
 //   this shim.
+
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
     IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
