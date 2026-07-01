@@ -26,10 +26,6 @@ on:
         description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Defaults to this workflow SHA.'
         type: string
         default: ''
-      modules:
-        description: 'Redis module selection to test'
-        type: string
-        default: redisearch
       fail-fast:
         type: boolean
         default: false
@@ -84,10 +80,6 @@ on:
         description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Empty means this workflow SHA.'
         type: string
         default: ''
-      modules:
-        description: 'Redis module selection to test'
-        type: string
-        default: redisearch
       fail-fast:
         description: 'Stop matrix after the first failure'
         type: boolean
@@ -118,4 +110,3 @@ jobs:
       redis-ref: ${{ inputs.redis-ref }}
       redisearch-repository: ${{ inputs.redisearch-repository || github.repository }}
       redisearch-ref: ${{ inputs.redisearch-ref || github.sha }}
-      modules: ${{ inputs.modules || 'redisearch' }}

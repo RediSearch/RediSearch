@@ -27,10 +27,6 @@ on:
         description: 'RediSearch ref/SHA to inject into Redis modules.yaml'
         type: string
         required: true
-      modules:
-        description: 'Redis module selection to test'
-        type: string
-        default: redisearch
       test-timeout:
         description: 'Timeout in minutes for the build-flow smoke'
         type: number
@@ -193,6 +189,8 @@ jobs:
           REDISEARCH_REF: ${{ inputs.redisearch-ref }}
         run: |
           test -f modules/modules.yaml
+          # Redis uses this manifest to determine which module SHA to clone.
+          # Keep the checkout clean and point CI at a patched manifest copy.
           cp modules/modules.yaml "$MANIFEST_FILE"
           repo_url="https://github.com/${REDISEARCH_REPOSITORY}.git"
           tmp="$(mktemp)"
@@ -221,25 +219,23 @@ jobs:
         timeout-minutes: ${{ inputs.test-timeout }}
         working-directory: redis
         env:
-          MODULE_ARGS: ${{ inputs.modules }}
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
         run: |
-          echo "::group::make modules-update $MODULE_ARGS"
-          make modules-update $MODULE_ARGS
+          echo "::group::make modules-update redisearch"
+          make modules-update redisearch
           echo "::endgroup::"
 
-          echo "::group::make bootstrap $MODULE_ARGS"
-          make bootstrap $MODULE_ARGS
+          echo "::group::make bootstrap redisearch"
+          make bootstrap redisearch
           echo "::endgroup::"
 
-          echo "::group::make build $MODULE_ARGS"
-          make build $MODULE_ARGS
+          echo "::group::make build redisearch"
+          make build redisearch
           echo "::endgroup::"
 
       - name: Verify make run loads RediSearch
         working-directory: redis
         env:
-          MODULE_ARGS: ${{ inputs.modules }}
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
         run: |
           python3 - <<'PY'
@@ -250,7 +246,6 @@ jobs:
           import time
 
           root = os.getcwd()
-          module = os.environ["MODULE_ARGS"].split()[0]
           with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
               sock.bind(("127.0.0.1", 0))
               port = sock.getsockname()[1]
@@ -260,7 +255,7 @@ jobs:
               f"--bind 127.0.0.1 --port {port} "
               "--save '' --appendonly no --protected-mode no"
           )
-          proc = subprocess.Popen(["make", "run", module], cwd=root, env=env)
+          proc = subprocess.Popen(["make", "run", "redisearch"], cwd=root, env=env)
           cli = os.path.join(root, "src", "redis-cli")
 
           try:
