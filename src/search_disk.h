@@ -773,10 +773,11 @@ PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskInde
                                                        t_fieldId ftId);
 
 /**
- * @brief Get per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+ * @brief Get per-field disk metrics for a TAG or NUMERIC field.
  *
  * These field types each own a dedicated column family named with the field's
- * unique `fieldIndex`; the metrics are read from that CF.
+ * unique `fieldIndex`; the metrics are read from that CF. VECTOR fields are
+ * keyed by name instead — use `SearchDisk_GetVectorFieldMetrics`.
  *
  * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
  * is always present for a disk-backed index. The returned struct's `available`
@@ -789,6 +790,26 @@ PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskInde
  */
 PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex);
+
+/**
+ * @brief Get per-field disk metrics for a VECTOR field.
+ *
+ * A vector field's column family is named `vector_<fieldName>`, so its CF is
+ * keyed by the field name rather than the numeric field index. Pass the same
+ * raw field name used to create/bind the vector index storage.
+ *
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown name or when no CF data
+ * exists.
+ *
+ * @param index        Pointer to the disk index spec
+ * @param fieldName    Raw vector field name identifying the field's column family
+ * @param fieldNameLen Length of `fieldName` in bytes
+ * @return Per-field column-family metrics; `available` is false when no data exists
+ */
+PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       const char* fieldName, size_t fieldNameLen);
 
 /**
  * @brief Get the total disk usage for a disk index

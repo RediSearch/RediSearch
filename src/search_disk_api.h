@@ -970,12 +970,13 @@ typedef struct MetricsDiskAPI {
                                                  t_fieldId ftId);
 
   /**
-   * @brief Get per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+   * @brief Get per-field disk metrics for a TAG or NUMERIC field.
    *
-   * These field types each own their own column family, named with the field's
-   * unique `fieldIndex`. The disk side resolves the field's CF from
-   * `fieldIndex` (which is unique across field types) and reads its per-CF
-   * statistics.
+   * These field types each own their own column family (`tag_<index>`,
+   * `numeric_<index>`), named with the field's unique `fieldIndex`. The disk
+   * side resolves the field's CF from `fieldIndex` and reads its per-CF
+   * statistics. VECTOR fields are keyed by name instead — use
+   * `getVectorFieldMetrics`.
    *
    * Data-only: performs no Redis reply formatting. Returns `{ .available =
    * false }` for an unknown index, an unsupported field type, or when no CF
@@ -987,6 +988,27 @@ typedef struct MetricsDiskAPI {
    */
   PerFieldCfDiskMetrics (*getCfFieldMetrics)(const RedisSearchDiskIndexSpec *index,
                                              t_fieldIndex fieldIndex);
+
+  /**
+   * @brief Get per-field disk metrics for a VECTOR field.
+   *
+   * A vector field's column family is named `vector_<fieldName>`, so — unlike
+   * TAG/NUMERIC fields — its CF is keyed by the field name, not the numeric
+   * field index. The name passed here must be the same raw field name used when
+   * the vector index storage was created/bound (`VecSimParamsDisk`'s disk
+   * context `indexName`).
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown name or when no CF data is available, without
+   * crashing.
+   *
+   * @param index        Pointer to the index spec
+   * @param fieldName    Raw vector field name identifying the field's CF
+   * @param fieldNameLen Length of `fieldName` in bytes
+   * @return Per-field column-family metrics
+   */
+  PerFieldCfDiskMetrics (*getVectorFieldMetrics)(const RedisSearchDiskIndexSpec *index,
+                                                 const char *fieldName, size_t fieldNameLen);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
