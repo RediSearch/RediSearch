@@ -366,8 +366,26 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // `self`) is `take()`n out so we can move it into the working list; we'll set
         // self.in_progress to whatever survives at the trailing slot.
         let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
-        for b in self.sealed.iter() {
-            working.push(Arc::new(b.clone()));
+        // Reclaim the `sealed` region by moving its blocks out when no reader snapshot
+        // pins it (the common case): take the `Arc` out and `try_unwrap` it — on success
+        // the blocks move into the working list with no buffer copy. Only when a live
+        // snapshot still shares the region do we deep-copy (copy-on-write), matching the
+        // pending/in_progress handling and the `unwrap_or_cow` used below. Without this,
+        // every GC deep-copied the whole compacted `sealed` region even with no readers.
+        let old_sealed = std::mem::replace(&mut self.sealed, Arc::new(ThinVec::new()));
+        match Arc::try_unwrap(old_sealed) {
+            Ok(sealed_vec) => {
+                for b in sealed_vec.into_iter() {
+                    working.push(Arc::new(b));
+                }
+            }
+            Err(shared) => {
+                for b in shared.iter() {
+                    COW_CLONED_BLOCKS.fetch_add(1, Ordering::Relaxed);
+                    COW_CLONED_BYTES.fetch_add(b.mem_usage() as u64, Ordering::Relaxed);
+                    working.push(Arc::new(b.clone()));
+                }
+            }
         }
         let old_pending = std::mem::take(&mut self.pending);
         working.extend(old_pending);

@@ -445,6 +445,80 @@ fn apply_gc_cow_clones_only_pinned_blocks() {
 }
 
 #[test]
+fn apply_gc_moves_unpinned_sealed_and_cows_pinned_sealed() {
+    // After a first GC, survivors live in `sealed`. A second GC must MOVE those sealed
+    // blocks (no copy) when no snapshot pins them, and only deep-copy them (bumping the
+    // COW counters) when a snapshot is held across the GC. Guards the
+    // try_unwrap-when-unique optimization in `apply_gc`. Relies on nextest's
+    // process-per-test isolation for the global counters.
+    use crate::GcScanDelta;
+    use crate::gc::{BlockGcScanResult, COW_CLONED_BLOCKS, RepairType};
+    use std::sync::atomic::Ordering;
+
+    let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
+
+    // Build a fresh index and run one GC (delete block 0) to populate `sealed`.
+    let build_with_populated_sealed = || {
+        let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+        let total = entries_per_block * 4 + 5; // 4 full (→ pending) + 1 partial (→ in_progress)
+        for id in 1..=total {
+            ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+                .unwrap();
+        }
+        let last_num = ii.snapshot().last_block().unwrap().num_entries;
+        ii.apply_gc(GcScanDelta {
+            last_block_idx: ii.number_of_blocks() - 1,
+            last_block_num_entries: last_num,
+            deltas: vec![BlockGcScanResult {
+                index: 0,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: entries_per_block as u32,
+                },
+            }],
+        });
+        assert!(!ii.sealed.is_empty(), "GC #1 should populate sealed");
+        ii
+    };
+
+    // Delta for GC #2: delete the first (now-sealed) block.
+    let gc2_delta = |ii: &InvertedIndex<Dummy>| GcScanDelta {
+        last_block_idx: ii.number_of_blocks() - 1,
+        last_block_num_entries: ii.snapshot().last_block().unwrap().num_entries,
+        deltas: vec![BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: entries_per_block as u32,
+            },
+        }],
+    };
+
+    // Case A: no snapshot held → sealed blocks are moved, nothing cloned.
+    let mut ii = build_with_populated_sealed();
+    let delta = gc2_delta(&ii);
+    let before = COW_CLONED_BLOCKS.load(Ordering::Relaxed);
+    ii.apply_gc(delta);
+    assert_eq!(
+        COW_CLONED_BLOCKS.load(Ordering::Relaxed) - before,
+        0,
+        "unpinned sealed must be moved, not cloned"
+    );
+
+    // Case B: a snapshot pins sealed → every sealed block is COW-cloned.
+    let mut ii = build_with_populated_sealed();
+    let n_sealed = ii.sealed.len() as u64;
+    let delta = gc2_delta(&ii);
+    let snap = ii.snapshot();
+    let before = COW_CLONED_BLOCKS.load(Ordering::Relaxed);
+    ii.apply_gc(delta);
+    assert_eq!(
+        COW_CLONED_BLOCKS.load(Ordering::Relaxed) - before,
+        n_sealed,
+        "a held snapshot must force every sealed block to be cloned"
+    );
+    drop(snap);
+}
+
+#[test]
 fn apply_gc_keeps_state_in_sync() {
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};
