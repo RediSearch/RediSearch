@@ -8,6 +8,7 @@
 */
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
@@ -16,6 +17,32 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 use smallvec::SmallVec;
 use thin_vec::ThinVec;
+
+/// Process-wide cumulative count of index blocks deep-cloned by GC because a live
+/// reader snapshot pinned them (copy-on-write). Stays `0` whenever no snapshot is
+/// held across a GC cycle — i.e. it is exactly the copy-on-write activity (cost
+/// component C2 in `docs/design/snapshot-cow-benchmark-plan.md`) happening in a
+/// running server. Cumulative and never reset; read deltas across a window.
+pub static COW_CLONED_BLOCKS: AtomicU64 = AtomicU64::new(0);
+
+/// Process-wide cumulative bytes deep-cloned by GC for the same reason as
+/// [`COW_CLONED_BLOCKS`]. `FT.INFO`/`GcApplyInfo` do not account for these copies,
+/// so this counter is the authoritative in-process signal for COW memory churn.
+pub static COW_CLONED_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// Take ownership of `arc`'s block, deep-copying it (and bumping the COW counters)
+/// only when another reference — a live snapshot — still pins it. When the block is
+/// unshared this moves it out for free, matching the no-snapshot fast path.
+fn unwrap_or_cow(arc: Arc<IndexBlock>) -> IndexBlock {
+    match Arc::try_unwrap(arc) {
+        Ok(block) => block,
+        Err(shared) => {
+            COW_CLONED_BLOCKS.fetch_add(1, Ordering::Relaxed);
+            COW_CLONED_BYTES.fetch_add(shared.mem_usage() as u64, Ordering::Relaxed);
+            (*shared).clone()
+        }
+    }
+}
 
 /// Context handed to the GC repair callback for each surviving record.
 ///
@@ -396,15 +423,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let new_in_progress: Option<IndexBlock> = new_in_progress_arc.map(|arc| {
             // The trailing block was either the in_progress we take()'d above (Arc
             // unique → try_unwrap succeeds) or a Replace-emitted block. Either way,
-            // try_unwrap should succeed; fall back to clone if not.
-            Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone())
+            // try_unwrap should succeed; fall back to clone (COW) if a snapshot pins it.
+            unwrap_or_cow(arc)
         });
 
         let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
             ThinVec::with_capacity(new_all.len());
         for arc_b in new_all {
-            let b = Arc::try_unwrap(arc_b).unwrap_or_else(|a| (*a).clone());
-            new_sealed.push(b);
+            new_sealed.push(unwrap_or_cow(arc_b));
         }
 
         let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());

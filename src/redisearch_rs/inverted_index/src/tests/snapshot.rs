@@ -380,6 +380,71 @@ fn apply_gc_compacts_survivors_into_sealed() {
 }
 
 #[test]
+fn apply_gc_cow_clones_only_pinned_blocks() {
+    // The COW counters must stay flat when GC runs with no live snapshot (survivor
+    // blocks are moved), and rise by exactly the number of pinned survivor blocks when
+    // a snapshot is held across the GC cycle (those blocks are deep-cloned). This is the
+    // in-process signal for cost component C2. Relies on nextest's process-per-test
+    // isolation for the global counters.
+    use crate::GcScanDelta;
+    use crate::gc::{BlockGcScanResult, COW_CLONED_BLOCKS, COW_CLONED_BYTES, RepairType};
+    use std::sync::atomic::Ordering;
+
+    let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
+    let total = entries_per_block * 2 + 5; // two full (→ pending) + one partial (→ in_progress)
+
+    // Build a fresh 3-block index and a delta that deletes block 0.
+    let build = || {
+        let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+        for id in 1..=total {
+            ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+                .unwrap();
+        }
+        let last_block_num_entries = ii.snapshot().last_block().unwrap().num_entries;
+        let delta = GcScanDelta {
+            last_block_idx: ii.number_of_blocks() - 1,
+            last_block_num_entries,
+            deltas: vec![BlockGcScanResult {
+                index: 0,
+                repair: RepairType::Delete {
+                    n_unique_docs_removed: entries_per_block as u32,
+                },
+            }],
+        };
+        (ii, delta)
+    };
+
+    // Case A: no snapshot held → survivor blocks are moved, nothing cloned.
+    let (mut ii, delta) = build();
+    let blocks_before = COW_CLONED_BLOCKS.load(Ordering::Relaxed);
+    ii.apply_gc(delta);
+    assert_eq!(
+        COW_CLONED_BLOCKS.load(Ordering::Relaxed) - blocks_before,
+        0,
+        "no snapshot held → GC must not deep-clone any block"
+    );
+
+    // Case B: a snapshot pins the blocks → the surviving pending block is deep-cloned.
+    let (mut ii, delta) = build();
+    let snap = ii.snapshot();
+    let blocks_before = COW_CLONED_BLOCKS.load(Ordering::Relaxed);
+    let bytes_before = COW_CLONED_BYTES.load(Ordering::Relaxed);
+    ii.apply_gc(delta);
+    // Survivors are old pending[1] (a pinned Arc → cloned) and the old in_progress (re-Arc'd
+    // fresh inside apply_gc, unique → moved). So exactly one block is COW-cloned.
+    assert_eq!(
+        COW_CLONED_BLOCKS.load(Ordering::Relaxed) - blocks_before,
+        1,
+        "a held snapshot must force exactly the pinned survivor block to be cloned"
+    );
+    assert!(
+        COW_CLONED_BYTES.load(Ordering::Relaxed) - bytes_before > 0,
+        "cloned-bytes counter must advance alongside the block counter"
+    );
+    drop(snap);
+}
+
+#[test]
 fn apply_gc_keeps_state_in_sync() {
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};

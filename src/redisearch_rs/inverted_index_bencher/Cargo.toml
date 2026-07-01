@@ -24,6 +24,17 @@ harness = false
 name = "add_record"
 harness = false
 
+[[bench]]
+name = "reader_iteration"
+harness = false
+
+[[bench]]
+name = "snapshot_cow"
+harness = false
+
+[[example]]
+name = "snapshot_cow_memory"
+
 [dependencies]
 buffer.workspace = true
 criterion.workspace = true
