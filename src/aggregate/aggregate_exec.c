@@ -430,11 +430,6 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->syncCtx);
   }
 
-  // The result-processor pipeline is about to run: advance the execution-phase
-  // marker so a timeout from here on is attributed to the PIPELINE stage. The
-  // pre-pipeline bail-outs above intentionally leave the marker at QUEUE.
-  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
-
   startPipelineCommon(&ctx, rp, results, r, rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
@@ -1269,6 +1264,9 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
+
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE.
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   if (IsProfile(req)) {
     req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
@@ -2247,6 +2245,9 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // reply and park/free the cursor before the timeout callback replies.
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
+  // (no-op if already timed out while queued, via the SetExecutionStage freeze).
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
@@ -2284,6 +2285,8 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
   AREQ_ResetForCursorReadReturnStrict(cursor->execState);
   CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
+  // Picked up for execution: attribute a timeout from here on to PIPELINE.
+  AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_PIPELINE);
   cursorRead(ctx, cursor, count, false);
   return REDISMODULE_OK;
 }
@@ -2419,11 +2422,9 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
-      // Fresh execution of a reused cursor AREQ: reset the execution-phase marker
-      // (not timed out -- checked above) before publishing it to the ctx, so a
-      // coord timeout that fires before startPipeline re-advances the marker reads
-      // QUEUE rather than a stale stage from a previous read.
-      AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
+      // Picked up for execution (not timed out -- checked above): set the marker to
+      // PIPELINE, overriding any stale stage left on the reused AREQ by a prior read.
+      AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_PIPELINE);
       // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut).
       CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
       CoordRequestCtx_UnlockSetRequest(reqCtx);

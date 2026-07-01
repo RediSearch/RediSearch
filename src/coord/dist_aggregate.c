@@ -676,6 +676,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
+  // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
+  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
@@ -987,6 +989,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
+  // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
+  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   // Store coordinator start time for dispatch time tracking
   r->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);

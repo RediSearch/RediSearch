@@ -1946,9 +1946,9 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
-        # BG is parked before TryClaim (before the pipeline runs), so the timeout
-        # warning is attributed to the QUEUE stage.
-        base_warn_queue = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC])
+        # BG has been picked up from the queue (marker advanced to PIPELINE) before it
+        # parks at the claim, so the timeout warning is attributed to the PIPELINE stage.
+        base_warn_pipeline = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC])
 
         sync_point = 'BeforeAggregateResultsClaim'
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -1992,9 +1992,9 @@ class TestCoordinatorTimeout:
         env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                         str(base_warn_coord + 1),
                         message="Coordinator timeout warning should be +1")
-        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC]),
-                        base_warn_queue + 1,
-                        message="Timeout warning before the pipeline should bump the QUEUE stage")
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
+                        base_warn_pipeline + 1,
+                        message="Timeout after pickup should bump the PIPELINE stage")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')

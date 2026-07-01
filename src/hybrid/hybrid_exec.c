@@ -224,11 +224,6 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     return;
   }
 
-  // The pipeline is about to run: advance the execution-phase marker so a timeout
-  // from here on is attributed to PIPELINE. The pre-pipeline bail-outs above
-  // intentionally leave the marker at QUEUE.
-  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
-
   startPipelineCommon(&ctx, rp, results, r, rc);
 
   // Pipeline done without timing out; the caller now enters the reply phase
@@ -1258,6 +1253,9 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
+  // (no-op if already timed out while queued, via the SetExecutionStage freeze).
+  HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();

@@ -1041,6 +1041,8 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
+    // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Store coordinator start time for dispatch time tracking
@@ -1130,6 +1132,8 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
+    // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
