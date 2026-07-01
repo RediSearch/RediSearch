@@ -3097,13 +3097,21 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 
 }
 
+// Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
+// handler advances it, the main-thread timeout callbacks read it.
+static inline void searchReqCtx_SetExecutionStage(searchRequestCtx *req, QueryTimeoutStage stage) {
+  __atomic_store_n(&req->execPhase, (int)stage, __ATOMIC_RELAXED);
+}
+static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx *req) {
+  return (QueryTimeoutStage)__atomic_load_n(&req->execPhase, __ATOMIC_RELAXED);
+}
+
 // Record a per-stage timeout for the (Map-Reduce based) FT.SEARCH coordinator
 // path into the blocked-client breakdown. Reads the search request's own
 // execution-phase marker (QUEUE until the coord handler is dequeued, then
 // PIPELINE); the MR path does not distinguish a reply phase. Coordinator side.
 static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError) {
-  QueryTimeoutStage stage = req ? (QueryTimeoutStage)__atomic_load_n(&req->execPhase, __ATOMIC_RELAXED)
-                                : QUERY_TIMEOUT_STAGE_QUEUE;
+  QueryTimeoutStage stage = req ? searchReqCtx_GetExecutionStage(req) : QUERY_TIMEOUT_STAGE_QUEUE;
   QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
 }
 
@@ -4305,7 +4313,7 @@ static void DistSearchCommandHandler(void* pd) {
   // marker on timeout, mirroring RequestSyncCtx_SetExecutionStage.
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
-    __atomic_store_n(&sReq->execPhase, QUERY_TIMEOUT_STAGE_PIPELINE, __ATOMIC_RELAXED);
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
@@ -4495,9 +4503,6 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Check if bailout set an error (e.g., index dropped before fanout)
   // In this case, reply with the error instead of partial results
   if (QueryError_HasError(MRCtx_GetStatus(mrctx))) {
-    // The bailout error may be a non-timeout (e.g. index dropped); only the
-    // partial-results path below is a confirmed blocked-client timeout, so the
-    // per-stage breakdown is recorded there (in sendSearchResults), not here.
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(MRCtx_GetStatus(mrctx)), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, MRCtx_GetStatus(mrctx));
     return REDISMODULE_OK;

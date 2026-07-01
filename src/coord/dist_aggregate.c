@@ -923,8 +923,9 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // only such bail in cursorRead can't fire); kept for forward-compat.
     QueryError *err = &req->storedReplyState.err;
     RS_ASSERT(QueryError_HasError(err));
+    // Pre-pipeline error bail (maybe non-timeout): feeds only the error counter,
+    // not the per-stage timeout breakdown. Mirrors the FT.SEARCH bailout path.
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
-    CoordRequestCtx_RecordTimeoutStage(reqCtx, /*isError=*/true);
     QueryError_ReplyAndClear(ctx, err);
   }
   return REDISMODULE_OK;

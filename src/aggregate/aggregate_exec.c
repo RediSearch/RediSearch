@@ -437,12 +437,8 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
   startPipelineCommon(&ctx, rp, results, r, rc);
 
-  // The pipeline finished without timing out; advance the marker so a timeout from
-  // here on is attributed to the REPLY stage (most importantly a blocked-client
-  // deadline that fires while a stored reply is still pending on the main thread).
-  // Only the FAIL/RETURN_STRICT blocked-client paths read the marker for the
-  // breakdown; RETURN streams its remaining rows inline and records no per-stage
-  // timeout, so advancing here cannot mis-attribute streamed (RETURN) results.
+  // Pipeline done without timing out; advance the marker so a timeout from here on
+  // is attributed to the REPLY stage.
   if (*rc != RS_RESULT_TIMEDOUT) {
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
@@ -1680,6 +1676,13 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // No-op for shapes that already accumulated their rows in state.results.
   drainPartialResultsAfterTimeout(req);
 
+  // Reply-phase timeout: pipeline finished (stored rc EOF/OK) but the client timed
+  // out before unblock; serialization skips it, so record here (gate avoids double).
+  if (req->storedReplyState.rc != RS_RESULT_TIMEDOUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    recordAREQTimeoutStage(req, /*isError=*/false);
+  }
+
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
@@ -1843,6 +1846,12 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
 
   if (req->storedReplyState.hasStoredResults) {
     drainPartialResultsAfterTimeout(req);
+    // Reply-phase timeout: read finished (rc EOF/OK) but client timed out before
+    // unblock; serialization skips it, so record here (gate avoids double-count).
+    if (req->storedReplyState.rc != RS_RESULT_TIMEDOUT) {
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+      recordAREQTimeoutStage(req, /*isError=*/false);
+    }
     AREQ_ReplyWithStoredResults(ctx, req);
   } else if (QueryError_HasError(&req->storedReplyState.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
