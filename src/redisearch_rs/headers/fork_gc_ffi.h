@@ -57,7 +57,8 @@ extern "C" {
  *
  * 1. `gc` must point to a valid [`ffi::ForkGC`].
  * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  */
 void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 

@@ -26,7 +26,8 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// 1. `gc` must point to a valid [`ffi::ForkGC`].
 /// 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
-/// 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+/// 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+/// 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_childCollectMissingDocs(
     gc: *mut ffi::ForkGC,
@@ -34,15 +35,14 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
 ) {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
-
-    // SAFETY: caller guarantees (2); sctx is a valid non-null pointer.
+    // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
-    // SAFETY: caller guarantees (2); sctx.spec is a valid non-null IndexSpec.
+    // SAFETY: caller guarantees (3).
     let spec = unsafe { &*spec_ptr };
 
-    // SAFETY: We don't actually hold a read lock, but when the Fork GC code runs it holds the Redis GIL
-    // (so no other thread would be touching any shared Redis state), then forks and the child has
-    // only one thread with exclusive access to the index spec.
+    // SAFETY: caller guarantees (4). We don't actually hold a read lock, but when the Fork GC code
+    // runs it holds the Redis GIL (so no other thread would be touching any shared Redis state),
+    // then forks and the child has only one thread with exclusive access to the index spec.
     let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
     collect_missing_docs(&mut fgc.writer(), &guard).unwrap_or_exit();
