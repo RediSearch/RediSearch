@@ -186,6 +186,7 @@ fn receive_data_frame_returns_field_name_and_delta() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn apply_returns_err_when_field_not_found() {
     let (mut spec, _dict) = make_spec([]);
     let delta = GcScanDelta::empty_for_testing();
@@ -199,6 +200,7 @@ fn apply_returns_err_when_field_not_found() {
 
 /// A successful apply with a no-op delta leaves the dict entry in place.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn apply_succeeds_and_keeps_entry_when_docs_remain() {
     let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
     let delta = GcScanDelta::empty_for_testing();
@@ -217,6 +219,7 @@ fn apply_succeeds_and_keeps_entry_when_docs_remain() {
 
 /// Full child-to-parent roundtrip: when all docs are deleted the dict entry is removed.
 #[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn roundtrip_all_docs_deleted_removes_entry() {
     let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
 
