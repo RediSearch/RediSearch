@@ -513,8 +513,12 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
-  // Reset the total results length:
-  qctx->totalResults = 0;
+  // Reset the total results length. WITHCOUNT preserves it across cursor
+  // reads — the value is the shard-summed total set once at Phase B start,
+  // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
+  if (!HasWithCount(req)) {
+    qctx->totalResults = 0;
+  }
   QueryError_ClearError(qctx->err);
 }
 
@@ -1869,7 +1873,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     AREQ_IncrRef(r);
     blockClientCtx.freePrivData = BlockClient_FreeAREQ;
     blockClientCtx.privdata = r;
-    blockClientCtx.ast = &r->ast;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
@@ -2323,9 +2326,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   if (RunInThread(ctx) && !upstreamBC) {
     // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
-    // the blocked-client timer with reply/timeout callbacks;
-    // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
-    // for the AST).
+    // the blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {

@@ -612,7 +612,7 @@ void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
 
 struct MRIteratorCtx {
   MRChannel *chan;
-  MRIteratorCallback successCB;
+  MRIteratorCallback successCB;     // Per-reply callback, shared by all shards
   MRIteratorErrorCallback errorCB;  // Optional: callback to execute on error
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
@@ -675,6 +675,12 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   }
 }
 
+// Return the privateData associated with the first callback context of this iterator.
+// Valid as long as the iterator is alive (i.e. before rpnetFree releases the coord ref).
+void *MRIterator_GetPrivateData(const MRIterator *it) {
+  return it->cbxs[0].privateData;
+}
+
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
 static short MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
@@ -727,6 +733,10 @@ MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx) {
   return &ctx->it->ctx;
 }
 
+MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx) {
+  return ctx->it;
+}
+
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
@@ -751,12 +761,9 @@ void iterStartCb(void *p) {
     if (!conn) {
       // At least one connection is not established - fail with a single error.
       // it->len/pending/inProcess remain at their initial value of 1.
-      // Run privateDataInit so ShardResponseBarrier (used by FT.AGGREGATE
-      // WITHCOUNT) accepts the synthetic error notification; otherwise its
-      // numShards stays 0, Notify's bounds check short-circuits, and the real
-      // error gets replaced by a misleading timeout message in
-      // shardResponseBarrier_HandleTimeout.
-      void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+      // Run privateDataInit so the private data is properly initialized
+      // before the synthetic error notification is delivered.
+      void *privateData = MRIterator_GetPrivateData(it);
       if (privateData && it->ctx.privateDataInit) {
         it->ctx.privateDataInit(privateData, it);
       }
@@ -772,8 +779,8 @@ void iterStartCb(void *p) {
   it->ctx.pending = numShards;
   it->ctx.inProcess = numShards; // Initially all commands are in process
 
-  // Call privateData init callback if set (e.g., to initialize ShardResponseBarrier)
-  void *privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+  // Call privateData init callback if set
+  void *privateData = MRIterator_GetPrivateData(it);
   if (privateData && it->ctx.privateDataInit) {
     it->ctx.privateDataInit(privateData, it);
   }
@@ -797,7 +804,7 @@ void iterStartCb(void *p) {
     it->cbxs[targetShardIdx].cmd.targetShardIdx = targetShardIdx;
     MRCommand_SetSlotInfo(&it->cbxs[targetShardIdx].cmd, shards[targetShardIdx].slotRanges);
 
-    it->cbxs[targetShardIdx].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[targetShardIdx].privateData = MRIterator_GetPrivateData(it);
   }
 
   // Set the first command to target the first shard (while not having copied it)
@@ -857,7 +864,7 @@ void iterCursorMappingCb(void *p) {
   // Create FT.CURSOR READ commands for each mapping
   for (size_t i = 1; i < numShardsWithMapping; i++) {
     it->cbxs[i].it = it;
-    it->cbxs[i].privateData = MRIteratorCallback_GetPrivateData(&it->cbxs[0]);
+    it->cbxs[i].privateData = MRIterator_GetPrivateData(it);
 
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
 
@@ -901,6 +908,15 @@ void iterManualNextCb(void *p) {
   }
 }
 
+// Replace the iterator's per-reply successCB and no-reply errorCB. Must only
+// be called from the iterator's own IO thread (the same thread that invokes
+// mrIteratorRedisCB / mrIteratorCallback_Error); no synchronization is applied.
+void MRIterator_SwapCallbacks(MRIterator *it, MRIteratorCallback successCB,
+                              MRIteratorErrorCallback errorCB) {
+  it->ctx.successCB = successCB;
+  it->ctx.errorCB = errorCB;
+}
+
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   // We currently trigger the next batch of commands only when no commands are in process,
   // regardless of the number of replies we have in the channel.
@@ -932,10 +948,9 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
-  // successCB and iterStartCb are required: the per-reply path dereferences
-  // successCB and we unconditionally schedule iterStartCb below.
-  RS_ASSERT(config && config->successCB && config->iterStartCb);
+MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config) {
+  // successCB is required: the per-reply path dereferences it.
+  RS_ASSERT(config && config->successCB);
   MRIterator *ret = rm_new(MRIterator);
   // Initial initialization of the iterator.
   // The rest of the initialization is done in the iterator start callback.
@@ -962,22 +977,32 @@ MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConf
     .cbxs = rm_new(MRIteratorCallbackCtx),
     .len = 1,
   };
-  // Initialize the first command
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = MRCommand_Copy(cmd),
     .it = ret,
     .privateData = config->cbPrivateData,
   };
+  return ret;
+}
 
+void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *),
+                      StrongRef *iterStartCbPrivateData) {
   // Create data structure with iterator and private data (on heap)
   IteratorData *data = rm_malloc(sizeof(IteratorData));
-  data->it = ret;
+  data->it = it;
   data->privateDataRef = (WeakRef){0};
-  if (config->iterStartCbPrivateData) {
-    data->privateDataRef = StrongRef_Demote(*config->iterStartCbPrivateData);
+  if (iterStartCbPrivateData) {
+    data->privateDataRef = StrongRef_Demote(*iterStartCbPrivateData);
   }
-  IORuntimeCtx_Schedule(ret->ctx.ioRuntime, config->iterStartCb, data);
-  return ret;
+  IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, data);
+}
+
+MRIterator *MR_IterateWithPrivateData(const MRCommand *cmd, const MRIteratorConfig *config) {
+  // iterStartCb is required: we unconditionally schedule it below.
+  RS_ASSERT(config && config->iterStartCb);
+  MRIterator *it = MR_CreateIterator(cmd, config);
+  MR_StartIterator(it, config->iterStartCb, config->iterStartCbPrivateData);
+  return it;
 }
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it) {
@@ -1007,7 +1032,7 @@ size_t MRIterator_GetNumShards(const MRIterator *it) {
 
 // Assumes no other thread is using the iterator, the channel, or any of the commands and contexts
 static void MRIterator_Free(MRIterator *it) {
-  // Free privateData using destructor if provided (e.g., ShardResponseBarrier)
+  // Free privateData using destructor if provided
   if (it->ctx.privateDataDestructor && it->cbxs[0].privateData) {
     it->ctx.privateDataDestructor(it->cbxs[0].privateData);
   }

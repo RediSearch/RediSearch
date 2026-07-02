@@ -173,18 +173,14 @@ def test_debug_timeout_fail_both():
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_SEARCH', '1','TIMEOUT_AFTER_N_VSIM', '2', 'DEBUG_PARAMS_COUNT', '4').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-# Tail pipeline runs on the coordinator; debug timeout params aren't applied there in cluster.
-@skip(cluster=True)
 def test_debug_timeout_fail_tail():
     """Test FAIL policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT FAIL')
     setup_basic_index(env)
     env.expect('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector, 'TIMEOUT_AFTER_N_TAIL', '1', 'DEBUG_PARAMS_COUNT', '2').error().contains('SEARCH_TIMEOUT Timeout limit was reached')
 
-# Tail pipeline runs on the coordinator; debug timeout params aren't applied there in cluster.
-@skip(cluster=True)
 def test_debug_timeout_return_tail():
-    """Test FAIL policy with tail timeout using debug parameters"""
+    """Test RETURN policy with tail timeout using debug parameters"""
     env = Env(enableDebugCommand=True, moduleArgs='ON_TIMEOUT RETURN')
     setup_basic_index(env)
     response = env.cmd('_FT.DEBUG', 'FT.HYBRID', 'idx', 'SEARCH', 'running', 'VSIM', '@embedding', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,

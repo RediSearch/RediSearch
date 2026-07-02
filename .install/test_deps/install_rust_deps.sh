@@ -22,6 +22,7 @@ CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 # rust-docs-json:
 #   Required by `cheadergen` to generate C headers
 rustup toolchain install $NIGHTLY_VERSION \
+    --profile=minimal \
     --allow-downgrade \
     --component llvm-tools-preview \
     --component miri \

@@ -31,7 +31,6 @@ typedef struct BlockClientCtx{
   BlockedClientTimeoutCB timeoutCallback;
   BlockedClientFreePrivDataCB freePrivData;
   rs_wall_clock_ms_t timeoutMS;
-  QueryAST *ast;
 } BlockClientCtx;
 
 RedisModuleBlockedClient* BlockQueryClientWithTimeout(RedisModuleCtx *ctx, StrongRef spec, BlockClientCtx *blockClientCtx);

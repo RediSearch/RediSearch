@@ -235,6 +235,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            bool sendExplainScore,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -333,6 +334,12 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   if (argOffset != -1) {
     MRCommand_AppendRstr(xcmd, argv[argOffset]);
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  }
+
+  // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
+  // tree and the shard's merger wraps it.
+  if (sendExplainScore) {
+    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
   // Add WITHCURSOR
@@ -672,6 +679,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            HybridPipelineParams_Cleanup(&hybridParams);
             return REDISMODULE_ERR;
         }
     }
@@ -681,13 +689,15 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
+      HybridPipelineParams_Cleanup(&hybridParams);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &hreq->kArgIndex);
+    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
+                                 &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -779,6 +789,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+    bool shardTimedOutWarning = false;
 
     const struct timespec *deadline =
         (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
@@ -787,11 +798,17 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
+                                     oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
+                                     &shardTimedOutWarning, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    if (shardTimedOutWarning) {
+        hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
     }
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
@@ -1070,6 +1087,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
 
 #ifdef ENABLE_ASSERT
@@ -1156,9 +1177,20 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
+    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+    // timeout takes effect here.
+    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                   debugParams.tail_timeout_count);
+    }
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
+    }
+
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
     }
 
     scheduleDepleters(hreq);
@@ -1241,6 +1273,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
