@@ -24,6 +24,20 @@ pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
+/// Convert a UTF-8 string to lowercase per-character, borrowing it unchanged
+/// when it is already lowercase.
+///
+/// Lowercases each [`char`] independently like [`unicode_tolower`], but
+/// allocates only when a character actually changes.
+pub fn unicode_tolower_cow(s: &str) -> Cow<'_, str> {
+    // `s` is already lowercase when folding every char leaves it unchanged.
+    if s.chars().all(|c| c.to_lowercase().eq([c])) {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(unicode_tolower(s))
+    }
+}
+
 /// Convert a UTF-8 string to lowercase per-character, without
 /// context-dependent casing rules.
 ///
