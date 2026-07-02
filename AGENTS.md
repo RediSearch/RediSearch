@@ -290,6 +290,7 @@ Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or 
 Invoke [/run-c-unit-tests](.skills/run-c-unit-tests/SKILL.md) to run C/C++ unit tests.
 Invoke [/pr-backport](.skills/pr-backport/SKILL.md) to backport a PR to a release branch.
 Invoke [/run-python-tests](.skills/run-python-tests/SKILL.md) to run end-to-end behavioral tests.
+Invoke [/run-python-tests-no-build](.skills/run-python-tests-no-build/SKILL.md) when iterating on Python test files only, to skip the build phase of `./build.sh RUN_PYTEST`.
 
 ### Rust Code
 Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writing documentation for Rust code.
