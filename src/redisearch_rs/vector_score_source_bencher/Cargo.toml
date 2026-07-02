@@ -26,6 +26,7 @@ criterion.workspace = true
 ffi.workspace = true
 redis_mock.workspace = true
 rqe_iterators = { workspace = true }
+rqe_iterators_test_utils.workspace = true
 top_k = { path = "../top_k" }
 vector_score_source = { path = "../vector_score_source" }
 workspace_hack.workspace = true

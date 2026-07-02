@@ -44,11 +44,13 @@ use std::cmp::Ordering;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
-    HNSWParams, RedisModule_Alloc, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex,
-    VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New, VecSimMetric_VecSimMetric_L2,
-    VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, timespec,
+    HNSWParams, RedisModule_Alloc, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
+    VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free,
+    VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
+    VecSimType_VecSimType_FLOAT32, timespec,
 };
 use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
 
@@ -170,12 +172,22 @@ fn run_rust(
     ids: &[u64],
     mode: TopKMode,
 ) -> usize {
+    // Pin the source's HYBRID_POLICY to match the forced `mode`, mirroring the C
+    // shim's `qParams.searchMode`. This keeps `batch_strategy` on the same path
+    // as production (and C) instead of the unset-policy heuristic.
+    // SAFETY: zeroed is a valid bit pattern; only `searchMode` is then set.
+    let mut query_params: VecSimQueryParams = unsafe { std::mem::zeroed() };
+    query_params.searchMode = match mode {
+        TopKMode::AdhocBF => VecSearchMode_HYBRID_ADHOC_BF,
+        _ => VecSearchMode_HYBRID_BATCHES,
+    };
+
     // SAFETY: `index` lives for the duration of this benchmark.
-    let source: VectorScoreSource = unsafe {
+    let source = unsafe {
         VectorScoreSource::new(
             std::ptr::NonNull::new(index).unwrap(),
             query_bytes(query),
-            std::mem::zeroed::<VecSimQueryParams>(),
+            query_params,
             k.get(),
             timespec {
                 tv_sec: 0,
@@ -184,7 +196,7 @@ fn run_rust(
             true,
             ids.len(),
             0,
-            None,
+            MockExpirationChecker::new(std::collections::HashSet::new()),
         )
     };
     let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
