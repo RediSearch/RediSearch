@@ -1,0 +1,419 @@
+name: Common Flow for Build
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that performs setup, builds the RediSearch module (and
+# coordinator binaries) with `make build TESTS=1`, and uploads the contents of
+# `bin/` as a workflow artifact. Downstream test workflows
+# (`task-test-unit.yml`, `task-test-flow.yml`) consume that artifact.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26, sanitizer, coverage)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      san:
+        type: string
+      coverage:
+        type: boolean
+        default: false
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
+        type: string
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+      artifact-name:
+        description: 'Name of the workflow artifact uploaded with the contents of bin/.'
+        type: string
+        required: true
+      rejson-branch:
+        description: 'RedisJSON branch to build once here; the resulting rejson.so ships in the artifact so flow test jobs reuse it instead of rebuilding.'
+        type: string
+        default: master
+      # Resolved platform config — produced by task-get-config.yml at the
+      # pipeline level so this workflow doesn't redo it. Caller must supply.
+      name:
+        type: string
+        default: ''
+      container:
+        type: string
+        default: ''
+      env:
+        type: string
+        default: ''
+      install-mode:
+        type: string
+        default: ''
+      setup-script:
+        type: string
+        default: ''
+      post-setup-script:
+        type: string
+        default: ''
+      enable-lto:
+        type: string
+        default: '0'
+      # Prebuilt container image (task-build-cached-container.yml outputs).
+      image:
+        type: string
+        default: ''
+      image-built:
+        description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
+        type: string
+        default: 'false'
+    outputs:
+      artifact-name:
+        description: 'Name of the uploaded build artifact.'
+        # Reusable-workflow outputs must map from a job output, not directly
+        # from inputs — otherwise validation can reject it / it evaluates empty.
+        value: ${{ jobs.common-flow.outputs.artifact-name }}
+
+env:
+  COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
+  # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
+  RUST_BACKTRACE: "full"
+  # Fail on warnings
+  RUSTFLAGS: "-Dwarnings"
+  BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  common-flow:
+    name: Build ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      inputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            inputs.image-built == 'true' && inputs.image || inputs.container,
+            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read  # actions/checkout
+      id-token: write # OIDC role assumption for sccache S3
+      packages: read  # pull container image from GHCR
+      actions: write  # Swatinem/rust-cache read/write of GH cache
+
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      # LTO is disabled on coverage and sanitizer tasks
+      LTO: ${{ inputs.enable-lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        # For container jobs - delete mounted host directories
+        if: ${{ inputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        # For non-container jobs - delete directly with sudo
+        # Skip macOS - it doesn't have these directories
+        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Fix HOME Directory
+        if: ${{ inputs.image-built == 'true' && inputs.container }}
+        shell: bash
+        run: |
+          # Issue [HOME is overridden for containers](https://github.com/actions/runner/issues/863)
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        # Hoist setup-script into an env var and `eval` it from the loop body
+        # rather than interpolating ${{ inputs.setup-script }} directly into
+        # the run script — avoids ${{ }} expansion injecting shell metachars.
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+      - name: Free up disk space
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        run: |
+          df -h
+          $INSTALL_MODE rm -rf /usr/share/dotnet || true
+          $INSTALL_MODE rm -rf /usr/local/lib/android || true
+          $INSTALL_MODE rm -rf /opt/ghc || true
+          $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h
+      - name: Full checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Print CPU information
+        env:
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          echo "=== CPU Information ==="
+          if command -v lscpu >/dev/null 2>&1; then
+            echo "--- lscpu output ---"
+            lscpu
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "--- macOS CPU info ---"
+            echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
+            echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
+            echo "Thread count: $(sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "N/A")"
+            echo "CPU vendor: $(sysctl -n machdep.cpu.vendor 2>/dev/null || echo "N/A")"
+            echo "CPU features: $(sysctl -n machdep.cpu.features 2>/dev/null || echo "N/A")"
+          else
+            echo "--- Fallback CPU info ---"
+            cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
+          fi
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner Architecture: $RUNNER_ARCH"
+          echo "========================"
+      - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
+        uses: ./.github/actions/setup-sccache
+        with:
+          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
+      - name: Setup
+        if: inputs.image-built != 'true'
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh $INSTALL_MODE
+          working_directory: .install
+
+      # RedisJSON's readies-based Makefile (built below) needs a python3
+      # interpreter, which only exists inside the uv venv this script creates.
+      # Use the same setup the flow-test jobs use so the env is identical.
+      - name: Setup Python test dependencies
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
+
+      # Cache Rust packages
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "v2-rust"
+          key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
+          # The cargo workspaces and target directory configuration.
+          # These entries are separated by newlines and have the form
+          # `$workspace -> $target`. The `$target` part is treated as a directory
+          # relative to the `$workspace` and defaults to "target" if not explicitly given.
+          # default: ". -> target"
+          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+          # Save cache even when the job fails, so subsequent runs can reuse
+          # compiled artifacts. Without this, cache is never populated on
+          # platforms with high failure rates (e.g. macOS x86_64).
+          cache-on-failure: true
+      - name: Install LLVM for sanitizer
+        if: inputs.san == 'address' && inputs.image-built != 'true'
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_llvm.sh $INSTALL_MODE
+          working_directory: .install
+      - name: Configure LLVM for sanitizer
+        if: inputs.san == 'address'
+        run: |
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          if [[ -z "$CLANG_BIN" ]]; then
+            echo "Failed to locate clang after sanitizer setup"
+            exit 1
+          fi
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
+      - name: Build Redis (cached)
+        uses: ./.github/actions/build-redis
+        with:
+          ref: ${{ inputs.redis-ref }}
+          san: ${{ inputs.san }}
+          coverage: ${{ inputs.coverage }}
+          cache_platform_id: ${{ inputs.container || inputs.env }}
+
+      - name: Build (incl. Rust nextest archive)
+        # `make build TESTS=1` builds redisearch.so + C test binaries; with
+        # ARCHIVE_RUST_TESTS=1 the same build.sh invocation also produces the
+        # nextest archive at $RUST_TEST_ARCHIVE_PATH right after the build,
+        # while the cargo target dir is hot. See
+        # https://nexte.st/docs/ci-features/archiving/.
+        env:
+          SAN: ${{ inputs.san }}
+          COV: ${{ inputs.coverage && 1 || 0 }}
+          REDIS_VER: ${{ inputs.redis-ref }}
+          ENABLE_ASSERT: 1
+          ARCHIVE_RUST_TESTS: 1
+          # Skip the Rust → C FFI header regeneration here; freshness is enforced
+          # only in the lint job. Building with stale headers would otherwise mask
+          # a missing `make generate-rust-headers` commit.
+          REDISEARCH_GENERATE_HEADERS: "0"
+          # cargo nextest archive bundles libzstd into its own binary, so this
+          # works regardless of whether the zstd CLI is installed on the runner.
+          RUST_TEST_ARCHIVE_PATH: ${{ github.workspace }}/nextest-archive.tar.zst
+        run: make build TESTS=1
+      - name: Validate glibc version
+        if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
+        uses: ./.github/actions/validate-glibc-version
+      - name: Check disk space after build
+        run: |
+          echo "Disk space after build:"
+          df -h
+          echo "Total Repo Size:"
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
+
+      - name: Show sccache stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
+
+      # RedisJSON is loaded as a side module by the flow tests. Build it once
+      # here (same sanitizer variant as the rest of the artifact) and drop
+      # rejson.so into bin/ so it ships in the build artifact; flow test jobs set
+      # REJSON_PATH to it and skip their own clone+build. The action caches it
+      # per (RedisJSON SHA, platform, arch, sanitizer) exactly like Redis, so an
+      # unchanged RedisJSON SHA under the same flags is restored, not rebuilt.
+      - name: Build RedisJSON module (cached)
+        uses: ./.github/actions/build-rejson
+        with:
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+          cov: ${{ inputs.coverage && '1' || '0' }}
+          cache_platform_id: ${{ inputs.platform }}
+
+      - name: Package build outputs
+        # We package bin/ as a tarball for two reasons:
+        #   1. actions/upload-artifact@v4 uses zip internally and strips Unix
+        #      executable bits, which breaks the C/C++ test binaries on the
+        #      downstream test jobs. tar preserves modes.
+        #   2. Lets us prune intermediates with `find` before packing. The
+        #      downstream test jobs need redisearch.so, the rstest / test_*
+        #      binaries, libredisearch_all.a (Rust links against it), the
+        #      CTestTestfile.cmake test catalogue, and .gcno files for
+        #      coverage. Everything else from `make build TESTS=1` is dead
+        #      weight in the tarball.
+        # We therefore drop:
+        #   * *.o / *.obj / *.a (except libredisearch_all.a) — linker inputs
+        #     already baked into the .so / test binaries.
+        #   * bin/redisearch_rs/ — the Rust workspace target/. The nextest
+        #     archive carries everything Rust tests need, and shipping target/
+        #     across machines doesn't actually save cargo recompile time.
+        #   * bin/**/_deps/ — vendored library sources (eve, spdlog, fmt,
+        #     tomlplusplus, googletest, googlebench, …) and their CMake
+        #     fetch/build/subbuild dirs. Already linked into our outputs;
+        #     not referenced by ctest, the .so loader, or coverage capture
+        #     (build.sh's lcov filter already excludes `*/_deps/*`).
+        #   * bin/**/CMakeFiles/** except *.gcno — incremental-build metadata
+        #     (compiler_depend.{make,internal}, .ts, .marks, …). .gcno is the
+        #     one thing gcov needs at test time and lives inside CMakeFiles/
+        #     next to the .o files, so we preserve it explicitly.
+        # Use gzip (tar -z) rather than zstd: the zstd CLI isn't installed on
+        # several CI container images and `tar --zstd` shells out to it. After
+        # the exclusions below the tarball is small enough that gzip's single-
+        # threaded throughput isn't a meaningful bottleneck.
+        #
+        # IMPORTANT: we EXCLUDE these paths from the tarball rather than
+        # deleting them from disk. The Swatinem rust-cache save runs as a
+        # post-job hook (after this step), and it caches bin/redisearch_rs.
+        # If we `rm -rf bin/redisearch_rs` here, the post-job save captures an
+        # empty target dir, so the next run gets a cache "hit" with no compiled
+        # dependencies and recompiles everything. Leaving files on disk and
+        # excluding them at tar time keeps the cache useful.
+        run: |
+          set -euo pipefail
+          EXCLUDES=$(mktemp)
+          {
+            # Rust workspace target/ — cached by Swatinem, never shipped in the
+            # artifact (the nextest archive carries the test binaries).
+            echo 'bin/redisearch_rs'
+            # C-side intermediates: object files + static archives (except the
+            # aggregated libredisearch_all.a that the Rust workspace links to).
+            # Scope the scan to the platform build tree; skip the Rust target.
+            find bin -path bin/redisearch_rs -prune -o -type f \( -name '*.o' -o -name '*.obj' \) -print
+            find bin -path bin/redisearch_rs -prune -o -type f -name '*.a' ! -name 'libredisearch_all.a' -print
+            # Vendored-lib sources / CMake fetch dirs and CMake incremental
+            # metadata — but keep .gcno (gcov needs it at test time; the
+            # instrumented binaries write .gcda to these paths and lcov errors
+            # if the matching .gcno is missing).
+            find bin -path '*/_deps/*' -type f ! -name '*.gcno'
+            find bin -path '*/CMakeFiles/*' -type f ! -name '*.gcno'
+          } > "$EXCLUDES"
+          echo "Excluding $(wc -l < "$EXCLUDES") path(s) from the artifact (left on disk for the rust-cache save)."
+          tar -czf bin.tar.gz --exclude-from="$EXCLUDES" bin
+          rm -f "$EXCLUDES"
+          echo "Tarball size:"
+          ls -lh bin.tar.gz
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            bin.tar.gz
+            nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+

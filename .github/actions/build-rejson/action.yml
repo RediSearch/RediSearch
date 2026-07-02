@@ -1,0 +1,139 @@
+name: Build RedisJSON (cached)
+description: |
+  Build RedisJSON and cache rejson.so, keyed on (resolved RedisJSON SHA,
+  platform, arch, sanitizer, coverage, pinned nightly toolchain). On a cache hit
+  the binary is restored; on a miss it is built and saved.
+
+  On completion $GITHUB_WORKSPACE/bin/rejson.so exists (built or restored) and
+  REJSON_PATH is exported to $GITHUB_ENV pointing at it, so later steps in the
+  job (flow tests, flaky-test enumeration) reuse it via setup_rejson.sh and skip
+  their own clone+build.
+
+  Coverage (cov) is part of the cache key so the RedisJSON cache is partitioned
+  per build variant — a coverage run and a non-coverage run never read each
+  other's entry.
+
+  The cache deduplicates work across re-runs and warm-cache jobs; it does not
+  serialize concurrent cold-cache jobs (parallel standalone/coordinator jobs
+  sharing a tuple may each build before either saves). A dedicated build-once
+  producer job + artifact (the build/test-split pipeline) is the full solution
+  to that.
+
+inputs:
+  rejson-branch:
+    description: "RedisJSON git ref to build (branch, tag, or 40-char SHA)"
+    required: true
+  san:
+    description: "Sanitizer (empty or 'address')"
+    required: false
+    default: ""
+  cov:
+    description: "Coverage build (1) or not (0)"
+    required: false
+    default: "0"
+  cache_platform_id:
+    description: "Opaque identifier for the binary-compatible platform (container image or runner env)"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve RedisJSON SHA
+      id: resolve
+      shell: bash
+      env:
+        REJSON_REF: ${{ inputs.rejson-branch }}
+      run: |
+        if [[ "$REJSON_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          SHA="$REJSON_REF"
+        else
+          SHA=$(git ls-remote https://github.com/RedisJSON/RedisJSON.git "$REJSON_REF" \
+                | awk 'NR==1 {print $1}')
+        fi
+        if [[ -z "$SHA" ]]; then
+          echo "Failed to resolve RedisJSON ref '$REJSON_REF' to a commit SHA" >&2
+          exit 1
+        fi
+        echo "Resolved $REJSON_REF -> $SHA"
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        # Absolute, in-container workspace path for the cached binary. Captured
+        # here from $GITHUB_WORKSPACE (the path the build runs in) rather than
+        # the github.workspace context, which resolves to the runner host path
+        # and is unreachable inside container jobs.
+        echo "binpath=$GITHUB_WORKSPACE/bin/rejson.so" >> "$GITHUB_OUTPUT"
+
+    - name: Compute cache key
+      id: key
+      shell: bash
+      env:
+        SHA: ${{ steps.resolve.outputs.sha }}
+        PLATFORM_ID: ${{ inputs.cache_platform_id }}
+        ARCH: ${{ runner.arch }}
+        SAN: ${{ inputs.san }}
+        COV: ${{ inputs.cov }}
+      run: |
+        SAN_LABEL="${SAN:-none}"
+        COV_LABEL="${COV:-0}"
+        # RedisJSON is compiled with the pinned nightly toolchain
+        # (setup_rejson.sh exports RUST_GOOD_NIGHTLY from .rust-nightly), so the
+        # toolchain is a build input: a nightly bump must invalidate the cached
+        # binary even when the RedisJSON SHA is unchanged.
+        NIGHTLY=$(tr -d '[:space:]' < "$GITHUB_WORKSPACE/.rust-nightly")
+        NIGHTLY_SAFE=$(echo "$NIGHTLY" | sed 's#[^A-Za-z0-9_.-]#-#g')
+        # Sanitize platform id for use in a cache key.
+        PLATFORM_SAFE=$(echo "$PLATFORM_ID" | sed 's#[^A-Za-z0-9_.-]#-#g')
+        KEY="rejson-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV_LABEL}-rust_${NIGHTLY_SAFE}"
+        echo "key=$KEY" >> "$GITHUB_OUTPUT"
+        echo "Cache key: $KEY"
+
+    - name: Restore cached RedisJSON
+      id: cache-restore
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ steps.resolve.outputs.binpath }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Build RedisJSON (cache miss)
+      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+      # Login shell so the python venv created by install_python_deps.sh
+      # (activated via ~/.bash_profile) is on PATH — RedisJSON's readies-based
+      # Makefile needs python3.
+      shell: bash -leo pipefail {0}
+      env:
+        SAN: ${{ inputs.san }}
+        # Build the resolved SHA (not the moving branch ref) so the produced
+        # binary always matches the cache key.
+        REJSON_BRANCH: ${{ steps.resolve.outputs.sha }}
+      run: |
+        set -euo pipefail
+        # This action is the producer of bin/rejson.so. If the caller exports
+        # REJSON_PATH (e.g. job-level, so consumer steps reuse the binary),
+        # setup_rejson.sh would short-circuit and skip the build — so clear it
+        # here to force an actual build.
+        unset REJSON_PATH
+        # Build into scratch space so RedisJSON's own build tree (cargo target
+        # dir, object files) never enters the artifact — we copy out only the .so.
+        export ROOT="$GITHUB_WORKSPACE"
+        export BINROOT="$RUNNER_TEMP/rejson-build"
+        mkdir -p "$BINROOT"
+        mkdir -p "$GITHUB_WORKSPACE/bin"
+        source "$GITHUB_WORKSPACE/tests/deps/setup_rejson.sh"
+        cp "$JSON_BIN_PATH" "$GITHUB_WORKSPACE/bin/rejson.so"
+        ls -lh "$GITHUB_WORKSPACE/bin/rejson.so"
+
+    - name: Save RedisJSON to cache
+      if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ steps.resolve.outputs.binpath }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Expose RedisJSON via REJSON_PATH
+      shell: bash
+      # Hand the absolute, container-correct path to downstream consumers (flow
+      # tests, flaky-test enumeration) so setup_rejson.sh reuses this binary
+      # instead of cloning + building. Runs on both cache hit and miss. Uses
+      # $GITHUB_WORKSPACE (the in-container workspace), not the github.workspace
+      # context (the runner host path, unreachable in container jobs).
+      run: |
+        echo "REJSON_PATH=$GITHUB_WORKSPACE/bin/rejson.so" >> "$GITHUB_ENV"

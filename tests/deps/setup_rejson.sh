@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
-# Function to run a command, and only if it fails, print stdout and stderr and then exit
+# Function to run a command, and only if it fails, print stdout and stderr and then exit.
+# The `|| status=$?` keeps this working when the caller has `set -e`: a bare
+# `output=$(...)` assignment would abort the script on a non-zero substitution
+# before we could print the captured output, hiding the failure.
 run_command() {
-  output=$(eval "$@" 2>&1)
-  status=$?
-  if [ $status -ne 0 ]; then
+  local output status=0
+  output=$(eval "$@" 2>&1) || status=$?
+  if [ "$status" -ne 0 ]; then
     echo "$output"
-    exit $status
+    exit "$status"
   fi
 }
 
@@ -16,6 +19,12 @@ ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current director
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
 JSON_BRANCH=${REJSON_BRANCH:-master}
+# Optional path to a prebuilt rejson.so. When non-empty, the build below is
+# skipped and this binary is reused (consumer jobs set it); empty means build
+# from source. Declared with a default so callers that source this under
+# `set -u` without setting it (e.g. the producer build job) don't trip on an
+# unbound variable.
+REJSON_PATH=${REJSON_PATH:-}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
 TEST_DEPS_DIR="${ROOT}/tests/deps"
 JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
