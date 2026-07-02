@@ -163,8 +163,8 @@ typedef struct BasicDiskAPI {
    *                     IndexSpec for its lifetime.
    * @return Pointer to the index spec, or NULL on error
    *
-   * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
-   *       to register with BigModule APIs.
+   * @note This both opens the database and registers it with Redis BigModule APIs.
+   *       Registration is atomic with creation; there is no separate register step.
    */
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
@@ -172,28 +172,24 @@ typedef struct BasicDiskAPI {
    * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
    *
-   * @note This closes the database but does NOT unregister from Redis. Call unregisterIndex
-   *       before this to unregister from BigModule APIs.
+   * @note This closes the database but performs no Redis module API calls, so it is safe
+   *       to run on a background thread. The matching main-thread teardown
+   *       (BigUnregisterDb) is performed by closeIndexOnMainThread, which must be called
+   *       before this on the main thread.
    */
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
-   * @brief Register an index's database with Redis BigModule APIs
+   * @brief Main-thread half of closing an index: performs every teardown step that needs
+   *        the Redis module API (today: BigUnregisterDb).
    * @param ctx Redis module context (required, must be valid)
    * @param index Pointer to the index spec
    *
-   * @note Must be called from the main thread with a valid RedisModuleCtx.
-   *       Call this after openIndexSpec to register the database with Redis.
+   * @note Must be called from the main thread with a valid RedisModuleCtx, and must
+   *       precede closeIndexSpec. The split exists because closeIndexSpec may run on
+   *       a background thread (the StrongRef destructor) and cannot make Redis module
+   *       API calls from there.
    */
-  void (*registerIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
-  /**
-   * @brief Unregister an index's database from Redis BigModule APIs
-   * @param ctx Redis module context (required, must be valid)
-   * @param index Pointer to the index spec
-   *
-   * @note Must be called from the main thread with a valid RedisModuleCtx.
-   *       Call this before closeIndexSpec to unregister the database from Redis.
-   */
-  void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
