@@ -174,8 +174,8 @@ impl ScoreSource for MockScoreSource {
         self.scores.get(&doc_id).copied()
     }
 
-    fn is_expired(&self, doc_id: DocId) -> bool {
-        self.expired.contains(&doc_id)
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.expired.contains(&result.doc_id)
     }
 
     fn num_estimated(&self) -> usize {

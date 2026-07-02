@@ -314,18 +314,17 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
             let item = self.direct_batch.as_mut().and_then(S::Batch::next);
-            let expired = item.is_some_and(|(doc_id, _)| self.source.is_expired(doc_id));
 
             match item {
-                Some(_) if expired => {
-                    // Poll only on the skip path, the sole branch that loops.
-                    self.source.check_timeout()?;
-                    continue;
-                }
                 Some((doc_id, score)) => {
                     let result = self.source.build_result(doc_id, score);
-                    self.current = Some(result);
+                    if self.source.is_expired(&result) {
+                        // Poll only on the skip path, the sole branch that loops.
+                        self.source.check_timeout()?;
+                        continue;
+                    }
                     self.last_doc_id = doc_id;
+                    self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
                 None => {
@@ -349,23 +348,21 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         loop {
             let entry = self.results.get(self.yield_pos).copied();
             self.yield_pos += 1;
-            let expired =
-                entry.is_some_and(|ScoredResult { doc_id, .. }| self.source.is_expired(doc_id));
 
             match entry {
                 None => {
                     self.at_eof = true;
                     return Ok(None);
                 }
-                Some(_) if expired => {
-                    // Poll only on the skip path, the sole branch that loops.
-                    self.source.check_timeout()?;
-                    continue;
-                }
                 Some(ScoredResult { doc_id, score }) => {
                     let result = self.source.build_result(doc_id, score);
-                    self.current = Some(result);
+                    if self.source.is_expired(&result) {
+                        // Poll only on the skip path, the sole branch that loops.
+                        self.source.check_timeout()?;
+                        continue;
+                    }
                     self.last_doc_id = doc_id;
+                    self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
             }

@@ -17,7 +17,7 @@ use ffi::{
 };
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIteratorError};
+use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
@@ -50,7 +50,7 @@ enum AdhocPathState<'index> {
 ///
 /// - RAM uses the unsafe RAM distance lookup under shared locks
 /// - Disk uses a preprocessed [`AdhocBfCtx`] per scan.
-pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationChecker> {
+pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Non-owning reference to the VecSim index.
     ///
     /// `'index` reflects the [`VectorScoreSource::new`] safety contract: the C
@@ -95,9 +95,9 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker = FieldExpirationCheck
     /// `k - heap_count`, updated by `batch_strategy`. Reset on rewind.
     k_remaining: usize,
 
-    /// Optional field-expiration filter for the vector field, consulted at
-    /// yield time via [`ScoreSource::is_expired`].
-    expiration: Option<E>,
+    /// Field-expiration filter for the vector field, consulted at yield time
+    /// via [`ScoreSource::is_expired`]. Use [`NoOpChecker`](rqe_iterators::NoOpChecker) to disable.
+    expiration: E,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -131,7 +131,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         skip_timeout_checks: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
-        expiration: Option<E>,
+        expiration: E,
     ) -> Self {
         // SAFETY: caller-upheld: `index` is valid for the struct's lifetime.
         let index = unsafe { IndexRef::from_raw(index) };
@@ -292,15 +292,8 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         }
     }
 
-    fn is_expired(&self, doc_id: DocId) -> bool {
-        let Some(checker) = self.expiration.as_ref() else {
-            return false;
-        };
-        if !checker.has_expiration() {
-            return false;
-        }
-        let probe = RSIndexResult::build_virt().doc_id(doc_id).build();
-        checker.is_expired(&probe)
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.expiration.has_expiration() && self.expiration.is_expired(result)
     }
 
     fn begin_adhoc(&mut self) {
@@ -479,6 +472,7 @@ mod tests {
     use std::ptr::NonNull;
 
     use ffi::{VecSimIndex, VecSimIndex_Free};
+    use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
 
     use super::refine_child_estimated;
@@ -516,7 +510,7 @@ mod tests {
         index: NonNull<VecSimIndex>,
         k: usize,
         child_est: usize,
-    ) -> VectorScoreSource<'static> {
+    ) -> VectorScoreSource<'static, NoOpChecker> {
         // SAFETY: caller upholds the `index` lifetime contract.
         unsafe { make_source(index, uniform_blob(0.0, 1), 0, k, child_est) }
     }
