@@ -46,6 +46,8 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
+  // Callers never insert empty strings into the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
 
   TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
@@ -82,7 +84,7 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (size_t j = 1; j + MIN_SUFFIX <= rlen; ++j) {
+  for (size_t j = 1; j < rlen; ++j) {
     TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
@@ -121,10 +123,12 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
+  // Callers never delete empty strings from the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
   // Remove the full-word entry (always inserted by addSuffixTrie).
-  if (rlen > 0) {
+  {
     TrieNode *node = Trie_GetNode(trie, runes, rlen, true, NULL);
     suffixData *data = Suffix_GetData(node);
     if (data) {
@@ -139,7 +143,7 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   }
 
   // Remove suffix entries.
-  for (size_t j = 1; j + MIN_SUFFIX <= rlen; ++j) {
+  for (size_t j = 1; j < rlen; ++j) {
     TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
@@ -239,17 +243,13 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
-    if (tokenLen[i] < MIN_SUFFIX) {
-      continue;
-    }
-
     // 1. long string are likely to have less results
     // 2. tokens at end of pattern are likely to be more relevant
     int curScore = tokenLen[i] + i;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == '*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
@@ -297,17 +297,13 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
-    if (tokenLen[i] < MIN_SUFFIX) {
-      continue;
-    }
-
     // 1. long string are likely to have less results
     // 2. tokens at end of pattern are likely to be more relevant
     int curScore = tokenLen[i] + 1;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
@@ -382,6 +378,8 @@ void suffixTrie_freeCallback(void *payload) {
 
 
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  // Callers never insert empty strings into the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
@@ -403,7 +401,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (uint32_t j = 1; j + MIN_SUFFIX <= len; ++j) {
+  for (uint32_t j = 1; j < len; ++j) {
     data = TrieMap_Find(trie, copyStr + j, len - j);
 
     if (data == TRIEMAP_NOTFOUND) {
@@ -417,10 +415,11 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  // Callers never delete empty strings from the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (uint32_t j = 0; j + MIN_SUFFIX <= len; ++j) {
+  for (uint32_t j = 0; j < len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
     RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {

@@ -18,6 +18,35 @@ inputs:
     description: Directory to write failed-logs.txt and download artifacts into.
     required: false
     default: '.'
+  highlight-patterns:
+    description: >
+      Newline-separated extended-regex (`grep -E`) patterns. Every matching line
+      of the assembled log is extracted *before* the tail-cap and prepended under
+      a `KEY FAILURE LINES` banner, so a root cause buried mid-log (e.g. a Python
+      traceback or an RLTest `[FAIL]` summary far above the tail) survives
+      truncation. The default targets common RediSearch CI failure signatures;
+      pass an empty string to disable.
+    required: false
+    default: |
+      Traceback \(most recent call last\):
+      [A-Za-z_.]*(Error|Exception):
+      AssertionError
+      \[(FAIL|ERROR)\]
+      \(FAIL\):
+      [1-9][0-9]* tests failed
+      Total Tests Failed: [1-9]
+      tests? failed, code:
+      ##\[error\]
+      Segmentation fault
+      SUMMARY: .*Sanitizer
+      panicked at
+      RDB CHECKSUM ERROR
+  max-key-lines:
+    description: >
+      Cap on the number of extracted highlight lines (deduplicated, in log order)
+      prepended to the file. Bounds token spend when a pattern is noisy.
+    required: false
+    default: '150'
 
 outputs:
   failed-jobs:
@@ -119,6 +148,8 @@ runs:
         GH_TOKEN: ${{ github.token }}
         ARTIFACT_PATTERN: ${{ inputs.artifact-pattern }}
         MAX_BYTES: ${{ inputs.max-bytes }}
+        HIGHLIGHT_PATTERNS: ${{ inputs.highlight-patterns }}
+        MAX_KEY_LINES: ${{ inputs.max-key-lines }}
       run: |
         set +e
         # Higher-priority focused "Failed Test Logs *" artifacts (per-test
@@ -162,6 +193,35 @@ runs:
           echo "No Failed Test Logs artifacts found."
         fi
 
+        # Extract high-signal lines from the *whole* assembled log before the
+        # tail-cap below, so a root cause buried mid-log (e.g. a Python traceback
+        # or an RLTest [FAIL] summary far above the surviving tail) is preserved.
+        # The banner is prepended *after* the cap so it always survives — a job
+        # log can run to several MB and the decisive line is often nowhere near
+        # the last MAX_BYTES.
+        KEY_FILE=""
+        if [ -n "$HIGHLIGHT_PATTERNS" ]; then
+          PAT_FILE="$(mktemp)"
+          printf '%s\n' "$HIGHLIGHT_PATTERNS" | grep -v '^[[:space:]]*$' > "$PAT_FILE"
+          KEY_FILE="$(mktemp)"
+          # -n: keep line numbers for locatability; cut: bound pathological long
+          # lines; awk: dedupe preserving order after stripping the line-number
+          # prefix and GH-Actions/Python-logger timestamps, so a message repeated
+          # on many lines collapses to one entry; head: bound total volume.
+          grep -nE -f "$PAT_FILE" failed-logs.txt 2>/dev/null \
+            | cut -c1-500 \
+            | awk '{
+                key = $0
+                sub(/^[0-9]+:/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+T[0-9:.]+Z/, "", key)
+                gsub(/[0-9]+-[0-9]+-[0-9]+ [0-9]+:[0-9]+:[0-9]+,[0-9]+/, "", key)
+                if (!seen[key]++) print
+              }' \
+            | head -n "$MAX_KEY_LINES" > "$KEY_FILE"
+          rm -f "$PAT_FILE"
+          [ -s "$KEY_FILE" ] || { rm -f "$KEY_FILE"; KEY_FILE=""; }
+        fi
+
         # Cap to MAX_BYTES to bound Codex token spend. Focused logs are
         # appended last, so they survive truncation; the per-job logs
         # written by fetch-failed-run-logs absorb it.
@@ -170,5 +230,17 @@ runs:
           printf '[truncated to last %d bytes]\n' "$MAX_BYTES" > failed-logs.txt
           cat failed-logs.txt.tmp >> failed-logs.txt
           rm failed-logs.txt.tmp
+        fi
+
+        if [ -n "$KEY_FILE" ]; then
+          {
+            printf '##[group]KEY FAILURE LINES (grepped from full pre-truncation log; line numbers included)\n'
+            cat "$KEY_FILE"
+            printf '##[endgroup]\n'
+            printf -- '--- assembled job + focused-test logs follow (may be tail-truncated) ---\n'
+          } > failed-logs.txt.tmp
+          cat failed-logs.txt >> failed-logs.txt.tmp
+          mv failed-logs.txt.tmp failed-logs.txt
+          rm -f "$KEY_FILE"
         fi
         exit 0

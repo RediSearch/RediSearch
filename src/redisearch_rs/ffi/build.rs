@@ -28,12 +28,60 @@ struct HeaderAllowlist {
 /// Bindgen inputs. Each entry both feeds clang and constrains which symbols
 /// bindgen emits. Sorted alphabetically by `path` for easy scanning.
 const HEADERS: &[HeaderAllowlist] = &[
+    // `c_wrappers/vecsim`: query replies and their iterators.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        fns: &[
+            "VecSimBatchIterator_Free",
+            "VecSimBatchIterator_HasNext",
+            "VecSimBatchIterator_Next",
+            "VecSimQueryReply_Free",
+            "VecSimQueryReply_GetCode",
+            "VecSimQueryReply_GetIterator",
+            "VecSimQueryReply_IteratorFree",
+            "VecSimQueryReply_IteratorNext",
+            "VecSimQueryResult_GetId",
+            "VecSimQueryResult_GetScore",
+        ],
+        types: &[
+            "VecSimQueryReply",
+            "VecSimQueryReply_Code",
+            "VecSimQueryReply_Iterator",
+            "VecSimQueryReply_Order",
+        ],
+        vars: &[],
+    },
+    // `c_wrappers/vecsim`: index handle + adhoc-BF / batch-iterator entry points.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        fns: &[
+            "VecSimBatchIterator_New",
+            "VecSimIndex_AddVector",
+            "VecSimIndex_AdhocBfCtx_Free",
+            "VecSimIndex_AdhocBfCtx_GetDistanceFrom",
+            "VecSimIndex_AdhocBfCtx_GetExactDistances",
+            "VecSimIndex_AdhocBfCtx_New",
+            "VecSimIndex_BasicInfo",
+            "VecSimIndex_Free",
+            "VecSimIndex_GetDistanceFrom_Unsafe",
+            "VecSimIndex_IndexSize",
+            "VecSimIndex_New",
+            "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_TopKQuery",
+            "VecSimParams_GetQueryBlobSize",
+            "VecSimTieredIndex_AcquireSharedLocks",
+            "VecSimTieredIndex_ReleaseSharedLocks",
+            "VecSim_Normalize",
+        ],
+        types: &["VecSimBatchIterator", "VecSimIndex"],
+        vars: &[],
+    },
     // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
     // vector-index API exposed through `src/search_disk_api.h`.
     HeaderAllowlist {
         path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
         fns: &[],
-        types: &["ThrottleCB", "VecSimParamsDisk"],
+        types: &["ThrottleCB", "VecSimIndexBasicInfo", "VecSimParamsDisk"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -90,14 +138,6 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/forward_index.h",
         fns: &["InvertedIndex_WriteForwardIndexEntry"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
-        // Benchmark-only GeoShape iterator constructor, used by
-        // `rqe_iterators_bencher` to compare against the Rust implementation.
-        path: "src/geometry/geometry_api.h",
-        fns: &["NewGeometryQueryIterator_Bench"],
         types: &[],
         vars: &[],
     },
@@ -297,6 +337,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
+        types: &[],
+        vars: &[],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -349,7 +395,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/suffix.h",
         fns: &[],
         types: &[],
-        vars: &["MIN_SUFFIX"],
+        vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
@@ -370,19 +416,10 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/ttl_table/ttl_table.h",
-        fns: &[
-            "TimeToLiveTable_Add",
-            "TimeToLiveTable_VerifyDocAndField",
-            "TimeToLiveTable_VerifyDocAndFieldMask",
-            "TimeToLiveTable_VerifyDocAndWideFieldMask",
-            "TimeToLiveTable_VerifyInit",
-            // Used by bench.
-            "TimeToLiveTable_Destroy",
-            "TimeToLiveTable_IsEmpty",
-        ],
+        path: "src/trie/trie_node.h",
+        fns: &[],
         types: &[],
-        vars: &[],
+        vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
@@ -437,7 +474,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
     // `FieldExpirationPredicate` is taken by value in TTL table function
-    // signatures (src/ttl_table/ttl_table.h).
+    // signatures (src/ttl_table.h).
     "field.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.
@@ -486,6 +523,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `aggregate.h` includes `value_ffi.h`; reachable via
     // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
     "value_ffi.h",
+    // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
+    // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
+    "types_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).

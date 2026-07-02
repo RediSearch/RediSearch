@@ -241,7 +241,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      // Resolve the score-tie-break field if one was requested.
+      const RLookupKey *scoreTieBreakKey = NULL;
+      if (astp->scoreTieBreakField) {
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
+      }
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -412,6 +418,13 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
 
   RLookup_SetCache(first, cache);
 
+  // Buffering RPs only need to preserve each result's RSIndexResult if something
+  // downstream (highlighter or matched_terms()) reads it; otherwise they may drop
+  // the borrow instead of paying for a deep copy. The query and output parts share
+  // this qctx, so setting it here covers the whole pipeline.
+  pipeline->qctx.skipIndexResultDeepCopy =
+      !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
+
   ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
@@ -553,6 +566,36 @@ error:
   return REDISMODULE_ERR;
 }
 
+// Whether `expr` (or any sub-expression) calls a function that reads the
+// result's RSIndexResult. matched_terms() is currently the only such function;
+// an APPLY/FILTER using it after a buffering step needs the index result kept
+// alive, so the buffering RP must deep-copy rather than drop the borrow.
+static bool exprReadsIndexResult(const RSExpr *expr) {
+  if (!expr) return false;
+  switch (expr->t) {
+    case RSExpr_Function:
+      if (expr->func.name && !strcasecmp(expr->func.name, "matched_terms")) {
+        return true;
+      }
+      if (expr->func.args) {
+        for (size_t i = 0; i < expr->func.args->len; i++) {
+          if (exprReadsIndexResult(expr->func.args->args[i])) return true;
+        }
+      }
+      return false;
+    case RSExpr_Op:
+      return exprReadsIndexResult(expr->op.left) || exprReadsIndexResult(expr->op.right);
+    case RSExpr_Predicate:
+      return exprReadsIndexResult(expr->pred.left) || exprReadsIndexResult(expr->pred.right);
+    case RSExpr_Inverted:
+      return exprReadsIndexResult(expr->inverted.child);
+    case RSExpr_Literal:
+    case RSExpr_Property:
+      return false;
+  }
+  return false;
+}
+
 int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags, QueryError *status) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
@@ -597,6 +640,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
+        }
+
+        // matched_terms() reads the result's index result; if any APPLY/FILTER
+        // needs it, buffering RPs must deep-copy it rather than drop the borrow.
+        if (exprReadsIndexResult(mstp->parsedExpr)) {
+          pipeline->qctx.skipIndexResultDeepCopy = false;
         }
 
         // Ensure the lookups can actually find what they need

@@ -57,7 +57,7 @@ redis_mock.workspace = true
 build_utils.workspace = true
 
 [features]
-unittest = []
+unittest = ["field_spec/unittest"]
 
 [lints]
 workspace = true

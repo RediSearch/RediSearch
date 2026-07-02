@@ -10,7 +10,7 @@
 
 //! Shared setup helpers for the [`ttl_table`] Criterion benches.
 
-use std::{num::NonZeroUsize, ops::Deref};
+use std::num::NonZeroUsize;
 
 use ffi::timespec;
 use rand::{
@@ -75,12 +75,12 @@ pub fn create_field_expiration<R: RngExt>(
 
     let pick = PickRandom::new(input.fill_probability);
 
-    // Pre-size to the upper bound (`real_count`) so the block is allocated
-    // exactly once, in doc order — matching the tight, sequentially-laid-out
-    // arrays the C builder produces via `staging.shrink_to_fit()` +
-    // `array_new_sz(len)`. Avoids both the geometric over-allocation of
-    // repeated `push` and the placement-scattering realloc of `shrink_to_fit`.
-    let mut output = FieldExpirations::new();
+    // Pre-size to the upper bound (`real_count`) so the `push` loop never
+    // reallocates geometrically; the `should_keep` filter then leaves spare
+    // capacity, which the `shrink_to_fit` below tightens into a `capacity == len`
+    // block — matching the tight, doc-ordered arrays the C builder produces via
+    // `staging.shrink_to_fit()` + `array_new_sz(len)`.
+    let mut output = FieldExpirations::with_capacity(real_count as usize);
     for ((field_id, point), should_keep) in (0..real_count).zip(points).zip(pick.iter(rng)) {
         if should_keep {
             output.push(FieldExpiration {
@@ -89,13 +89,16 @@ pub fn create_field_expiration<R: RngExt>(
             });
         }
     }
+    // Tighten to a `capacity == len` block (the filter left spare capacity).
+    output.shrink_to_fit();
 
     output
 }
 
 pub fn create_docs(input: DocsInput, mut rng: ThreadRng) -> Vec<(DocId, FieldExpirations)> {
     let pick = PickRandom::new(input.fill_probability);
-    (input.start_doc_id_from..(input.start_doc_id_from + input.count as DocId))
+    let mut docs: Vec<(DocId, FieldExpirations)> = (input.start_doc_id_from
+        ..(input.start_doc_id_from + input.count as DocId))
         .filter_map(move |doc_id| {
             pick.should_keep(&mut rng).then(|| {
                 (
@@ -105,118 +108,32 @@ pub fn create_docs(input: DocsInput, mut rng: ThreadRng) -> Vec<(DocId, FieldExp
             })
         })
         .filter(|(_, f)| !f.is_empty())
-        .collect()
+        .collect();
+    // `filter_map`/`filter` report a `0` lower size hint, so `collect` over-allocates.
+    // Shrink to capacity == len so the dataset is a tight block.
+    docs.shrink_to_fit();
+    docs
 }
 
-/// Project the shared Rust dataset produced by [`create_docs`] into the C
-/// `arrayof(FieldExpiration)` payloads the C table consumes, so both
-/// implementations benchmark byte-for-byte identical data.
-pub fn convert_into_ffi_docs(
-    docs: &[(DocId, FieldExpirations)],
-) -> Vec<(DocId, *mut ffi::FieldExpiration)> {
-    let mut output = Vec::with_capacity(docs.len());
-    for (doc_id, fes) in docs {
-        let staging: Vec<_> = fes
-            .deref()
-            .iter()
-            .map(|fe| ffi::FieldExpiration {
-                index: fe.index,
-                point: ffi::timespec {
-                    tv_sec: fe.point.tv_sec,
-                    tv_nsec: fe.point.tv_nsec,
-                },
-            })
-            .collect();
-
-        assert!(
-            !staging.is_empty(),
-            "convert_into_ffi_docs: empty payload (create_docs should have filtered it)"
-        );
-
-        // SAFETY: `array_new_sz` is FFI but otherwise pure — given valid args it
-        // returns a freshly allocated buffer with `array_len(buf) == staging.len()`.
-        let raw = unsafe {
-            ffi::array_new_sz(
-                std::mem::size_of::<ffi::FieldExpiration>() as u16,
-                0,
-                staging.len() as u32,
-            )
-        }
-        .cast::<ffi::FieldExpiration>();
-
-        // SAFETY: `raw` was sized for exactly `staging.len()` elements and is
-        // disjoint from `staging`, so the copy is in-bounds and non-overlapping.
-        unsafe {
-            std::ptr::copy_nonoverlapping(staging.as_ptr(), raw, staging.len());
-        }
-
-        output.push((*doc_id, raw));
-    }
-
-    output
-}
-
-/// Create and populate TimeToLiveTable
+/// Create and populate a [`TimeToLiveTable`] with the given inputs.
+///
+/// Re-allocates every payload into a fresh, tight, doc-ordered block before
+/// inserting, so the allocated memory is not sparse (important for benchmarks).
 pub fn create_and_populate(
     max_size: NonZeroUsize,
     inputs: Vec<(DocId, FieldExpirations)>,
 ) -> TimeToLiveTable {
+    let mut repacked: Vec<(DocId, FieldExpirations)> = Vec::with_capacity(inputs.len());
+    for (doc_id, fields) in &inputs {
+        repacked.push((*doc_id, fields.clone()));
+    }
+    drop(inputs);
+
     let mut t = TimeToLiveTable::new(max_size);
-    for (doc_id, fields) in inputs {
+    for (doc_id, fields) in repacked {
         t.add(doc_id, fields);
     }
     t
-}
-
-/// RAII handle around the C `TimeToLiveTable*`. Calls
-/// `TimeToLiveTable_Destroy` on drop so bench iterations don't leak the
-/// bucket array (or its per-doc FieldExpiration payloads) across millions
-/// of repetitions.
-pub struct CTimeToLiveTable(pub *mut ffi::TimeToLiveTable);
-
-impl CTimeToLiveTable {
-    /// Borrow the raw pointer for passing to other `TimeToLiveTable_*`
-    /// functions. The pointer is valid for as long as `self` is alive.
-    pub const fn as_ptr(&self) -> *mut ffi::TimeToLiveTable {
-        self.0
-    }
-}
-
-impl Drop for CTimeToLiveTable {
-    fn drop(&mut self) {
-        // SAFETY: `self.0` was produced by `TimeToLiveTable_VerifyInit` in
-        // `create_and_populate_c` and is not aliased; `Destroy` accepts
-        // either a NULL slot or a live table and clears the slot.
-        unsafe { ffi::TimeToLiveTable_Destroy(&mut self.0) };
-    }
-}
-
-/// C analogue of [`create_and_populate`].
-///
-/// # Safety
-///
-/// Same preconditions as [`ffi::TimeToLiveTable_Add`]: each payload must be
-/// non-empty and sorted ascending by `index`. [`convert_into_ffi_docs`]
-/// preserves the `0..real_count` order of [`create_field_expiration`],
-/// satisfying the sort invariant.
-pub unsafe fn create_and_populate_c(
-    max_size: NonZeroUsize,
-    inputs: Vec<(DocId, *mut ffi::FieldExpiration)>,
-) -> CTimeToLiveTable {
-    let mut t: *mut ffi::TimeToLiveTable = std::ptr::null_mut();
-    // SAFETY: `&mut t` points at a writable `*mut TimeToLiveTable`;
-    // `TimeToLiveTable_VerifyInit` writes a freshly allocated table to it.
-    unsafe {
-        ffi::TimeToLiveTable_VerifyInit(&mut t, max_size.get());
-    }
-    for (doc_id, fields) in inputs {
-        // SAFETY: caller's invariant — `fields` is non-empty, sorted by
-        // index, and unique per `doc_id`. Ownership transfers to the table.
-        unsafe {
-            ffi::TimeToLiveTable_Add(t, doc_id, fields);
-        }
-    }
-    CTimeToLiveTable(t)
 }
 
 /// Iterator that yield bools at specified probability
@@ -232,7 +149,10 @@ impl PickRandom {
         self.0.sample(rng)
     }
 
-    fn iter<'s, 'rand, R: RngExt>(&'s self, rng: &'rand mut R) -> PickRandomIter<'s, 'rand, R> {
+    const fn iter<'s, 'rand, R: RngExt>(
+        &'s self,
+        rng: &'rand mut R,
+    ) -> PickRandomIter<'s, 'rand, R> {
         PickRandomIter(self, rng)
     }
 }

@@ -99,6 +99,9 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
+
+  // Debug/test-only sync point
+  void (*beforeApplySyncPoint)(void);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
@@ -113,6 +116,24 @@ typedef struct AsyncReadResult {
   RSDocumentMetadata *dmd;  // Pointer to allocated DMD (caller must free with DMD_Return)
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
+
+// Stats reported by a single GC compaction cycle.
+//
+// Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
+// and the callee fills the fields it knows about.
+typedef struct DiskGCRunStats {
+  // Number of deleted document IDs removed in this cycle.
+  size_t num_cleaned_docs;
+  // Bytes freed by the compaction (storage layer's view). Signed because
+  // future compaction strategies (e.g. block splitting) may transiently
+  // allocate more than they free; matches the `InfoGCStats::totalCollectedBytes`
+  // convention.
+  ssize_t bytes_collected;
+  // Wall-clock duration of this compaction cycle, in milliseconds, measured by
+  // the disk implementation. Keeping it in this struct lets every per-cycle
+  // counter be populated in one place on the disk side.
+  size_t cycle_time_ms;
+} DiskGCRunStats;
 
 typedef struct BasicDiskAPI {
   /**
@@ -526,11 +547,15 @@ typedef struct IndexDiskAPI {
    * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
    * openIndexSpec time.
    *
-   * @param index Pointer to the disk index
+   * On return, `stats` is populated with per-cycle counters
+   * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
+   * call; the implementation only writes the fields it knows about.
    *
-   * @return Number of deletedIDs removed from the disk index
+   * @param index Pointer to the disk index
+   * @param stats Caller-allocated, zero-initialized stats out-parameter
+   *              (MUST NOT be NULL)
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.

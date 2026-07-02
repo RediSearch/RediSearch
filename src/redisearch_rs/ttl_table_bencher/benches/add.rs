@@ -13,9 +13,7 @@ use std::{hint::black_box, num::NonZeroUsize};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use ttl_table::TimeToLiveTable;
-use ttl_table_bencher::{
-    CTimeToLiveTable, DocsInput, FieldExpirationInput, convert_into_ffi_docs, create_docs,
-};
+use ttl_table_bencher::{DocsInput, FieldExpirationInput, create_docs};
 
 fn doc_inputs() -> Vec<DocsInput> {
     let mut doc_inputs = Vec::new();
@@ -66,42 +64,6 @@ fn add_sequential(c: &mut Criterion) {
                                 unsafe { t.add_unchecked(black_box(doc_id), black_box(fields)) };
                             }
                             t
-                        },
-                        BatchSize::LargeInput,
-                    )
-                },
-            );
-
-            group.bench_function(
-                BenchmarkId::from_parameter(format!(
-                    "slot_size={}/pop_count={}/doc_filled_at={}/lang=C",
-                    max_size, doc_input.count, doc_input.fill_probability
-                )),
-                |b| {
-                    b.iter_batched(
-                        || {
-                            let mut t: *mut ffi::TimeToLiveTable = std::ptr::null_mut();
-                            // SAFETY: `&mut t` points at a writable `*mut TimeToLiveTable`;
-                            // `TimeToLiveTable_VerifyInit` writes a freshly allocated table to it.
-                            unsafe {
-                                ffi::TimeToLiveTable_VerifyInit(&mut t, max_size.get());
-                            }
-
-                            (convert_into_ffi_docs(&rust_docs), t)
-                        },
-                        |(inputs, t)| {
-                            for (doc_id, fields) in inputs {
-                                // SAFETY: caller's invariant — `fields` is non-empty, sorted by
-                                // index, and unique per `doc_id`. Ownership transfers to the table.
-                                unsafe {
-                                    ffi::TimeToLiveTable_Add(
-                                        t,
-                                        black_box(doc_id),
-                                        black_box(fields),
-                                    );
-                                }
-                            }
-                            CTimeToLiveTable(t)
                         },
                         BatchSize::LargeInput,
                     )

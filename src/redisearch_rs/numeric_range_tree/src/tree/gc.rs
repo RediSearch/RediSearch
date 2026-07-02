@@ -92,7 +92,7 @@ impl NumericRangeNode {
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
 
-        let mut repair_fn = |res: &RSIndexResult<'_>, ctx: &inverted_index::RepairContext<'_>| {
+        let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
             // SAFETY: We know this is a numeric index result
             let value = unsafe { res.as_numeric_unchecked() };
             let target = if ctx.block_idx == last_block_idx {

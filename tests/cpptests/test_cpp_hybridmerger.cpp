@@ -224,7 +224,7 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -239,7 +239,7 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 
@@ -1292,6 +1292,11 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
+
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = SearchResult_New();
   int result;
@@ -1447,7 +1452,12 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, nullptr, nullptr, returnCodes, lookupCtx, nullptr);
+
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
 
   // Process results - this should capture the return codes
   SearchResult r = SearchResult_New();

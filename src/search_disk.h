@@ -325,10 +325,15 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * the compaction callback table that was bound to the IndexSpec at open time;
  * those callbacks take the IndexSpec write lock around the update window.
  *
+ * On return, `stats` is populated with per-cycle counters
+ * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
+ * `stats` before the call.
+ *
  * @param index Pointer to the disk index
- * @return Number of deleted document IDs removed from the disk index
+ * @param stats Caller-allocated, zero-initialized stats out-parameter
+ *              (MUST NOT be NULL; RS_ASSERT)
  */
-size_t SearchDisk_RunGC(RedisSearchDiskIndexSpec *index);
+void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index

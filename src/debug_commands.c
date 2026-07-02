@@ -196,6 +196,8 @@ typedef struct SyncPointState {
   char name[SYNC_POINT_NAME_MAX_LEN];   // Name of the sync point
   atomic_bool armed;                    // Whether this sync point is armed (will block)
   _Atomic uint32_t waiting;             // Number of threads currently waiting at this point
+  _Atomic long long auto_release_ms;    // >0: a parked SyncPoint_Wait self-releases after
+                                        // this many ms even without a SIGNAL; 0: wait for SIGNAL.
 } SyncPointState;
 
 // Container for all sync point states
@@ -219,9 +221,14 @@ static SyncPointState* SyncPoint_FindByName(const char *name) {
   return NULL;
 }
 
-bool SyncPoint_Arm(const char *name) {
+// Arm `name`, self-releasing a parked waiter after `auto_release_ms` (0 = wait
+// for SIGNAL). Shared by SyncPoint_Arm / SyncPoint_ArmWithTimeout.
+static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
   SyncPointState *existing = SyncPoint_FindByName(name);
   if (existing) {
+    // Publish the timeout before re-arming so a Wait that observes `armed`
+    // reads the intended auto-release window (seq_cst stores order the two).
+    atomic_store(&existing->auto_release_ms, auto_release_ms);
     atomic_store(&existing->armed, true);
     return true;
   }
@@ -237,6 +244,7 @@ bool SyncPoint_Arm(const char *name) {
   SyncPointState *sp = &globalSyncPointCtx.points[idx];
   strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
   sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
+  atomic_store(&sp->auto_release_ms, auto_release_ms);
   atomic_store(&sp->armed, true);
   // Note: We intentionally do NOT reset sp->waiting here.
   // The slot is either newly allocated (waiting is 0 from static init) or
@@ -247,6 +255,14 @@ bool SyncPoint_Arm(const char *name) {
   atomic_thread_fence(memory_order_release);
   atomic_fetch_add(&globalSyncPointCtx.count, 1);
   return true;
+}
+
+bool SyncPoint_Arm(const char *name) {
+  return SyncPoint_ArmInternal(name, 0);
+}
+
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms) {
+  return SyncPoint_ArmInternal(name, auto_release_ms);
 }
 
 void SyncPoint_Signal(const char *name) {
@@ -291,9 +307,18 @@ void SyncPoint_Wait(const char *name) {
   SyncPointState *sp = SyncPoint_FindByName(name);
   if (!sp || !atomic_load(&sp->armed)) return;
 
+  // Read the auto-release window once; >0 caps the park so it self-releases
+  // even without a SIGNAL. This is what lets a test hold a background apply
+  // while the main thread blocks in disable_compactions() (which waits for the
+  // in-flight compaction) — a SIGNAL could never be processed by the frozen
+  // main thread, so the timeout is the only way out.
+  long long auto_release_ms = atomic_load(&sp->auto_release_ms);
   atomic_fetch_add(&sp->waiting, 1);  // Increment waiting counter
+  long long waited_ms = 0;
   while (atomic_load(&sp->armed)) {
+    if (auto_release_ms > 0 && waited_ms >= auto_release_ms) break;  // self-release
     usleep(1000);  // Spin-wait with 1ms sleep (matches existing pattern)
+    waited_ms++;
   }
   atomic_fetch_sub(&sp->waiting, 1);  // Decrement waiting counter
 }
@@ -982,15 +1007,25 @@ DEBUG_COMMAND(GCForceInvoke) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  if (sp->diskSpec) {
-    SearchDisk_RunGC(sp->diskSpec);
-    RedisModule_ReplyWithSimpleString(ctx, "DONE");
-    return REDISMODULE_OK;
-  } else if (sp->gc) {
+  // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
+  // through it runs the periodic callback with force=true, which for the disk
+  // path performs the compaction *and* accumulates the per-cycle GC stats
+  // (bytes_collected, cycles, timing). Calling SearchDisk_RunGC directly here
+  // would bypass that accounting and leave FT.INFO/INFO reporting stale stats
+  // after a forced GC. The fallback below covers the only case where a disk
+  // index has no GCContext (GC globally disabled or a temporary index).
+  if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
+  } else if (sp->diskSpec) {
+    // Fallback described above: with no GCContext there is no DiskGC stats
+    // context to accumulate into and FT.INFO/INFO render no GC section, so run
+    // the compaction inline and let the stats go nowhere.
+    DiskGCRunStats stats = {0};
+    SearchDisk_RunGC(sp->diskSpec, &stats);
+    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
@@ -2921,7 +2956,9 @@ DEBUG_COMMAND(printRPStream) {
  * FT.DEBUG SYNC_POINT <subcommand> [point_name]
  *
  * Subcommands:
- *   ARM <name>        - Enable a sync point (queries will pause when reaching it)
+ *   ARM <name> [auto_release_ms]  - Enable a sync point (threads pause when reaching it).
+ *                                   With auto_release_ms > 0 a parked thread self-releases
+ *                                   after that many ms even without a SIGNAL.
  *   SIGNAL <name>     - Resume execution at a sync point
  *   IS_WAITING <name> - Check if a query is paused at a sync point
  *   IS_ARMED <name>   - Check if a sync point is armed
@@ -2936,9 +2973,21 @@ DEBUG_COMMAND(syncPoint) {
   const char *subOp = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcmp(SYNC_POINT_SUBCMD_ARM, subOp)) {
-    if (argc != 4) return RedisModule_WrongArity(ctx);
+    // ARM <name> [auto_release_ms]
+    if (argc != 4 && argc != 5) return RedisModule_WrongArity(ctx);
     const char *name = RedisModule_StringPtrLen(argv[3], NULL);
-    if (!SyncPoint_Arm(name)) {
+    bool armed;
+    if (argc == 5) {
+      long long auto_release_ms;
+      if (RedisModule_StringToLongLong(argv[4], &auto_release_ms) != REDISMODULE_OK ||
+          auto_release_ms < 0) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid auto_release_ms");
+      }
+      armed = SyncPoint_ArmWithTimeout(name, auto_release_ms);
+    } else {
+      armed = SyncPoint_Arm(name);
+    }
+    if (!armed) {
       return RedisModule_ReplyWithError(ctx, "ERR max sync points reached");
     }
     return RedisModule_ReplyWithSimpleString(ctx, "OK");

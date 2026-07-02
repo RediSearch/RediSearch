@@ -24,7 +24,13 @@ echo $OS
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
 
-source ./install_boost.sh
+# Boost is only useful when the build runs from the same checkout this script
+# populates. The CI image builds from /project but jobs build from a fresh
+# workspace checkout, so a baked boost is never used (CMake FetchContent
+# re-fetches it). Allow the image build to skip it via SKIP_BOOST=1.
+if [[ "${SKIP_BOOST:-0}" != 1 ]]; then
+    source ./install_boost.sh
+fi
 # Install Rust and Python here since they're needed on all platforms and
 # the installer doesn't rely on any platform-specific tools (e.g. the package manager)
 source install_rust.sh

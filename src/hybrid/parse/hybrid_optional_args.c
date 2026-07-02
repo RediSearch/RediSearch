@@ -220,8 +220,23 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     ArgParser_Free(parser);
 
+    // EXPLAINSCORE implies emitting the per-result score: the reply path pairs
+    // the score with its explanation, so without QEXEC_F_SEND_SCORES neither
+    // would be written. FT.HYBRID does not expose a user-facing WITHSCORES, so
+    // we set the flag here on the user's behalf.
     if ((*(ctx->reqFlags) & QEXEC_F_SEND_SCOREEXPLAIN)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
+        *(ctx->reqFlags) |= QEXEC_F_SEND_SCORES;
+    }
+
+    // EXPLAINSCORE is incompatible with GROUPBY: the grouper consumes per-document
+    // SearchResults (and their score_explain wrappers) and emits aggregate rows
+    // whose score_explain is empty, while the hybrid reply path still opens a
+    // [score, explain] array. Reject the combination at parse time rather than
+    // emit a malformed one-element score array.
+    if ((ctx->specifiedArgs & SPECIFIED_ARG_EXPLAINSCORE) &&
+        (ctx->specifiedArgs & SPECIFIED_ARG_GROUPBY)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "EXPLAINSCORE is not supported with GROUPBY");
         return REDISMODULE_ERR;
     }
 
