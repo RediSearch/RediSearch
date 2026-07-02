@@ -818,3 +818,76 @@ fn batches_preserves_child_scoring_fields() {
           got {emitted:?}; the BM25-becomes-0 bug from MOD-8142"
     );
 }
+
+/// The dual of [`batches_preserves_child_scoring_fields`]: when the pipeline can
+/// trim deep results, the child's scoring subtree is never captured, so each
+/// match yields the source's metric-only result (default freq/field_mask) rather
+/// than the child's rich record.
+#[test]
+fn batches_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Same doc ids and best-first order as the rich path, but the child's
+    // freq/field_mask are absent — the yielded record is the source's
+    // metric-only result.
+    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+}
+
+/// Adhoc-BF counterpart of [`batches_trim_deep_results_yields_metric_only`]:
+/// the child-driven scan also skips capturing the rich record when results are
+/// trimmed.
+#[test]
+fn adhoc_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![], vec![(1, 0.9), (2, 0.5)], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(Box::new(child) as Box<dyn RQEIterator<'_> + '_>),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+}

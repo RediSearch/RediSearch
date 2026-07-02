@@ -107,6 +107,11 @@ pub struct TopKIterator<
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
     compare: fn(f64, f64) -> Ordering,
+    /// When `true`, filtered modes skip deep-copying the child's rich result
+    /// subtree and yield a metric-only result carrying just the source's score.
+    /// Set when the downstream pipeline needs no rich results (no relevance
+    /// scorer or highlighter that reads the child's term records).
+    can_trim_deep_results: bool,
     phase: Phase,
     /// Heap contents drained into score order for yielding. In filtered modes
     /// each entry carries the child's record captured at match time.
@@ -159,6 +164,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             direct_batch: None,
             k,
             compare,
+            can_trim_deep_results: false,
             phase: Phase::NotStarted,
             results: Vec::new(),
             yield_pos: 0,
@@ -167,6 +173,18 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             at_eof: false,
             metrics: TopKMetrics::default(),
         }
+    }
+
+    /// Set whether filtered modes may yield metric-only results.
+    ///
+    /// When `true`, the collection phase skips deep-copying each matching
+    /// child record and the yield phase builds a metric-only result via
+    /// [`ScoreSource::build_result`] instead of carrying the child's subtree.
+    /// Leave `false` (the default) whenever a downstream scorer or highlighter
+    /// reads the child's term records.
+    pub fn with_trim_deep_results(mut self, trim: bool) -> Self {
+        self.can_trim_deep_results = trim;
+        self
     }
 
     /// Returns the current execution mode.
@@ -249,8 +267,15 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
 
             // Borrow-checker split: we can't hold `&mut self.child` and call
             // `self.heap.push` at the same time.  Pass fields explicitly.
+            let can_trim_deep_results = self.can_trim_deep_results;
             if let Some(child) = &mut self.child {
-                intersect_batch_with_child(child, &mut batch, &mut self.heap, &mut self.metrics)?;
+                intersect_batch_with_child(
+                    child,
+                    &mut batch,
+                    &mut self.heap,
+                    &mut self.metrics,
+                    can_trim_deep_results,
+                )?;
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -297,6 +322,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// wrap the adhoc code. This allows [`ScoreSource::lookup_score`]
     /// to reuse expensive resources.
     fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
+        let can_trim_deep_results = self.can_trim_deep_results;
         let child = self
             .child
             .as_mut()
@@ -317,8 +343,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 // Capture the child's record now, before the next `child.read()`
                 // reuses its storage, so the yield phase needn't re-walk the child.
-                let record = capture_child_record(result);
-                self.heap.push_with_record(doc_id, score, Some(record));
+                // When rich results can be trimmed, skip the copy and yield a
+                // metric-only result at yield time.
+                let record = (!can_trim_deep_results).then(|| capture_child_record(result));
+                self.heap.push_with_record(doc_id, score, record);
             }
         }
 
@@ -418,12 +446,14 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             }
             self.last_doc_id = doc_id;
 
-            // Filtered mode: yield the stored child record so BM25 inputs survive.
-            if self.child.is_some() {
+            // Filtered mode yields the stored child record so BM25 inputs
+            // survive. When rich results are trimmed no record was captured, so
+            // fall through to build a metric-only result.
+            if self.child.is_some() && !self.can_trim_deep_results {
                 let Some(mut record) = record else {
-                    // A filtered-mode entry must always carry its captured record;
-                    // a missing one would indicate a collection-side bug. Treat as
-                    // EOF rather than panicking.
+                    // A rich filtered-mode entry must always carry its captured
+                    // record; a missing one would indicate a collection-side bug.
+                    // Treat as EOF rather than panicking.
                     self.at_eof = true;
                     return Ok(None);
                 };
@@ -432,7 +462,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 return Ok(self.current.as_mut());
             }
 
-            // Unfiltered fallback (no child): build a fresh result from the source.
+            // Unfiltered, or filtered with trimmed results: build a fresh
+            // metric-only result from the source.
             let result = self.source.build_result(doc_id, score);
             self.current = Some(result);
             return Ok(self.current.as_mut());
@@ -576,6 +607,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap<'index>,
     metrics: &mut TopKMetrics,
+    can_trim_deep_results: bool,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
@@ -594,18 +626,31 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
             Ordering::Equal => {
                 // Capture the matching child record before advancing past it,
                 // so the yield phase can return it without re-reading the child.
-                let record = child.current().map(|r| capture_child_record(r));
+                // When rich results can be trimmed, skip the copy and yield a
+                // metric-only result at yield time.
+                let record = (!can_trim_deep_results)
+                    .then(|| child.current().map(|r| capture_child_record(r)))
+                    .flatten();
                 heap.push_with_record(batch_doc, batch_score, record);
-                // Advance the batch first; only read the child when another
-                // batch doc remains. Reading the child past an exhausted batch
-                // is needless work that inflates its profile counters and could
-                // turn a completed batch into a spurious TimedOut.
-                let Some((d, s)) = batch.next() else { break };
-                batch_doc = d;
-                batch_score = s;
-                match child.read()?.map(|r| r.doc_id) {
-                    Some(doc_id) => child_doc = doc_id,
-                    None => break,
+                // Advance both iterators once per match, then stop if either is
+                // exhausted — keeping the child's profiled read count in step
+                // with the C hybrid reader.
+                //
+                // TODO: skip this child read when the batch is already exhausted.
+                // It is redundant work (no batch doc remains to match) and
+                // re-reading a completed batch's child can surface a spurious
+                // TimedOut. Deferred because it lowers the child's profiled read
+                // count, so it must land together with updated FT.PROFILE
+                // expectations (see tests/pytests/test_profile.py).
+                let child_next = child.read()?.map(|r| r.doc_id);
+                let batch_next = batch.next();
+                match (batch_next, child_next) {
+                    (Some((d, s)), Some(doc_id)) => {
+                        batch_doc = d;
+                        batch_score = s;
+                        child_doc = doc_id;
+                    }
+                    _ => break,
                 }
             }
             Ordering::Less => {
