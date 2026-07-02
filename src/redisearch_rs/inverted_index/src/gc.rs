@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
+use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, empty_sealed};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -452,7 +452,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // block out by value — no buffer copy. When a live snapshot still shares it we
         // must deep-copy the survivors it holds (copy-on-write); a deleted block is only
         // read for accounting, never cloned.
-        let old_sealed = std::mem::replace(&mut self.sealed, Arc::new(ThinVec::new()));
+        let old_sealed = std::mem::replace(&mut self.sealed, empty_sealed());
         match Arc::try_unwrap(old_sealed) {
             Ok(sealed_vec) => {
                 for b in sealed_vec.into_iter() {
@@ -497,7 +497,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
 
-        self.sealed = Arc::new(new_sealed);
+        // Point at the shared empty region rather than allocating an Arc for an empty
+        // ThinVec when GC compacted everything away (or into in_progress).
+        self.sealed = if new_sealed.is_empty() {
+            empty_sealed()
+        } else {
+            Arc::new(new_sealed)
+        };
         // pending was drained via std::mem::take above; leave it empty.
         self.in_progress = new_in_progress;
 
