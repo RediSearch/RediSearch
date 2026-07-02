@@ -153,8 +153,7 @@ struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii
  * The following invariants must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - The caller must hold the spec read lock — `number_of_blocks` reads
- *   `pending.len()` non-atomically, which races with a concurrent writer's
- *   `push`.
+ *   `pending.len()` non-atomically, which races with a concurrent writer's `push`.
  */
 size_t InvertedIndex_NumBlocks(const struct InvertedIndex *ii);
 
@@ -230,29 +229,18 @@ t_fieldMask InvertedIndex_FieldMask(const struct InvertedIndex *ii);
 size_t InvertedIndex_NumEntries(const struct InvertedIndex *ii);
 
 /**
- * Get a reference to the block at the specified index. Returns NULL if the index is out of bounds.
- * This is used by some C tests.
- *
- * # Safety
- * The following invariant must be upheld when calling this function:
- * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
- */
-const struct IndexBlock *InvertedIndex_BlockRef(const struct InvertedIndex *ii, size_t block_idx);
-
-/**
  * Take an owned snapshot of the index's block storage. Combines a refcount clone
- * of `sealed` blocks and a shallow Vec clone of `pending`, plus a captured
- * `tail_num_entries`. The snapshot is fully owned and outlives writer mutations
- * — the pre-Step-A "snapshot becomes invalid after a write" caveat is gone.
- * Call [`InvertedIndexSnapshot_BlockRef`] to access blocks and
+ * of `sealed` blocks, a shallow Vec clone of `pending`, and a deep clone of
+ * `in_progress`. Call [`InvertedIndexSnapshot_BlockRef`] to access blocks and
  * [`InvertedIndexSnapshot_Free`] when done.
  *
  * # Safety
  * - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
  * - The caller must hold the spec read lock for the duration of this call. The
- *   snapshot reads the `pending` Vec triple (ptr/len/cap) non-atomically.
- *   Writers ([`InvertedIndex_WriteEntryGeneric`], [`InvertedIndex_ApplyGCDelta`])
- *   mutate `pending` under the spec write lock, so without the read lock you race.
+ *   snapshot reads the `pending` Vec triple (ptr/len/cap) and the `in_progress`
+ *   `IndexBlock` (which contains its own `Vec`) non-atomically. Writers
+ *   ([`InvertedIndex_WriteEntryGeneric`], [`InvertedIndex_ApplyGCDelta`]) mutate
+ *   those fields under the spec write lock, so without the read lock you race.
  * - The returned pointer must be released via `InvertedIndexSnapshot_Free`.
  */
 struct InvertedIndexSnapshot *InvertedIndex_Snapshot(const struct InvertedIndex *ii);
@@ -292,9 +280,8 @@ const struct IndexBlock *InvertedIndexSnapshot_BlockRef(const struct InvertedInd
  * # Safety
  * The following invariants must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
- * - The caller must hold the spec read lock — `last_doc_id` reads the tail of
- *   `pending` (or `sealed` when `pending` is empty) non-atomically, which races
- *   with a concurrent writer's in-place mutation.
+ * - The caller must hold the spec read lock — `last_doc_id` reads `in_progress`
+ *   and the tail of `pending` non-atomically, which races with a concurrent writer.
  */
 t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 

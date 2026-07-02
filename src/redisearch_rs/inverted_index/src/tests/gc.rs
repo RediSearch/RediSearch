@@ -10,12 +10,11 @@
 use std::{
     io::{Cursor, Read},
     marker::PhantomData,
-    sync::Arc,
 };
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType, index::core::ARC_HEADER_BYTES,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -398,16 +397,20 @@ fn ii_apply_gc() {
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout:
+    //   - Empty `InvertedIndex` overhead: 120 bytes (96 stack incl. inlined
+    //     Option<IndexBlock> + 24 sealed Arc overhead).
+    //   - `from_blocks` puts the first 3 blocks into `pending` (Vec capacity 4 → 32 bytes
+    //     of pointer slots) and the last block into `in_progress`.
+    //   - Per pending block: ARC_HEADER (16) + STACK_SIZE (48) + buffer.cap.
+    //   - in_progress is owned directly on the struct (no extra Arc), already counted
+    //     in the 120-byte stack; only its buffer.cap adds heap bytes.
     assert_eq!(
         ii.memory_usage(),
-        48 // InvertedIndex stack (sealed Arc ptr + pending Vec triple + atomics)
-        + 24 // Arc<ThinVec> heap header backing `sealed`
-        + 4 * std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 4 pointer slots
-        + 4 * (ARC_HEADER_BYTES + IndexBlock::STACK_SIZE) // 4 Arc<IndexBlock> allocations
-        + 8 // buffer of the first index block (doc ids 10, 11)
-        + 16 // buffer of the second index block (doc ids 20, 21, 22)
-        + 8 // buffer of the third index block (doc id 30)
-        + 16 // buffer of the fourth index block (doc ids 40, 71, 72)
+        120 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) * 3 // ARC_HEADER + STACK_SIZE for each pending block
+        + 8 + 16 + 8 + 16 // buffer capacities of the 4 blocks
     );
 
     let gc_result = vec![
@@ -463,18 +466,23 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // After `apply_gc`, three survivors compact into `sealed` and the trailing survivor
-    // stays as the lone `pending` entry — the actively-mutated tail.
+    // POST-GC layout:
+    //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
+    //       Replace_block_for_1 (cap=8),
+    //       survivor_of_block_2 (cap=8, preserved by Arc::try_unwrap — the survivor's
+    //       Arc is uniquely owned at compaction time, so its original buffer Vec is
+    //       moved out without cloning),
+    //       Replace_block_for_3a (cap=8).
+    //   - 1 in_progress block, owned directly on the struct: Replace_block_for_3b
+    //     (cap=8). Its IndexBlock stack bytes are in the 120-byte overhead already.
+    //   - pending is empty (drained, no heap allocation).
     assert_eq!(
         ii.memory_usage(),
-        48 // InvertedIndex stack
-        + 24 // Arc<ThinVec> heap header backing `sealed`
-        + 8 // ThinVec header for 3 sealed blocks
-        + 3 * IndexBlock::STACK_SIZE // 3 sealed IndexBlocks
-        + 8 + 8 + 8 // 3 sealed buffers (1 entry each)
-        + std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 1 slot
-        + ARC_HEADER_BYTES + IndexBlock::STACK_SIZE // pending tail's Arc<IndexBlock>
-        + 8 // pending tail's buffer (1 entry)
+        120 // empty InvertedIndex overhead
+        + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
+        + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
+        + 8 + 8 + 8 // sealed buffer capacities
+        + 8 // in_progress buffer capacity (block itself is in the 120 overhead)
     );
 
     assert_eq!(ii.unique_docs(), 4);
@@ -510,15 +518,11 @@ fn ii_apply_gc() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Three blocks freed (sum of `mem_usage`): 56 + 64 + 64 = 184. Three were
-            // replaced by smaller blocks totalling 168, so the block-level net is
-            // 184 - 168 = 16 freed. On top of that, three survivors get compacted from
-            // `Arc<IndexBlock>` slots in `pending` into bare `IndexBlock` entries in
-            // `sealed` — each compaction saves one Arc header + one pending Vec slot
-            // (24 bytes), partially offset by the new sealed `ThinVec` header. The
-            // net memory_usage delta works out to 80 bytes, folded into `bytes_freed`
-            // (184 + 64 adjustment = 248) so callers' running totals stay accurate.
-            bytes_freed: 248,
+            // Per-block frees (184) plus the container-level overhead released during
+            // compaction (Arc<IndexBlock> wrappers around pending blocks, pending Vec
+            // heap, ThinVec rebuild) — reconciled to match memory_usage() delta.
+            bytes_freed: 256,
+            // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
@@ -548,14 +552,15 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
+    // PRE-GC layout: 1 pending block + 1 in_progress. See `ii_apply_gc` for the
+    // breakdown — in_progress is owned directly on the struct (already in the 120
+    // overhead), so only its buffer.cap is added.
     assert_eq!(
         ii.memory_usage(),
-        48 // InvertedIndex stack
-        + 24 // Arc<ThinVec> heap header backing `sealed`
-        + 2 * std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 2 pointer slots
-        + 2 * (ARC_HEADER_BYTES + IndexBlock::STACK_SIZE) // 2 Arc<IndexBlock> allocations
-        + 8 // buffer of the first index block (doc ids 10, 11)
-        + 16 // buffer of the second index block (doc ids 20, 21, 22)
+        120 // empty InvertedIndex overhead
+        + 32 // pending Vec heap (cap=4)
+        + (16 + IndexBlock::STACK_SIZE) // pending block (Arc<IndexBlock>)
+        + 8 + 16 // buffer capacities of the two blocks
     );
 
     let gc_result = vec![
@@ -593,17 +598,14 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // Block 0 was deleted; block 1 was the "last block" whose Replace delta got
-    // dropped because the recorded `last_block_num_entries` didn't match. The
-    // single survivor lands in `pending` (the actively-mutated tail) — `sealed`
-    // stays empty.
+    // POST-GC: block 0 deleted, block 1 (in_progress) survives unchanged (last-block
+    // delta dropped because num_entries grew since the scan). The surviving block
+    // becomes the new directly-owned `in_progress` (no Arc overhead — IndexBlock stack
+    // is in the 120 overhead). sealed and pending are both empty.
     assert_eq!(
         ii.memory_usage(),
-        48 // InvertedIndex stack
-        + 24 // Arc<ThinVec> heap header backing `sealed` (empty ThinVec)
-        + std::mem::size_of::<Arc<IndexBlock>>() // pending Vec heap: 1 slot
-        + ARC_HEADER_BYTES + IndexBlock::STACK_SIZE // pending tail's Arc<IndexBlock>
-        + 16 // pending tail's buffer (doc ids 20, 21, 22)
+        120 // empty InvertedIndex overhead
+        + 16 // in_progress buffer capacity (block 1's original cap=16)
     );
 
     assert_eq!(ii.unique_docs(), 3);
@@ -619,13 +621,11 @@ fn ii_apply_gc_last_block_updated() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Block 0 freed: 48 STACK_SIZE + 8 buffer = 56. The surviving block 1
-            // moves from `pending` (Arc + slot) to `pending` (still Arc + slot, just
-            // the only entry now), so its Arc wrapper is unchanged. But the pending
-            // Vec capacity drops from 2 to 1 — freeing 8 bytes for one slot. That
-            // 8-byte adjustment is added below into `bytes_freed`. Net: 56 + 8 + 16
-            // (the Arc<IndexBlock> for block 0) = 80.
-            bytes_freed: 80,
+            // Block 0 freed (56) plus container-level overhead released during
+            // compaction (its Arc<IndexBlock> wrapper + pending Vec heap) — reconciled
+            // to match the memory_usage() delta.
+            bytes_freed: 104,
+            // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
             // Removed one block
@@ -680,9 +680,9 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Same accounting as the previous test: 56 bytes for the dropped
-            // IndexBlock + 16 Arc header + 8 pending Vec slot freed = 80.
-            bytes_freed: 80,
+            // Block 0 freed (56) plus container-level overhead (its Arc<IndexBlock>
+            // wrapper + pending Vec heap) reconciled against memory_usage().
+            bytes_freed: 104,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -702,6 +702,85 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             last_doc_id: 22,
         }]
     );
+}
+
+/// Regression for [MOD-16144]: if the block that was `in_progress` at scan time
+/// rolled into `pending` before apply (gaining entries), the apply path must still
+/// detect that and drop the stale tail delta. Before the fix, `last_block_changed`
+/// silently returned false for the pending case.
+#[test]
+fn ii_apply_gc_last_block_rolled_into_pending() {
+    // Three blocks → from_blocks places blocks 0, 1 in `pending` and block 2 in
+    // `in_progress`. The block at logical index 1 stands in for "the block that
+    // was in_progress at scan time and rolled over before apply" — its
+    // `num_entries=3` is higher than what the scan saw.
+    let blocks = medium_thin_vec![
+        // Block 0 (pending) — scan said: delete entirely.
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 10, 11),
+            num_entries: 2,
+            first_doc_id: 10,
+            last_doc_id: 11,
+        },
+        // Block 1 (pending now, was in_progress at scan time with 1 entry).
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 20, 21, 22),
+            num_entries: 3,
+            first_doc_id: 20,
+            last_doc_id: 22,
+        },
+        // Block 2 (in_progress) — a new tail created when block 1 rolled over.
+        IndexBlock {
+            buffer: encode_ids!(Dummy, 30),
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
+    ];
+
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
+
+    let gc_result = vec![
+        BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 2,
+            },
+        },
+        // Stale delta for block 1: scan saw 1 entry; the post-rollover block has 3.
+        // The apply path must drop this delta.
+        BlockGcScanResult {
+            index: 1,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 1,
+            },
+        },
+    ];
+
+    let delta = GcScanDelta {
+        last_block_idx: 1,
+        last_block_num_entries: 1, // scan-time value; the live pending block has 3
+        deltas: gc_result,
+    };
+
+    let apply_info = ii.apply_gc(delta);
+
+    // Block 1 must survive intact — its stale delta was dropped, NOT applied.
+    assert!(
+        ii.blocks_snapshot()
+            .iter()
+            .any(|b| b.first_doc_id == 20 && b.num_entries == 3),
+        "rolled-over block was not preserved: {:?}",
+        ii.blocks_snapshot()
+    );
+
+    // Block 0 was deleted; block 1 and block 2 survive.
+    assert_eq!(ii.number_of_blocks(), 2);
+    assert!(apply_info.ignored_last_block, "stale tail must be detected");
+    assert_eq!(apply_info.entries_removed, 2, "only block 0 deleted");
+    // n_unique_docs: 2+3+1 pre, minus 2 from block 0 deletion = 4 (block 1's stale
+    // n_unique_docs_removed=1 must NOT be applied).
+    assert_eq!(ii.unique_docs(), 4);
 }
 
 #[test]
@@ -904,6 +983,8 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
+            // bytes_freed = freed block's STACK_SIZE (48) + buffer.cap (17 after 4
+            // in-place ControlledCursor writes) = 65.
             bytes_freed: 65,
             bytes_allocated: 56,
             entries_removed: 2,
@@ -912,9 +993,63 @@ fn ii_apply_gc_entries_tracking_index() {
         }
     );
 }
-// The pre-snapshot `test_refresh_buffer_pointers_after_reallocation` was
-// removed alongside Step A. Snapshot block buffers are immutable `Vec<u8>`
-// clones owned by the reader, so the in-place reallocation scenario that
-// test exercised cannot happen anymore. Reader-side staleness after writes
-// is covered by `tests::reader::core::reader_needs_revalidation_detects_appends_without_gc_marker_bump`
-// and by `reader_reset`.
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+#[test]
+fn reader_snapshot_is_frozen_against_concurrent_writes() {
+    // Epic 1, Story 1.2: the reader holds an `Arc<State>` snapshot taken at construction
+    // time and reads through it. Writes that happen afterwards are invisible until the
+    // caller `reset()`s, which re-snapshots. `refresh_buffer_pointers` is a no-op in this
+    // model — pre-snapshot it existed to handle in-place buffer reallocation, but
+    // snapshot block buffers are immutable.
+    use crate::IndexReader as _;
+
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+    ii.add_record(&RSIndexResult::build_virt().doc_id(11).build())
+        .unwrap();
+
+    // Bypass Rust's borrow rules to simulate the real-world scenario where writes happen
+    // concurrently with a reader. In production these are on different threads under the
+    // spec lock; here we use a raw pointer so we can mutate the index while a reader
+    // borrow is live.
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let mut reader: crate::IndexReaderCore<'_, Dummy> = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 10);
+
+    // Add many more records — these go into `ii.blocks` and into a new `state` revision,
+    // but the reader's snapshot still references the original revision.
+    unsafe {
+        for i in 12..1000 {
+            (*ii_ptr)
+                .add_record(&RSIndexResult::build_virt().doc_id(i).build())
+                .unwrap();
+        }
+    }
+
+    // No-op in the snapshot model. The reader continues to see its frozen view.
+    reader.refresh_buffer_pointers();
+
+    // From the frozen snapshot, the reader sees only doc_id 11 (the second record at
+    // snapshot time), then EOF.
+    assert!(reader.next_record(&mut result).unwrap());
+    assert_eq!(result.doc_id, 11);
+    assert!(!reader.next_record(&mut result).unwrap());
+
+    // `reset()` takes a fresh snapshot — now the reader sees everything.
+    reader.reset();
+    let mut count = 0;
+    let mut expected = 10;
+    while reader.next_record(&mut result).unwrap() {
+        assert_eq!(result.doc_id, expected);
+        count += 1;
+        expected += 1;
+    }
+    // Initial 2 records + 988 added = 990.
+    assert_eq!(count, 990);
+}

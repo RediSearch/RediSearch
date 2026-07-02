@@ -8,7 +8,7 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
+    AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta,
     InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
@@ -93,12 +93,7 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.number_of_blocks()
     }
 
-    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
-    pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
-        self.index.block_ref(index)
-    }
-
-    /// Take a snapshot of the inverted index's block storage. See [`InvertedIndex::snapshot`].
+    /// Take an owned snapshot. See [`InvertedIndex::snapshot`].
     pub fn snapshot(&self) -> crate::InvertedIndexSnapshot {
         self.index.snapshot()
     }

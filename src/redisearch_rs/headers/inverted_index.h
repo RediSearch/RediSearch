@@ -22,9 +22,8 @@ typedef struct FieldSpec FieldSpec;
  * - An [`Arc`] clone of the index's `sealed` blocks (data shared via refcount).
  * - A shallow clone of `pending`: the [`Vec`] of [`Arc<IndexBlock>`] pointer slots is
  *   copied, but the block data behind each `Arc` is shared.
- * - A captured `tail_num_entries`: the value of the tail block's `num_entries` at
- *   snapshot time, used to bound iteration on the tail block against any concurrent
- *   writer-side in-place append.
+ * - An owned clone of `in_progress`: deep copy of the trailing block (its encoded
+ *   `buffer` is duplicated).
  *
  * All three are captured together while the caller holds the spec read lock, so no
  * concurrent writer/GC can split the snapshot across an inconsistent moment. After the

@@ -447,12 +447,10 @@ def testSpecIndexesInfo(env: Env):
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
 
-    # adding the document creates one pending block. Per Vec<Arc<IndexBlock>> entry:
-    #   16 = Arc<IndexBlock> refcount header
-    #   48 = IndexBlock stack size
-    #    1 = encoded entry written into the block's buffer
-    #    8 = pending Vec heap (capacity * size_of::<Arc<IndexBlock>>())
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 16 + 48 + 1 + 8
+    # The first write lands in the InvertedIndex's `in_progress: Option<IndexBlock>`
+    # field, which is owned directly on the struct (already counted in
+    # `getInvertedIndexInitialSize`). Only the 1-byte encoded entry is added on top.
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 1
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 

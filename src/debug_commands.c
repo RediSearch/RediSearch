@@ -529,12 +529,21 @@ DEBUG_COMMAND(InvertedIndexSummary) {
     goto end;
   }
 
+  // InvertedIndex_Summary and InvertedIndex_BlocksSummary both take an owned
+  // snapshot internally; the FFI docs require the spec read lock for that read
+  // (it clones pending/in_progress non-atomically and races with the indexer
+  // otherwise). Hold the lock across both calls; the returned BlockSummary array
+  // is POD owned by C, so we can release before the reply loop.
+  RedisSearchCtx_LockSpecRead(sctx);
+
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   invIdxBulkLen = InvertedIndexSummaryHeader(ctx, invidx);
 
   RedisModule_ReplyWithStringBuffer(ctx, "blocks", strlen("blocks"));
 
   blocksSummary = InvertedIndex_BlocksSummary(invidx, &blockCount);
+
+  RedisSearchCtx_UnlockSpec(sctx);
 
   for (size_t i = 0; i < blockCount; i++) {
     IIBlockSummary *blockSummary = blocksSummary + i;
@@ -581,11 +590,16 @@ DEBUG_COMMAND(DumpInvertedIndex) {
     goto end;
   }
   decoderCtx = (IndexDecoderCtx){.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
+  // NewIndexReader snapshots `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock so the snapshot doesn't race with `add_record` running under the
+  // write lock during background indexing.
+  RedisSearchCtx_LockSpecRead(sctx);
   reader = NewIndexReader(invidx, decoderCtx);
   res = NewTokenRecord(NULL, 1);
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
   ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
+  RedisSearchCtx_UnlockSpec(sctx);
 
 end:
   SearchCtx_Free(sctx);
@@ -639,7 +653,12 @@ DEBUG_COMMAND(DumpNumericIndex) {
   with_headers = argc == 5 ? true : false;
 
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
+  // DebugDumpIndex iterates ranges and calls `range.reader()`, which snapshots
+  // the inverted index `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock across the dump so writers don't tear the snapshot.
+  RedisSearchCtx_LockSpecRead(sctx);
   NumericRangeTree_DebugDumpIndex(sctx->redisCtx, rt, with_headers);
+  RedisSearchCtx_UnlockSpec(sctx);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -715,7 +734,12 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
   }
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
+  // DebugDumpTree walks ranges and calls `index.summary()` on each inverted
+  // index, which snapshots `pending`/`in_progress` non-atomically. Hold the
+  // spec read lock so the summary is consistent against concurrent writers.
+  RedisSearchCtx_LockSpecRead(sctx);
   NumericRangeTree_DebugDumpTree(sctx->redisCtx, rt, minimal);
+  RedisSearchCtx_UnlockSpec(sctx);
 end:
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
@@ -776,6 +800,10 @@ DEBUG_COMMAND(DumpTagIndex) {
 
   iter = TrieMap_Iterate(tagIndex->values);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  // NewIndexReader snapshots `pending`/`in_progress` non-atomically. Hold the spec
+  // read lock across the iteration so we don't race with `add_record` running
+  // under the write lock during background indexing.
+  RedisSearchCtx_LockSpecRead(sctx);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
@@ -787,6 +815,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
     ++resultSize;
   }
+  RedisSearchCtx_UnlockSpec(sctx);
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
   TrieMapIterator_Free(iter);
 
@@ -1416,6 +1445,11 @@ DEBUG_COMMAND(InfoTagIndex) {
   RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
+  // Per-value reads inside the loop call `InvertedIndex_NumBlocks` (and
+  // `NewIndexReader` under `dump_id_entries`), both of which snapshot
+  // `pending`/`in_progress` non-atomically. Hold the spec read lock across the
+  // iteration so we don't race with the indexer.
+  RedisSearchCtx_LockSpecRead(sctx);
   seekTagIterator(iter, options.offset);
   while (nvalues++ < limit && TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     size_t nsubelem = 8;
@@ -1445,6 +1479,7 @@ DEBUG_COMMAND(InfoTagIndex) {
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
   }
+  RedisSearchCtx_UnlockSpec(sctx);
   TrieMapIterator_Free(iter);
   RedisModule_ReplySetArrayLength(ctx, nvalues - 1);
 

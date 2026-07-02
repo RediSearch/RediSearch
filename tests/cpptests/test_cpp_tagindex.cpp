@@ -45,28 +45,37 @@ TEST_F(TagIndexTest, testCreate) {
   size_t buffer_cap = 1106;
   size_t num_blocks = N / 1000;
 
-  // The base size of an inverted index is 72 bytes: 48 bytes for the struct itself
-  // (including the `pending: Vec<Arc<IndexBlock>>` field) plus 24 bytes for the
-  // Arc<ThinVec> heap allocation for the empty `sealed` region (Arc refcount header
-  // + ThinVec stack representation).
-  size_t iv_index_size = 72;
+  // The base size of an inverted index is 120 bytes: 96 for the struct
+  // (sealed Arc + pending Vec triple + Option<IndexBlock> in_progress + small
+  // fields) plus 24 bytes for the Arc<ThinVec> heap allocation for the empty
+  // `sealed` region (Arc refcount header + ThinVec stack representation). The
+  // 48-byte `IndexBlock` slot inside `Option<in_progress>` is included in the
+  // 96 — it is not double-counted as a separate block below.
+  size_t iv_index_size = 120;
 
-  // Each block in `pending` costs PER_NEW_BLOCK_BYTES + buffer capacity:
-  //   48  IndexBlock inline (first_doc_id + last_doc_id + num_entries + buffer triple)
-  //   16  Arc refcount header (strong + weak counter)
-  //    8  one pointer slot in the `pending` Vec (reserve_exact strategy)
-  size_t per_block_overhead = 48 + 16 + 8;
-  size_t expectedTotalSZ =
-      v.size() * (iv_index_size + (buffer_cap + per_block_overhead) * num_blocks);
+  // The last block of each tag lives in `in_progress` (owned directly on the
+  // struct); only its buffer counts here. The other (num_blocks - 1) blocks
+  // are in `pending`, each costing 48 (IndexBlock inline inside Arc) + 16
+  // (Arc refcount header).
+  size_t per_pending_block_overhead = 48 + 16;
+  // `pending: Vec<Arc<IndexBlock>>` uses Rust's `Vec::push` doubling growth
+  // strategy: 0 -> 4 -> 8 -> 16 -> 32 -> 64 -> 128. For 99 pushes (num_blocks - 1)
+  // capacity lands at 128 slots * 8 bytes = 1024 bytes.
+  size_t pending_vec_heap = 128 * 8;
+  size_t expectedTotalSZ = v.size() *
+                           (iv_index_size +
+                            (num_blocks - 1) * (buffer_cap + per_pending_block_overhead) +
+                            pending_vec_heap +
+                            buffer_cap /* in_progress buffer */);
   ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
   TagIndex_Index(NULL, idx, NULL, &v2[0], v2.size(), ++d, &stats);
-  // A base inverted index is 72 bytes (48 struct + 24 Arc<ThinVec> heap),
-  // a block in `pending` is 48 (IndexBlock inline) + 16 (Arc header) + 8 (Vec slot),
-  // and after the first insert the buffer capacity is 1 byte.
-  size_t last_block_size = iv_index_size + per_block_overhead + 1;
+  // The "bye" tag adds a brand-new InvertedIndex with one block — that block
+  // stays in `in_progress` (no rollover), so the only on-top-of-base cost is
+  // the 1-byte buffer growth after the first insert.
+  size_t last_block_size = iv_index_size + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
