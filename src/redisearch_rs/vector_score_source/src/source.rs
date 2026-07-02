@@ -12,12 +12,12 @@
 use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{
-    TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
-    timespec,
+    RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex,
+    VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-use rqe_iterators::RQEIteratorError;
+use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
 use vecsim::{
     AdhocBfCtx, BatchIterator, IndexRef, QueryError, QueryVector, ReplyOrder, SharedLockGuard,
@@ -50,7 +50,7 @@ enum AdhocPathState<'index> {
 ///
 /// - RAM uses the unsafe RAM distance lookup under shared locks
 /// - Disk uses a preprocessed [`AdhocBfCtx`] per scan.
-pub struct VectorScoreSource<'index> {
+pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Non-owning reference to the VecSim index.
     ///
     /// `'index` reflects the [`VectorScoreSource::new`] safety contract: the C
@@ -94,15 +94,19 @@ pub struct VectorScoreSource<'index> {
     child_num_estimated: usize,
     /// `k - heap_count`, updated by `batch_strategy`. Reset on rewind.
     k_remaining: usize,
+
+    /// Field-expiration filter for the vector field, consulted at yield time
+    /// via [`ScoreSource::is_expired`]. Use [`NoOpChecker`](rqe_iterators::NoOpChecker) to disable.
+    expiration: E,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
 // thread). The `index` pointer is non-owning; everything else is owned and
 // managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
 // responsibility to ensure the index outlives the iterator.
-unsafe impl Send for VectorScoreSource<'_> {}
+unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
-impl<'index> VectorScoreSource<'index> {
+impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// Create a new `VectorScoreSource`.
     ///
     /// `timeout` is the query deadline as an absolute `timespec`.
@@ -127,6 +131,7 @@ impl<'index> VectorScoreSource<'index> {
         skip_timeout_checks: bool,
         child_num_estimated: usize,
         fixed_batch_size: usize,
+        expiration: E,
     ) -> Self {
         // SAFETY: caller-upheld: `index` is valid for the struct's lifetime.
         let index = unsafe { IndexRef::from_raw(index) };
@@ -161,6 +166,7 @@ impl<'index> VectorScoreSource<'index> {
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
+            expiration,
         }
     }
 
@@ -205,9 +211,8 @@ impl<'index> VectorScoreSource<'index> {
     }
 }
 
-impl<'index> ScoreSource for VectorScoreSource<'index> {
+impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> {
     type Batch = VecSimScoreBatch;
-
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
         // per evaluation by `prepare_unfiltered_direct`.
@@ -285,6 +290,10 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
             AdhocPathState::Disk { ctx: Some(ctx) } => ctx.get_distance_from(doc_id),
             AdhocPathState::Disk { ctx: None } => None,
         }
+    }
+
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.expiration.has_expiration() && self.expiration.is_expired(result)
     }
 
     fn begin_adhoc(&mut self) {
@@ -390,6 +399,19 @@ impl<'index> ScoreSource for VectorScoreSource<'index> {
         rqe_iterators::IteratorType::Hybrid
     }
 
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
+        // source is single-threaded so no other access to the aliased raw
+        // pointer in `query_params.timeoutCtx` is live during the call. The
+        // callee reads the deadline and bumps the counter without retaining the
+        // pointer.
+        let timeout = unsafe { RS_VecSimCheckTimeout(self.timeout_ctx.as_mut()) };
+        if timeout != 0 {
+            return Err(RQEIteratorError::TimedOut);
+        }
+        Ok(())
+    }
+
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         // Results still needed at the start of this batch.
         let n_res_left = self.k_remaining;
@@ -450,6 +472,7 @@ mod tests {
     use std::ptr::NonNull;
 
     use ffi::{VecSimIndex, VecSimIndex_Free};
+    use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
 
     use super::refine_child_estimated;
@@ -487,7 +510,7 @@ mod tests {
         index: NonNull<VecSimIndex>,
         k: usize,
         child_est: usize,
-    ) -> VectorScoreSource<'static> {
+    ) -> VectorScoreSource<'static, NoOpChecker> {
         // SAFETY: caller upholds the `index` lifetime contract.
         unsafe { make_source(index, uniform_blob(0.0, 1), 0, k, child_est) }
     }

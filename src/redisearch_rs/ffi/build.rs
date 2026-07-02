@@ -161,6 +161,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetNumIterations",
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
+            "RS_VecSimCheckTimeout",
         ],
         // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
         // deadline) handed to VecSim. Exposed via this already-included header

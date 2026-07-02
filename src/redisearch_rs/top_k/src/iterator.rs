@@ -269,14 +269,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             };
             let doc_id = result.doc_id;
 
+            // Poll before the lookup so an expired deadline skips the expensive
+            // VecSim distance lookup.
+            scope.0.check_timeout()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates via `?` above and never gets here. Rerank while `scope` is
-        // alive, so the source's scan resources are still held.
+        // propagates earlier.
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
             scope.0.rerank(&mut entries);
@@ -303,40 +305,68 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 
     /// Yield the next result from the unfiltered direct batch.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) are dropped
+    /// without replacement: the batch holds at most k entries, so skipping
+    /// shrinks the yielded count.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+        loop {
+            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
-        match item {
-            Some((doc_id, score)) => {
-                let result = self.source.build_result(doc_id, score);
-                self.current = Some(result);
-                self.last_doc_id = doc_id;
-                Ok(self.current.as_mut())
-            }
-            None => {
-                self.at_eof = true;
-                self.current = None;
-                Ok(None)
+            match item {
+                Some((doc_id, score)) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        // Poll only on the skip path, the sole branch that loops.
+                        self.source.check_timeout()?;
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+                None => {
+                    self.at_eof = true;
+                    self.current = None;
+                    return Ok(None);
+                }
             }
         }
     }
 
     /// Yield the next result from the pre-sorted `results` vec.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) since
+    /// collection are dropped without replacement: they occupied their top-k
+    /// slots during collection, so they shrink the yielded count rather than
+    /// being refilled from lower-scored candidates.
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.yield_pos >= self.results.len() {
-            self.at_eof = true;
-            return Ok(None);
+        loop {
+            let entry = self.results.get(self.yield_pos).copied();
+            self.yield_pos += 1;
+
+            match entry {
+                None => {
+                    self.at_eof = true;
+                    return Ok(None);
+                }
+                Some(ScoredResult { doc_id, score }) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        // Poll only on the skip path, the sole branch that loops.
+                        self.source.check_timeout()?;
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+            }
         }
-        let ScoredResult { doc_id, score } = self.results[self.yield_pos];
-        self.yield_pos += 1;
-        let result = self.source.build_result(doc_id, score);
-        self.current = Some(result);
-        self.last_doc_id = doc_id;
-        Ok(self.current.as_mut())
     }
 }
 
@@ -382,8 +412,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // Only a child abort aborts us. Results come from our own score-ordered
+        // buffer, so a moved child does not move our cursor: collapse it to Ok.
         if let Some(child) = &mut self.child {
-            return child.revalidate(spec);
+            match child.revalidate(spec)? {
+                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
+                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
+            }
         }
         Ok(RQEValidateStatus::Ok)
     }

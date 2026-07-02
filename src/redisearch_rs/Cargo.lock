@@ -3392,6 +3392,7 @@ dependencies = [
  "redisearch_rs",
  "rqe_core",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "tracing",
  "vecsim",
