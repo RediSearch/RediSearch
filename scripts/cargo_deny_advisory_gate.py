@@ -84,10 +84,13 @@ def print_findings(title: str, findings: set[tuple[str, str, str]]) -> None:
         print(f"  - {advisory_id}: {crate}{f' {version}' if version else ''}")
 
 
-def fail_if_unparsed(rc: int, findings: set[tuple[str, str, str]], label: str) -> None:
+def fail_if_unparsed(rc: int, findings: set[tuple[str, str, str]], label: str, output: Path) -> None:
     if rc != 0 and not findings:
         print(f"cargo deny failed for {label}, but no advisory findings could be parsed.")
         print("Failing conservatively so CI does not hide a tool or configuration error.")
+        print(f"----- cargo deny output ({output}) -----")
+        print(output.read_text(encoding="utf-8", errors="replace"), end="")
+        print("----- end cargo deny output -----")
         sys.exit(rc)
 
 
@@ -115,7 +118,7 @@ def main() -> int:
 
     head_rc = cargo_deny(Path.cwd(), head_out, args.manifest_path)
     head_findings = parse_findings(head_out)
-    fail_if_unparsed(head_rc, head_findings, "current checkout")
+    fail_if_unparsed(head_rc, head_findings, "current checkout", head_out)
 
     if not args.compare_to_base:
         print_findings("Current advisory findings:", head_findings)
@@ -135,7 +138,7 @@ def main() -> int:
         base_out = out_dir / "cargo-deny-advisories-base.jsonl"
         base_rc = cargo_deny(worktree, base_out, args.manifest_path)
         base_findings = parse_findings(base_out)
-        fail_if_unparsed(base_rc, base_findings, "base checkout")
+        fail_if_unparsed(base_rc, base_findings, "base checkout", base_out)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], check=False)
         shutil.rmtree(worktree, ignore_errors=True)
