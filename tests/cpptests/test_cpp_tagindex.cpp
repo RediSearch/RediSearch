@@ -104,8 +104,7 @@ TEST_F(TagIndexTest, testCreate) {
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
 
   MockQueryEvalCtx mockQctx(N, N);
-  QueryIterator *it =
-      TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
+  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
   ASSERT_TRUE(it != NULL);
   t_docId n = 1;
 
@@ -300,7 +299,7 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
 
   // Absent tag -> NULL reader
   {
-    TagIndex *idx = NewTagIndex(NULL, 0);
+    TagIndex *idx = NewTagIndex(NULL, 0, false);
     const char *v[] = {"hello"};
     IndexStats stats = {0};
     TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
@@ -312,7 +311,7 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
 }
 
 TEST_F(TagIndexTest, testGetIteratorFromTrieMapValueNull) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   const char *v[] = {"hello"};
   IndexStats stats = {0};
   TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
@@ -335,7 +334,7 @@ TEST_F(TagIndexTest, testGetIteratorFromTrieMapValueNull) {
 }
 
 TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   idx->suffix = NewTrieMap();
 
   const char *v[] = {"hello", "world"};
