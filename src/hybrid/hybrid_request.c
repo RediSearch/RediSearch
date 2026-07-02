@@ -195,8 +195,25 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
     QITR_PushRP(&req->tailPipeline->qctx, merger);
     // Build the aggregation part of the tail pipeline for final result processing
     // This handles sorting, filtering, field loading, and output formatting of merged results
+    // Skip the index-result copy unless the tail needs it. The tail misses this baseline
+    // by skipping Pipeline_BuildQueryPart; BuildAggregationPart flips it back on as needed.
+    req->tailPipeline->qctx.skipIndexResultDeepCopy =
+        !QEFlags_RequireIndexResultsDownstream(params->aggregationParams.common.reqflags);
+
     uint32_t stateFlags = 0;
     int rc = Pipeline_BuildAggregationPart(req->tailPipeline, &params->aggregationParams, &stateFlags, status);
+
+    // The tail's matched_terms()/highlighting reads each row's RSIndexResult, but the
+    // per-subquery depleters were built earlier with their own skipIndexResultDeepCopy
+    // decision and would drop the borrow before the merged row reaches the tail. The
+    // flag is read at execution time, so forcing the subqueries to preserve the borrow
+    // now reaches those depleters. Only ever force the copy on, never off, so a subquery
+    // that independently needs the index result downstream is left untouched.
+    if (rc == REDISMODULE_OK && !req->tailPipeline->qctx.skipIndexResultDeepCopy) {
+      for (size_t i = 0; i < req->nrequests; i++) {
+        req->requests[i]->pipeline.qctx.skipIndexResultDeepCopy = false;
+      }
+    }
     return rc;
 }
 

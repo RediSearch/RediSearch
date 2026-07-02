@@ -21,7 +21,9 @@ use rqe_iterators::{
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
+    intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
     inverted_index::new_missing_iterator,
+    not_reducer::{NewNotIterator, new_not_iterator},
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
 };
 
@@ -159,6 +161,8 @@ pub fn eval_node<'index>(
         QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
         QueryNode::Optional => Some(eval_optional(ctx, node)),
+        QueryNode::Not => Some(eval_not(ctx, node)),
+        QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -391,4 +395,146 @@ fn eval_optional<'index>(
                 .expect("optional iterator must not be null"),
         ),
     }
+}
+
+/// `QN_NOT` — logical negation: matches every document *not* matched by its
+/// single child.
+fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> Evaluated<'index> {
+    debug_assert_eq!(
+        node.num_children(),
+        1,
+        "a not node must have exactly one child"
+    );
+
+    // Evaluate the child with the "not-subtree" flag set. A NOT only cares
+    // *whether* a document matches its child, never the child's score, so any
+    // descendant `UNION` may stop at its first matching branch instead of
+    // visiting every branch to accumulate a score. Setting the flag lets those
+    // unions take that cheaper quick exit path.
+    //
+    // The previous value is saved and restored rather than just cleared: NOT
+    // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
+    // while the inner one is being evaluated and after it returns.
+    let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
+    let child_node = node.child(0);
+    let child = eval_child_iterator(ctx, &child_node);
+    ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
+
+    // SAFETY: the preconditions of `new_not_iterator` map to
+    // `QueryEvalContext::new` invariants:
+    // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
+    // 2. `query.sctx` is valid and non-null — invariant (2).
+    // 3. `query.sctx.spec` is valid and non-null — invariant (2).
+    // 4. `spec.rule`, when non-null, is a valid `SchemaRule` — part of (1).
+    // 5. The wildcard-iterator preconditions hold for the same reasons
+    //    as in `eval_wildcard` (a properly initialised spec with its
+    //    `existingDocs` index, valid `docTable`, and
+    //    `diskSpec`/`SEARCH_ENTERPRISE_ITERATORS` when on disk).
+    let outcome = unsafe {
+        new_not_iterator(
+            child,
+            ctx.max_doc_id(),
+            node.opts().weight,
+            ctx.build_timeout_context(),
+            ctx.as_non_null(),
+        )
+    };
+    match outcome {
+        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
+        NewNotIterator::Not(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
+        ),
+        NewNotIterator::NotOptimized(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
+        ),
+    }
+}
+
+/// `QN_PHRASE` — an ordered/unordered conjunction of child terms.
+///
+/// A single-child phrase is equivalent to the child itself, so the child is
+/// returned directly (after narrowing its field mask). Otherwise the children
+/// are evaluated and combined with an [`Intersection`], honoring the phrase's
+/// slop/in-order constraints (exact phrases force slop `0`, in order).
+///
+/// Each child's field mask is first intersected with the phrase node's own
+/// mask, so a child only matches the fields shared with the phrase.
+///
+/// * `exact` — whether this is an exact (quoted) phrase. When `true`, the
+///   terms must be adjacent and in order: slop is forced to `0` and in-order
+///   matching is required, ignoring the per-node and query-wide slop/in-order
+///   settings. When `false`, the slop and in-order constraints are resolved
+///   from the node's own options, falling back to the query-wide defaults.
+fn eval_phrase<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    exact: bool,
+) -> Option<Evaluated<'index>> {
+    // Query evaluation is single-threaded and walks each AST node exactly once,
+    // top-down, so we hold exclusive access to this phrase node and its
+    // descendants for the duration of the call: no other wrapper into this
+    // subtree, and no reference derived from one, is live here.
+    //
+    // SAFETY: that exclusive-access precondition is exactly what `as_mut`
+    // requires. It is asserted once, here; every field-mask write below then
+    // goes through the exclusive `QueryNodeMut` and is statically alias-free.
+    let mut node = unsafe { node.as_mut() };
+
+    let num_children = node.num_children();
+    let node_mask = node.opts().field_mask;
+    // SAFETY: `RSGlobalConfig` is the process-wide config instance, read-only here.
+    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+
+    // A single-child intersection is just the child; return it directly.
+    if num_children == 1 {
+        let mut child = node.child_mut(0);
+        child.and_field_mask(node_mask);
+        return eval_node(ctx, child.as_ref());
+    }
+
+    let weight = node.opts().weight;
+
+    let (max_slop, in_order) = if exact {
+        // An exact (quoted) phrase requires adjacent, in-order terms.
+        (Some(0), true)
+    } else {
+        // The node may override the query-wide slop; -1 means "use the default".
+        let slop = match node.opts().max_slop {
+            -1 => ctx.slop(),
+            s => s,
+        };
+        let in_order = ctx.search_in_order() || node.opts().in_order != 0;
+        let max_slop = if slop < 0 { None } else { Some(slop as u32) };
+        (max_slop, in_order)
+    };
+
+    // Recursively evaluate every child, narrowing its field mask first.
+    let mut children = Vec::with_capacity(num_children);
+    for i in 0..num_children {
+        let mut child = node.child_mut(i);
+        child.and_field_mask(node_mask);
+        children.push(eval_child_iterator(ctx, child.as_ref()));
+    }
+
+    let result_ptr = match new_intersection_iterator(children) {
+        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
+        NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
+        NewIntersectionIterator::Proceed(cs) => {
+            let intersection = Intersection::new_with_slop_order(
+                cs,
+                weight,
+                prioritize_union_children,
+                max_slop,
+                in_order,
+            );
+            RQEIteratorWrapper::boxed_new_compound(intersection)
+        }
+    };
+
+    Some(Evaluated::RustCompound(
+        NonNull::new(result_ptr).expect("phrase iterator must not be null"),
+    ))
 }

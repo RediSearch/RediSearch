@@ -88,34 +88,22 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Register the spec's disk index with Redis BigModule APIs
+ * @brief Main-thread half of closing the spec's disk index.
  *
- * Must be called from the main thread with a valid RedisModuleCtx.
- * Call this after SearchDisk_OpenIndex to register the database with Redis.
+ * Performs every teardown step that needs the Redis module API (today: unregister
+ * the database from BigModule). Must be called from the main thread with a valid
+ * RedisModuleCtx, and must precede SearchDisk_CloseIndex. The split exists because
+ * SearchDisk_CloseIndex may run on a background thread (StrongRef destructor) and
+ * cannot make Redis module API calls from there.
  *
- * Must not be called on an already-registered spec; doing so asserts in debug
- * builds. The spec's diskRegistered flag is updated by this function; callers
- * must not toggle it directly.
- *
- * @param ctx Redis module context (required, must be valid)
- * @param spec IndexSpec whose diskSpec should be registered (must have a non-NULL diskSpec)
- */
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
-
-/**
- * @brief Unregister the spec's disk index from Redis BigModule APIs
- *
- * Must be called from the main thread with a valid RedisModuleCtx.
- * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
- *
- * Idempotent: a no-op when the spec is not currently registered (either never
- * registered, or already unregistered). The spec's diskRegistered flag is
- * updated by this function; callers must not toggle it directly.
+ * Idempotent: a no-op when the spec has no diskSpec or has already been
+ * closed-on-main-thread.
  *
  * @param ctx Redis module context (required, must be valid)
- * @param spec IndexSpec whose diskSpec should be unregistered (must have a non-NULL diskSpec)
+ * @param spec IndexSpec whose diskSpec should be torn down on the main thread
+ *             (must have a non-NULL diskSpec)
  */
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
+void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index

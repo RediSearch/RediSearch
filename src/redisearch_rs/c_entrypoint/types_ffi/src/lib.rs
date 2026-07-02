@@ -83,7 +83,7 @@ pub extern "C" fn NewNumericResult<'result>() -> *mut RSIndexResult<'result> {
 /// Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn NewMetricResult<'result>() -> *mut RSIndexResult<'result> {
-    let result = RSIndexResult::build_metric().build();
+    let result = RSIndexResult::build_metric(0.0).build();
     Box::into_raw(Box::new(result))
 }
 
