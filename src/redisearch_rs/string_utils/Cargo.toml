@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
+# Disable the default libtest bench harness so criterion can parse its own args.
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "unicode-tolower-bench"
+harness = false
 
 [features]
 # feature enabled when building tests so they can link the C code in build.rs
@@ -19,6 +26,7 @@ thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+criterion = { workspace = true }
 proptest = { workspace = true, features = ["std"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
