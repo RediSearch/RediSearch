@@ -15,6 +15,7 @@ mod ids;
 mod missing;
 mod not;
 mod null;
+mod numeric;
 mod optional;
 mod phrase;
 mod qast_iterate;
