@@ -315,10 +315,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // VecSim distance lookup.
             scope.0.check_timeout()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
-                // Capture the child's record now, before the next `child.read()`
-                // reuses its storage, so the yield phase needn't re-walk the child.
-                let record = capture_child_record(result);
-                self.heap.push_with_record(doc_id, score, Some(record));
+                // Capture the child's record only if the heap retains this entry,
+                // before the next `child.read()` reuses its storage, so the yield
+                // phase needn't re-walk the child. A discarded candidate skips the
+                // copy entirely.
+                self.heap
+                    .push_with_record_lazy(doc_id, score, || Some(capture_child_record(result)));
             }
         }
 
@@ -592,10 +594,12 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
-                // Capture the matching child record before advancing past it,
-                // so the yield phase can return it without re-reading the child.
-                let record = child.current().map(|r| capture_child_record(r));
-                heap.push_with_record(batch_doc, batch_score, record);
+                // Capture the matching child record only if the heap retains it,
+                // before advancing past it, so the yield phase can return it
+                // without re-reading the child. A discarded match skips the copy.
+                heap.push_with_record_lazy(batch_doc, batch_score, || {
+                    child.current().map(|r| capture_child_record(r))
+                });
                 // Advance the batch first; only read the child when another
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could
