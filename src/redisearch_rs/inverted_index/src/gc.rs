@@ -487,6 +487,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             apply_delta_or_keep!(ne, mu, { keep_survivor!(ip) });
         }
 
+        // Every logical block was visited exactly once. (Also reads `block_index`, whose
+        // final bump inside the shared macro is otherwise dead on the last block.)
+        debug_assert_eq!(
+            block_index, blocks_before,
+            "apply_gc must visit exactly blocks_before blocks"
+        );
+
         // Whatever remains in `trailing` is the tail block → new `in_progress`.
         let new_in_progress = trailing;
         debug_assert_eq!(
