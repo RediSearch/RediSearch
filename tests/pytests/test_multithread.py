@@ -938,3 +938,135 @@ def test_ft_aggregate_with_coord_10_io_threads():
 @skip(cluster=False)
 def test_ft_aggregate_with_coord_20_io_threads():
     _test_ft_aggregate_with_io_threads(20)
+
+
+def _run_query_with_reindex_during_load(env, query_args):
+    # When result loading runs on a worker thread (WORKERS>0), the safe loader buffers
+    # the matched rows, releases the spec read lock, and then takes the GIL to load
+    # their fields. If a matched document is re-indexed on the main thread inside that
+    # window, its buffered metadata is popped (marked deleted, a new docId assigned).
+    # The loader must DROP that row rather than emit a nil field-array (RESP2 $-1,
+    # decoded to None by redis-py), and must remove it from total_results so the
+    # advertised count matches the rows actually returned. This shared harness is used
+    # by every result-returning command, since they all drain through the same safe
+    # loader and the same BeforeSafeLoaderGILLock sync point.
+    #
+    # Reproduced deterministically: pin the worker after it has buffered the rows and
+    # released the read lock, re-index a matched doc on the main thread, then release
+    # the worker. Returns the query reply, or None if sync points are unavailable
+    # (compiled only with ENABLE_ASSERT) so the caller can skip.
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        return None
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+               'SCHEMA', 'n', 'NUMERIC', 'title', 'TEXT', 'SORTABLE').ok()
+    # No query timeout, so the worker blocks on the sync point rather than the clock.
+    env.expect('FT.CONFIG', 'SET', 'TIMEOUT', '0').ok()
+    conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one')
+    conn.execute_command('HSET', 'doc:2', 'n', '2', 'title', 'two')
+    waitForIndex(env, 'idx')
+
+    sync_point = 'BeforeSafeLoaderGILLock'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+    out = []
+    def run_query(c, sink):
+        try:
+            sink.append(c.execute_command(*query_args))
+        except Exception as e:
+            sink.append(e)
+
+    query_conn = env.getConnection()
+    t = threading.Thread(target=run_query, args=(query_conn, out), daemon=True)
+    t.start()
+
+    # The worker has buffered both rows and released the read lock; it is now pinned
+    # just before taking the GIL.
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point}')
+
+    # Re-index a matched doc on the main thread while the worker is pinned: this pops
+    # its buffered metadata, marking it deleted and assigning a new docId.
+    conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one-reindexed')
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message='query thread still blocked after signal')
+
+    res = out[0]
+    env.assertFalse(isinstance(res, Exception), message=f'query raised: {res}')
+    return res
+
+
+@skip(cluster=True)
+def test_search_drops_doc_reindexed_during_load(env):
+    env = Env(moduleArgs='WORKERS 1')
+    res = _run_query_with_reindex_during_load(env, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'])
+    if res is None:
+        env.skip()
+        return
+    total, flat = res[0], res[1:]
+    pairs = list(zip(flat[0::2], flat[1::2]))
+    # No matched document may come back with a nil field-array.
+    env.assertEqual([key for key, fields in pairs if fields is None], [],
+                    message=f'nil field-array in reply: {pairs}')
+    # The re-indexed doc is dropped (only the untouched doc:2 remains), and
+    # total_results matches the rows actually returned.
+    env.assertEqual([key for key, _ in pairs], ['doc:2'],
+                    message=f'expected only doc:2, got {[k for k, _ in pairs]}')
+    env.assertEqual(total, len(pairs),
+                    message=f'total_results {total} != returned rows {len(pairs)}')
+
+
+@skip(cluster=True)
+def test_aggregate_drops_doc_reindexed_during_load(env):
+    # FT.AGGREGATE drains through the same safe loader as FT.SEARCH, but reports its
+    # count from a different site (aggregate_exec.c). With WITHCOUNT the count must
+    # exclude the dropped row (totalResults - skippedResults) and match the rows
+    # actually returned, with no nil/empty placeholder row for the dropped doc.
+    env = Env(moduleArgs='WORKERS 1')
+    res = _run_query_with_reindex_during_load(
+        env, ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', '1', '@n'])
+    if res is None:
+        env.skip()
+        return
+    total, rows = res[0], res[1:]
+    # No dropped doc may leave behind a nil row.
+    env.assertEqual([r for r in rows if r is None], [],
+                    message=f'nil row in reply: {rows}')
+    # Only the untouched doc:2 survived (loaded n=2), and the WITHCOUNT total matches
+    # the rows actually returned.
+    env.assertEqual(sorted(rows), [['n', '2']],
+                    message=f'expected only doc:2 row, got {rows}')
+    env.assertEqual(total, len(rows),
+                    message=f'WITHCOUNT total {total} != returned rows {len(rows)}')
+
+
+@skip(cluster=True)
+def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
+    # A GROUPBY reducer overwrites totalResults with the group count
+    # (Grouper_rpAccum, group_by.c). The safe loader sits upstream of it
+    # (LOAD then GROUPBY), so a row dropped mid-load increments skippedResults
+    # before the grouper redefines totalResults. The reported count must be the
+    # group count itself, NOT group_count - skippedResults — otherwise dropping
+    # the only doc that would have been counted yields total_results=0 with a
+    # group row still present. doc:1 is re-indexed mid-load and dropped, leaving
+    # one group (doc:2, n=2).
+    env = Env(moduleArgs='WORKERS 1')
+    res = _run_query_with_reindex_during_load(
+        env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n', 'GROUPBY', '1', '@n'])
+    if res is None:
+        env.skip()
+        return
+    total, rows = res[0], res[1:]
+    env.assertEqual([r for r in rows if r is None], [],
+                    message=f'nil row in reply: {rows}')
+    # One surviving group (n=2); the count must match the groups returned, not be
+    # reduced by the dropped upstream row.
+    env.assertEqual(total, len(rows),
+                    message=f'group count {total} != returned groups {len(rows)}: {res}')
+    env.assertEqual(total, 1,
+                    message=f'expected exactly one surviving group, got {res}')
