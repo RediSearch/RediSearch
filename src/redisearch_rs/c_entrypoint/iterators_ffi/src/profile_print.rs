@@ -12,7 +12,7 @@
 //!
 //! Rust iterators have their `PrintProfile` vtable entry set at
 //! construction time by [`rqe_iterators::interop::RQEIteratorWrapper::boxed_new`]. C-only
-//! iterator types (Hybrid, Optimus, GeoShape) set theirs to the
+//! iterator types (Hybrid, Optimus) set theirs to the
 //! `extern "C"` functions exported here.
 
 use std::{ffi::CStr, ptr::NonNull};
@@ -113,28 +113,6 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
         // vtable entry is set (it was profile-wrapped by Profile_AddIters).
         unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
     }
-}
-
-/// `PrintProfile` vtable entry for GeoShape iterators.
-///
-/// # Safety
-///
-/// 1. `self_` must be a valid pointer to a GeoShape iterator.
-/// 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
-/// 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GeoShape_PrintProfile(
-    self_: *const QueryIterator,
-    map: *mut redis_reply::MapBuilder,
-    ctx: *mut ProfilePrintCtx,
-) {
-    let _ = self_;
-    // SAFETY: precondition 2.
-    let map = unsafe { &mut *map };
-    // SAFETY: precondition 3.
-    let ctx = unsafe { &mut *ctx };
-
-    ctx.print_leaf(c"GEO-SHAPE", map);
 }
 
 // ── FFI entry point ─────────────────────────────────────────────────────

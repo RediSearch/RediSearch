@@ -23,7 +23,12 @@ typedef struct QueryEvalCtx {
   DocTable *docTable;
   uint32_t reqFlags;
   IteratorsConfig *config;
-  bool notSubtree;
+  // True while evaluating the subtree below a `NOT` node. A `NOT` only cares
+  // whether a document matches its child, never the child's score, so a
+  // descendant `UNION` may quick-exit on its first matching branch instead of
+  // visiting every branch to accumulate a score. Saved and restored around the
+  // child evaluation so nested `NOT`s (e.g. `-(-foo)`) keep it set correctly.
+  bool inNotSubTree;
   // AREQ to use for the Blocked Client Timeout dispatch. Non-NULL means
   // iterators poll `AREQ_CheckTimedOut` against this request; NULL means
   // iterators fall back to the in-pipeline clock-based timeout (low-level

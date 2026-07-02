@@ -15,12 +15,12 @@ use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 
 use crate::{BatchIterator, QueryError, QueryReply, ReplyOrder};
 use ffi::{
-    VecSim_Normalize, VecSimAdhocBfCtx, VecSimIndex, VecSimIndex_AdhocBfCtx_Free,
-    VecSimIndex_AdhocBfCtx_GetDistanceFrom, VecSimIndex_AdhocBfCtx_GetExactDistances,
-    VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo, VecSimIndex_GetDistanceFrom_Unsafe,
-    VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch, VecSimIndex_TopKQuery,
-    VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize, VecSimQueryParams,
-    VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
+    VecSim_Normalize, VecSimAdhocBfCtx, VecSimBool_VecSimBool_TRUE, VecSimIndex,
+    VecSimIndex_AdhocBfCtx_Free, VecSimIndex_AdhocBfCtx_GetDistanceFrom,
+    VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
+    VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
+    VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize,
+    VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
     VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
     VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
     VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
@@ -155,6 +155,22 @@ impl<'index> IndexRef<'index> {
     pub fn is_disk(&self) -> bool {
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimIndex_BasicInfo(self.inner.as_ptr()) }.isDisk
+    }
+
+    /// Whether the disk-HNSW query in `params` requests reranking of the
+    /// adhoc-BF top-k with exact distances, or `None` if this is not a disk
+    /// index.
+    ///
+    /// Only an explicitly enabled preference yields `Some(true)`; a disabled or
+    /// unset preference yields `Some(false)`.
+    pub fn disk_rerank(&self, params: &VecSimQueryParams) -> Option<bool> {
+        if !self.is_disk() {
+            return None;
+        }
+        // SAFETY: `is_disk()` holds, so `hnswDiskRuntimeParams` is the live
+        // variant of the runtime-params union.
+        let raw = unsafe { params.__bindgen_anon_1.hnswDiskRuntimeParams.shouldRerank };
+        Some(raw == VecSimBool_VecSimBool_TRUE)
     }
 
     /// VecSim heuristic: should adhoc-BF be preferred over batch iteration
