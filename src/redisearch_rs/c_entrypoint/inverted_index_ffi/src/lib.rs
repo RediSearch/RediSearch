@@ -27,7 +27,7 @@ pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
     AddRecordOutcome, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
     FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _,
-    NumericFilter, ReadFilter,
+    InvertedIndexSnapshot, NumericFilter, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -428,6 +428,78 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
     ii_dispatch!(ii, block_ref, block_idx)
 }
 
+/// Take an owned snapshot of the index's block storage. Currently a borrowed view
+/// (zero-copy); the follow-up storage refactor will make it own its data so it
+/// remains valid after the index is mutated. Call [`InvertedIndexSnapshot_BlockRef`]
+/// to access blocks and [`InvertedIndexSnapshot_Free`] when done.
+///
+/// # Safety
+/// - `ii` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+/// - The returned pointer must be released via `InvertedIndexSnapshot_Free`, and
+///   must not outlive `ii`.
+/// - `ii` must not be mutated while the snapshot is alive. The snapshot borrows
+///   directly from `ii`'s block storage; mutating calls like
+///   [`InvertedIndex_WriteEntryGeneric`] or [`InvertedIndex_ApplyGCDelta`] can
+///   reallocate or replace the backing `ThinVec`, leaving the snapshot's borrow
+///   dangling. The follow-up storage refactor will lift this restriction by
+///   making the snapshot own its data.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_Snapshot<'index>(
+    ii: *const InvertedIndex,
+) -> *mut InvertedIndexSnapshot<'index> {
+    debug_assert!(!ii.is_null(), "ii must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let ii: &'index _ = unsafe { &*ii };
+    let snapshot = ii_dispatch!(ii, snapshot);
+    Box::into_raw(Box::new(snapshot))
+}
+
+/// Free a snapshot previously returned by [`InvertedIndex_Snapshot`]. Safe to call
+/// on NULL (no-op).
+///
+/// # Safety
+/// - `snapshot`, if non-NULL, must have been returned by `InvertedIndex_Snapshot`
+///   and not previously freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_Free(snapshot: *mut InvertedIndexSnapshot) {
+    if snapshot.is_null() {
+        return;
+    }
+    // SAFETY: caller-upheld; see function-level docs.
+    drop(unsafe { Box::from_raw(snapshot) });
+}
+
+/// Number of blocks in the snapshot.
+///
+/// # Safety
+/// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_NumBlocks(
+    snapshot: *const InvertedIndexSnapshot,
+) -> usize {
+    debug_assert!(!snapshot.is_null(), "snapshot must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let snapshot = unsafe { &*snapshot };
+    snapshot.block_count()
+}
+
+/// Borrow the block at the given logical index, or return NULL if out of bounds.
+/// The returned pointer is valid for as long as `snapshot` is alive.
+///
+/// # Safety
+/// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
+/// - The returned pointer must not outlive the snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'snap>(
+    snapshot: *const InvertedIndexSnapshot<'snap>,
+    block_idx: usize,
+) -> Option<&'snap IndexBlock> {
+    debug_assert!(!snapshot.is_null(), "snapshot must not be null");
+    // SAFETY: caller-upheld; see function-level docs.
+    let snapshot: &'snap _ = unsafe { &*snapshot };
+    snapshot.block_ref(block_idx)
+}
+
 /// Get ID of the last document in the index. Returns 0 if the index is empty.
 /// This is used by some C tests.
 ///
@@ -759,7 +831,7 @@ impl<'index> IndexReader<'index> {
 
     /// Swap the inverted index of the reader with the given inverted index. This is only used
     /// by some C tests to trigger revalidation on the reader.
-    pub const fn swap_index(&mut self, ii: &'index InvertedIndex) {
+    pub fn swap_index(&mut self, ii: &'index InvertedIndex) {
         match (self, ii) {
             (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
             (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => {
