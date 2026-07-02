@@ -12,6 +12,7 @@
 #include "debug_commands.h"
 #include "indexes.h"
 #include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -2141,6 +2142,17 @@ DEBUG_COMMAND(terminateBgPool) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // When disk is enabled, initial indexing runs as async batches whose completion
+  // callback (done_cb) is dispatched on the main thread. ReindexPool_ThreadPoolDestroy()
+  // joins the worker threads from the main thread, but a worker that is mid-batch is
+  // itself blocked waiting for that main-thread done_cb to run. Tearing the pool down
+  // here would therefore deadlock the main thread against the worker. Reject the command
+  // in disk mode instead of risking the deadlock.
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(
+        ctx, "TERMINATE_BG_POOL is not supported when disk is enabled");
+  }
+
   ReindexPool_ThreadPoolDestroy();
   // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
 
@@ -2168,6 +2180,39 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
   }
 
   validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM <true/false>
+ *
+ * Test hook: force the AsyncScan reindex driver to take its OOM terminal branch after
+ * the next batch, so the OOM-surfacing path (scan_failed_OOM + FT.INFO "background
+ * indexing status") can be exercised deterministically. Engine OOM is otherwise not
+ * reproducible from the module side. Only effective in ENABLE_ASSERT builds.
+ */
+DEBUG_COMMAND(setSimulateAsyncOOM) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // The AsyncScan reindex driver only runs in disk mode, so the OOM hook is a no-op
+  // elsewhere — reject rather than silently accept a flag that will never fire.
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "SET_SIMULATE_ASYNC_OOM is only supported in disk mode");
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_SIMULATE_ASYNC_OOM'");
+  }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -2374,6 +2419,9 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
     return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_SIMULATE_ASYNC_OOM", op)) {
+    return setSimulateAsyncOOM(ctx, argv+1, argc-1);
   }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);

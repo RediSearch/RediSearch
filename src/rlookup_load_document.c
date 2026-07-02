@@ -160,6 +160,23 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   // Load the document from the schema. This should be simple enough...
   void *key = NULL;  // This is populated by getKeyCommon; we free it at the end
   DocumentType type = options->dmd ? options->dmd->type : options->type;
+  // `key` is both the in and out handle that getKeyCommonHash threads through every field:
+  // getKeyCommonHash opens the document by name only when `*keyobj == NULL`, stores the
+  // handle there, and the loop's later fields reuse it (then `done:` closes it once). We
+  // exploit that by pre-seeding `key` with a borrowed, already-open handle the caller
+  // supplied (the value pinned for an AsyncScan callback): the very first getKeyCommonHash
+  // call then sees a non-NULL `*keyobj`, skips the open-by-name (and its type/existence
+  // check), and goes straight to HGET on the borrowed handle. Skipping that check is safe
+  // here because the only caller that passes openKey (the AsyncScan key_cb) has already
+  // confirmed the key exists and is a hash.
+  //
+  // Hashes only: getKeyCommonHash drives a RedisModuleKey, whereas getKeyCommonJSON drives a
+  // RedisJSON handle (opened by name via the RedisJSON API) that this RedisModuleKey cannot
+  // stand in for. A borrowed key is the caller's, so it must not be closed at `done:`.
+  const bool borrowedKey = (type == DocumentType_Hash && options->openKey);
+  if (borrowedKey) {
+    key = options->openKey;
+  }
   GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
                                                     (GetKeyFunc)getKeyCommonJSON;
   int rc = REDISMODULE_ERR;
@@ -196,7 +213,8 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   rc = REDISMODULE_OK;
 
 done:
-  if (key) {
+  // Only close a handle we opened ourselves; a borrowed `openKey` is the caller's.
+  if (key && !borrowedKey) {
     switch (type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
     case DocumentType_Json: break;

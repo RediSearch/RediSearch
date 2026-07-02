@@ -1745,11 +1745,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     SchemaRule_FilterFields(spec);
   }
 
-  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
-    goto failure;
-  }
-
   return spec_ref;
 
 failure:  // Result-like contract: on failure the error is set in `status`, the
@@ -3359,7 +3354,8 @@ int CompareVersions(Version v1, Version v2) {
 }
 
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3386,10 +3382,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Unsupported:
     RS_ABORT("Should receive valid type");
@@ -3415,6 +3411,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+  // Reuse the caller's open key handle for the DocIdMeta update, if provided.
+  aCtx->disk.openKey = openKey;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);

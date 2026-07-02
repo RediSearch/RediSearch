@@ -66,7 +66,10 @@ void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, C
     RedisModule_FreeString(RSDummyContext, error->key);
     error->last_error_without_user_data = withoutUserData ? rm_strdup(withoutUserData) : NA; // Don't strdup NULL.
     error->last_error_with_user_data = withUserData ? rm_strdup(withUserData) : NA; // Don't strdup NULL.
-    error->key = RedisModule_HoldString(RSDummyContext, key);
+    // A NULL key means no single document is to blame (e.g. background indexing
+    // cancelled for global memory pressure). Fall back to the NA sentinel so the
+    // stored key is always a valid, displayable string.
+    error->key = RedisModule_HoldString(RSDummyContext, key ? key : NA_rstr);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
     __atomic_add_fetch(&error->error_count, 1, __ATOMIC_RELAXED);

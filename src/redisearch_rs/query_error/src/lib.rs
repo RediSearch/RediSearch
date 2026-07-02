@@ -91,7 +91,6 @@ pub enum QueryErrorCode {
     FlexUnsupportedField,
     FlexUnsupportedFTCreateArgument,
     DiskCreation,
-    FlexSkipInitialScanMissingArgument,
     VectorBlobSizeMismatch,
     VectorLenBad,
     NumericValueInvalid,
@@ -431,11 +430,6 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_DISK_CREATION ",
                 default_msg: c"Could not create disk index",
                 default_full_msg: c"SEARCH_DISK_CREATION Could not create disk index",
-            },
-            Self::FlexSkipInitialScanMissingArgument => ErrorCodeStrings {
-                prefix: c"SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT ",
-                default_msg: c"Flex index requires SKIPINITIALSCAN argument",
-                default_full_msg: c"SEARCH_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT Flex index requires SKIPINITIALSCAN argument",
             },
             Self::VectorBlobSizeMismatch => ErrorCodeStrings {
                 prefix: c"SEARCH_VECTOR_BLOB_SIZE_MISMATCH ",

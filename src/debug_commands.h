@@ -32,6 +32,7 @@ typedef struct BgIndexingDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
   bool pauseBeforeOOMretry; // Whether to pause before the first OOM retry
+  bool simulateAsyncOOM; // Force the AsyncScan driver into its OOM terminal branch (test hook)
 
 } BgIndexingDebugCtx;
 
@@ -155,6 +156,8 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+#define SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH        "AsyncScanBeforeFirstBatch"
+#define SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES           "AsyncScanBetweenBatches"
 #define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
 
 // SyncPoint API function declarations
