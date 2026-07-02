@@ -1948,3 +1948,60 @@ def test_mod_14112(env: Env):
   )
   # Verify that `FT.SEARCH` queries return an error (not crash)
   env.expect('FT.SEARCH', 'idx', '*').error().contains('Could not send query to cluster')
+
+@skip(cluster=True)
+def test_filter_cursor_no_assert(env):
+    """
+    Regression for the assertion failure at
+    src/aggregate/expr/expression.c:509 ('rp->parent->totalResults > 0').
+
+    Pipeline shape that triggers the bug:
+        ... -> SORTBY (caches results in a heap) -> FILTER -> LIMIT pager
+    served via FT.AGGREGATE WITHCURSOR.
+
+    On the first cursor read the sorter accumulates all upstream results,
+    which increments qctx->totalResults via RPQueryIterator. After the
+    first batch is sent, finishSendChunk resets qctx->totalResults to 0.
+    On subsequent cursor reads the sorter yields cached rows from its
+    heap without re-incrementing the counter; if the FILTER then rejects
+    one of those cached rows it tries to decrement totalResults from 0
+    and the assertion fires (introduced in PR #6880 / MOD-11416).
+    """
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'n', 'NUMERIC', 'SORTABLE').ok()
+
+    # Six docs with deterministic numeric values.
+    for i in range(1, 7):
+        conn.execute_command('HSET', f'doc{i}', 'n', str(i))
+
+    # SORTBY ASC orders cached results as 1,2,3,4,5,6.
+    # FILTER keeps n<4, so only 1,2,3 pass; 4,5,6 are rejected.
+    # WITHCURSOR COUNT 2 forces multiple cursor reads:
+    #   batch 1 -> rows for n=1, n=2 (no rejections yet)
+    #   batch 2 -> row for n=3, then n=4 is rejected -> decrement on 0.
+    res, cursor = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '@n',
+        'SORTBY', '2', '@n', 'ASC',
+        'FILTER', '@n<4',
+        'WITHCURSOR', 'COUNT', '2')
+    env.assertNotEqual(cursor, 0)
+    # First batch: n=1 and n=2.
+    env.assertEqual(res[1:], [['n', '1'], ['n', '2']])
+
+    # Drain the cursor. Without the fix the second read crashes the
+    # server with the totalResults assertion. Bound the loop so a buggy
+    # build that returns spurious data cannot make the test hang.
+    rows = list(res[1:])
+    for _ in range(10):
+        if cursor == 0:
+            break
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        rows.extend(res[1:])
+    env.assertEqual(cursor, 0,
+                    message='cursor was not drained within the bounded reads')
+
+    # Exactly the rows that pass the filter, in sort order.
+    env.assertEqual(rows, [['n', '1'], ['n', '2'], ['n', '3']])
