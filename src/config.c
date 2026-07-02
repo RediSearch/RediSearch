@@ -61,6 +61,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_LOCK_FREE_READS",                "search-_lock-free-reads"},
+  {"_LOCK_FREE_READS_BATCH_SIZE",     "search-_lock-free-reads-batch-size"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
   {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
@@ -1085,6 +1086,19 @@ CONFIG_BOOLEAN_GETTER(getPrintProfileClock, requestConfigParams.printProfileCloc
 CONFIG_BOOLEAN_SETTER(setLockFreeReads, requestConfigParams.lockFreeReads)
 CONFIG_BOOLEAN_GETTER(getLockFreeReads, requestConfigParams.lockFreeReads, 0)
 
+// _LOCK_FREE_READS_BATCH_SIZE
+CONFIG_SETTER(setLockFreeReadsBatchSize) {
+  unsigned int batchSize;
+  int acrc = AC_GetUnsigned(ac, &batchSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->requestConfigParams.lockFreeReadsBatchSize = batchSize;
+  return REDISMODULE_OK;
+}
+CONFIG_GETTER(getLockFreeReadsBatchSize) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->requestConfigParams.lockFreeReadsBatchSize);
+}
+
 // RAW_DOCID_ENCODING
 CONFIG_BOOLEAN_SETTER(setRawDocIDEncoding, invertedIndexRawDocidEncoding)
 CONFIG_BOOLEAN_GETTER(getRawDocIDEncoding, invertedIndexRawDocidEncoding, 0)
@@ -1736,6 +1750,12 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "iteration (lock-free-read snapshot path). For benchmarking only.",
          .setValue = setLockFreeReads,
          .getValue = getLockFreeReads},
+        {.name = "_LOCK_FREE_READS_BATCH_SIZE",
+         .helpText = "Experimental: results served per spec-read-lock acquisition under "
+                     "lock-free reads (amortizes the per-result lock + revalidate). "
+                     "For benchmarking only.",
+         .setValue = setLockFreeReadsBatchSize,
+         .getValue = getLockFreeReadsBatchSize},
         {.name = "RAW_DOCID_ENCODING",
          .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
          .setValue = setRawDocIDEncoding,
@@ -2507,6 +2527,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.lockFreeReads)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_lock-free-reads-batch-size", 100,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, UINT32_MAX,
+      get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.lockFreeReadsBatchSize)
     )
   )
 

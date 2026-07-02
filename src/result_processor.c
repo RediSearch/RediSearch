@@ -66,6 +66,13 @@ typedef struct {
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
 
+  // Lock-free reads batching: hold the spec read lock across a batch of results instead
+  // of re-acquiring it per result, amortizing the lock acquire/release and the per-result
+  // iterator Revalidate. Released every `lockFreeReadsBatchSize` results, and
+  // force-released at the cursor chunk boundary (runCursor) and on EOF/timeout.
+  bool heldBatchLock;       // we currently hold the spec read lock for the active batch
+  uint32_t readsSinceLock;  // results produced since this batch acquired the lock
+
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
 #ifdef ENABLE_ASSERT
@@ -237,9 +244,8 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
-static bool handleSpecLockAndRevalidate(RPQueryIterator *self, bool *acquiredLock) {
+static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
-  if (acquiredLock) *acquiredLock = false;
 
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
@@ -249,12 +255,19 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self, bool *acquiredLoc
 
   QueryIterator *it = self->iterator;
 
+  // Lock already held: either a non-lock-free query holding it for the whole run, or a
+  // lock-free batch we acquired on a previous result. Either way, don't re-acquire or
+  // re-revalidate — while the read lock is held GC cannot run, so the snapshot the
+  // iterators captured stays valid across the batch.
   if (sctx->flags != RS_CTX_UNSET) {
     return false;
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
-  if (acquiredLock) *acquiredLock = true;
+  // Start of a (possibly single-result) lock-free batch: we now hold the read lock and
+  // will release it after `lockFreeReadsBatchSize` results (see rpQueryItNext).
+  self->heldBatchLock = true;
+  self->readsSinceLock = 0;
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -276,8 +289,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
-  bool acquiredLock = false;
-  bool needToValidateCurrent = handleSpecLockAndRevalidate(self, &acquiredLock);
+  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -326,14 +338,21 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
     setSearchResult(base, res, it->current, dmd);
-    // Lock-free-read path (experimental, off by default): if this call acquired the
-    // spec read lock, release it now that Read + dmd retrieval are done, so writers
-    // and GC can interleave before the next round. Only release what we acquired —
-    // the disk path never locks, and an already-held outer lock is not ours to drop.
-    // The reader keeps its own immutable snapshot, so its iterator state survives the
-    // release window; the buffered SearchResult already outlives it->current today.
-    if (acquiredLock && RSGlobalConfig.requestConfigParams.lockFreeReads) {
-      RedisSearchCtx_UnlockSpec(sctx);
+    // Lock-free-read path (experimental, off by default): we hold the spec read lock for
+    // a batch of results (acquired by handleSpecLockAndRevalidate at the batch start).
+    // Release it every `lockFreeReadsBatchSize` results so writers and GC can interleave,
+    // then the next result re-acquires + revalidates once for the new batch. Batching
+    // amortizes both the lock acquire/release and the per-result iterator Revalidate.
+    // Correctness: while the lock is held GC cannot run, so the iterators' snapshot stays
+    // valid mid-batch; the reader keeps its own immutable snapshot and the buffered
+    // SearchResult outlives it->current. A partial batch is force-released at the cursor
+    // chunk boundary (runCursor) and on EOF/timeout (UnlockSpec_and_ReturnRPResult).
+    if (self->heldBatchLock && RSGlobalConfig.requestConfigParams.lockFreeReads) {
+      if (++self->readsSinceLock >= RSGlobalConfig.requestConfigParams.lockFreeReadsBatchSize) {
+        RedisSearchCtx_UnlockSpec(sctx);
+        self->heldBatchLock = false;
+        self->readsSinceLock = 0;
+      }
     }
     return RS_RESULT_OK;
   }
@@ -348,7 +367,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   // Handle spec lock and revalidation
   // no need store the return value since validate current result is not needed for async disk path
   // (disk path never acquires the spec lock, so no acquisition to track)
-  handleSpecLockAndRevalidate(self, NULL);
+  handleSpecLockAndRevalidate(self);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
