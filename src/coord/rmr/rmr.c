@@ -633,9 +633,9 @@ struct MRIterator {
   size_t len;
 };
 
-// No-reply termination path: invoke the caller's optional errorCB (notify-only)
-// before the iterator's MRIteratorCallback_Done. Without this hook callers that
-// wait on a private counter (e.g. ProcessHybridCursorMappings) would hang.
+// No-reply termination path: invoke the caller's optional errorCB (notify-only) so
+// it can record the communication error, then run MRIteratorCallback_Done to advance
+// the iterator's completion countdown like any other terminated shard.
 static void mrIteratorCallback_Error(MRIteratorCallbackCtx *ctx) {
   if (ctx->it->ctx.errorCB) {
     ctx->it->ctx.errorCB(ctx);
