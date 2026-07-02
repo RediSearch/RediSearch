@@ -1234,7 +1234,7 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         iter_mode = TAG_SUFFIX_MODE;
       }
     }
-    TrieMapIterator *it = TagIndex_IterateValueWithFilter(idx, tok->str, tok->len, iter_mode);
+    TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
     if (!q->sctx->time.skipTimeoutChecks) {
@@ -1349,7 +1349,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
     TrieMapIterator *it =
-        TagIndex_IterateValueWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
+        TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
     if (!q->sctx->time.skipTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     }

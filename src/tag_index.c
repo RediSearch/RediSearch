@@ -342,6 +342,10 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
   return spec->tagOpts.tagIndex;
 }
 
+uint32_t TagIndex_GetId(const TagIndex *idx) {
+  return idx->uniqueId;
+}
+
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
   return TrieMap_Iterate(idx->values);
 }
@@ -354,7 +358,7 @@ int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen)
   return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
 }
 
-TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal,
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
                                                  size_t tagValLen, tag_iter_mode mode) {
   return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
 }

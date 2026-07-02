@@ -125,11 +125,8 @@ void TagIndex_Free(TagIndex *index);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 
-/* Return the unique id generated in `NewTagIndex`.
- */
-static inline uint32_t TagIndex_GetId(const TagIndex *idx) {
-  return idx->uniqueId;
-}
+/* Return the unique id generated in `NewTagIndex` */
+uint32_t TagIndex_GetId(const TagIndex *idx);
 
 /* Return an iterator over the TagIndex values */
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
@@ -156,7 +153,7 @@ typedef enum tag_iter_mode {
  *
  * See [`TrieMap_IterateWithFilter`] for more details.
  */
-TrieMapIterator *TagIndex_IterateValueWithFilter(TagIndex *idx, const char *tagVal,
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
                                                  size_t tagValLen, tag_iter_mode mode);
 
 /**
