@@ -10,10 +10,14 @@
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
-    sync::atomic::{self, AtomicU32},
+    sync::{
+        Arc,
+        atomic::{self, AtomicU32},
+    },
 };
 use thin_vec::ThinVec;
 
+use super::snapshot::InvertedIndexSnapshot;
 use super::unique_id::IndexUniqueId;
 use crate::{
     BlockCapacity, Encoder, IdDelta,
@@ -26,13 +30,20 @@ use rqe_core::DocId;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
+///
+/// The block list is owned by an [`Arc`] so readers can take a cheap refcount clone
+/// via [`Self::snapshot`] and walk a stable view independent of subsequent writes.
+/// Writers go through `Arc::make_mut`, which triggers a copy-on-write of the
+/// `ThinVec` only when readers still hold an outstanding snapshot. Follow-up PRs
+/// will split this into `sealed`/`pending`/`in_progress` regions to avoid that COW
+/// cost on the hot path.
 #[derive(Debug)]
 pub struct InvertedIndex<E> {
-    /// The blocks of the index. Each block contains a set of entries for a specific range of
-    /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
-    /// block contains entries for the lowest document IDs, and the last block contains entries for
-    /// the highest document IDs.
-    pub(crate) blocks: ThinVec<IndexBlock, BlockCapacity>,
+    /// The blocks of the index, owned via [`Arc`] for cheap snapshotting. Each block
+    /// contains a set of entries for a specific range of document IDs; blocks are
+    /// ordered by document ID. Writers use `Arc::make_mut` to obtain `&mut ThinVec`
+    /// (copy-on-write when a snapshot is alive).
+    pub(crate) blocks: Arc<ThinVec<IndexBlock, BlockCapacity>>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -132,12 +143,33 @@ impl IndexBlock {
     }
 }
 
+// Manual `Clone` (rather than derive) because the hot users are `Arc::make_mut` on the
+// blocks `ThinVec` — the writer's copy-on-write path when a snapshot is alive — and the
+// snapshot's deep clone of in-place blocks once the follow-up storage refactor lands.
+// (The former per-clone `TOTAL_BLOCKS` counter was dropped to match master, which
+// removed process-wide block-instance counting.)
+impl Clone for IndexBlock {
+    fn clone(&self) -> Self {
+        Self {
+            first_doc_id: self.first_doc_id,
+            last_doc_id: self.last_doc_id,
+            num_entries: self.num_entries,
+            buffer: self.buffer.clone(),
+        }
+    }
+}
+
+/// Two pointer-sized atomics — the strong/weak refcount header that prefixes the
+/// `T` inside every `Arc<T>` heap allocation. Used by [`InvertedIndex::memory_usage`]
+/// to account for the `Arc<ThinVec<IndexBlock>>` wrapper.
+pub(crate) const ARC_HEADER_BYTES: usize = std::mem::size_of::<usize>() * 2;
+
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
-            blocks: Default::default(),
+            blocks: Arc::new(ThinVec::new()),
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -166,7 +198,7 @@ impl<E: Encoder> InvertedIndex<E> {
         let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
 
         Self {
-            blocks,
+            blocks: Arc::new(blocks),
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -179,9 +211,13 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn memory_usage(&self) -> usize {
         let blocks_heap = self.blocks.mem_usage();
         let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
+        // The Arc's heap allocation: refcount header + the inlined ThinVec stack
+        // representation. The `ThinVec` itself moves from `InvertedIndex`'s stack
+        // (in PR4) to the Arc's heap allocation here.
+        let arc_heap = ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
         let stack = std::mem::size_of::<Self>();
 
-        blocks_heap + blocks_buffers + stack
+        blocks_heap + blocks_buffers + arc_heap + stack
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -279,14 +315,25 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
+    /// Returns the number of entries in the tail block, if any. Used by the reader's
+    /// revalidation path to detect in-place tail appends that the `gc_marker` doesn't
+    /// signal.
+    pub fn tail_num_entries(&self) -> Option<u16> {
+        self.blocks.last().map(|b| b.num_entries())
+    }
+
     /// Take a block that can be written to.
+    ///
+    /// `Arc::make_mut` triggers a `ThinVec` clone if a reader holds an outstanding
+    /// snapshot. Follow-up PRs add `pending`/`in_progress` regions so this path
+    /// stops touching `sealed`/snapshotted data on every write.
     fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> IndexBlock {
-        if self.blocks.is_empty()
+        let blocks = Arc::make_mut(&mut self.blocks);
+        if blocks.is_empty()
             || (
                 // If the block is full
                 !same_doc
-                    && self
-                        .blocks
+                    && blocks
                         .last()
                         .expect("we just confirmed there are blocks")
                         .num_entries
@@ -295,7 +342,7 @@ impl<E: Encoder> InvertedIndex<E> {
         {
             IndexBlock::new(doc_id)
         } else {
-            self.blocks
+            blocks
                 .pop()
                 .expect("to get the last block since we know there is one")
         }
@@ -306,9 +353,10 @@ impl<E: Encoder> InvertedIndex<E> {
     ///
     /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
     fn add_block(&mut self, block: IndexBlock) -> usize {
-        let had_allocated = self.blocks.has_allocated();
-        let mem_growth = if self.blocks.len() == self.blocks.capacity() {
-            self.blocks.reserve_exact(1);
+        let blocks = Arc::make_mut(&mut self.blocks);
+        let had_allocated = blocks.has_allocated();
+        let mem_growth = if blocks.len() == blocks.capacity() {
+            blocks.reserve_exact(1);
 
             if had_allocated {
                 IndexBlock::STACK_SIZE
@@ -316,13 +364,13 @@ impl<E: Encoder> InvertedIndex<E> {
                 // Nothing is allocated until the first block is added.
                 // When that happens, the heap allocation has to grow by the size of the block
                 // as well as the size of the thin vector head (i.e. length and capacity).
-                self.blocks.mem_usage()
+                blocks.mem_usage()
             }
         } else {
             0
         };
 
-        self.blocks.push(block);
+        blocks.push(block);
         mem_growth
     }
 
@@ -366,11 +414,11 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.len()
     }
 
-    /// Take a borrowed [`super::snapshot::InvertedIndexSnapshot`] of this index's block storage.
-    /// The follow-up storage refactor will swap this for an owned snapshot — call
-    /// sites that already go through `snapshot()` won't need to change.
-    pub fn snapshot(&self) -> super::snapshot::InvertedIndexSnapshot<'_> {
-        super::snapshot::InvertedIndexSnapshot::from_slice(&self.blocks)
+    /// Take an owned [`InvertedIndexSnapshot`] of this index's block storage.
+    /// Refcount-clones the underlying `Arc<ThinVec<IndexBlock>>` — O(1), no copy
+    /// of the block contents.
+    pub fn snapshot(&self) -> InvertedIndexSnapshot {
+        InvertedIndexSnapshot::new(Arc::clone(&self.blocks))
     }
 
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.

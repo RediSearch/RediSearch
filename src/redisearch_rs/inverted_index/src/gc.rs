@@ -8,7 +8,7 @@
 */
 
 use serde::{Deserialize, Serialize};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
 
 use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
 use ffi::IndexFlags_Index_DocIdsOnly;
@@ -186,8 +186,13 @@ impl IndexBlock {
                 n_unique_docs_removed: unique_read,
             }))
         } else if block_changed {
+            // `tmp_inverted_index.blocks` is `Arc<ThinVec<IndexBlock>>` but is uniquely
+            // owned here (we just built it in this function), so `try_unwrap` extracts
+            // the inner `ThinVec` without cloning.
+            let blocks = Arc::try_unwrap(tmp_inverted_index.blocks)
+                .expect("tmp_inverted_index is local; its blocks Arc is uniquely owned");
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
+                blocks: SmallVec::from_iter(blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -286,9 +291,24 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        let mut tmp_blocks = ThinVec::with_capacity(self.blocks.len());
-        std::mem::swap(&mut self.blocks, &mut tmp_blocks);
+        // Take ownership of the underlying `ThinVec` so we can iterate by value.
+        // If a reader holds an outstanding snapshot, the previous Arc keeps the
+        // pre-GC blocks alive for that snapshot; we clone-out a fresh ThinVec.
+        // When no snapshot is alive, `try_unwrap` extracts in place.
+        let old_arc = std::mem::replace(&mut self.blocks, Arc::new(ThinVec::with_capacity(0)));
+        let tmp_blocks: ThinVec<IndexBlock, BlockCapacity> = match Arc::try_unwrap(old_arc) {
+            Ok(v) => v,
+            Err(shared) => {
+                let mut v = ThinVec::with_capacity(shared.len());
+                for b in shared.iter() {
+                    v.push(b.clone());
+                }
+                v
+            }
+        };
 
+        let mut new_blocks: ThinVec<IndexBlock, BlockCapacity> =
+            ThinVec::with_capacity(tmp_blocks.len());
         let mut deltas = deltas.into_iter().peekable();
 
         for (block_index, block) in tmp_blocks.into_iter().enumerate() {
@@ -320,30 +340,32 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                             for block in blocks {
                                 info.entries_removed -= block.num_entries as usize;
                                 info.bytes_allocated += block.mem_usage();
-                                self.blocks.push(block);
+                                new_blocks.push(block);
                             }
                         }
                     }
                 }
                 _ => {
                     // This block does not need to be repaired, so just put it back
-                    self.blocks.push(block);
+                    new_blocks.push(block);
                 }
             }
         }
 
-        // Remove excess capacity from the blocks vector.
+        // Remove excess capacity from the new vector.
         {
-            let had_allocated = self.blocks.has_allocated();
-            self.blocks.shrink_to_fit();
+            let had_allocated = new_blocks.has_allocated();
+            new_blocks.shrink_to_fit();
             // If we got rid of the heap block buffer entirely, we have also freed the memory occupied
             // by the thin vec header. That hasn't been accounted for yet, so we add it to the bytes freed now.
-            if !self.blocks.has_allocated() && had_allocated {
+            if !new_blocks.has_allocated() && had_allocated {
                 info.bytes_freed += Header::<BlockCapacity>::size_with_padding::<IndexBlock>();
             }
         }
 
-        info.block_count_delta = self.blocks.len() as i64 - blocks_before as i64;
+        let new_len = new_blocks.len();
+        self.blocks = Arc::new(new_blocks);
+        info.block_count_delta = new_len as i64 - blocks_before as i64;
         self.gc_marker_inc();
 
         info

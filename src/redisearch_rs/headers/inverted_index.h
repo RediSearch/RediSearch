@@ -16,9 +16,12 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * A point-in-time view of an inverted index's block storage. Currently borrows
- * directly from the index; the follow-up storage refactor will replace the borrow
- * with owned, multi-region data without changing this public surface.
+ * A point-in-time view of an inverted index's block storage.
+ *
+ * Owns an [`Arc`] clone of the underlying `ThinVec` taken at snapshot time, so the
+ * returned blocks stay valid even after the writer mutates the live index. Follow-up
+ * PRs split the storage into `sealed`/`pending`/`in_progress` regions; the public
+ * API stays the same.
  */
 typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
 

@@ -444,12 +444,12 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
 ///   dangling. The follow-up storage refactor will lift this restriction by
 ///   making the snapshot own its data.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_Snapshot<'index>(
+pub unsafe extern "C" fn InvertedIndex_Snapshot(
     ii: *const InvertedIndex,
-) -> *mut InvertedIndexSnapshot<'index> {
+) -> *mut InvertedIndexSnapshot {
     debug_assert!(!ii.is_null(), "ii must not be null");
     // SAFETY: caller-upheld; see function-level docs.
-    let ii: &'index _ = unsafe { &*ii };
+    let ii = unsafe { &*ii };
     let snapshot = ii_dispatch!(ii, snapshot);
     Box::into_raw(Box::new(snapshot))
 }
@@ -490,13 +490,14 @@ pub unsafe extern "C" fn InvertedIndexSnapshot_NumBlocks(
 /// - `snapshot` must be a valid pointer to an `InvertedIndexSnapshot` and cannot be NULL.
 /// - The returned pointer must not outlive the snapshot.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'snap>(
-    snapshot: *const InvertedIndexSnapshot<'snap>,
+pub unsafe extern "C" fn InvertedIndexSnapshot_BlockRef<'a>(
+    snapshot: *const InvertedIndexSnapshot,
     block_idx: usize,
-) -> Option<&'snap IndexBlock> {
+) -> Option<&'a IndexBlock> {
     debug_assert!(!snapshot.is_null(), "snapshot must not be null");
-    // SAFETY: caller-upheld; see function-level docs.
-    let snapshot: &'snap _ = unsafe { &*snapshot };
+    // SAFETY: caller-upheld; the returned reference is tied to `'a`, which the
+    // caller binds to the snapshot's lifetime.
+    let snapshot: &'a _ = unsafe { &*snapshot };
     snapshot.block_ref(block_idx)
 }
 

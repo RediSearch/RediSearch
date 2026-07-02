@@ -29,7 +29,9 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    let empty_size = 24;
+    // 24 bytes for the InvertedIndex's own fields, plus 24 bytes for the
+    // heap-allocated `Arc<ThinVec<IndexBlock>>` header that backs `sealed`.
+    let empty_size = 48;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -382,7 +384,9 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    let empty_size = 32;
+    // 32 bytes for the index's own fields, plus 24 bytes for the
+    // `Arc<ThinVec<IndexBlock>>` heap header.
+    let empty_size = 56;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -402,7 +406,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    assert_eq!(ii.memory_usage(), 40);
+    // 40 bytes for the index's own fields, plus 24 bytes for the
+    // `Arc<ThinVec<IndexBlock>>` heap header.
+    assert_eq!(ii.memory_usage(), 64);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()

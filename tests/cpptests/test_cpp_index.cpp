@@ -98,15 +98,21 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
   // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // LowMemoryThinVec<IndexBlock, u32> blocks    8
+  // Arc<ThinVec<IndexBlock, u32>> blocks        8   (pointer to heap allocation)
   // u32 n_uniqe_blocks                          4
   // flags IndexFlags                            4
   // u32 gc_marker                               4
   // ---------------------------------------------
   // Total                                      20
   // After padding                              24
+  //
+  // Plus the heap allocation behind the `Arc<ThinVec>`:
+  // Arc refcount header (strong + weak counter) 16
+  // ThinVec stack representation                 8
+  // ---------------------------------------------
+  // Heap                                        24
 
-  size_t exp_idx_no_block_memsize = 24;
+  size_t exp_idx_no_block_memsize = 48;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -1171,12 +1177,12 @@ TEST_F(IndexTest, testIndexFlags) {
   uint32_t flags = INDEX_DEFAULT_FLAGS;
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
-  // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  // storing fieldmask on idx             16
-  ASSERT_EQ(40, index_memsize);
+  // The memory occupied by an empty inverted index created with INDEX_DEFAULT_FLAGS
+  // is 64 bytes (see NewInvertedIndex()):
+  // sizeof InvertedIndex                       24
+  // Arc<ThinVec> heap (refcount header + stack)24
+  // storing fieldmask on idx                   16
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(73, sz);
@@ -1184,7 +1190,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
   ASSERT_EQ(sz2, 60);
@@ -1192,7 +1198,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
   ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth);
@@ -1200,11 +1206,11 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 24 bytes
-  // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  ASSERT_EQ(24, index_memsize);
+  // The memory occupied by an empty inverted index with Index_StoreFieldFlags == 0
+  // is 48 bytes (see NewInvertedIndex()):
+  // sizeof InvertedIndex                       24
+  // Arc<ThinVec> heap (refcount header + stack)24
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h).mem_growth;
@@ -1213,7 +1219,7 @@ TEST_F(IndexTest, testIndexFlags) {
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(64, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
