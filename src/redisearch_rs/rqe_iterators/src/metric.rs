@@ -108,7 +108,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     /// in place) before the deferred producer has run.
     pub fn empty(type_: MetricType) -> Self {
         Self {
-            base: IdList::with_result(OwnedSlice::default(), RSIndexResult::build_metric().build()),
+            base: IdList::with_result(OwnedSlice::default(), RSIndexResult::build_metric(0.0).build()),
             metric_data: OwnedSlice::default(),
             type_,
             own_key: std::ptr::null_mut(),
