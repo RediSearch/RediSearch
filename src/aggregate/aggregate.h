@@ -382,6 +382,23 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
  */
 int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
+typedef enum {
+  FlexValidationMode_CoordinatorPreFanout,
+  FlexValidationMode_BoundSpec,
+} FlexValidationMode;
+
+/**
+ * Reject field return on a disk (flex) index when loading is unsupported.
+ *
+ * The coordinator compiles every request as an aggregate, so before fan-out it
+ * can only reject JSON-on-disk field return. Once the spec is bound and
+ * QEXEC_F_IS_SEARCH is reliable, field return is allowed only for a HASH
+ * FT.SEARCH (which loads via the disk async loader). No-op when flex is off or
+ * when the query returns no document fields.
+ */
+int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
+                                     FlexValidationMode mode, QueryError *status);
+
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
  */

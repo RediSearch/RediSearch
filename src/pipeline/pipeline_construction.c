@@ -6,6 +6,7 @@
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "util/misc.h"
+#include "search_disk.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -515,10 +516,24 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   // If we have explicit return and some of the keys' values are missing,
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !params->outFields->explicitReturn) {
-    rp = RPLoader_New(params->common.sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys), forceLoad, outStateFlags);
-    if (isSpecJson(params->common.sctx->spec)) {
-      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
-      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
+    RedisSearchCtx *sctx = params->common.sctx;
+    if (sctx->spec->diskSpec) {
+      RS_ASSERT(!isSpecJson(sctx->spec));
+      // HASH-on-disk (flex): load fields from disk via the async loader. JSON-on-disk
+      // field loading is rejected earlier (AREQ_ApplyContext / coordinator), so a
+      // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD
+      // in outStateFlags itself, mirroring RPLoader_New.
+      rp = SearchDisk_NewAsyncLoaderResultProcessor(sctx, params->common.reqflags, lookup, loadkeys,
+                                                    array_len(loadkeys), outStateFlags);
+      RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New
+    } else {
+      rp = RPLoader_New(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),
+                        forceLoad, outStateFlags);
+      if (isSpecJson(sctx->spec)) {
+        // On JSON, load all gets the serialized value of the doc, and doesn't make the fields
+        // available.
+        RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
+      }
     }
     array_free(loadkeys);
     PUSH_RP();
