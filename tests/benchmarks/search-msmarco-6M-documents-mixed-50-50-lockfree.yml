@@ -4,15 +4,21 @@ description: |
   MS MARCO 6M documents - mixed 50/50 read/write benchmark, with the inverted-index
   lock-free-read snapshot path ENABLED (_LOCK_FREE_READS on).
 
-  Feature-branch variant of search-msmarco-6M-documents-mixed-50-50: identical load,
-  but sets `search-_lock-free-reads true` so query iteration releases the spec read
-  lock per result (reading from the owned snapshot) instead of holding it for the
-  whole read. Compare against:
-    - master (search-msmarco-6M-documents-mixed-50-50, no such config) → lock-based.
-    - feature flag-off (same file, flag default off) → snapshot capture cost (C1)
-      without the lock-free benefit.
-  This variant isolates the concurrency win (writer progress under mixed load) plus
-  the COW/GC cost (C2/C3) when GC overlaps live readers.
+  Feature-branch variant of search-msmarco-6M-documents-mixed-50-50: identical
+  scan-heavy mixed workload (FT.AGGREGATE GROUPBY 0 REDUCE COUNT 0 reads coupled to
+  HSET body=information writes on a bounded hot set), but sets
+  `search-_lock-free-reads true` so query iteration releases the spec read lock per
+  result (reading from the owned snapshot) instead of holding it for the whole scan.
+  Because reads are long aggregate scans that hold the shard-side snapshot for their
+  full duration, releasing the lock is what lets HSET writers make progress instead
+  of blocking on the reader — so this variant makes the concurrency win visible.
+  Compare against:
+    - master (search-msmarco-6M-documents-mixed-50-50, no such config) → lock-based,
+      read lock held for the whole aggregate scan → writers blocked.
+    - feature flag-off (same file, flag default off) → snapshot capture cost (C1) +
+      COW cost (C2/C3) but WITHOUT the lock-free benefit (worst case).
+  This variant isolates the concurrency win plus the COW/GC cost (C2/C3) when GC
+  overlaps the live reader that pinned the churning `information` posting list.
 
 metadata:
   component: "search"
@@ -59,4 +65,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "mixed"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 5900000 --command 'HSET __key__ body __data__' --command-ratio 1 --command 'FT.SEARCH ms_marco_idx information --limit 0 10' --command-ratio 1"
+  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 1000000 --command 'HSET __key__ body information tags __data__' --command-ratio 1 --command 'FT.AGGREGATE ms_marco_idx information GROUPBY 0 REDUCE COUNT 0 AS n' --command-ratio 1"
