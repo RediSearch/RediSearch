@@ -22,7 +22,11 @@ metadata:
   dataset: "5200K-docs-union-iterators"
   doc_count: 5204050
   query_type: "mixed"
-  use_case: "Concurrent read/write with lock-free reads enabled (snapshot COW)"
+  # NOTE: keep this free of parentheses and other punctuation beyond space, '/', '+',
+  # '-'. redisbench-admin turns `use_case` into a RedisTimeSeries label value, and
+  # RedisTimeSeries rejected the parenthesised form with "TSDB: Couldn't parse LABELS",
+  # failing the whole run at result-upload time (the benchmark itself had succeeded).
+  use_case: "Concurrent read/write with lock-free reads enabled + snapshot COW"
 
 timeout_seconds: 3600
 
