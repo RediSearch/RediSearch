@@ -22,7 +22,7 @@ use std::collections::HashSet;
 
 use ffi::{VecSimIndex, VecSimIndex_Free, t_docId};
 use index_result::RSResultKind;
-use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
+use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::test_utils::{self, asc, collect_ids, make_child, uniform_blob};
@@ -48,13 +48,13 @@ unsafe fn make_source(
     n: usize,
     k: usize,
     child_est: usize,
-) -> VectorScoreSource<'static> {
+) -> VectorScoreSource<'static, NoOpChecker> {
     // SAFETY: caller-upheld `index` lifetime; no expiration filter.
-    unsafe { make_source_with_expiration(index, n, k, child_est, None::<FieldExpirationChecker>) }
+    unsafe { make_source_with_expiration(index, n, k, child_est, NoOpChecker) }
 }
 
-/// Same as [`make_source`], but installs an optional field-expiration filter,
-/// consulted at yield time.
+/// Same as [`make_source`], but installs a field-expiration filter, consulted
+/// at yield time.
 ///
 /// # Safety
 ///
@@ -64,7 +64,7 @@ unsafe fn make_source_with_expiration<E: ExpirationChecker>(
     n: usize,
     k: usize,
     child_est: usize,
-    expiration: Option<E>,
+    expiration: E,
 ) -> VectorScoreSource<'static, E> {
     // SAFETY: caller upholds the `index` lifetime contract.
     unsafe {
@@ -372,7 +372,7 @@ fn unfiltered_skips_expired_docs() {
     // Mark the two nearest neighbours expired.
     let checker = MockExpirationChecker::new(HashSet::from([100, 99]));
     // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source_with_expiration(index, n, k, n, Some(checker)) };
+    let source = unsafe { make_source_with_expiration(index, n, k, n, checker) };
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     // The two expired nearest neighbours are
@@ -399,8 +399,7 @@ fn filtered_batches_drops_expired_without_refill() {
     let child_ids: Vec<t_docId> = (90..=100).collect();
     let checker = MockExpirationChecker::new(HashSet::from([100]));
     // SAFETY: index outlives the iterator (freed at end of scope).
-    let source =
-        unsafe { make_source_with_expiration(index, n, k, child_ids.len(), Some(checker)) };
+    let source = unsafe { make_source_with_expiration(index, n, k, child_ids.len(), checker) };
     let child = make_child(child_ids);
     let mut it = TopKIterator::new_with_mode(
         source,
@@ -431,8 +430,7 @@ fn filtered_adhoc_drops_expired_without_refill() {
     let child_ids: Vec<t_docId> = (90..=100).collect();
     let checker = MockExpirationChecker::new(HashSet::from([100]));
     // SAFETY: index outlives the iterator (freed at end of scope).
-    let source =
-        unsafe { make_source_with_expiration(index, n, k, child_ids.len(), Some(checker)) };
+    let source = unsafe { make_source_with_expiration(index, n, k, child_ids.len(), checker) };
     let child = make_child(child_ids);
     let mut it = TopKIterator::new_with_mode(
         source,
