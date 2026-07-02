@@ -31,11 +31,11 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // Empty index: stack (96 = sealed Arc ptr 8 + pending Vec 24 + Option<IndexBlock> 48
-    // + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4 + alignment) plus the
+    // Empty index: stack (80 = sealed Arc ptr 8 + pending ThinVec ptr 8 + Option<IndexBlock>
+    // 48 + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4 + alignment) plus the
     // empty `sealed` Arc allocation (16 Arc header + 8 ThinVec stack rep = 24). pending
     // and in_progress have no heap allocation when empty.
-    let empty_size = 120;
+    let empty_size = 104;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -247,10 +247,10 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(ii.number_of_blocks(), 1);
 
     // 3rd entry should create a new block — this is the first rollover, so the
-    // empty `pending` Vec allocates from capacity 0 to 4. Charge the Arc heap
-    // allocation plus the actual Vec capacity bump (4 slots), plus the 1 byte the
-    // encoder wrote into the new buffer.
-    let pending_first_alloc_bytes = 4 * std::mem::size_of::<Arc<IndexBlock>>();
+    // empty `pending` ThinVec allocates from capacity 0 to 4. Charge the Arc heap
+    // allocation plus the actual ThinVec bump (8-byte len/cap header + 4 slots), plus
+    // the 1 byte the encoder wrote into the new buffer.
+    let pending_first_alloc_bytes = 8 + 4 * std::mem::size_of::<Arc<IndexBlock>>();
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(12).build())
         .unwrap()
@@ -258,7 +258,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(
         mem_growth,
         PER_ROLLOVER_HEAP_BYTES + pending_first_alloc_bytes + 1,
-        "Arc<IndexBlock> heap allocation + pending Vec growth (0→4 slots) + 1 buffer byte"
+        "Arc<IndexBlock> heap allocation + pending ThinVec growth (header + 0→4 slots) + 1 buffer byte"
     );
     assert_eq!(
         ii.number_of_blocks(),
@@ -314,13 +314,13 @@ fn adding_big_delta_makes_new_block() {
 
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
-    // First rollover: pending capacity 0 → 4 slots, plus one Arc<IndexBlock> heap
-    // allocation, plus 4 bytes for the new block's first encoded delta.
-    let pending_first_alloc_bytes = 4 * std::mem::size_of::<Arc<IndexBlock>>();
+    // First rollover: pending ThinVec 0 → header + 4 slots, plus one Arc<IndexBlock>
+    // heap allocation, plus 4 bytes for the new block's first encoded delta.
+    let pending_first_alloc_bytes = 8 + 4 * std::mem::size_of::<Arc<IndexBlock>>();
     assert_eq!(
         mem_growth,
         4 + PER_ROLLOVER_HEAP_BYTES + pending_first_alloc_bytes,
-        "4 buffer bytes + Arc<IndexBlock> heap allocation + pending Vec growth (0→4 slots)"
+        "4 buffer bytes + Arc<IndexBlock> heap allocation + pending ThinVec growth (header + 0→4 slots)"
     );
     assert_eq!(ii.number_of_blocks(), 2);
     assert_eq!(ii.snapshot().block_ref(1).unwrap().buffer, [0, 0, 0, 0]);
@@ -437,9 +437,9 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // InvertedIndex's own bytes (120, see `memory_usage` test) + EntriesTrackingIndex's
-    // own 8-byte `number_of_entries` field = 128.
-    let empty_size = 128;
+    // InvertedIndex's own bytes (104, see `memory_usage` test) + EntriesTrackingIndex's
+    // own 8-byte `number_of_entries` field = 112.
+    let empty_size = 112;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -459,9 +459,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    // InvertedIndex's own bytes (120, see `memory_usage` test) + FieldMaskTrackingIndex's
-    // own 16 bytes (field_mask + sum_of_records) = 136.
-    assert_eq!(ii.memory_usage(), 136);
+    // InvertedIndex's own bytes (104, see `memory_usage` test) + FieldMaskTrackingIndex's
+    // own 16 bytes (field_mask + sum_of_records) = 120.
+    assert_eq!(ii.memory_usage(), 120);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()

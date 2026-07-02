@@ -51,7 +51,7 @@ pub struct InvertedIndex<E> {
     /// `in_progress` block here as an [`Arc`] when it fills up; GC drains this into
     /// `sealed` on compaction. Snapshots `.clone()` this Vec (a shallow copy of the
     /// pointer slots).
-    pub(crate) pending: Vec<Arc<IndexBlock>>,
+    pub(crate) pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
 
     /// The currently-being-written block. Mutated in place via `&mut self` — the spec
     /// write lock at the FFI boundary guarantees there's no concurrent reader during
@@ -192,7 +192,7 @@ impl<E: Encoder> InvertedIndex<E> {
     pub fn new(flags: IndexFlags) -> Self {
         Self {
             sealed: Arc::new(ThinVec::new()),
-            pending: Vec::new(),
+            pending: ThinVec::new(),
             in_progress: None,
             n_unique_docs: 0,
             flags,
@@ -224,7 +224,7 @@ impl<E: Encoder> InvertedIndex<E> {
         // All input blocks except the last go to `pending`; the last becomes `in_progress`.
         let mut iter = blocks.into_iter();
         let in_progress = iter.next_back();
-        let pending: Vec<Arc<IndexBlock>> = iter.map(Arc::new).collect();
+        let pending: ThinVec<Arc<IndexBlock>, BlockCapacity> = iter.map(Arc::new).collect();
 
         Self {
             sealed: Arc::new(ThinVec::new()),
@@ -248,7 +248,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// heap-allocated `buffer` capacity is added below.
     pub fn memory_usage(&self) -> usize {
         // `size_of::<Self>` covers the direct fields: the `Arc<ThinVec>` pointer, the
-        // `Vec<Arc<IndexBlock>>` triple, the `Option<IndexBlock>`, the atomics and
+        // `ThinVec<Arc<IndexBlock>>` pointer, the `Option<IndexBlock>`, the atomics and
         // PhantomData. Heap-allocated portions are added below.
         let stack = std::mem::size_of::<Self>();
 
@@ -258,9 +258,10 @@ impl<E: Encoder> InvertedIndex<E> {
         let sealed_thinvec_heap = self.sealed.mem_usage();
         let sealed_buffers: usize = self.sealed.iter().map(|b| b.buffer.capacity()).sum();
 
-        // `pending: Vec<Arc<IndexBlock>>` — direct field. Only the Vec heap and each
-        // `Arc<IndexBlock>` allocation are heap; the Vec stack triple is in `stack`.
-        let pending_vec_heap = self.pending.capacity() * std::mem::size_of::<Arc<IndexBlock>>();
+        // `pending: ThinVec<Arc<IndexBlock>, BlockCapacity>` — direct field. `mem_usage()`
+        // covers the ThinVec heap (its len/cap header plus the `Arc<IndexBlock>` slots);
+        // the pointer-sized ThinVec stack field is already in `stack`.
+        let pending_vec_heap = self.pending.mem_usage();
         let pending_blocks: usize = self
             .pending
             .iter()
@@ -333,10 +334,10 @@ impl<E: Encoder> InvertedIndex<E> {
         // The "fresh in_progress from None" case (first record after creation or GC)
         // does NOT trigger this, because no Arc is allocated and pending isn't touched.
         let mut rollovers_into_pending: u32 = 0;
-        // Snapshot pending's Vec capacity now; we'll diff against post-rollover at the
-        // end to charge mem_growth for any amortized Vec slot allocation that actually
+        // Snapshot pending's ThinVec heap size now; we'll diff against post-rollover at
+        // the end to charge mem_growth for any amortized slot allocation that actually
         // happened (could be 0 on a no-realloc push or several slots on a realloc).
-        let pending_cap_before = self.pending.capacity();
+        let pending_mem_before = self.pending.mem_usage();
 
         if start_new_block {
             if let Some(old_ip) = self.in_progress.take() {
@@ -398,16 +399,15 @@ impl<E: Encoder> InvertedIndex<E> {
         // Per-rollover memory:
         // - One `Arc<IndexBlock>` heap allocation per rollover: refcount header +
         //   inline `IndexBlock` (`PER_ROLLOVER_HEAP_BYTES`).
-        // - Plus the *actual* pending `Vec<Arc<IndexBlock>>` capacity delta, which
-        //   reflects amortized Vec growth (0 bytes when a push fit existing capacity,
-        //   multiple slots when the Vec reallocated). This matches what
-        //   `memory_usage()` reports via `self.pending.capacity()`.
+        // - Plus the *actual* pending `ThinVec` heap delta, which reflects amortized
+        //   growth (0 bytes when a push fit existing capacity, header + several slots
+        //   when it reallocated). This matches what `memory_usage()` reports via
+        //   `self.pending.mem_usage()`.
         //
         // The fresh in_progress block itself lives on the struct stack and is already
         // counted in `size_of::<Self>()`.
         mem_growth += (rollovers_into_pending as usize) * PER_ROLLOVER_HEAP_BYTES;
-        let pending_cap_growth =
-            (self.pending.capacity() - pending_cap_before) * std::mem::size_of::<Arc<IndexBlock>>();
+        let pending_cap_growth = self.pending.mem_usage() - pending_mem_before;
         mem_growth += pending_cap_growth;
 
         if !same_doc {

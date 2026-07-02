@@ -39,8 +39,8 @@ use crate::BlockCapacity;
 ///
 /// Combines:
 /// - An [`Arc`] clone of the index's `sealed` blocks (data shared via refcount).
-/// - A shallow clone of `pending`: the [`Vec`] of [`Arc<IndexBlock>`] pointer slots is
-///   copied, but the block data behind each `Arc` is shared.
+/// - A shallow clone of `pending`: the [`ThinVec`] of [`Arc<IndexBlock>`] pointer slots
+///   is copied, but the block data behind each `Arc` is shared.
 /// - An owned clone of `in_progress`: deep copy of the trailing block (its encoded
 ///   `buffer` is duplicated).
 ///
@@ -50,7 +50,7 @@ use crate::BlockCapacity;
 #[derive(Debug)]
 pub struct InvertedIndexSnapshot {
     sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
-    pending: Vec<Arc<IndexBlock>>,
+    pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
     in_progress: Option<IndexBlock>,
 }
 
@@ -60,7 +60,7 @@ impl InvertedIndexSnapshot {
     /// acquisition.
     pub(crate) const fn new(
         sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
-        pending: Vec<Arc<IndexBlock>>,
+        pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
         in_progress: Option<IndexBlock>,
     ) -> Self {
         Self {
