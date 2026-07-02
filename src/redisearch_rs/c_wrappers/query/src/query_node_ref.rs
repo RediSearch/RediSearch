@@ -165,6 +165,11 @@ impl QueryNodeRef {
         unsafe { self.0.as_ref() }
     }
 
+    /// The raw [`NonNull`] pointer to the underlying [`ffi::RSQueryNode`].
+    pub const fn as_non_null(&self) -> NonNull<ffi::RSQueryNode> {
+        self.0
+    }
+
     /// The discriminant that selects which union variant is active.
     pub const fn node_type(&self) -> QueryNodeType {
         self.as_ref().type_

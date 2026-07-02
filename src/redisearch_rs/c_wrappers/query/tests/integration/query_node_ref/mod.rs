@@ -7,13 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod mock;
-
 use std::ops::Bound;
 
 use inverted_index::NumericFilter;
-use mock::MockQueryNode;
-use query::{QueryNode, QueryNodeRef, WildcardMode};
+use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
 use query_node_type::QueryNodeType;
 
 #[test]

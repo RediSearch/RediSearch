@@ -10,7 +10,12 @@
 //! Query evaluation: traverses a parsed query AST and builds an executable
 //! iterator tree.
 
-pub mod string_utils;
+pub mod eval;
+
+// The query wrapper types live in the `query` crate (`c_wrappers/query`); they
+// are re-exported here so `query_eval` (and its FFI crate) can refer to them
+// through a single module.
+pub use query::{QueryEvalContext, QueryNode, QueryNodeRef};
 
 #[cfg(test)]
 mod _test_link {

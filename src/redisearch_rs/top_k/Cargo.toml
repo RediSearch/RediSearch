@@ -1,9 +1,9 @@
 [package]
-name = "top_k"
-version.workspace = true
 edition.workspace = true
 license-file.workspace = true
+name = "top_k"
 publish.workspace = true
+version.workspace = true
 
 [lib]
 bench = false
@@ -17,23 +17,22 @@ test-utils = []
 unittest = []
 
 [build-dependencies]
-build_utils = { path = "../build_utils" }
+build_utils = {path = "../build_utils"}
 
 [dependencies]
-ffi.workspace = true
-rqe_core.workspace = true
+index_result.workspace = true
+index_spec.workspace = true
 inverted_index.workspace = true
+rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true
-index_result.workspace = true
-index_spec.workspace = true
 
 [dev-dependencies]
-top_k = { path = ".", features = ["unittest", "test-utils"] }
 redis_mock.workspace = true
-rqe_iterators = { workspace = true, features = ["unittest"] }
+redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
+  "mock_allocator",
+]}
+rqe_iterators = {workspace = true, features = ["unittest"]}
 rqe_iterators_test_utils.workspace = true
-redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = [
-    "mock_allocator",
-] }
+top_k = {path = ".", features = ["unittest", "test-utils"]}

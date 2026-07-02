@@ -18,7 +18,7 @@ typedef uint32_t QEFlags;
 #define QEXEC_F_SEND_PAYLOADS                      QEFlag_SendPayloads
 #define QEXEC_F_IS_CURSOR                          QEFlag_IsCursor
 #define QEXEC_F_REQUIRED_FIELDS                    QEFlag_RequiredFields
-#define QEXEC_F_BUILDPIPELINE_NO_ROOT              QEFlag_BuildPipelineNoRoot
+#define QEXEC_F_IS_COORDINATOR                     QEFlag_IsCoordinator
 #define QEXEC_F_RUN_IN_BACKGROUND                  QEFlag_RunInBackground
 #define QEXEC_F_IS_SEARCH                          QEFlag_IsSearch
 #define QEXEC_F_SEND_HIGHLIGHT                     QEFlag_SendHighlight
@@ -79,12 +79,18 @@ enum QEFlag
    */
   QEFlag_RequiredFields = 0x40,
   /**
-   * Do not create the root result processor. Only process those
-   * components which process fully-formed, fully-scored results.
-   * This also means that a scorer is not created. It will also not
-   * initialize the first step or the initial lookup table.
+   * The AREQ is running on the cluster coordinator (i.e. it fans out
+   * to shards and reads their replies) rather than on a shard or a
+   * standalone deployment that owns a local index.
+   *
+   * Used to skip pipeline components that only make sense when this AREQ
+   * owns a local root iterator: the root result processor is not created,
+   * no scorer is created, and the first step / initial lookup table are
+   * not initialized. The pipeline only processes fully-formed,
+   * fully-scored results that arrive from upstream (e.g. RPNet, or a
+   * sibling depleter in a hybrid sub-pipeline).
    */
-  QEFlag_BuildPipelineNoRoot = 0x80,
+  QEFlag_IsCoordinator = 0x80,
   /**
    * Run the query in a multi-threaded environment.
    */

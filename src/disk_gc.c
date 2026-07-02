@@ -17,6 +17,21 @@
 #include <stdatomic.h>
 #include <time.h>
 
+// Fold one completed cycle's results into the cumulative per-index counters.
+// Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
+// here so the accounting stays identical regardless of how the cycle was
+// triggered — background tick, forced invoke, or an enterprise/RoR scheduler
+// that drives compaction on its own. All per-cycle numbers (bytes, docs, time)
+// are populated by the disk implementation in `stats`, so this is also what
+// lets FT.INFO/INFO report a single coherent view.
+static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
+  atomic_fetch_add(&gc->totalCollectedBytes, stats->bytes_collected);
+  atomic_fetch_add(&gc->totalCycles, (size_t)1);
+  atomic_fetch_add(&gc->totalTimeMs, stats->cycle_time_ms);
+  atomic_store(&gc->lastRunTimeMs, stats->cycle_time_ms);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
+}
+
 static bool periodicCb(void *privdata, bool force) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -43,8 +58,10 @@ static bool periodicCb(void *privdata, bool force) {
   atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);
   atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
-  size_t num_cleaned = SearchDisk_RunGC(sp->diskSpec);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(num_cleaned);
+  DiskGCRunStats stats = {0};
+  SearchDisk_RunGC(sp->diskSpec, &stats);
+
+  accumulateCycleStats(gc, &stats);
 
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
@@ -61,15 +78,37 @@ static void onTerminateCb(void *privdata) {
   rm_free(gc);
 }
 
-/* Stats are maintained in disk info; do not add anything here. */
 static void statsCb(RedisModule_Reply *reply, void *gcCtx) {
-  (void)reply;
-  (void)gcCtx;
+#define REPLY_KVNUM(k, v) RedisModule_ReplyKV_Double(reply, (k), (v))
+  DiskGC *gc = gcCtx;
+  RS_LOG_ASSERT(gc, "DiskGC stats callback invoked with NULL context");
+  ssize_t bytes = atomic_load(&gc->totalCollectedBytes);
+  size_t total_ms = atomic_load(&gc->totalTimeMs);
+  size_t cycles = atomic_load(&gc->totalCycles);
+  size_t last_ms = atomic_load(&gc->lastRunTimeMs);
+  REPLY_KVNUM("bytes_collected", (double)bytes);
+  REPLY_KVNUM("total_ms_run", (double)total_ms);
+  REPLY_KVNUM("total_cycles", (double)cycles);
+  REPLY_KVNUM("average_cycle_time_ms", cycles ? (double)total_ms / (double)cycles : 0.0);
+  REPLY_KVNUM("last_run_time_ms", (double)last_ms);
+#undef REPLY_KVNUM
 }
 
 static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
-  (void)ctx;
-  (void)gcCtx;
+  DiskGC *gc = gcCtx;
+  RS_LOG_ASSERT(gc, "DiskGC stats callback invoked with NULL context");
+  ssize_t bytes = atomic_load(&gc->totalCollectedBytes);
+  size_t total_ms = atomic_load(&gc->totalTimeMs);
+  size_t cycles = atomic_load(&gc->totalCycles);
+  size_t last_ms = atomic_load(&gc->lastRunTimeMs);
+  RedisModule_InfoBeginDictField(ctx, "gc_stats");
+  RedisModule_InfoAddFieldLongLong(ctx, "bytes_collected", bytes);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_ms_run", total_ms);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_cycles", cycles);
+  RedisModule_InfoAddFieldDouble(ctx, "average_cycle_time_ms",
+                                 cycles ? (double)total_ms / (double)cycles : 0.0);
+  RedisModule_InfoAddFieldDouble(ctx, "last_run_time_ms", (double)last_ms);
+  RedisModule_InfoEndDictField(ctx);
 }
 
 static void deleteCb(void *ctx) {
@@ -89,13 +128,12 @@ static void writeCb(void *ctx) {
   atomic_fetch_add(&gc->writesFromLastRun, 1);
 }
 
-// Stats are maintained in disk info.
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
-  (void)gcCtx;
-  out->totalCollectedBytes = 0;
-  out->totalCycles = 0;
-  out->totalTime = 0;
-  out->lastRunTimeMs = 0;
+  const DiskGC *gc = gcCtx;
+  out->totalCollectedBytes = atomic_load(&gc->totalCollectedBytes);
+  out->totalCycles = atomic_load(&gc->totalCycles);
+  out->totalTime = atomic_load(&gc->totalTimeMs);
+  out->lastRunTimeMs = (long long)atomic_load(&gc->lastRunTimeMs);
 }
 
 static struct timespec getIntervalCb(void *ctx) {

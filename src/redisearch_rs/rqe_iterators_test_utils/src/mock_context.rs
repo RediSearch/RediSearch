@@ -170,4 +170,33 @@ impl MockContext {
     pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
+
+    /// Set `sctx.diskSnapshot` to `snapshot` so disk-backed paths that now
+    /// require a non-null snapshot can run against the mock context. The
+    /// snapshot value itself is opaque to the rqe-iterators layer; the mock
+    /// enterprise iterators never dereference it.
+    ///
+    /// # Safety
+    /// `snapshot` must outlive every iterator created against this
+    /// `MockContext`.
+    pub const unsafe fn set_disk_snapshot(&self, snapshot: *mut ffi::RedisSearchDiskSnapshot) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        unsafe { (*self.sctx).diskSnapshot = snapshot };
+    }
+
+    /// Install a non-null sentinel `sctx.diskSnapshot` for tests that exercise
+    /// disk-backed paths, which now require a non-null snapshot.
+    ///
+    /// The snapshot is opaque to the rqe-iterators layer and the mock enterprise
+    /// iterators never dereference it, so a dangling (well-aligned, non-null)
+    /// pointer is sufficient and needs no backing storage — callers no longer
+    /// have to borrow an unrelated address to stand in for the snapshot.
+    pub fn set_dummy_disk_snapshot(&self) {
+        // SAFETY: `self.sctx` is a valid `RedisSearchCtx` allocated in `Self::new`.
+        // The sentinel is never dereferenced, only checked for non-null.
+        unsafe {
+            (*self.sctx).diskSnapshot =
+                NonNull::<ffi::RedisSearchDiskSnapshot>::dangling().as_ptr();
+        }
+    }
 }

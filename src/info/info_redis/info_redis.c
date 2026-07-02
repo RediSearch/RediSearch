@@ -20,6 +20,8 @@
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -240,6 +242,7 @@ void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
   RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", total_info->total_num_docs_in_indexes);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", total_info->total_inverted_index_blocks);
 }
 
 static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
@@ -251,6 +254,7 @@ static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", 0);
   RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", 0);
   RedisModule_InfoAddFieldULongLong(ctx, "total_num_docs_in_indexes", 0);
+  RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", 0);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -429,7 +433,7 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     } else {
       // Output FT.INFO in a crash-safe manner (no allocations, no locks)
       // This includes the index name, so no need to output it separately
-      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true);
+      IndexSpec_AddToInfo(ctx, spec, RSGlobalConfig.hideUserDataFromLog, true, !!global_spec_scanner);
     }
   }
 }
