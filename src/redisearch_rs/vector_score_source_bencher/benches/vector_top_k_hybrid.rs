@@ -1,0 +1,303 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Hybrid benchmark for the Rust `VectorTopKIterator`.
+//!
+//! Drives the same HNSW index with a sorted-id child filter through both
+//! execution modes (batches / adhoc-BF).
+//!
+//! Groups:
+//!
+//! - `vector_top_k_hybrid/batches` — hybrid, batches mode forced.
+//! - `vector_top_k_hybrid/adhoc`   — hybrid, adhoc-BF mode forced.
+//! - `vector_top_k_hybrid/mode_comparison` — both modes across child sizes.
+//!
+//! Swept over index size and top-k width at a fixed vector dimension.
+//!
+//! Known asymmetry (MOD-14210): the C path pushes a vector-score metric per
+//! candidate (`ResultMetrics_Add`) that Rust's `build_result` doesn't yet — a
+//! small C-only cost that mildly favors Rust in small-k adhoc cases until parity
+//! lands.
+
+// Pull in the lib to ensure FFI stubs and mock allocator symbols are linked.
+use vector_score_source_bencher as _;
+
+use std::cmp::Ordering;
+use std::ffi::c_void;
+use std::hint::black_box;
+use std::num::NonZeroUsize;
+
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use ffi::{
+    HNSWParams, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector,
+    VecSimIndex_Free, VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams,
+    VecSimQueryParams, VecSimType_VecSimType_FLOAT32, timespec,
+};
+use rqe_iterators::{IdList, RQEIterator};
+use top_k::{TopKIterator, TopKMode};
+use vector_score_source::VectorScoreSource;
+
+/// Score order for vector distance: ascending (lower distance = better).
+fn asc_cmp(a: f64, b: f64) -> Ordering {
+    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+}
+
+const DIM: usize = 128;
+
+/// Create an HNSW index, populate it with `n` random FLOAT32 vectors, and
+/// return the raw pointer. Caller frees via `VecSimIndex_Free`.
+unsafe fn make_index(n: usize) -> *mut VecSimIndex {
+    let params = VecSimParams {
+        algo: VecSimAlgo_VecSimAlgo_HNSWLIB,
+        algoParams: ffi::AlgoParams {
+            hnswParams: HNSWParams {
+                type_: VecSimType_VecSimType_FLOAT32,
+                dim: DIM,
+                metric: VecSimMetric_VecSimMetric_L2,
+                multi: false,
+                initialCapacity: n,
+                blockSize: 1024,
+                M: 16,
+                efConstruction: 200,
+                efRuntime: 10,
+                epsilon: 0.01,
+            },
+        },
+        logCtx: std::ptr::null_mut(),
+    };
+    // SAFETY: `params` is fully initialised.
+    let index = unsafe { VecSimIndex_New(&params) };
+    assert!(!index.is_null(), "VecSimIndex_New failed");
+
+    let mut rng_state: u64 = 0xDEAD_BEEF_1234_5678;
+    for label in 1..=n {
+        let vec: Vec<f32> = (0..DIM)
+            .map(|_| {
+                rng_state ^= rng_state << 13;
+                rng_state ^= rng_state >> 7;
+                rng_state ^= rng_state << 17;
+                (rng_state as f32) / (u64::MAX as f32)
+            })
+            .collect();
+        // SAFETY: `index` is valid; `vec` is `DIM` f32s.
+        unsafe {
+            VecSimIndex_AddVector(index, vec.as_ptr() as *const c_void, label);
+        }
+    }
+    index
+}
+
+/// Generate a single random query vector of `DIM` f32s.
+fn random_query(seed: u64) -> Vec<f32> {
+    let mut s = seed;
+    (0..DIM)
+        .map(|_| {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s as f32) / (u64::MAX as f32)
+        })
+        .collect()
+}
+
+/// Generate `count` sorted child IDs drawn uniformly from `[1, n]`.
+fn child_ids(n: usize, count: usize) -> Vec<usize> {
+    let step = (n / count).max(1);
+    (0..count).map(|i| (i * step + 1).min(n)).collect()
+}
+
+/// Reinterpret `&[f32]` as `Vec<u8>` (byte blob for VectorScoreSource).
+fn query_bytes(v: &[f32]) -> Vec<u8> {
+    let mut bytes = vec![0u8; v.len() * 4];
+    for (i, f) in v.iter().enumerate() {
+        bytes[i * 4..i * 4 + 4].copy_from_slice(&f.to_ne_bytes());
+    }
+    bytes
+}
+
+/// Run one Rust hybrid scan with the given explicit mode, returning result count.
+fn run_rust(
+    index: *mut VecSimIndex,
+    query: &[f32],
+    k: NonZeroUsize,
+    ids: &[u64],
+    mode: TopKMode,
+) -> usize {
+    // SAFETY: `index` lives for the duration of this benchmark.
+    let source: VectorScoreSource = unsafe {
+        VectorScoreSource::new(
+            std::ptr::NonNull::new(index).unwrap(),
+            query_bytes(query),
+            std::mem::zeroed::<VecSimQueryParams>(),
+            k.get(),
+            timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            true,
+            ids.len(),
+            0,
+            None,
+        )
+    };
+    let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
+    let mut it = TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode);
+    let mut count = 0usize;
+    while it.read().unwrap().is_some() {
+        count += 1;
+    }
+    count
+}
+
+/// Validate that the iterator produces the expected result count before the
+/// timed loop starts — catches iterator bugs and mode mismatches that would
+/// otherwise silently produce nonsense timings.
+fn preflight(index: *mut VecSimIndex, query: &[f32], k: NonZeroUsize, ids: &[u64], mode: TopKMode) {
+    let expected = k.get().min(ids.len());
+    let count = run_rust(index, query, k, ids, mode);
+    assert_eq!(
+        count,
+        expected,
+        "Rust iterator produced {count} results (expected {expected}) \
+         for k={k}, ids.len()={len}, mode={mode:?}",
+        len = ids.len()
+    );
+}
+
+// ── Batches ────────────────────────────────────────────────────────────────
+
+fn bench_batches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_top_k_hybrid/batches");
+
+    for n in [10_000usize, 100_000] {
+        // SAFETY: make_index + VecSimIndex_Free are paired.
+        let index = unsafe { make_index(n) };
+
+        for k in [10usize, 100].map(|k| NonZeroUsize::new(k).unwrap()) {
+            // Mode is forced to Batches regardless of heuristics.
+            let child_count = (n / 10).max(k.get());
+            let ids: Vec<u64> = child_ids(n, child_count)
+                .iter()
+                .map(|&id| id as u64)
+                .collect();
+            let query = random_query(99);
+            let param_str = format!("n{n}_k{k}");
+
+            preflight(index, &query, k, &ids, TopKMode::ForcedBatches);
+
+            group.bench_with_input(BenchmarkId::from_parameter(&param_str), &(n, k), |b, _| {
+                b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::ForcedBatches)))
+            });
+        }
+
+        // SAFETY: `index` was created with make_index.
+        unsafe { VecSimIndex_Free(index) };
+    }
+
+    group.finish();
+}
+
+// ── Adhoc BF ─────────────────────────────────────────────────────────────────
+
+fn bench_adhoc(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_top_k_hybrid/adhoc");
+
+    for n in [10_000usize, 100_000] {
+        let index = unsafe { make_index(n) };
+
+        for k in [10usize, 100].map(|k| NonZeroUsize::new(k).unwrap()) {
+            // Mode is forced to AdhocBF regardless of heuristics.
+            let child_count = k.get() * 5;
+            let ids: Vec<u64> = child_ids(n, child_count)
+                .iter()
+                .map(|&id| id as u64)
+                .collect();
+            let query = random_query(7);
+            let param_str = format!("n{n}_k{k}");
+
+            preflight(index, &query, k, &ids, TopKMode::AdhocBF);
+
+            group.bench_with_input(BenchmarkId::from_parameter(&param_str), &(n, k), |b, _| {
+                b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::AdhocBF)))
+            });
+        }
+
+        unsafe { VecSimIndex_Free(index) };
+    }
+
+    group.finish();
+}
+
+// ── Adhoc vs Batches mode comparison ─────────────────────────────────────────
+//
+// At a fixed index size and top-k, sweep child-filter selectivity across the
+// crossover where the cheaper mode flips (see `MODE_CASES`):
+//
+//   adhoc_favored   — tiny filter: AdhocBF does few vector lookups while Batches
+//                     burns many HNSW rounds clearing a sparse pass filter.
+//   balanced        — comparable cost near the natural crossover point.
+//   batches_favored — loose filter: AdhocBF scans most of the index while
+//                     Batches' first HNSW candidates mostly pass.
+
+struct ModeCase {
+    label: &'static str,
+    child_count: usize,
+}
+
+const MODE_CASES: &[ModeCase] = &[
+    ModeCase {
+        label: "adhoc_favored",
+        child_count: 500,
+    },
+    ModeCase {
+        label: "balanced",
+        child_count: 8_000,
+    },
+    ModeCase {
+        label: "batches_favored",
+        child_count: 70_000,
+    },
+];
+
+fn bench_mode_comparison(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_top_k_hybrid/mode_comparison");
+
+    const N: usize = 100_000;
+    let k = NonZeroUsize::new(100).unwrap();
+
+    // SAFETY: make_index + VecSimIndex_Free are paired.
+    let index = unsafe { make_index(N) };
+    let query = random_query(42);
+
+    for case in MODE_CASES {
+        let ids: Vec<u64> = child_ids(N, case.child_count)
+            .iter()
+            .map(|&id| id as u64)
+            .collect();
+
+        preflight(index, &query, k, &ids, TopKMode::AdhocBF);
+        preflight(index, &query, k, &ids, TopKMode::ForcedBatches);
+
+        group.bench_with_input(BenchmarkId::new("adhoc", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::AdhocBF)));
+        });
+
+        group.bench_with_input(BenchmarkId::new("batches", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_rust(index, &query, k, &ids, TopKMode::ForcedBatches)));
+        });
+    }
+
+    // SAFETY: `index` was created with make_index.
+    unsafe { VecSimIndex_Free(index) };
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_batches, bench_adhoc, bench_mode_comparison);
+criterion_main!(benches);

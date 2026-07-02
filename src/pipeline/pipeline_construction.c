@@ -3,7 +3,6 @@
 #include "query_optimizer.h"
 #include "vector_normalization.h"
 #include "vector_index.h"
-#include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
 #include "util/misc.h"
 

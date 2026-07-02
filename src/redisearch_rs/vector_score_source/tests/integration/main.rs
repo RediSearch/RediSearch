@@ -7,16 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod empty;
-pub mod geo_shape;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-mod profile_print;
-pub mod union;
-pub mod vector_top_k;
-pub mod wildcard;
+// Provide stubs for C symbols that the linked C archive references but that
+// these tests never exercise (Redis module API surface).
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+extern crate redisearch_rs;
+
+mod policy;
+mod source;
+mod source_pytest_parity;

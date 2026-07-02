@@ -12,6 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
+#include "VecSim/vec_sim.h"
 #include "field.h"
 #include "query_node_type.h"
 #include "rqe_core.h"
@@ -189,15 +190,15 @@ QueryIterator *NewOptionalIterator(QueryIterator *child, QueryEvalCtx *q, t_docI
 bool IsWildcardIterator(const QueryIterator *it);
 
 /**
- * `PrintProfile` vtable entry for Hybrid (vector search) iterators.
+ * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
  *
  * # Safety
  *
- * 1. `self_` must be a valid pointer to a Hybrid iterator.
+ * 1. `self_` must be a valid pointer to an Optimus iterator.
  * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
-void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
 /**
  * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
@@ -311,6 +312,37 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
+ * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * for a hybrid (filtered) query.
+ *
+ * The `query_params` pointer is read once to copy the parameters into the
+ * iterator; it is not retained after this call.
+ *
+ * `can_trim_deep_results` applies only to filtered queries: when `true`, the
+ * pipeline needs no rich results, so each match yields a metric-only result
+ * carrying just the vector score instead of a deep copy of the child's scoring
+ * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+ *
+ * # Safety
+ *
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for `vector_byte_len` bytes, and
+ *    `vector_byte_len` equals the index's expected query-vector size.
+ * 3. `query_params` is non-null and [valid] for a [`VecSimQueryParams`].
+ * 4. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 5. `filter_ctx`, when non-null, is [valid] for a [`FieldFilterContext`] for
+ *    the duration of this call.
+ * 6. `sctx`, when non-null, is [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, timespec timeout, bool skip_timeout_checks, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Creates a new wildcard iterator from a query evaluation context.
  *
  * There are three possible code paths:
@@ -346,15 +378,29 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 
 /**
- * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
+ * Print iterator profile tree as a Redis reply.
+ *
+ * This is the FFI entry point called from C `Profile_PrintCommon`.
+ *
+ * # Parameters
+ *
+ * - `ctx`: The Redis module context used to emit reply protocol.
+ * - `root`: The root of the profile-wrapped iterator tree to print.
+ *   May be null, in which case the function returns immediately.
+ * - `limited`: When `true`, non-`UNION` union iterators collapse their
+ *   children into a summary count instead of printing each child
+ *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
+ * - `print_profile_clock`: When `true`, include wall-clock timing
+ *   (`"Time"`) in each profile entry. Corresponds to
+ *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
  *
  * # Safety
  *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ *    that has been profile-wrapped via `Profile_AddIters`.
  */
-void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Creates a new geometry-query iterator over a list of matching document IDs.
@@ -421,31 +467,6 @@ void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle)
  * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
-
-/**
- * Print iterator profile tree as a Redis reply.
- *
- * This is the FFI entry point called from C `Profile_PrintCommon`.
- *
- * # Parameters
- *
- * - `ctx`: The Redis module context used to emit reply protocol.
- * - `root`: The root of the profile-wrapped iterator tree to print.
- *   May be null, in which case the function returns immediately.
- * - `limited`: When `true`, non-`UNION` union iterators collapse their
- *   children into a summary count instead of printing each child
- *   individually. Corresponds to `FT.PROFILE ... LIMITED`.
- * - `print_profile_clock`: When `true`, include wall-clock timing
- *   (`"Time"`) in each profile entry. Corresponds to
- *   `PROFILE_VERBOSE` / `_FT.DEBUG PROFILE_VERBOSE`.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
- * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
- */
-void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
@@ -594,6 +615,32 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
 
 /**
+ * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
+ *
+ * The key is initially `NULL`; the metrics-loader result processor writes
+ * through this pointer to set the iterator's score-output key.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
+
+/**
+ * Set the [`RLookupKeyHandle`] back-reference on this iterator.
+ *
+ * The handle is used to invalidate the key pointer when the iterator is freed.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ */
+void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
+
+/**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
  * sequential read mode.
  *
@@ -603,6 +650,24 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Return a C string describing the search mode that was used (or is being used) for this query.
+ *
+ * - [`Unfiltered`](TopKMode::Unfiltered) → `VECSIM_STANDARD_KNN`
+ * - [`Batches`](TopKMode::Batches) → `VECSIM_HYBRID_BATCHES`
+ * - [`AdhocBF`](TopKMode::AdhocBF) → `VECSIM_HYBRID_ADHOC_BF` or
+ *   `VECSIM_HYBRID_BATCHES_TO_ADHOC_BF` (when the mode was switched mid-execution)
+ *
+ * The returned pointer is a static, null-terminated C string. It is valid for
+ * the lifetime of the program and must not be freed by the caller.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+const char *VectorTopK_GetSearchModeString(const QueryIterator *it);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
@@ -638,6 +703,60 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *    valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+
+/**
+ * Return `true` if the iterator is, or has ever been, in batches mode.
+ *
+ * This includes queries that started as batches before switching to ad-hoc BF.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+bool VectorTopK_IsBatchMode(const QueryIterator *it);
+
+/**
+ * Return the number of batch iterations performed so far (Batches mode only).
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetNumIterations(const QueryIterator *it);
+
+/**
+ * Return the largest batch size used during Batches mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetMaxBatchSize(const QueryIterator *it);
+
+/**
+ * Return the zero-based batch index at which the maximum batch size occurred.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetMaxBatchIteration(const QueryIterator *it);
+
+/**
+ * Return the filter child iterator, or `NULL` for a pure KNN query.
+ *
+ * The returned pointer is non-owning; its lifetime is that of `it`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`QueryIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+QueryIterator *VectorTopK_GetChild(const QueryIterator *it);
 
 #ifdef __cplusplus
 }  // extern "C"

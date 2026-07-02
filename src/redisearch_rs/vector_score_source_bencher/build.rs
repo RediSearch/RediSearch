@@ -7,16 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub mod empty;
-pub mod geo_shape;
-pub mod id_list;
-pub mod intersection;
-pub mod inverted_index;
-pub mod metric;
-pub mod not;
-pub mod optional;
-pub mod profile;
-mod profile_print;
-pub mod union;
-pub mod vector_top_k;
-pub mod wildcard;
+fn main() {
+    build_utils::bind_foreign_c_symbols();
+}

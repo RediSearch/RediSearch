@@ -153,19 +153,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["specDict_g", "specIdDict_g"],
     },
     HeaderAllowlist {
-        path: "src/iterators/hybrid_reader.h",
-        fns: &[
-            "HybridIterator_GetChild",
-            "HybridIterator_GetMaxBatchIteration",
-            "HybridIterator_GetMaxBatchSize",
-            "HybridIterator_GetNumIterations",
-            "HybridIterator_GetSearchModeString",
-            "HybridIterator_IsBatchMode",
-        ],
-        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
-        // deadline) handed to VecSim. Exposed via this already-included header
-        // rather than a dedicated `timeout.h` bindgen root.
-        types: &["TimeoutCtx", "timespec"],
+        path: "src/iterators/vector_top_k.h",
+        fns: &["RS_VecSimCheckTimeout"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -446,6 +436,22 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
+    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &["TimeoutCtx", "timespec"],
+        vars: &[],
+    },
+    // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
+    // chosen for `vector_top_k` hybrid iteration.
+    HeaderAllowlist {
+        path: "src/vector_index.h",
+        fns: &["VecSimSearchMode_ToString"],
+        types: &["VecSimSearchMode"],
+        vars: &[],
+    },
 ];
 
 /// Generated headers (from `src/redisearch_rs/headers/`) that bindgen is allowed
@@ -510,12 +516,12 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSSortingVector` (a typedef of `ThinVec_SharedValue__u64`) is embedded
     // by value in `RSDocumentMetadata` (src/redisearch.h).
     "sorting_vector.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
-    "value_ffi.h",
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // `aggregate.h` includes `value_ffi.h`; reachable via
+    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
