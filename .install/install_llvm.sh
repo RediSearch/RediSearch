@@ -204,8 +204,16 @@ install_llvm() {
     rhel|rocky|almalinux|centos|fedora|amzn)
         # Try native distro packages first — they're built against the system
         # glibc/libstdc++ so no version-mismatch issues with the tarball.
+        #
+        # Unversioned `lld` is listed alongside `lld-${LLVM_VER}`: on EL8/EL9
+        # the LLVM appstream is a single coordinated stream (clang, lld, llvm
+        # all at the same major), so the package is named plain `lld`, not
+        # `lld-21`. Without this, --skip-broken silently drops the missing
+        # `lld-21`, dnf still returns success (clang-21 resolved), the branch
+        # "passes", and the build later dies with
+        # "clang: invalid linker name in argument '-fuse-ld=lld'".
         if $MODE dnf install -y --nobest --skip-broken \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null; then
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" lld "clang-devel-${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
             # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
             [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
