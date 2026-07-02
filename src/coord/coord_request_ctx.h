@@ -95,13 +95,8 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
  */
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 
-/**
- * The pipeline stage the coordinator request had reached, for timeout
- * attribution. Returns QUEUE when the underlying request has not been created
- * yet (the coordinator has not picked up the job); otherwise the request's
- * execution-phase marker (PIPELINE while fanning out / reducing, REPLY while
- * serializing the reply).
- */
+// The stage the coord request reached, for timeout attribution: QUEUE if not picked
+// up yet, else the request's marker (PIPELINE fanning out/reducing, REPLY serializing).
 static inline QueryTimeoutStage CoordRequestCtx_ExecutionStage(CoordRequestCtx *ctx) {
   void *req = CoordRequestCtx_GetRequest(ctx);
   if (!req) {
@@ -118,9 +113,8 @@ static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
   return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
 }
 
-// Record a per-stage timeout for a coordinator request into the blocked-client
-// breakdown, iff it timed out via the blocked-client mechanism. Coordinator
-// timeouts are always attributed to the coord (COORD_ERR_WARN) side.
+// Record a coordinator request's per-stage timeout (coord side), iff it timed out
+// via the blocked-client mechanism.
 static inline void CoordRequestCtx_RecordTimeoutStage(CoordRequestCtx *ctx, bool isError) {
   if (CoordRequestCtx_TimedOut(ctx)) {
     QueryTimeoutStageStats_Record(CoordRequestCtx_ExecutionStage(ctx), isError, COORD_ERR_WARN);

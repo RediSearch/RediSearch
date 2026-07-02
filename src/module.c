@@ -3106,10 +3106,8 @@ static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx 
   return (QueryTimeoutStage)__atomic_load_n(&req->execPhase, __ATOMIC_RELAXED);
 }
 
-// Record a per-stage timeout for the (Map-Reduce based) FT.SEARCH coordinator
-// path into the blocked-client breakdown. Reads the search request's own
-// execution-phase marker (QUEUE until the coord handler is dequeued, then
-// PIPELINE); the MR path does not distinguish a reply phase. Coordinator side.
+// Record an FT.SEARCH-coordinator per-stage timeout, reading the search request's
+// own marker (QUEUE -> PIPELINE at dequeue -> REPLY after reduction). Coord side.
 static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError) {
   QueryTimeoutStage stage = req ? searchReqCtx_GetExecutionStage(req) : QUERY_TIMEOUT_STAGE_QUEUE;
   QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
@@ -3167,9 +3165,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->timedOut) {
-      // The timeout warning stats (aggregate + per-stage) are recorded
-      // protocol-independently in DistSearchTimeoutPartialCallback; here we only
-      // emit the RESP3 warning entry. (RESP2 has no warning slot in the reply.)
+      // Stats are recorded protocol-independently in DistSearchTimeoutPartialCallback;
+      // here we only emit the RESP3 warning entry (RESP2 has no reply warning slot).
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       RedisModule_Reply_ArrayEnd(reply);
@@ -3538,6 +3535,13 @@ cleanup:
     }
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
+  }
+
+  // Reduction/post-processing done, about to hand off the reply: advance the marker
+  // so a timeout from here on is attributed to REPLY (frozen once already timed out).
+  searchRequestCtx *doneReq = MRCtx_GetPrivData(mc);
+  if (doneReq && !MRCtx_IsTimedOut(mc)) {
+    searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
@@ -4304,13 +4308,8 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
-  // Out of the coord queue: advance the search request's execution-phase marker so a
-  // blocked-client timeout from here on is attributed to PIPELINE (fan-out/reduce)
-  // rather than QUEUE. Read by DistSearch timeout callbacks on the main thread.
-  // Skip the advance if the timeout callback already fired (FlatSearchCommandHandler
-  // bails immediately on MRCtx_IsTimedOut): a job dequeued after its deadline timed
-  // out while queued, so the marker must stay at QUEUE. This freezes the search
-  // marker on timeout, mirroring RequestSyncCtx_SetExecutionStage.
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncCtx_SetExecutionStage).
   searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
   if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
     searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
@@ -4514,11 +4513,8 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   RS_ASSERT(rCtx);
   req->timedOut = true;
 
-  // Confirmed blocked-client coord timeout: record the aggregate timeout warning
-  // and its per-stage breakdown here, protocol-independently, so RESP2 clients
-  // (which have no warning slot in the reply) and the profile reply path are
-  // counted the same as RESP3. Mirrors the queryOOM warning handling in
-  // sendSearchResults, which is likewise recorded outside the RESP3 block.
+  // Confirmed blocked-client coord timeout: record aggregate + per-stage here,
+  // protocol-independently (RESP2 has no reply warning slot), like the queryOOM path.
   QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   recordSearchTimeoutStage(req, /*isError=*/false);
 

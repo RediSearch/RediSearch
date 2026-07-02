@@ -737,9 +737,8 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
-  // Reply with timeout error. Record the per-stage breakdown attributed to the
-  // stage the coord request reached (QUEUE if not picked up yet, else PIPELINE
-  // while fanning out / reducing).
+  // Reply with timeout error; record the per-stage breakdown at the coord request's
+  // stage (QUEUE if not picked up, else PIPELINE).
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -786,13 +785,8 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   if (!req || AREQ_TryClaimAggregateResults(req)) {
-    // Either the request is NULL or We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
-    // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
-    // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
-    // aggregation phase so it stores/signals the timed-out state for partial-result handling.
-    // The empty reply uses a fresh AREQ, so record the per-stage timeout here:
-    // not picked up / pre-pipeline -> QUEUE (CoordRequestCtx_ExecutionStage reflects this).
+    // Claim won (or no request yet): record on the real request at its marker's stage
+    // (QUEUE if not picked up, else PIPELINE); the empty reply uses a fresh AREQ.
     CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     // Reply with empty results
     coord_aggregate_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);

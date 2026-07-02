@@ -53,12 +53,8 @@ typedef struct {
   size_t vectorTotalDocsIndexed;
 } FieldsGlobalStats;
 
-// The stage of the query-processing pipeline in which a timeout occurred. Used
-// to break down the query-timeout metric by where in the lifecycle the deadline
-// was exceeded. The values double as an "execution phase" marker on
-// RequestSyncCtx: the executing (background) thread advances it monotonically
-// QUEUE -> PIPELINE -> REPLY, and the main-thread timeout callbacks read it to
-// classify a timeout.
+// The pipeline stage a timeout occurred in, used to break down the timeout metric.
+// Doubles as the execution-phase marker on RequestSyncCtx (QUEUE -> PIPELINE -> REPLY).
 typedef enum {
   QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
   QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
@@ -66,10 +62,8 @@ typedef enum {
   QUERY_TIMEOUT_STAGE_COUNT
 } QueryTimeoutStage;
 
-// Per-stage breakdown of the query-timeout counter. This is a strict subset of
-// the aggregate `timeout` counter: only timeouts surfaced through a
-// blocked-client timeout callback are broken down here, so the three stages sum
-// to <= the aggregate.
+// Per-stage breakdown of the query-timeout counter. Only blocked-client timeouts are
+// broken down here, so the three stages sum to <= the aggregate `timeout` counter.
 typedef struct {
   size_t queue;    // timed out before the result-processor pipeline started running
   size_t pipeline; // timed out during result-processor pipeline execution
@@ -199,13 +193,8 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 // `toAdd` can be negative to decrease the counter.
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
 
-// Records a single blocked-client query timeout into the per-stage breakdown
-// (`timeout_by_stage`), attributing it to the pipeline stage the query had
-// reached when the deadline fired. This is a strict subset of the aggregate
-// `timeout` counter: only timeouts surfaced through a blocked-client timeout
-// callback are broken down here, so the three stages sum to <= the aggregate.
-// `isError` selects the error vs warning counter (FAIL policy -> error,
-// RETURN/RETURN_STRICT -> warning); `coord` selects coord vs shard.
+// Record one blocked-client query timeout into the per-stage breakdown (a subset of
+// the aggregate `timeout`). `isError`: FAIL -> error, RETURN* -> warning; `coord`: side.
 void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord);
 
 // Update the number of active io threads.

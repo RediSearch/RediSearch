@@ -185,11 +185,8 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
-  // the executing thread (QUEUE -> PIPELINE -> REPLY). The main-thread timeout
-  // callbacks only read it to attribute a timeout to the pipeline stage it
-  // occurred in. Once `timedOut` is set the marker is frozen (see
-  // RequestSyncCtx_SetExecutionStage), so the value the callback reads is stable.
+  // Execution-phase marker (QueryTimeoutStage), advanced QUEUE -> PIPELINE -> REPLY by
+  // the executing thread and read by the timeout callbacks; frozen once `timedOut` is set.
   RS_Atomic(int) execPhase;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
@@ -250,11 +247,8 @@ static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
 static inline QueryTimeoutStage RequestSyncCtx_GetExecutionStage(RequestSyncCtx *ctx) {
   return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
 }
-// Advance the execution phase. Called by the executing thread as it progresses;
-// the phase only ever moves forward within a single execution. Once a timeout
-// has been signalled the marker is frozen: this guarantees the stage a
-// main-thread timeout callback reads cannot change underneath it (the callback
-// sets `timedOut` before reading the marker).
+// Advance the execution phase (executing thread). Frozen once a timeout is signalled,
+// so the stage a main-thread callback reads cannot change underneath it.
 static inline void RequestSyncCtx_SetExecutionStage(RequestSyncCtx *ctx, QueryTimeoutStage stage) {
   if (RequestSyncCtx_GetTimedOut(ctx)) {
     return;

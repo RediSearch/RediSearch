@@ -1636,11 +1636,8 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
-    // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
-    // The empty reply goes through a fresh AREQ, so record the per-stage timeout
-    // on the real request here. A won claim means the BG bailed before advancing
-    // the marker past QUEUE, so reading the marker attributes this to QUEUE.
+    // Won the claim: the BG had not produced results. The empty reply uses a fresh
+    // AREQ, so record the per-stage timeout on the real request (its marker's stage).
     recordAREQTimeoutStage(req, /*isError=*/false);
     // Reply with empty results
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
@@ -1651,9 +1648,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply empty;
   // the worker finishes once we release the GIL. See aggregate.h.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
-    // The BG lost the claim race, so it is parked inside startPipelineCommon at
-    // the safe-loader GIL gate -- the marker has already advanced to PIPELINE.
-    // Read it so this is attributed to PIPELINE, not QUEUE.
+    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
     recordAREQTimeoutStage(req, /*isError=*/false);
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
@@ -1813,11 +1808,8 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
-    // The worker has not entered the stored-results phase yet. Reply in the
-    // normal RETURN_STRICT cursor shape; when the worker observes the failed
-    // claim, it parks the already-taken cursor for the advertised id. A won claim
-    // means the BG bailed before advancing past QUEUE -> reading the marker
-    // attributes this to QUEUE.
+    // Won the claim: reply in the normal RETURN_STRICT cursor shape; the worker
+    // parks the already-taken cursor. Record on the real request (its marker's stage).
     recordAREQTimeoutStage(req, /*isError=*/false);
     return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
   }
@@ -1826,8 +1818,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
   // exhausted cursor (id 0); the worker finishes once we release the GIL.
   if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
-    // BG lost the claim and is parked inside startPipelineCommon at the
-    // safe-loader GIL gate: the marker has already advanced to PIPELINE.
+    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
     recordAREQTimeoutStage(req, /*isError=*/false);
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
@@ -1845,8 +1836,13 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
     }
     AREQ_ReplyWithStoredResults(ctx, req);
   } else if (QueryError_HasError(&req->storedReplyState.err)) {
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, !IsInternal(req));
-    recordAREQTimeoutStage(req, /*isError=*/true);
+    QueryErrorCode code = QueryError_GetCode(&req->storedReplyState.err);
+    QueryErrorsGlobalStats_UpdateError(code, 1, !IsInternal(req));
+    // Only a stored *timeout* error feeds the per-stage breakdown; a non-timeout
+    // error (e.g. dropped index) bumps only the aggregate error counter.
+    if (code == QUERY_ERROR_CODE_TIMED_OUT) {
+      recordAREQTimeoutStage(req, /*isError=*/true);
+    }
     QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
   } else {
     RedisModule_ReplyWithError(ctx, "ERR Internal error: no results stored");
@@ -2363,9 +2359,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
     // for the AST).
     RS_ASSERT(cursor->execState != NULL);
-    // Fresh execution of a reused cursor AREQ: reset the timeout-stage marker so a
-    // read that times out while still queued is attributed to QUEUE rather than a
-    // stale stage left over from a previous read.
+    // Reused cursor AREQ: reset to QUEUE so a queued re-read isn't attributed to a
+    // stale stage; cursorRead_ctx advances it to PIPELINE at pickup.
     AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
     BlockClientCtx blockClientCtx = {0};
     if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
