@@ -14,13 +14,15 @@ $MODE dnf config-manager --set-enabled powertools 2>/dev/null || \
 # get epel to install gcc13
 $MODE dnf install epel-release -yqq
 
-# lld: EL8's LLVM stream ships clang as clang-<major> (e.g. clang-21), and
-# cross-language LTO links with '-fuse-ld=lld' — without the lld package
-# clang fails with "invalid linker name in argument '-fuse-ld=lld'".
+# EL8 is a real exception to the "use the LLVM tarball" rule that install_llvm.sh
+# applies to EL9+/amzn: EL8's glibc (2.28) is too old to run the official LLVM 21
+# tarball. But EL8's own AppStream ships clang 21 natively (built against 2.28),
+# so we install it from dnf. `lld` is required — cross-language LTO links with
+# '-fuse-ld=lld'; without it clang fails with "invalid linker name '-fuse-ld=lld'".
 $MODE dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \
     bzip2-devel libffi-devel zlib-devel tar xz which rsync \
-    clang curl clang-devel lld gdb --nobest --skip-broken
+    clang clang-devel lld curl gdb --nobest --skip-broken
 
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64

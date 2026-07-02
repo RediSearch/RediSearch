@@ -200,40 +200,13 @@ install_llvm() {
         fi
         ;;
 
-    # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
-    rhel|rocky|almalinux|centos|fedora|amzn)
-        # Try native distro packages first — they're built against the system
-        # glibc/libstdc++ so no version-mismatch issues with the tarball.
-        #
-        # Unversioned `lld` is listed alongside `lld-${LLVM_VER}`: on EL8/EL9
-        # the LLVM appstream is a single coordinated stream (clang, lld, llvm
-        # all at the same major), so the package is named plain `lld`, not
-        # `lld-21`. Without this, --skip-broken silently drops the missing
-        # `lld-21`, dnf still returns success (clang-21 resolved), the branch
-        # "passes", and the build later dies with
-        # "clang: invalid linker name in argument '-fuse-ld=lld'".
-        if $MODE dnf install -y --nobest --skip-broken \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" lld "clang-devel-${LLVM_VER}" 2>/dev/null; then
-            echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
-            # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
-            [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-            export LIBCLANG_PATH=/usr/lib64
-        elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null; then
-            echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
-            [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-            export LIBCLANG_PATH=/usr/lib64
-        elif $MODE yum install -y clang lld clang-devel 2>/dev/null; then
-            echo ">>> Installed clang from native yum repos (Amazon Linux 2)"
-            [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
-            export LIBCLANG_PATH=/usr/lib64
-        else
-            echo ">>> Native packages not available — falling back to official tarball"
-            install_from_tarball
-        fi
-        ;;
-
     # ----- Everything else: official tarball ----------------------------------
-    # Mariner, Azure Linux, and anything else
+    # RHEL, Rocky, AlmaLinux, CentOS, Fedora, Amazon Linux, Mariner, Azure Linux.
+    # The official LLVM tarball bundles clang, clang++ and ld.lld at the exact
+    # pinned version, co-located — so cross-language LTO works without hunting
+    # per-distro package names. Native dnf/yum clang varies wildly by distro and
+    # version (e.g. Amazon Linux 2023 tops out at clang-15) and often ships no
+    # matching lld, so we do NOT use it here.
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball
