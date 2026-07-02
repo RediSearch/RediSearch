@@ -24,7 +24,7 @@ use std::{ffi::c_void, num::NonZeroUsize};
 use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
-use top_k::{TopKIterator, TopKMode};
+use top_k::{ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::test_utils::{
     asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
     make_source, uniform_blob,
@@ -330,6 +330,37 @@ fn unfiltered_propagates_timeout() {
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 
     drop(it);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+/// A timed-out unfiltered query must not consume the single-shot budget: the
+/// source is probed directly (no iterator rewind in between) so that re-issuing
+/// the query after the timeout clears returns the real top-k rather than EOF.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_timeout_does_not_mark_consumed() {
+    let (n, k, dim) = (100, 10, 4);
+    let index = build_hnsw_index(n, dim);
+
+    // SAFETY: index outlives the source (freed at end of scope).
+    let mut source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+
+    {
+        let _mock = MockTimeout::enable();
+        assert!(matches!(
+            source.all_results_unfiltered_batch(),
+            Err(RQEIteratorError::TimedOut)
+        ));
+    }
+
+    // The timeout left the single-shot flag clear, so this re-issues the query.
+    assert!(
+        source.all_results_unfiltered_batch().unwrap().is_some(),
+        "retry after a timed-out query must re-run it, not short-circuit to EOF"
+    );
+
+    drop(source);
     // SAFETY: no live references to the index remain.
     unsafe { VecSimIndex_Free(index.as_ptr()) };
 }

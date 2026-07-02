@@ -379,6 +379,33 @@ fn yield_timeout_polled_before_yielding_valid() {
 }
 
 #[test]
+fn retry_after_timeout_discards_partial_collection() {
+    // A scan that times out after collecting some hits, then is re-driven via
+    // read(), must re-collect from scratch. The collection paths append to the
+    // heap without de-duping against leftovers, so a retained partial hit would
+    // resurface as a duplicate doc id. The one-shot deadline fires on the second
+    // adhoc poll (mid-collection, with doc 1 already in the heap) and clears, so
+    // the retry runs clean and must yield each doc exactly once.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_timeout_once_at(2);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2, 3]);
+    assert!(it.at_eof());
+}
+
+#[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
         vec![
@@ -740,4 +767,54 @@ fn profile_children_with_no_child_is_identity() {
     let doc_ids: Vec<_> =
         std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
+}
+
+/// Regression test for MOD-8142 (Python: `test_mod_8142` in
+/// `tests/pytests/test_issues.py`).
+///
+/// A KNN search with `WITHSCORES` returned a score of `0`: the Batches path
+/// carried only `(doc_id, score)` through the heap, so the child's scoring
+/// inputs (`freq`, `field_mask`, term records) that BM25/TFIDF need were lost.
+///
+/// Reproduced without Redis: a child result with non-default scoring fields
+/// must still carry them after passing through `TopKIterator`.
+#[test]
+fn batches_preserves_child_scoring_fields() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    // Build a child whose result carries the scoring-relevant fields a
+    // text query would produce (analogous to BM25 inputs from "city").
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    // Source emits a single batch containing both doc IDs (analogous to
+    // the KNN batch returned by VecSim).
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Best-first ASC order; each result should still carry the child's
+    // scoring fields rather than a freshly rebuilt record.
+    assert_eq!(
+        emitted,
+        vec![(2, 7, 0xABC), (1, 7, 0xABC)],
+        "child's scoring fields (freq, field_mask) were dropped — \
+          got {emitted:?}; the BM25-becomes-0 bug from MOD-8142"
+    );
 }
