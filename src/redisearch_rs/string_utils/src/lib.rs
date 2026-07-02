@@ -21,6 +21,11 @@ use std::borrow::Cow;
 /// (via [`char::to_lowercase`]), which matches the behaviour of the C
 /// `unicode_tolower` function backed by libnu.
 pub fn unicode_tolower(s: &str) -> String {
+    // ASCII fast path (mirrors the C `unicode_tolower`): a byte-wise fold is far
+    // cheaper than the per-codepoint Unicode pipeline, and matches it for ASCII.
+    if s.is_ascii() {
+        return s.to_ascii_lowercase();
+    }
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
@@ -30,12 +35,22 @@ pub fn unicode_tolower(s: &str) -> String {
 /// Lowercases each [`char`] independently like [`unicode_tolower`], but
 /// allocates only when a character actually changes.
 pub fn unicode_tolower_cow(s: &str) -> Cow<'_, str> {
-    // `s` is already lowercase when folding every char leaves it unchanged.
-    if s.chars().all(|c| c.to_lowercase().eq([c])) {
+    if is_lowercase(s) {
         Cow::Borrowed(s)
     } else {
         Cow::Owned(unicode_tolower(s))
     }
+}
+
+/// Whether `s` is already lowercase per [`char::to_lowercase`] — i.e. folding it
+/// with [`unicode_tolower`] would leave it unchanged.
+fn is_lowercase(s: &str) -> bool {
+    // Same ASCII fast path as `unicode_tolower`: a byte check is far cheaper than
+    // per-codepoint Unicode case mapping.
+    if s.is_ascii() {
+        return !s.bytes().any(|b| b.is_ascii_uppercase());
+    }
+    s.chars().all(|c| c.to_lowercase().eq([c]))
 }
 
 /// Convert a UTF-8 string to lowercase per-character, without
