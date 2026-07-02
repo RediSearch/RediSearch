@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
+
+[lib]
 # Disable the default libtest bench harness so criterion can parse its own args.
 # See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
