@@ -8,9 +8,11 @@
 */
 
 use std::io::{Cursor, Read};
-use std::sync::atomic;
 
-use crate::{Decoder, Encoder, IndexBlock, IndexReader, InvertedIndex, NumericReader};
+use crate::{
+    Decoder, Encoder, GcScanDelta, IndexBlock, IndexReader, InvertedIndex, NumericReader,
+    gc::BlockGcScanResult, gc::RepairType,
+};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
 };
@@ -193,12 +195,8 @@ fn reader_reset() {
     assert!(found);
     assert_eq!(result, RSIndexResult::build_virt().doc_id(11).build());
 
-    assert_eq!(ir.gc_marker, 0);
-    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
-
+    // `reset` re-snapshots the index and rewinds the cursor to the first block.
     ir.reset();
-
-    assert_eq!(ir.gc_marker, 1);
 
     let found = ir
         .next_record(&mut result)
@@ -207,43 +205,55 @@ fn reader_reset() {
     assert_eq!(result, RSIndexResult::build_virt().doc_id(10).build());
 }
 
+/// Appends never replace `InvertedIndex::sealed` — they only extend `pending`/`in_progress`
+/// beyond the snapshot — so a reader must NOT revalidate just because writes happened after
+/// it took its snapshot. Its frozen view stays valid; forcing a rewind here is the churn that
+/// made lock-free reads slower under concurrent writers.
+///
+/// We can't append while a reader borrows the index, so we simulate "same sealed, more
+/// appends" by repointing the reader at a second index that shares the (empty) `sealed`
+/// singleton but has extra appended blocks.
 #[test]
-fn reader_needs_revalidation() {
-    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+fn reader_revalidation_ignores_appends() {
+    let mut base = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    base.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
 
-    let ir = ii.reader();
+    // More appends (extra entry + a second block), but nothing sealed: still the shared
+    // empty `sealed` region.
+    let mut appended = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in [10, 11, 12] {
+        appended
+            .add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
 
+    let mut ir = base.reader();
     assert!(!ir.needs_revalidation(), "index was not modified yet");
-
-    ii.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
-    assert!(ir.needs_revalidation(), "index was modified");
+    ir.ii = &appended;
+    assert!(
+        !ir.needs_revalidation(),
+        "appends must not force a revalidation — sealed was not replaced"
+    );
 }
 
-/// `add_record` does not bump `gc_marker`, so the reader must notice appends made
-/// after the cached snapshot was taken — both new blocks and growth of the tail
-/// block — or it will stop short of the live tail on resume.
+/// GC is the only operation that rewrites already-captured blocks, and it does so by
+/// replacing `InvertedIndex::sealed` wholesale with a fresh `Arc`. A reader whose snapshot
+/// captured the pre-GC `sealed` must revalidate so it re-snapshots the compacted blocks.
 ///
-/// We simulate the append by building a second index in the post-append state and
-/// repointing the reader at it, leaving the cached snapshot stale.
+/// We build the post-GC state as a separate index (running a real `apply_gc` so its `sealed`
+/// becomes a fresh, non-empty `Arc`) and repoint a reader that snapshotted the shared empty
+/// `sealed` at it — the pointer identities differ, so the reader must revalidate.
 #[test]
-fn reader_needs_revalidation_detects_appends_without_gc_marker_bump() {
-    let mut pre = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    pre.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+fn reader_revalidation_detects_sealed_replacement() {
+    let mut base = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    base.add_record(&RSIndexResult::build_virt().doc_id(10).build())
         .unwrap();
 
-    // Tail-block-grew variant: same block count, one extra entry.
-    let mut tail_grew = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    tail_grew
-        .add_record(&RSIndexResult::build_virt().doc_id(10).build())
-        .unwrap();
-    tail_grew
-        .add_record(&RSIndexResult::build_virt().doc_id(11).build())
-        .unwrap();
-
-    // New-block variant: an additional block appended.
-    let two_blocks = medium_thin_vec![
+    // Three blocks → `pending = [b0, b1]`, `in_progress = b2`. Deleting b0 leaves b1 (which
+    // becomes the sole `sealed` block) and b2 (the new tail), so `apply_gc` swaps in a fresh,
+    // non-empty `sealed` `Arc`. Buffers are dummies: a `Delete` only reads entry counts.
+    let blocks = medium_thin_vec![
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
@@ -256,28 +266,33 @@ fn reader_needs_revalidation_detects_appends_without_gc_marker_bump() {
             first_doc_id: 20,
             last_doc_id: 20,
         },
+        IndexBlock {
+            buffer: vec![0, 0, 0, 0],
+            num_entries: 1,
+            first_doc_id: 30,
+            last_doc_id: 30,
+        },
     ];
-    let new_block = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, two_blocks);
+    let mut compacted = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
+    let delta = GcScanDelta {
+        last_block_idx: 2,
+        last_block_num_entries: 1,
+        deltas: vec![BlockGcScanResult {
+            index: 0,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 1,
+            },
+        }],
+    };
+    compacted.apply_gc(delta);
 
-    {
-        let mut ir = pre.reader();
-        assert!(!ir.needs_revalidation());
-        ir.ii = &tail_grew;
-        assert!(
-            ir.needs_revalidation(),
-            "tail block grew but reader didn't notice"
-        );
-    }
-
-    {
-        let mut ir = pre.reader();
-        assert!(!ir.needs_revalidation());
-        ir.ii = &new_block;
-        assert!(
-            ir.needs_revalidation(),
-            "new block added but reader didn't notice"
-        );
-    }
+    let mut ir = base.reader();
+    assert!(!ir.needs_revalidation());
+    ir.ii = &compacted;
+    assert!(
+        ir.needs_revalidation(),
+        "sealed was replaced by GC — reader must revalidate"
+    );
 }
 
 #[test]

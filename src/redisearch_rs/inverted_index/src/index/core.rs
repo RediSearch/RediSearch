@@ -453,18 +453,6 @@ impl<E: Encoder> InvertedIndex<E> {
             .or_else(|| self.sealed.last().map(|b| b.last_doc_id))
     }
 
-    /// Returns the number of entries in the tail block (`in_progress` if present,
-    /// otherwise the last block of `pending` or `sealed`).
-    pub fn tail_num_entries(&self) -> Option<u16> {
-        if let Some(ip) = self.in_progress.as_ref() {
-            return Some(ip.num_entries());
-        }
-        self.pending
-            .last()
-            .map(|arc| arc.num_entries())
-            .or_else(|| self.sealed.last().map(|b| b.num_entries()))
-    }
-
     /// Returns the number of unique documents in the index.
     pub const fn unique_docs(&self) -> u32 {
         self.n_unique_docs

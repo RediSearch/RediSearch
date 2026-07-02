@@ -29,6 +29,10 @@ name = "reader_iteration"
 harness = false
 
 [[bench]]
+name = "revalidation_churn"
+harness = false
+
+[[bench]]
 name = "snapshot_cow"
 harness = false
 

@@ -70,6 +70,16 @@ impl InvertedIndexSnapshot {
         }
     }
 
+    /// The `sealed` region `Arc` captured when this snapshot was taken.
+    ///
+    /// Its pointer identity is the GC signal: GC is the *only* thing that replaces
+    /// [`InvertedIndex::sealed`](super::core::InvertedIndex), so a reader whose captured
+    /// `sealed` still points at the index's current `sealed` has not been invalidated by a
+    /// compaction. See [`needs_revalidation`](crate::reader::core).
+    pub(crate) const fn sealed_arc(&self) -> &Arc<ThinVec<IndexBlock, BlockCapacity>> {
+        &self.sealed
+    }
+
     /// Total number of blocks visible in the snapshot.
     pub fn block_count(&self) -> usize {
         self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())

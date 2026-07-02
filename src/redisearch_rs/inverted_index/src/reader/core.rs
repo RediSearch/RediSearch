@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, sync::atomic};
+use std::{io::Cursor, sync::Arc};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, IndexBlock, InvertedIndex, NumericDecoder,
-    TermDecoder, index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
+    index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
     opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
@@ -50,11 +50,6 @@ pub struct IndexReaderCore<'index, E> {
 
     /// The last document ID that was read. Used as the base for delta decoding.
     pub(crate) last_doc_id: DocId,
-
-    /// The marker of the inverted index when this reader last snapshotted it. Used to
-    /// detect if the index has been modified since the last snapshot — see
-    /// [`Self::needs_revalidation`].
-    pub(crate) gc_marker: u32,
 
     /// The unique ID of the inverted index when this reader was created. Used together
     /// with pointer comparison in [`Self::points_to_ii`] to detect the ABA problem.
@@ -195,7 +190,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             .first_block()
             .map(|b| b.first_doc_id)
             .unwrap_or(0);
-        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
     fn unique_docs(&self) -> u64 {
@@ -211,21 +205,19 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     }
 
     fn needs_revalidation(&self) -> bool {
-        if self.gc_marker != self.ii.gc_marker.load(atomic::Ordering::Relaxed) {
-            return true;
-        }
-        // `add_record` doesn't bump `gc_marker`, so a `gc_marker`-only check would let
-        // appends made between lock release and resume slip past the cached snapshot.
-        if self.snapshot.block_count() != self.ii.number_of_blocks() {
-            return true;
-        }
-        match (
-            self.snapshot.last_block().map(IndexBlock::num_entries),
-            self.ii.tail_num_entries(),
-        ) {
-            (Some(snap), Some(live)) => snap != live,
-            _ => false,
-        }
+        // The snapshot is a frozen point-in-time view; the reader only needs to rewind it
+        // when it no longer reflects the index's storage. Crucially, appends do *not*
+        // require a rewind: `add_record` only extends the live index beyond the snapshot
+        // (new `pending`/`in_progress` blocks), never mutating the blocks the snapshot
+        // captured. GC is the only thing that rewrites existing blocks — and it does so by
+        // replacing `InvertedIndex::sealed` wholesale. So the snapshot is stale exactly
+        // when the index's current `sealed` `Arc` is no longer the one we captured.
+        //
+        // Keying off appends here (the old block-count / tail-entry checks) was correct
+        // but forced a re-snapshot on every write, which under churn turns each resumed
+        // read into a rewind + re-seek. Pointer-identity on `sealed` lets a reader keep its
+        // valid view across concurrent appends and only pay for an actual compaction.
+        !Arc::ptr_eq(self.snapshot.sealed_arc(), &self.ii.sealed)
     }
 
     fn refresh_buffer_pointers(&mut self) {
@@ -253,7 +245,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             current_block_idx,
             current_position,
             last_doc_id,
-            gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
         }
     }
@@ -286,7 +277,6 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             .first_block()
             .map(|b| b.first_doc_id)
             .unwrap_or(0);
-        self.gc_marker = self.ii.gc_marker.load(atomic::Ordering::Relaxed);
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
