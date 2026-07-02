@@ -114,3 +114,7 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
+    with:
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
