@@ -518,6 +518,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   if (loadkeys || !params->outFields->explicitReturn) {
     RedisSearchCtx *sctx = params->common.sctx;
     if (sctx->spec->diskSpec) {
+      RS_ASSERT(!isSpecJson(sctx->spec));
       // HASH-on-disk (flex): load fields from disk via the async loader. JSON-on-disk
       // field loading is rejected earlier (AREQ_ApplyContext / coordinator), so a
       // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD

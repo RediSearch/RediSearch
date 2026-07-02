@@ -382,26 +382,22 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
  */
 int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
+typedef enum {
+  FlexValidationMode_CoordinatorPreFanout,
+  FlexValidationMode_BoundSpec,
+} FlexValidationMode;
+
 /**
  * Reject field return on a disk (flex) index when loading is unsupported.
  *
- * Valid once the spec is bound and QEXEC_F_IS_SEARCH is set: allows field
- * return only for a HASH FT.SEARCH (which loads via the disk async loader).
- * JSON-on-disk and all non-search flex queries must use NOCONTENT / RETURN 0.
- * No-op when flex is off.
+ * The coordinator compiles every request as an aggregate, so before fan-out it
+ * can only reject JSON-on-disk field return. Once the spec is bound and
+ * QEXEC_F_IS_SEARCH is reliable, field return is allowed only for a HASH
+ * FT.SEARCH (which loads via the disk async loader). No-op when flex is off or
+ * when the query returns no document fields.
  */
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags, QueryError *status);
-
-/**
- * Reject JSON-on-disk field return before coordinator fan-out.
- *
- * The coordinator compiles every request as an aggregate (QEXEC_F_IS_SEARCH is
- * not set), so it can only reject the case unsupported everywhere: JSON-on-disk
- * field return. HASH-on-disk passes through and is enforced shard-side by
- * FlexValidation_RejectFieldReturn. No-op when flex is off.
- */
-int FlexValidation_RejectJsonFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                         QueryError *status);
+int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
+                                     FlexValidationMode mode, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.

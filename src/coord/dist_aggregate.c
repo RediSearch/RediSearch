@@ -740,7 +740,9 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
 
   // Reject JSON-on-disk field return before fanning out to shards. HASH-on-disk
   // passes through and is enforced shard-side in AREQ_ApplyContext.
-  if (FlexValidation_RejectJsonFieldReturn(sp, AREQ_RequestFlags(r), status) != REDISMODULE_OK) {
+  if (FlexValidation_RejectFieldReturn(sp, AREQ_RequestFlags(r),
+                                       FlexValidationMode_CoordinatorPreFanout,
+                                       status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

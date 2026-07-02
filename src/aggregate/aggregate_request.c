@@ -1542,33 +1542,26 @@ static inline bool queryReturnsNoFields(uint32_t reqflags) {
   return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
 }
 
-// Standalone / shard executor validation: the spec is bound and QEXEC_F_IS_SEARCH
-// is reliable here. JSON-on-disk field loading is unsupported, and HASH-on-disk
-// loading is only wired on the FT.SEARCH output pipeline, so allow field return
-// only for a HASH FT.SEARCH. Everything else on a flex index still requires
-// NOCONTENT / RETURN 0.
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags, QueryError *status) {
-  bool allowed =
-      queryReturnsNoFields(reqflags) || (!isSpecJson(sp) && (reqflags & QEXEC_F_IS_SEARCH));
-  if (SearchDisk_IsEnabledForValidation() && !allowed) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-    return REDISMODULE_ERR;
-  }
-  return REDISMODULE_OK;
-}
+int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
+                                     FlexValidationMode mode, QueryError *status) {
+  RS_LOG_ASSERT(mode == FlexValidationMode_CoordinatorPreFanout ||
+                    mode == FlexValidationMode_BoundSpec,
+                "invalid flex validation mode");
 
-// Coordinator pre-fan-out validation: QEXEC_F_IS_SEARCH is not set on the
-// coordinator (every request is compiled as an aggregate), so we can only reject
-// the universally-unsupported case here: JSON-on-disk field return. HASH-on-disk
-// passes through and is enforced shard-side by FlexValidation_RejectFieldReturn.
-int FlexValidation_RejectJsonFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                         QueryError *status) {
-  if (SearchDisk_IsEnabledForValidation() && isSpecJson(sp) &&
-      !queryReturnsNoFields(reqflags)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-    return REDISMODULE_ERR;
+  if (!SearchDisk_IsEnabledForValidation() || queryReturnsNoFields(reqflags)) {
+    return REDISMODULE_OK;
   }
-  return REDISMODULE_OK;
+
+  const bool isJson = isSpecJson(sp);
+  if (!isJson && mode == FlexValidationMode_CoordinatorPreFanout) {
+    return REDISMODULE_OK;
+  }
+  if (!isJson && (reqflags & QEXEC_F_IS_SEARCH)) {
+    return REDISMODULE_OK;
+  }
+
+  QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
+  return REDISMODULE_ERR;
 }
 
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
@@ -1606,7 +1599,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // the FT.SEARCH output pipeline. Everything else still requires NOCONTENT /
   // RETURN 0. (On the coordinator this is enforced pre-fan-out; see
   // prepareForExecution.)
-  if (FlexValidation_RejectFieldReturn(index, reqFlags, status) != REDISMODULE_OK) {
+  if (FlexValidation_RejectFieldReturn(index, reqFlags, FlexValidationMode_BoundSpec, status) !=
+      REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
