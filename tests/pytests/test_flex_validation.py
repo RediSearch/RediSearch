@@ -1,4 +1,5 @@
 from common import *
+import threading
 
 
 def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False):
@@ -665,6 +666,89 @@ def test_disk_vector_query_validation(env: Env):
     # Negative radius is still rejected by the vector index validation path.
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE -1 $b]', 'NOCONTENT',
                'PARAMS', '2', 'b', query_blob).error()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_vector_range_query_concurrent_writes(env: Env):
+    """MOD-16437: a vector range query on a disk index must not block writes.
+
+    The range query is built into a lazy iterator that runs the VecSim query on the
+    first read, *after* the spec lock is released, so documents can be inserted while
+    the query executes. This test streams inserts on a dedicated connection while
+    running many range queries, and asserts that:
+
+      * the writes and the queries all keep succeeding (no lock-acquisition errors,
+        no deadlock) -- i.e. we can insert during query execution; and
+      * no query ever returns a newly-inserted, out-of-radius document, and every
+        returned key currently exists.
+
+    The newly-inserted vectors are placed outside the query radius, so a correct
+    range query must never report them. (HNSW range recall is approximate, so the
+    test deliberately does not assert exhaustive recall of the in-radius docs; a
+    final quiescent query below checks recall once writes have stopped.)
+    """
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '64', 'RERANK', 'TRUE',
+    ).ok()
+
+    # A small set of in-radius docs (few enough that HNSW reliably recalls them all).
+    base_docs = {f'base:{i}' for i in range(5)}
+    in_radius = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    far_away = create_np_array_typed([1000.0, 1000.0], 'FLOAT32').tobytes()
+    for doc_id in base_docs:
+        env.cmd('HSET', doc_id, 'v', in_radius)
+    waitForIndex(env, 'idx')
+
+    query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    errors = []
+    stop = threading.Event()
+
+    def writer():
+        # Stream out-of-radius inserts on a dedicated connection so the writer never
+        # shares a socket with the querying thread.
+        try:
+            wconn = env.getConnection()
+            i = 0
+            while not stop.is_set():
+                wconn.execute_command('HSET', f'extra:{i}', 'v', far_away)
+                i += 1
+        except Exception as e:  # noqa: BLE001 - surface to the asserting thread
+            errors.append(f'writer: {e}')
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    try:
+        for _ in range(200):
+            try:
+                res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                              'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f'query: {e}')
+                break
+            returned = set(res[1:])
+            # Newly-inserted (out-of-radius) docs must never leak into the result.
+            if not returned.issubset(base_docs):
+                errors.append(f'range result leaked out-of-radius docs: {sorted(returned - base_docs)}')
+                break
+            # Every returned key must currently exist (no stale/never-existing ids).
+            if not all(env.cmd('EXISTS', k) == 1 for k in returned):
+                errors.append('range result contains a non-existent document')
+                break
+    finally:
+        stop.set()
+        writer_thread.join()
+
+    env.assertEqual(errors, [], message=f'concurrent writes/queries reported errors: {errors}')
+
+    # Once writes have stopped, the in-radius docs are recalled exactly.
+    waitForIndex(env, 'idx')
+    res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                  'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+    env.assertEqual(set(res[1:]), base_docs)
 
 
 @skip(cluster=True)

@@ -1038,7 +1038,9 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // Only create MetricRequest entries for iterators that actually yield metrics
   if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR || it->type == METRIC_SORTED_BY_SCORE_ITERATOR)) {
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR ||
+       it->type == METRIC_SORTED_BY_SCORE_ITERATOR || it->type == METRIC_LAZY_SORTED_BY_ID_ITERATOR ||
+       it->type == METRIC_LAZY_SORTED_BY_SCORE_ITERATOR)) {
     MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
 
     // Create a handle that points to the iterator's ownKey field
@@ -1130,12 +1132,7 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
-  TrieMap *t = idx->values;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
-
-  if (!t) {
-    return NULL;
-  }
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
@@ -1153,8 +1150,8 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
-  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       tagRangeIterCb, &ctx);
+  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
+                              qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
@@ -1173,21 +1170,21 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    tm_iter_mode iter_mode = TM_PREFIX_MODE;
+    tag_iter_mode iter_mode = TAG_PREFIX_MODE;
     if (qn->pfx.suffix) {
       if (qn->pfx.prefix) { // contains mode
-        iter_mode = TM_CONTAINS_MODE;
+        iter_mode = TAG_CONTAINS_MODE;
       } else {
-        iter_mode = TM_SUFFIX_MODE;
+        iter_mode = TAG_SUFFIX_MODE;
       }
     }
-    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, iter_mode);
+    TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
     if (!q->sctx->time.skipTimeoutChecks) {
@@ -1256,7 +1253,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
                      QueryNode *qn, double weight,
                      t_fieldIndex fieldIndex, bool caseSensitive) {
   RS_ASSERT(qn->type == QN_WILDCARD_QUERY);
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   RSToken *tok = &qn->verb.tok;
 
@@ -1301,7 +1298,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, TM_WILDCARD_MODE);
+    TrieMapIterator *it =
+        TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
     if (!q->sctx->time.skipTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     }
