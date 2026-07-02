@@ -19,6 +19,7 @@ typedef struct {
   int fragmentizeOptions;
   const FieldList *fields;
   const RLookup *lookup;
+  bool isJson;
 } HlpProcessor;
 
 /**
@@ -171,7 +172,7 @@ static char *trimField(const ReturnedField *fieldInfo, const char *docStr, size_
 }
 
 static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *fieldInfo,
-                               const char *fieldName, const RSValue *returnedField,
+                               const char *fieldName, const char *docStr, size_t docLen,
                                hlpDocContext *docParams, int options) {
 
   FragmentList frags;
@@ -180,10 +181,6 @@ static RSValue *summarizeField(const RLookup *lookup, const ReturnedField *field
   // Start gathering the terms
   HighlightTags tags = {.openTag = fieldInfo->highlightSettings.openTag,
                         .closeTag = fieldInfo->highlightSettings.closeTag};
-
-  // First actually generate the fragments
-  size_t docLen;
-  const char *docStr = RSValue_StringPtrLen(returnedField, &docLen);
   if (docParams->byteOffsets == NULL ||
       !fragmentizeOffsets(lookup, fieldName, docStr, docLen, docParams->indexResult,
                           docParams->byteOffsets, &frags, options)) {
@@ -262,14 +259,54 @@ static void resetIovsArr(Array **iovsArrp, size_t *curSize, size_t newSize) {
   *curSize = newSize;
 }
 
+static bool shouldSkipJsonFieldValue(const RSValue *fieldValue) {
+  // A single-value JSONPath (e.g., $.colors) can point to a JSON array.
+  // Array elements are indexed as separate values with independent byte offsets, so
+  // highlighting against a single loaded string would be incorrect.
+  //
+  // DIALECT 1-2: scalars are RSValueType_String, arrays are RSValueType_RedisString
+  //   (serialized JSON). We reject RedisString only for JSON.
+  // DIALECT 3+: values are wrapped in a Trio. The Trio's right (expanded) array reveals
+  //   the origin: expanded[0] is RSValueType_String for scalars, RSValueType_Array for
+  //   array-at-path. We reject the latter.
+  RSValueType type = RSValue_Type(fieldValue);
+  if (type == RSValueType_RedisString) {
+    return true;
+  }
+  if (type != RSValueType_Trio) {
+    return false;
+  }
+
+  const RSValue *expanded = RSValue_Trio_GetRight(fieldValue);
+  if (RSValue_Type(expanded) != RSValueType_Array) {
+    return false;
+  }
+  if (RSValue_ArrayLen(expanded) == 0) {
+    return true;
+  }
+
+  const RSValue *first = RSValue_ArrayItem(expanded, 0);
+  return RSValue_Type(first) != RSValueType_String;
+}
+
 static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, ReturnedField *spec) {
   const char *fName = spec->name;
   const RSValue *fieldValue = RLookupRow_Get(spec->lookupKey, docParams->row);
 
-  if (fieldValue == NULL || !RSValue_IsString(fieldValue)) {
+  if (fieldValue == NULL) {
     return;
   }
-  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldValue, docParams,
+
+  if (hlpCtx->isJson && shouldSkipJsonFieldValue(fieldValue)) {
+    return;
+  }
+
+  size_t fieldLen;
+  const char *fieldStr = RSValue_StringPtrLen(fieldValue, &fieldLen);
+  if (!fieldStr) {
+    return;
+  }
+  RSValue *v = summarizeField(hlpCtx->lookup, spec, fName, fieldStr, fieldLen, docParams,
                               hlpCtx->fragmentizeOptions);
   if (v) {
     RLookup_WriteOwnKey(spec->lookupKey, docParams->row, v);
@@ -363,7 +400,7 @@ static void hlpFree(ResultProcessor *p) {
 }
 
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
-                                   const RLookup *lookup) {
+                                   const RLookup *lookup, bool isJson) {
   HlpProcessor *hlp = rm_calloc(1, sizeof(*hlp));
   if (language == RS_LANG_CHINESE) {
     hlp->fragmentizeOptions = FRAGMENTIZE_TOKLEN_EXACT;
@@ -372,6 +409,7 @@ ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,
   hlp->base.Free = hlpFree;
   hlp->fields = fields;
   hlp->lookup = lookup;
+  hlp->isJson = isJson;
   hlp->base.type = RP_HIGHLIGHTER;
   return &hlp->base;
 }

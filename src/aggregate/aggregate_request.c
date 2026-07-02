@@ -31,6 +31,7 @@
 #include "coord/rmr/command.h"
 #include "coord/rmr/chan.h"
 #include "coord/rpnet.h"
+#include "json.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
@@ -96,6 +97,10 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
     if (!strcmp(fields->fields[ii].name, name)) {
+      if (path && fields->fields[ii].explicitReturn == 0 &&
+          fields->fields[ii].mode != SummarizeMode_None) {
+        fields->fields[ii].path = path;
+      }
       return fields->fields + ii;
     }
   }
@@ -1543,6 +1548,82 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
+// Check if a single FieldSpec has a multi-value JSONPath.
+// Returns true if the field is a TEXT field with a multi-value JSONPath.
+static bool fieldSpecIsMultiValueText(const FieldSpec *fs) {
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !fs->fieldPath) {
+    return false;
+  }
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = pathParse(fs->fieldPath, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static bool jsonPathIsMultiValue(const char *pathStr) {
+  if (!pathStr || *pathStr != '$') {
+    return false;
+  }
+
+  RedisModuleString *err_msg = NULL;
+  JSONPath path = japi->pathParse(pathStr, RSDummyContext, &err_msg);
+  if (err_msg) {
+    RedisModule_FreeString(RSDummyContext, err_msg);
+  }
+  if (!path) {
+    return false;
+  }
+
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
+static const FieldSpec *getHighlightFieldSpec(const IndexSpec *index, const ReturnedField *rf) {
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(index, rf->name, strlen(rf->name));
+  if (!fs && rf->path && strcmp(rf->path, rf->name) != 0) {
+    fs = IndexSpec_GetFieldWithLength(index, rf->path, strlen(rf->path));
+  }
+  return fs;
+}
+
+// Validate that HIGHLIGHT/SUMMARIZE fields on a JSON index all use single-value JSONPaths.
+// Returns REDISMODULE_OK if all fields are single-value, REDISMODULE_ERR otherwise.
+static int AREQ_HasMultiValueHighlightFields(const AREQ *req, const IndexSpec *index,
+                                             QueryError *status) {
+  const FieldList *fields = &req->outFields;
+  bool hasMultiValue = false;
+
+  // outFields contains fields from both RETURN and HIGHLIGHT/SUMMARIZE FIELDS.
+  for (size_t ii = 0; ii < fields->numFields; ++ii) {
+    const ReturnedField *rf = &fields->fields[ii];
+    // Skip fields that are only in RETURN (no highlight/summarize mode).
+    if (rf->mode == SummarizeMode_None && fields->defaultField.mode == SummarizeMode_None) {
+      continue;
+    }
+    const FieldSpec *fs = getHighlightFieldSpec(index, rf);
+    if (jsonPathIsMultiValue(rf->path) || (fs && fieldSpecIsMultiValueText(fs))) {
+      hasMultiValue = true;
+      break;
+    }
+  }
+
+  if (hasMultiValue) {
+    QueryError_SetError(
+        status, QUERY_ERROR_CODE_INVAL,
+        "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1560,10 +1641,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
   if (isSpecJson(index) && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
-    QueryError_SetError(
-        status, QUERY_ERROR_CODE_INVAL,
-        "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes");
-    return REDISMODULE_ERR;
+    // JSON requires RETURN so that fields are loaded individually. Without RETURN,
+    // JSON "LOAD ALL" produces a single serialized blob and individual fields are
+    // not available for highlighting.
+    if (!req->outFields.explicitReturn || req->outFields.numFields == 0) {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_INVAL,
+          "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names");
+      return REDISMODULE_ERR;
+    }
+    // Multi-value JSONPaths are rejected regardless of dialect.
+    if (AREQ_HasMultiValueHighlightFields(req, index, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
   }
 
   if ((index->flags & Index_StoreByteOffsets) == 0 && (reqFlags & QEXEC_F_SEND_HIGHLIGHT)) {
