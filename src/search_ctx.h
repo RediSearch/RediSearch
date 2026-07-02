@@ -27,10 +27,10 @@ extern "C" {
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
 typedef enum {
-  RS_CTX_UNSET,
-  RS_CTX_READONLY,
-  RS_CTX_READWRITE
-} RSContextFlags;
+  SPEC_LOCK_UNSET,
+  SPEC_LOCK_READ,
+  SPEC_LOCK_WRITE
+} SpecLockState;
 
 typedef struct SearchTime {
   // current execution start time - real clock
@@ -60,7 +60,7 @@ typedef struct RedisSearchCtx {
   SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format
-  RSContextFlags flags;
+  SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
   // so all iterators created during one query observe a consistent on-disk view.
@@ -82,7 +82,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .key_ = NULL,
                           .spec = sp,
                           .time = {.current = { 0, 0 }, .timeout = { 0, 0 }, .skipTimeoutChecks = false, .timedOutFlag = NULL},
-                          .flags = RS_CTX_UNSET,
+                          .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }

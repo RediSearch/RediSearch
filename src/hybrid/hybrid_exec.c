@@ -1425,7 +1425,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
     // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
+    // safely handles this case by checking sctx->lock_state before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
