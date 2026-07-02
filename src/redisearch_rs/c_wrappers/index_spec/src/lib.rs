@@ -9,9 +9,16 @@
 
 //! Safe wrapper around [`ffi::IndexSpec`].
 
-use std::{ffi::c_char, slice};
+use std::{
+    ffi::c_char,
+    ptr,
+    ptr::NonNull,
+    slice,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use field_spec::FieldSpec;
+use inverted_index::opaque::InvertedIndex;
 use schema_rule::SchemaRule;
 
 /// A safe wrapper around an `ffi::IndexSpec`.
@@ -148,7 +155,7 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
     }
 
     /// Sets the existing documents inverted index pointer.
-    pub const fn set_existing_docs(&mut self, existing_docs: *mut ffi::InvertedIndex) {
+    pub const fn set_existing_docs_ptr(&mut self, existing_docs: *mut ffi::InvertedIndex) {
         self.0.existingDocs = existing_docs;
     }
 
@@ -162,9 +169,63 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         self.0.monitorFieldExpiration = monitor;
     }
 
-    /// Returns the document table.
-    pub const fn doc_table(&self) -> ffi::DocTable {
-        self.0.docs
+    /// Returns a mutable reference to the spec's document table.
+    pub const fn doc_table_mut(&mut self) -> &mut ffi::DocTable {
+        &mut self.0.docs
+    }
+
+    /// Return a mutable reference to the `existingDocs` inverted index, if present.
+    pub fn existing_docs_mut(&mut self) -> Option<&mut InvertedIndex> {
+        if self.0.existingDocs.is_null() {
+            return None;
+        }
+        // SAFETY: We hold the write lock and the pointer is non-null. existingDocs
+        // is a valid Box<InvertedIndex> allocated by NewInvertedIndex_Ex.
+        Some(unsafe { &mut *self.0.existingDocs.cast::<InvertedIndex>() })
+    }
+
+    /// Free the `existingDocs` inverted index and set the field to null.
+    ///
+    /// No-op if `existingDocs` is already null.
+    pub fn clear_existing_docs(&mut self) {
+        if !self.0.existingDocs.is_null() {
+            // SAFETY: existingDocs was allocated as a Box<InvertedIndex> by
+            // NewInvertedIndex_Ex. We hold the write lock and are the sole owner.
+            unsafe { drop(Box::from_raw(self.0.existingDocs.cast::<InvertedIndex>())) };
+            self.0.existingDocs = ptr::null_mut();
+        }
+    }
+
+    /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
+    ///
+    /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
+    /// Negative deltas work via two's-complement wrapping of the `usize` field.
+    /// No-op when `delta` is zero.
+    pub fn add_block_count(&mut self, delta: i64) {
+        if delta != 0 {
+            // SAFETY: totalInvertedIndexBlocks is documented in spec.h to require
+            // atomic access (relaxed writes, relaxed reads). We hold the write lock
+            // so we are the only writer; concurrent readers use atomic loads.
+            let atomic =
+                unsafe { AtomicUsize::from_ptr(&raw mut self.0.stats.totalInvertedIndexBlocks) };
+
+            // `as usize` reinterprets the two's-complement bits of a negative `delta`,
+            // and `fetch_add` wraps on overflow, so a negative `delta` is effectively
+            // subtracted.
+            atomic.fetch_add(delta as usize, Ordering::Relaxed);
+        }
+    }
+
+    /// Update the spec-level statistics after applying a GC delta.
+    pub const fn update_gc_stats(
+        &mut self,
+        entries_removed: usize,
+        bytes_freed: usize,
+        bytes_allocated: usize,
+    ) {
+        self.0.stats.numRecords -= entries_removed;
+        self.0.stats.invertedSize += bytes_allocated;
+        self.0.stats.invertedSize -= bytes_freed;
     }
 }
 
@@ -218,6 +279,23 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         std::mem::ManuallyDrop::new(Self(index_spec))
     }
 
+    /// Check whether the document with the given id exists in this spec's document table.
+    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+        // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
+        unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
+    }
+
+    /// Return the inverted index tracking all existing (live) document IDs, if present.
+    ///
+    /// This index is only populated when the spec's schema rule has
+    /// [`index_all`](ffi::SchemaRule::index_all) set.
+    pub fn existing_docs(&self) -> Option<&InvertedIndex> {
+        NonNull::new(self.0.existingDocs).map(|existing_docs| {
+            // SAFETY: existingDocs is a valid, non-null pointer to an opaque InvertedIndex.
+            unsafe { existing_docs.cast::<InvertedIndex>().as_ref() }
+        })
+    }
+
     /// Returns whether the keys dictionary is available.
     ///
     /// The keys dictionary maps TEXT terms to their inverted indexes.
@@ -238,7 +316,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns a pointer to the existing documents inverted index.
     ///
     /// May be null if all documents have been garbage collected.
-    pub const fn existing_docs(&self) -> *mut ffi::InvertedIndex {
+    pub const fn existing_docs_ptr(&self) -> *mut ffi::InvertedIndex {
         self.0.existingDocs
     }
 
@@ -293,5 +371,64 @@ impl Drop for IndexSpecReadGuard<'_> {
             "IndexSpecReadGuard::drop() should never run. \
              This guard must be wrapped in ManuallyDrop at FFI boundaries."
         );
+    }
+}
+
+/// A weak reference to an [`IndexSpec`].
+///
+/// Just a copy of the underlying [`ffi::WeakRef`] handle — does not borrow any
+/// owner and can be freely copied. Does not prevent the spec from being deleted.
+/// Call [`promote`](Self::promote) to attempt promotion to an
+/// [`IndexSpecStrongRef`], which keeps the spec alive via C-side refcounting.
+pub struct IndexSpecWeakRef(ffi::WeakRef);
+
+impl IndexSpecWeakRef {
+    /// Wrap a raw [`ffi::WeakRef`].
+    ///
+    /// # Safety
+    ///
+    /// `weak` must be a valid weak reference.
+    pub const unsafe fn from_raw(weak: ffi::WeakRef) -> Self {
+        Self(weak)
+    }
+
+    /// Attempt to promote to a strong reference.
+    ///
+    /// Returns `None` if the spec has been deleted since the weak ref was obtained.
+    pub fn promote(self) -> Option<IndexSpecStrongRef> {
+        // SAFETY: self.0 is a valid WeakRef (guaranteed by from_raw's caller).
+        let strong_ref = unsafe { ffi::IndexSpecRef_Promote(self.0) };
+        // SAFETY: StrongRef_Get is always safe to call on a valid StrongRef.
+        let raw = unsafe { ffi::StrongRef_Get(strong_ref).cast::<ffi::IndexSpec>() };
+
+        // When promotion fails, IndexSpecRef_Promote returns StrongRef { rm: NULL } —
+        // no reference was acquired, so there is nothing to release.
+        NonNull::new(raw).map(|spec| IndexSpecStrongRef { strong_ref, spec })
+    }
+}
+
+/// A promoted strong reference to an [`IndexSpec`].
+///
+/// Obtained via [`IndexSpecWeakRef::promote`]. Keeps the spec alive for the
+/// duration of this value and releases the strong reference on drop.
+pub struct IndexSpecStrongRef {
+    strong_ref: ffi::StrongRef,
+    spec: NonNull<ffi::IndexSpec>,
+}
+
+impl IndexSpecStrongRef {
+    /// Acquire the write lock for this `IndexSpec`.
+    pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
+        // SAFETY: We hold a strong reference so the spec is alive, and the
+        // pointer is non-null (checked in promote).
+        unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }.write()
+    }
+}
+
+impl Drop for IndexSpecStrongRef {
+    fn drop(&mut self) {
+        // SAFETY: strong_ref was obtained from IndexSpecRef_Promote and has
+        // not yet been released.
+        unsafe { ffi::IndexSpecRef_Release(self.strong_ref) };
     }
 }

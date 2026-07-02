@@ -37,13 +37,13 @@ set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE)
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/libuv)
+
 # libuv has const-correctness issues that trigger warnings-as-errors on newer compilers.
-# gcc 16+: -Werror=discarded-qualifiers; clang 21+: -Werror=incompatible-pointer-types-discards-qualifiers.
-# Mirror the compiler guards from the top-level CMakeLists.txt.
-if(HAS_DISCARDED_QUALIFIERS)
+# Turn off flags set in the top-level CMakeLists.txt.
+if(HAS_WNO_ERROR_DISCARDED_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=discarded-qualifiers>)
 endif()
-if(HAS_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
+if(HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
     target_compile_options(uv_a PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types-discards-qualifiers>)
 endif()
 
@@ -66,7 +66,6 @@ add_subdirectory(util/mempool)
 add_subdirectory(util/dict)
 add_subdirectory(util/hash)
 add_subdirectory(coord)
-add_subdirectory(ttl_table)
 
 #----------------------------------------------------------------------------------------------
 # Source files for the core library
@@ -104,6 +103,17 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
     "${root}/deps/thpool/*.c")
 
 #----------------------------------------------------------------------------------------------
+# GIT_VERSPEC / GIT_SHA (computed in the top-level CMakeLists) change on every
+# commit. Scope them to the only two TUs that read them — debug_commands.c
+# (FT.DEBUG GIT_SHA) and module-init.c (version string) — instead of defining
+# them globally, so every other TU keeps a stable compile command line and
+# stays cacheable (sccache) across commits.
+set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/debug_commands.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/module-init/module-init.c"
+    PROPERTIES COMPILE_DEFINITIONS "GIT_VERSPEC=\"${GIT_VERSPEC}\";GIT_SHA=\"${GIT_SHA}\"")
+
+#----------------------------------------------------------------------------------------------
 # Create the rscore object library
 add_library(rscore OBJECT ${SOURCES})
 add_dependencies(rscore generate_command_info)
@@ -125,7 +135,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:metaphone>
     $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
-    $<TARGET_OBJECTS:ttl_table>
 )
 
 # Export FINAL_OBJECTS to parent scope for the top-level redisearch target
@@ -143,7 +152,6 @@ target_link_libraries(redisearch_c
     VectorSimilarity
     redisearch-coord
     uv_a
-    ttl_table
     ${HIREDIS_LIBS})
 
 add_dependencies(redisearch_c VectorSimilarity)

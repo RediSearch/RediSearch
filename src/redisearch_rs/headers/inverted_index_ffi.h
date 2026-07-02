@@ -14,16 +14,6 @@
 #include "rqe_core.h"
 
 /**
- * The result of an inverted index
- */
-typedef struct RSIndexResult RSIndexResult;
-
-/**
- * Setting to pass to the GC scan function
- */
-typedef struct IndexRepairParams IndexRepairParams;
-
-/**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
  * based on the index type and filter provided when creating the reader. This allows us to have a
  * single interface for all index reader types while still being able to optimize the storage
@@ -74,6 +64,14 @@ typedef struct II_GCCallback {
 } II_GCCallback;
 
 /**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
+
+/**
  * The mask of flags that determine the index storage type. This includes all flags that affect
  * the storage format of the index.
  */
@@ -82,16 +80,6 @@ typedef struct II_GCCallback {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Get the count of live `IndexBlock` *instances* in the process.
- *
- * Note: with the three-region snapshot design, snapshots and `apply_gc` both
- * transiently clone blocks. While a snapshot is alive or GC is mid-flight, this
- * count is inflated above the logical block total. See MOD-16149 for the
- * follow-up to expose a clone-free counter.
- */
-size_t TotalIIBlocks(void);
 
 /**
  * Create a new inverted index instance based on the provided flags and options. `raw_doc_encoding`
@@ -156,7 +144,7 @@ struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -328,11 +316,10 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
  * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
- * - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
  * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
  *   `IndexSpec` instance.
  */
-bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb, struct IndexRepairParams *params);
+bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
  * Read a GC delta from the provided reader. The returned pointer must be freed using
@@ -492,7 +479,7 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Next(struct IndexReader *ir, struct RSIndexResult *res);
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
 /**
  * Skip the internal block of the inverted index reader to the block that may contain the given
@@ -519,7 +506,7 @@ bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, struct RSIndexResult *res);
+bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
 
 /**
  * Check if the index reader can return multiple entries for the same document ID.

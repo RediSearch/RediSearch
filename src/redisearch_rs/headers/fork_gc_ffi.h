@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "fork_gc.h"
+#include "search_ctx.h"
 
 /**
  * Status code returned by Fork GC parent-side pipe-receive operations.
@@ -38,6 +39,38 @@ typedef enum FGCError {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Collect GC delta data for the spec's `existingDocs` inverted index and
+ * send it to the parent process over the pipe.
+ *
+ * If the spec has no existing-docs index, or the scan produces no delta,
+ * only the terminator is sent.  Otherwise an empty header followed by the
+ * serialised GC delta is sent before the terminator.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an open,
+ *    writable file descriptor.
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is
+ *    a non-null `IndexSpec`.
+ */
+void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
+ * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
+ * the child sent no data (index absent or nothing to collect),
+ * [`FGCError::Collected`] after successfully applying a delta, or an
+ * error variant on pipe or spec failure.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ */
+enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
 /**
  * Write exactly `len` bytes from `buff` to the FGC pipe.

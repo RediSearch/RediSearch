@@ -7,198 +7,325 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Bounded storage shared by the COLLECT reducer variants. Two modes:
+//! Bounded storage for the COLLECT reducer, split along two axes. The SORTBY
+//! axis is the [`Storage`] enum ([`Unranked`][Storage::Unranked] arrival order vs
+//! [`Ranked`][Storage::Ranked] top-K); the orthogonal DISTINCT axis is a
+//! `Plain` / `Distinct` variant *inside* each family, so callers branch only on
+//! SORTBY and only the ranked path builds a sort-key snapshot.
 //!
-//! - [`Storage::Array`] — preserves arrival order under an `offset + count`
-//!   cap and drops excess inserts in O(1) without paying any projection
-//!   cost. Suitable when ranking is not needed.
-//! - [`Storage::Heap`] — retains the top-`(offset + count)` survivors under
-//!   a comparator driven by `sort_asc_map`, wrapping the [`MinMaxHeap`]
-//!   primitive defined in [`super::heap`] and draining best→worst.
-//!   Suitable when a ranked top-K is needed.
+//! The DISTINCT variants dedup on the [`ProjectedRow`] itself — its
+//! [`Hash`]/[`Eq`] are the identity.
 
-use std::marker::PhantomData;
+use std::cmp::Reverse;
+use std::hash::{Hash, Hasher};
+use std::mem;
 
+use indexmap::IndexSet;
 use itertools::Either;
 use min_max_heap::MinMaxHeap;
+use priority_queue::PriorityQueue;
 use rlookup::RLookupRow;
 use value::SharedValue;
+use value::comparison::compare_on_equality_only;
+use value::hash::hash_value;
 
-use super::heap::{EntryKey, HeapEntry};
+use super::ranking::{RankedEntry, RankingKey};
 
-/// Default count for `SORTBY` results when no explicit `LIMIT` is provided,
-/// matching the C implementation's `DEFAULT_LIMIT`.
+/// `SORTBY` result count when no explicit `LIMIT` is given, matching the C
+/// implementation's `DEFAULT_LIMIT`.
 pub const DEFAULT_LIMIT: u64 = 10;
 
-/// Cap on the *initial* buffer allocation, to keep the up-front cost
-/// bounded when `offset + count` is very large. The buffer/heap is still
-/// allowed to grow past this — it only governs `with_capacity`, not the
-/// number of rows we will retain.
+/// Caps only the up-front `with_capacity`, not the retained-row count, so a huge
+/// `offset + count` doesn't force a huge initial allocation.
 const INITIAL_CAPACITY_CAP: usize = 16_384;
 
+/// The projected (collected) fields, in a type distinct from [`RankingKey`] so
+/// the ranking axis (order) and the value axis (content, and the DISTINCT
+/// identity) stay separate.
+pub struct ProjectedRow(RLookupRow<'static>);
+
+impl ProjectedRow {
+    pub const fn new(row: RLookupRow<'static>) -> Self {
+        Self(row)
+    }
+
+    pub const fn row(&self) -> &RLookupRow<'static> {
+        &self.0
+    }
+
+    pub fn into_row(self) -> RLookupRow<'static> {
+        self.0
+    }
+
+    /// The collected values with trailing `None` slots trimmed off.
+    ///
+    /// Trailing `None`s only reflect how far the highest-index written key
+    /// reached, not content, so they carry no meaning for [`Hash`]/[`Eq`].
+    fn effective_values(&self) -> &[Option<SharedValue>] {
+        let slots = self.0.dyn_values();
+        let end = slots.iter().rposition(Option::is_some).map_or(0, |i| i + 1);
+        &slots[..end]
+    }
+}
+
+/// Compares the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
+/// position-by-position with [`compare_on_equality_only`].
+///
+/// This can disagree with the [`Hash`] impl's [`hash_value`], which distinguishes
+/// some values the comparator equates (num↔string, maps, NaN) — a pre-existing
+/// comparator quirk, not addressed here.
+impl PartialEq for ProjectedRow {
+    fn eq(&self, other: &Self) -> bool {
+        let (a, b) = (self.effective_values(), other.effective_values());
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| match (x, y) {
+                (None, None) => true,
+                (Some(p), Some(q)) => compare_on_equality_only(p, q),
+                _ => false,
+            })
+    }
+}
+
+impl Eq for ProjectedRow {}
+
+impl Hash for ProjectedRow {
+    /// Hashes the trailing-trimmed slots (see [`ProjectedRow::effective_values`])
+    /// via [`hash_value`]. A per-slot discriminant keeps an empty slot distinct
+    /// from a present value; see the [`PartialEq`] impl for the eq/hash
+    /// consistency caveat.
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for slot in self.effective_values() {
+            mem::discriminant(slot).hash(state);
+            if let Some(v) = slot {
+                hash_value(v, state);
+            }
+        }
+    }
+}
+
+/// `D` is the doc-id tie-breaker carried by the ranked family.
 pub enum Storage<D: Ord> {
-    Array {
-        buf: Vec<RLookupRow<'static>>,
+    Unranked(UnrankedStorage),
+    Ranked(RankedStorage<D>),
+}
+
+impl<D: Ord> Storage<D> {
+    pub fn new(sortby: bool, distinct: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
+        let (offset, count) = match (sortby, limit) {
+            (_, Some((o, c))) => (o as usize, c as usize),
+            // Without an explicit LIMIT the unranked path falls back to the
+            // global cap, the ranked path to DEFAULT_LIMIT.
+            // SAFETY: `RSGlobalConfig` is the module-global config initialised
+            // once at load; we only read a single `usize` field.
+            (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
+            (true, None) => (0, DEFAULT_LIMIT as usize),
+        };
+        if sortby {
+            Self::Ranked(RankedStorage::new(distinct, sort_asc_map, offset, count))
+        } else {
+            Self::Unranked(UnrankedStorage::new(distinct, offset, count))
+        }
+    }
+}
+
+/// Non-`SORTBY` path. Both variants retain at most `offset + count` rows;
+/// [`Distinct`][Self::Distinct] dedups on the [`ProjectedRow`] identity, keeping
+/// the first arrival. `IndexSet` (over `HashSet`) preserves arrival order without
+/// a second buffer, since [`ProjectedRow`] is not `Clone`.
+pub enum UnrankedStorage {
+    Plain {
+        buf: Vec<ProjectedRow>,
         offset: usize,
         count: usize,
-        _marker: PhantomData<D>,
     },
-    Heap {
-        heap: MinMaxHeap<HeapEntry<D, RLookupRow<'static>>>,
+    Distinct {
+        set: IndexSet<ProjectedRow>,
+        offset: usize,
+        count: usize,
+    },
+}
+
+impl UnrankedStorage {
+    fn new(distinct: bool, offset: usize, count: usize) -> Self {
+        let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
+        if distinct {
+            Self::Distinct {
+                set: IndexSet::with_capacity(initial_capacity),
+                offset,
+                count,
+            }
+        } else {
+            Self::Plain {
+                buf: Vec::with_capacity(initial_capacity),
+                offset,
+                count,
+            }
+        }
+    }
+
+    /// `Plain` projects only retained rows; `Distinct` projects any row below the
+    /// cap (the identity needs the materialised row), then inserts as a no-op if
+    /// it's a duplicate.
+    pub fn push(&mut self, project: impl FnOnce() -> ProjectedRow) {
+        match self {
+            Self::Plain { buf, offset, count } => {
+                if buf.len() < offset.saturating_add(*count) {
+                    buf.push(project());
+                }
+            }
+            Self::Distinct { set, offset, count } => {
+                if set.len() < offset.saturating_add(*count) {
+                    set.insert(project());
+                }
+            }
+        }
+    }
+
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
+        match self {
+            Self::Plain { buf, offset, count } => {
+                Either::Left(std::mem::take(buf).into_iter().skip(*offset).take(*count))
+            }
+            Self::Distinct { set, offset, count } => {
+                Either::Right(std::mem::take(set).into_iter().skip(*offset).take(*count))
+            }
+        }
+    }
+}
+
+/// `SORTBY` path, top-K by [`RankingKey`], draining best→worst.
+///
+/// [`Plain`][Self::Plain] defers projection: a candidate is compared against the
+/// worst survivor before `project` runs. [`Distinct`][Self::Distinct] keys a
+/// [`PriorityQueue`] on the [`ProjectedRow`] (so identical rows collapse), with a
+/// [`Reverse`]'d [`RankingKey`] as priority so the queue's single exposed end is
+/// the *worst* survivor — the one evicted to stay bounded. It cannot defer
+/// projection (the row keys the queue).
+pub enum RankedStorage<D: Ord> {
+    Plain {
+        heap: MinMaxHeap<RankedEntry<RankingKey<D>, ProjectedRow>>,
+        sort_asc_map: u64,
+        offset: usize,
+        count: usize,
+    },
+    Distinct {
+        pq: PriorityQueue<ProjectedRow, Reverse<RankingKey<D>>>,
         sort_asc_map: u64,
         offset: usize,
         count: usize,
     },
 }
 
-impl<D: Ord> Storage<D> {
-    /// Resolve `(offset, count)` and pre-size the buffer/heap.
-    pub fn new(sortby: bool, limit: Option<(u64, u64)>, sort_asc_map: u64) -> Self {
-        let (offset, count) = match (sortby, limit) {
-            (_, Some((o, c))) => (o as usize, c as usize),
-            // SAFETY: `ffi::RSGlobalConfig` is the module-global config
-            // instance initialised once during module load; we only read
-            // a single `usize` field here.
-            (false, None) => (0, unsafe { ffi::RSGlobalConfig.maxAggregateResults }),
-            (true, None) => (0, DEFAULT_LIMIT as usize),
-        };
+impl<D: Ord> RankedStorage<D> {
+    fn new(distinct: bool, sort_asc_map: u64, offset: usize, count: usize) -> Self {
         let initial_capacity = offset.saturating_add(count).min(INITIAL_CAPACITY_CAP);
-        if sortby {
-            Self::Heap {
-                heap: MinMaxHeap::with_capacity(initial_capacity),
+        if distinct {
+            Self::Distinct {
+                pq: PriorityQueue::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,
             }
         } else {
-            Self::Array {
-                buf: Vec::with_capacity(initial_capacity),
-                offset,
-                count,
-                _marker: PhantomData,
-            }
-        }
-    }
-
-    /// Insert an entry under the cap. Two-phase to preserve the
-    /// deferred-projection invariant:
-    ///
-    /// - `sort_vals` is invoked only on the heap path (the array path
-    ///   ignores it).
-    /// - `project` is invoked only when the entry will actually be
-    ///   retained (i.e. on the heap path, only when the candidate beats
-    ///   the current worst).
-    ///
-    /// Returns `true` if the entry was buffered, `false` if it was dropped.
-    ///
-    /// `doc_id` is only consulted on the heap path, where it acts as a
-    /// deterministic tie-breaker when sort keys compare equal. Callers
-    /// that don't need tie-breaking instantiate `Storage<()>` and pass
-    /// `()` here — `()`'s `Ord` impl makes the fallback a no-op.
-    pub fn insert_entry<S, P>(&mut self, sort_vals: S, doc_id: D, project: P) -> bool
-    where
-        S: FnOnce() -> Box<[Option<SharedValue>]>,
-        P: FnOnce() -> RLookupRow<'static>,
-    {
-        match self {
-            Self::Array {
-                buf, offset, count, ..
-            } => {
-                let max_size = offset.saturating_add(*count);
-                if buf.len() < max_size {
-                    buf.push(project());
-                    true
-                } else {
-                    false
-                }
-            }
-            Self::Heap {
-                heap,
+            Self::Plain {
+                heap: MinMaxHeap::with_capacity(initial_capacity),
                 sort_asc_map,
                 offset,
                 count,
-            } => {
-                let max_size = offset.saturating_add(*count);
-                let make_key = |sort_vals: S| EntryKey::new(sort_vals(), *sort_asc_map, doc_id);
-                if max_size == 0 {
-                    return false;
-                }
+            }
+        }
+    }
+
+    const fn max_size(&self) -> usize {
+        let (offset, count) = match self {
+            Self::Plain { offset, count, .. } | Self::Distinct { offset, count, .. } => {
+                (*offset, *count)
+            }
+        };
+        offset.saturating_add(count)
+    }
+
+    const fn sort_asc_map(&self) -> u64 {
+        match self {
+            Self::Plain { sort_asc_map, .. } | Self::Distinct { sort_asc_map, .. } => *sort_asc_map,
+        }
+    }
+
+    /// `doc_id` breaks ties when sort keys compare equal (see [`RankingKey`]).
+    pub fn consider(
+        &mut self,
+        sort_vals: Box<[Option<SharedValue>]>,
+        doc_id: D,
+        project: impl FnOnce() -> ProjectedRow,
+    ) {
+        let max_size = self.max_size();
+        // `LIMIT count` is parse-validated `>= 1`, so `offset + count` never reaches zero here.
+        debug_assert!(max_size > 0, "ranked storage built with a zero cap");
+        let cand_key = RankingKey::new(sort_vals, self.sort_asc_map(), doc_id);
+        match self {
+            Self::Plain { heap, .. } => {
                 if heap.len() < max_size {
-                    let key = make_key(sort_vals);
-                    heap.push(HeapEntry::new(key, project()));
-                    true
+                    heap.push(RankedEntry::new(cand_key, project()));
                 } else {
-                    let cand_key = make_key(sort_vals);
-                    // `peek_min` returns the worst surviving candidate
-                    // under the "best = max" convention (see `heap`).
-                    // The unwrap is sound: `cap > 0` implies the heap is
-                    // non-empty once we've reached the cap.
+                    // `peek_min` is the worst survivor (best = max, see
+                    // `super::ranking`); a full heap with `max_size > 0` is non-empty.
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
                     if cand_key > *worst.key() {
-                        heap.push_pop_min(HeapEntry::new(cand_key, project()));
-                        true
-                    } else {
-                        false
+                        heap.push_pop_min(RankedEntry::new(cand_key, project()));
                     }
+                }
+            }
+            Self::Distinct { pq, .. } => {
+                let row = project();
+                // Priority is `Reverse<RankingKey>`, so `push_decrease` keeps the
+                // better (higher) `RankingKey` per identity, and the queue's max —
+                // what `pop` removes — is the worst survivor. `push_decrease`
+                // returns `None` only on a *new* identity, the sole case that can
+                // exceed the cap.
+                if pq.push_decrease(row, Reverse(cand_key)).is_none() && pq.len() > max_size {
+                    pq.pop();
                 }
             }
         }
     }
 
-    /// Drain buffered rows.
-    ///
-    /// - **Array path** yields rows in insertion order.
-    /// - **Heap path** yields rows best→worst (matching the SORTBY result
-    ///   order).
-    ///
-    /// When `apply_limit` is `true`, the yielded sequence is sliced as
-    /// `skip(offset).take(count)`. When `false`, every buffered row is
-    /// yielded — used by the remote reducer when `is_internal` is set,
-    /// where the coordinator owns the global offset.
-    pub fn drain(
+    /// Drains the retained rows best→worst, discarding each entry's ranking key.
+    pub fn drain(&mut self) -> impl ExactSizeIterator<Item = ProjectedRow> {
+        self.drain_with_sort_vals().map(|(row, _)| row)
+    }
+
+    /// Like [`drain`][Self::drain] but pairs each row with its sort-key snapshot.
+    pub fn drain_with_sort_vals(
         &mut self,
-        apply_limit: bool,
-    ) -> impl ExactSizeIterator<Item = RLookupRow<'static>> {
-        // Sentinel left in place of `*self`. Empty Array, no allocation.
-        let taken = std::mem::replace(
-            self,
-            Self::Array {
-                buf: Vec::new(),
-                offset: 0,
-                count: 0,
-                _marker: PhantomData,
-            },
-        );
-        match taken {
-            Self::Array {
-                buf, offset, count, ..
-            } => {
-                let (offset, count) = limit_window(apply_limit, offset, count);
-                Either::Left(buf.into_iter().skip(offset).take(count))
-            }
-            Self::Heap {
+    ) -> impl ExactSizeIterator<Item = (ProjectedRow, Box<[Option<SharedValue>]>)> {
+        let entries = match self {
+            Self::Plain {
                 heap,
                 offset,
                 count,
                 ..
+            } => std::mem::take(heap)
+                .into_vec_desc()
+                .into_iter()
+                .skip(*offset)
+                .take(*count),
+            Self::Distinct {
+                pq, offset, count, ..
             } => {
-                let (offset, count) = limit_window(apply_limit, offset, count);
-                Either::Right(
-                    heap.into_vec_desc()
-                        .into_iter()
-                        .skip(offset)
-                        .take(count)
-                        .map(HeapEntry::into_projected),
-                )
+                // `into_sorted_iter` yields highest-priority first; with a
+                // `Reverse<RankingKey>` priority that is worst→best, so reverse it.
+                let mut best_first: Vec<RankedEntry<RankingKey<D>, ProjectedRow>> =
+                    std::mem::take(pq)
+                        .into_sorted_iter()
+                        .map(|(row, Reverse(ranking_key))| RankedEntry::new(ranking_key, row))
+                        .collect();
+                best_first.reverse();
+                best_first.into_iter().skip(*offset).take(*count)
             }
-        }
-    }
-}
-
-const fn limit_window(apply_limit: bool, offset: usize, count: usize) -> (usize, usize) {
-    if apply_limit {
-        (offset, count)
-    } else {
-        (0, usize::MAX)
+        };
+        entries.map(|entry| {
+            let (key, row) = entry.into_parts();
+            (row, key.into_sort_vals())
+        })
     }
 }

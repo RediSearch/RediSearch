@@ -15,6 +15,15 @@ inputs:
     description: Working directory for Codex execution.
     required: false
     default: .
+  allow-users:
+    description: >
+      Additional non-collaborator usernames to allow past
+      `openai/codex-action`'s actor gate. Use with care: the caller must
+      have an out-of-band gate (e.g. a maintainer-applied label) before
+      whitelisting a non-collaborator, since this lets that user
+      indirectly consume Codex API quota. Empty by default.
+    required: false
+    default: ''
 
 outputs:
   triage-exists:
@@ -39,14 +48,31 @@ runs:
         prompt-file: ${{ inputs.prompt-file }}
         working-directory: ${{ inputs.working-directory }}
         sandbox: read-only
-        safety-strategy: read-only
+        # `drop-sudo` keeps the read-only sandbox but also drops sudo capabilities
+        # from the Codex subprocess. Required when CI logs (which Codex reads)
+        # carry attacker-controlled content — for fork-PR triage especially — so a
+        # prompt injection in the logs cannot escalate to running privileged
+        # commands and exfiltrating `CI_TRIAGE_OPENAI_API_KEY`.
+        safety-strategy: drop-sudo
         # Triage runs on post-merge/scheduled events whose actor is a bot
         # (github-merge-queue, github-actions[bot]); allow them past the
         # action's collaborator gate. Sandbox + safety remain read-only.
         # `allow-bots: true` only covers github-actions[bot] (hardcoded in
-        # codex-action's trusted set); other bot actors must be listed
-        # explicitly via `allow-bot-users`.
+        # codex-action's trusted set). For merge-queue, `github.actor`
+        # differs by event: `push` runs see `github-merge-queue[bot]`,
+        # but `schedule` runs see the bare `github-merge-queue`. The
+        # action's `isBotActor` check (endsWith "[bot]") rejects the
+        # bare form and never consults `allow-bot-users`, so we list
+        # the bare form under `allow-users` and the suffixed form under
+        # `allow-bot-users`.
+        #
+        # `codex-action` parses `allow-users` as a comma-separated list
+        # (it splits on "," then trims each entry), so the built-in
+        # merge-queue actor and the caller input must be joined with a
+        # comma, NOT a newline. A trailing comma (empty `inputs.allow-users`)
+        # is harmless: the action filters out empty entries.
         allow-bots: true
+        allow-users: github-merge-queue,${{ inputs.allow-users }}
         allow-bot-users: github-merge-queue[bot]
 
     - name: Read triage output

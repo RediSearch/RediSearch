@@ -69,7 +69,7 @@ class ParseHybridTest : public ::testing::Test {
     QueryError qerr = QueryError_Default();
     RMCK::ArgvList args(ctx, "FT.CREATE", index_name.c_str(), "ON", "HASH",
                         "SCHEMA", "title", "TEXT", "content", "TEXT", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-    spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+    spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
     if (!spec) {
       printf("Failed to create index '%s': code=%d, detail='%s'\n",
              index_name.c_str(), QueryError_GetCode(&qerr), QueryError_GetUserError(&qerr));
@@ -757,6 +757,26 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
   }
 }
 
+TEST_F(ParseHybridTest, testExternalCommandWithWithScores) {
+  // WITHSCORES is an internal-only flag used by the coordinator to ferry per-shard
+  // scores back to the aggregator. The public FT.HYBRID command must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+        "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHSCORES");
+
+  QueryError status = QueryError_Default();
+  ArgsCursor ac = {0};
+  HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
+  parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Public FT.HYBRID should reject WITHSCORES";
+  QueryError_ClearError(&status);
+
+  // Clean up any partial allocations from the failed parse
+  if (result.vector && result.vector->ast.root) {
+    QAST_Destroy(&result.vector->ast);
+    result.vector->ast.root = NULL;
+  }
+}
+
 TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
         "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "_NUM_SSTRING", SLOTS_STR);
@@ -1308,12 +1328,6 @@ TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
   // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "1", "WINDOW", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
-}
-
-TEST_F(ParseHybridTest, testExplainScore) {
-  // Test EXPLAINSCORE - currently should fail with specific error
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "EXPLAINSCORE", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "EXPLAINSCORE is not yet supported by FT.HYBRID");
 }
 
 // ============================================================================

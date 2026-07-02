@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 #include "doc_id_meta.h"
 #include "spec.h"
+#include "indexes.h"
 #include "common.h"
 #include "index_utils.h"
 

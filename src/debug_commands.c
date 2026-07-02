@@ -10,6 +10,8 @@
 #include "commands.h"
 #include "types_ffi.h"
 #include "debug_commands.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -26,6 +28,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
@@ -43,6 +46,7 @@
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
+#include <limits.h>
 
 DebugCTX globalDebugCtx = {0};
 
@@ -306,6 +310,24 @@ void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg) {
   atomic_fetch_sub(&sp->waiting, 1);
 }
 
+// Shard dispatch fault injection (test-only, see DebugSendError_* in header).
+// Set from the main thread via FT.DEBUG SEND_ERROR, consumed from the IO threads.
+static _Atomic int g_debugSendErrorCount = 0;
+
+void DebugSendError_Arm(int count) {
+  atomic_store(&g_debugSendErrorCount, count);
+}
+
+bool DebugSendError_Consume(void) {
+  int cur = atomic_load(&g_debugSendErrorCount);
+  while (cur > 0) {
+    if (atomic_compare_exchange_weak(&g_debugSendErrorCount, &cur, cur - 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static _Atomic uint32_t g_pendingSpecWriters = 0;
 
 void PendingSpecWriters_Incr(void) {
@@ -453,13 +475,12 @@ DEBUG_COMMAND(DumpTerms) {
   rune *rstr = NULL;
   t_len slen = 0;
   float score = 0;
-  int dist = 0;
   size_t termLen;
 
   RedisModule_ReplyWithArray(ctx, Trie_Size(sctx->spec->terms));
 
-  TrieIterator *it = Trie_Iterate(sctx->spec->terms, "", 0, 0, 1);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, &dist)) {
+  TrieIterator *it = Trie_IterateAll(sctx->spec->terms);
+  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
@@ -983,22 +1004,32 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc == 4) {
     RedisModule_StringToLongLong(argv[3], &timeout);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
 
-  if (sp->diskSpec) {
-    SearchDisk_RunGC(sp->diskSpec);
-    RedisModule_ReplyWithSimpleString(ctx, "DONE");
-    return REDISMODULE_OK;
-  } else if (sp->gc) {
+  // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
+  // through it runs the periodic callback with force=true, which for the disk
+  // path performs the compaction *and* accumulates the per-cycle GC stats
+  // (bytes_collected, cycles, timing). Calling SearchDisk_RunGC directly here
+  // would bypass that accounting and leave FT.INFO/INFO reporting stale stats
+  // after a forced GC. The fallback below covers the only case where a disk
+  // index has no GCContext (GC globally disabled or a temporary index).
+  if (sp->gc) {
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, NULL, timeout);
     GCContext_ForceInvoke(sp->gc, bc);
     return REDISMODULE_OK;
+  } else if (sp->diskSpec) {
+    // Fallback described above: with no GCContext there is no DiskGC stats
+    // context to accumulate into and FT.INFO/INFO render no GC section, so run
+    // the compaction inline and let the stats go nowhere.
+    DiskGCRunStats stats = {0};
+    SearchDisk_RunGC(sp->diskSpec, &stats);
+    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
@@ -1012,7 +1043,7 @@ DEBUG_COMMAND(DiskFlush) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1035,7 +1066,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1053,7 +1084,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1074,7 +1105,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1142,7 +1173,7 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1173,7 +1204,7 @@ DEBUG_COMMAND(ttlPause) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1210,7 +1241,7 @@ DEBUG_COMMAND(ttlExpire) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1226,7 +1257,7 @@ DEBUG_COMMAND(ttlExpire) {
   lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
   // We validated that the index exists and is temporary, so we know that
   // calling this function will set or reset a timer.
-  IndexSpec_LoadUnsafeEx(&lopts);
+  Indexes_LoadIndexSpecUnsafeEx(&lopts);
   sp->timeout = timeout; // Restore the original timeout
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1250,7 +1281,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1533,7 +1564,7 @@ DEBUG_COMMAND(DocInfo) {
       RSDocumentMetadata *dmd_disk = rm_calloc(1, sizeof(RSDocumentMetadata));
       dmd_disk->sortVector = RSSortingVector_Empty();
       dmd_disk->ref_count = 1;
-      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, docId, dmd_disk, NULL)) {
+      if (SearchDisk_GetDocumentMetadata(sctx->spec->diskSpec, sctx, docId, dmd_disk, NULL)) {
         dmd = dmd_disk;
       } else {
         DMD_Return(dmd_disk);
@@ -2036,7 +2067,7 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
@@ -2165,7 +2196,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
   if (!sp) {
@@ -2193,6 +2224,129 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+
+#ifdef ENABLE_ASSERT
+// ----------------------------------------------------------------------------
+// FT.DEBUG REPL_COMPACTION_COORDINATOR ...
+//
+// Test harness for the SpeedB compaction × SST-replication interaction. The
+// coordinator itself lives in `redisearch_disk` (Rust) and is reached via the
+// symbols declared in `search_disk.h`. Each lifecycle "site" can be paused,
+// cross-wired to release another site when reached, released out-of-band, and
+// polled for its arrival count. See redisearch_disk/src/compaction/debug.rs.
+// ----------------------------------------------------------------------------
+
+// Maps a site name to its SearchDiskCompactionSite value. Returns 1 on
+// success, 0 if the name is unknown.
+static int parseCompactionSite(const char *name, int *out) {
+  if (!strcasecmp(name, "compaction_begin")) {
+    *out = SEARCH_DISK_SITE_COMPACTION_BEGIN;
+  } else if (!strcasecmp(name, "compaction_completed")) {
+    *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
+  } else if (!strcasecmp(name, "pre_checkpoint")) {
+    *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else {
+    return 0;
+  }
+  return 1;
+}
+
+/**
+ * FT.DEBUG REPL_COMPACTION_COORDINATOR <command> [options]
+ *
+ *   ARM_PAUSE <site> <true/false>      park <site> when next reached
+ *   WAKE_ON_REACH <trigger> <target>   reaching <trigger> releases <target>
+ *                                      (<target> may be "none" to clear)
+ *   RELEASE <site>                     release a parked <site> out-of-band
+ *   REACHED <site>                     -> integer arrival count
+ *   RESET                              clear all state, free waiters
+ *
+ * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint.
+ */
+DEBUG_COMMAND(replCompactionCoordinator) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "REPL_COMPACTION_COORDINATOR is only supported in disk mode");
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp("ARM_PAUSE", op)) {
+    if (argc != 5) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'ARM_PAUSE'");
+    }
+    const char *val = RedisModule_StringPtrLen(argv[4], NULL);
+    bool armed;
+    if (!strcasecmp(val, "true")) {
+      armed = true;
+    } else if (!strcasecmp(val, "false")) {
+      armed = false;
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Invalid argument for 'ARM_PAUSE'");
+    }
+    SearchDisk_DebugCoordinatorArmPause(site, armed);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  if (!strcasecmp("WAKE_ON_REACH", op)) {
+    if (argc != 5) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int trigger;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &trigger)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown trigger site for 'WAKE_ON_REACH'");
+    }
+    const char *targetName = RedisModule_StringPtrLen(argv[4], NULL);
+    int target = -1;
+    if (strcasecmp(targetName, "none") != 0 && !parseCompactionSite(targetName, &target)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown target site for 'WAKE_ON_REACH'");
+    }
+    SearchDisk_DebugCoordinatorSetWake(trigger, target);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  if (!strcasecmp("RELEASE", op)) {
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'RELEASE'");
+    }
+    SearchDisk_DebugCoordinatorRelease(site);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  if (!strcasecmp("REACHED", op)) {
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    int site;
+    if (!parseCompactionSite(RedisModule_StringPtrLen(argv[3], NULL), &site)) {
+      return RedisModule_ReplyWithError(ctx, "Unknown site for 'REACHED'");
+    }
+    return RedisModule_ReplyWithLongLong(ctx, SearchDisk_DebugCoordinatorReached(site));
+  }
+
+  if (!strcasecmp("RESET", op)) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    SearchDisk_DebugResetCompactionController();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'REPL_COMPACTION_COORDINATOR'");
+}
+#endif // ENABLE_ASSERT
 
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
@@ -2858,6 +3012,24 @@ DEBUG_COMMAND(syncPoint) {
 }
 
 /**
+ * FT.DEBUG SEND_ERROR <count>
+ * Arm the next <count> MRCluster_SendCommand dispatches to return REDIS_ERR,
+ * simulating a no-reply shard failure.
+ */
+DEBUG_COMMAND(sendError) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 3) return RedisModule_WrongArity(ctx);
+  long long count;
+  if (RedisModule_StringToLongLong(argv[2], &count) != REDISMODULE_OK || count < 0 ||
+      count > INT_MAX) {
+    return RedisModule_ReplyWithError(ctx,
+        "SEND_ERROR count must be a non-negative integer no greater than INT_MAX");
+  }
+  DebugSendError_Arm((int)count);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG BG_PENDING_REPLIES
  * Returns the `pending` shard counter of the currently active coordinator
  * MRIterator (the number of shards that have not yet delivered their final
@@ -3286,6 +3458,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
+    {"SEND_ERROR", sendError},
+    {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
     {NULL, NULL}};
 #endif
 

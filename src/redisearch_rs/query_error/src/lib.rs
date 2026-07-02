@@ -104,6 +104,7 @@ pub enum QueryErrorCode {
     FlexUnsupportedArgument,
     SafeDepleterFailure,
     FlexUnsupportedQuery,
+    DiskIteratorCreation,
 }
 
 impl Debug for QueryErrorCode {
@@ -495,7 +496,12 @@ impl QueryErrorCode {
                 prefix: c"SEARCH_FLEX_UNSUPPORTED_QUERY ",
                 default_msg: c"Unsupported query type for Flex indexes",
                 default_full_msg: c"SEARCH_FLEX_UNSUPPORTED_QUERY Unsupported query type for Flex indexes",
-            }
+            },
+            Self::DiskIteratorCreation => ErrorCodeStrings {
+                prefix: c"SEARCH_DISK_ITERATOR_CREATION ",
+                default_msg: c"Could not create disk iterator",
+                default_full_msg: c"SEARCH_DISK_ITERATOR_CREATION Could not create disk iterator",
+            },
         }
     }
 }
@@ -578,6 +584,30 @@ impl QueryError {
         let public_message = CString::new(message.to_owned());
         let prefix = code.prefix_c_str().to_str().unwrap_or("");
         let private_message = CString::new(format!("{prefix}{message}"));
+
+        self.code = code;
+        self.public_message = public_message.ok();
+        self.private_message = private_message.ok().or(self.public_message.clone());
+    }
+
+    /// Sets the error code and a message split by user data, the Rust analogue of
+    /// `QueryError_SetWithUserDataFmt`.
+    ///
+    /// `message` (which must not contain user data) becomes the public message,
+    /// shown even under obfuscation. `user_data` is appended verbatim after
+    /// `message`, behind the error-code prefix, to form the private message, so
+    /// any user-controlled content it carries is hidden when the error is
+    /// displayed obfuscated.
+    ///
+    /// This does not mutate the error if it already has one set.
+    pub fn set_with_user_data(&mut self, code: QueryErrorCode, message: &str, user_data: &str) {
+        if !self.is_ok() {
+            return;
+        }
+
+        let public_message = CString::new(message.to_owned());
+        let prefix = code.prefix_c_str().to_str().unwrap_or("");
+        let private_message = CString::new(format!("{prefix}{message}{user_data}"));
 
         self.code = code;
         self.public_message = public_message.ok();

@@ -1315,6 +1315,37 @@ def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
 
+def _normalize_cluster_shards(reply):
+    """Coerce a CLUSTER SHARDS reply (RESP2 nested arrays or RESP3 maps) into a
+    list of {'slots': [s1,e1,...], 'nodes': [{'id','role',...}]} dicts."""
+    shards = []
+    for sh in reply:
+        d = sh if isinstance(sh, dict) else {sh[i]: sh[i + 1] for i in range(0, len(sh), 2)}
+        nodes = [n if isinstance(n, dict) else {n[i]: n[i + 1] for i in range(0, len(n), 2)}
+                 for n in d['nodes']]
+        shards.append({'slots': list(d['slots']), 'nodes': nodes})
+    return shards
+
+def distinct_shard_tags(conn):
+    """Yield hash tags that each land on a different shard, verified live via
+    CLUSTER SHARDS + CLUSTER KEYSLOT. One tag per shard, deterministic order."""
+    shards = _normalize_cluster_shards(conn.execute_command('CLUSTER', 'SHARDS'))
+    def owner(slot):
+        for sh in shards:
+            r = sh['slots']
+            if any(a <= slot <= b for a, b in zip(r[::2], r[1::2])):
+                return next(n['id'] for n in sh['nodes'] if n['role'] in ('master', 'primary'))
+        raise AssertionError(f'no shard owns slot {slot}')
+    seen = set()
+    for n in itertools.count():
+        tag = str(n)
+        sid = owner(int(conn.execute_command('CLUSTER', 'KEYSLOT', tag)))
+        if sid not in seen:
+            seen.add(sid)
+            yield tag
+            if len(seen) == len(shards):
+                return
+
 def waitForIndexFinishScan(env, idx = 'idx'):
     # Wait for the index to finish scan
     # Check if equals 1 for RESP3 support
@@ -1592,3 +1623,45 @@ def get_shards_profile(env, res):
     return res['Profile']['Shards']
   else:
     return [to_dict(p) for p in res[-1][1]]
+
+
+# --- Coordinator / cluster timeout test helpers (shared across timeout test files) ---
+ON_TIMEOUT_CONFIG = 'search-on-timeout'
+
+
+def pid_cmd(conn):
+    """Get the process ID of a Redis connection."""
+    return conn.execute_command('info', 'server')['process_id']
+
+
+def non_coord_shard_conns(env):
+    """Return shard connections whose process id differs from the coordinator's."""
+    coord_pid = pid_cmd(env.con)
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shardId)
+        if pid_cmd(conn) != coord_pid:
+            conns.append(conn)
+    return conns
+
+
+def split_shards_pick_one_paused(env):
+    """Pick one non-coordinator shard to designate as paused and split the rest.
+
+    Returns ``(all_shard_conns, paused_conn, paused_pid, responsive_conns)``.
+    Asserts that at least one non-coordinator shard exists.
+    """
+    all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+    non_coord_conns = non_coord_shard_conns(env)
+    env.assertGreater(len(non_coord_conns), 0,
+                      message="Test requires at least one non-coordinator shard")
+    paused_conn = non_coord_conns[0]
+    paused_pid = pid_cmd(paused_conn)
+    responsive_conns = [c for c in all_shard_conns if pid_cmd(c) != paused_pid]
+    return all_shard_conns, paused_conn, paused_pid, responsive_conns
+
+
+def assert_timeout_warning(env, res, message=''):
+    warnings = res.get('warning', res.get('warnings', []))
+    env.assertTrue(warnings, message=message + " expected timeout warning")
+    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")

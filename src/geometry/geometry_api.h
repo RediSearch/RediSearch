@@ -21,6 +21,19 @@ GeometryIndex *GeometryIndexFactory(GEOMETRY_COORDS tag);
 const GeometryApi *GeometryApi_Get(const GeometryIndex *index);
 const char *GeometryCoordsToName(GEOMETRY_COORDS tag);
 
+// Benchmark/test-only constructor. Builds a GeoShape query iterator directly
+// from a caller-provided list of document IDs, bypassing the R-tree spatial
+// query, so the iterator's read/skip_to machinery can be micro-benchmarked
+// against the Rust re-implementation (`NewGeometryQueryIterator`). The IDs are
+// copied into the iterator's own storage (the original `ids` buffer is left
+// untouched and is not adopted). `allocated` must point to a `size_t` that
+// outlives the returned iterator: the iterator's allocator holds a reference to
+// it for memory accounting. Mirrors the production construction in
+// `RTree::query` (timeout checks skipped when `sctx->time.skipTimeoutChecks`).
+QueryIterator *NewGeometryQueryIterator_Bench(const RedisSearchCtx *sctx,
+                                              const FieldFilterContext *filterCtx, t_docId *ids,
+                                              size_t num, size_t *allocated);
+
 struct GeometryApi {
   void (*freeIndex)(GeometryIndex *index);
   int (*addGeomStr)(GeometryIndex *index, GEOMETRY_FORMAT format, const char *str, size_t len,

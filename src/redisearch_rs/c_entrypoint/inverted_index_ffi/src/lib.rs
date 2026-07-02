@@ -12,7 +12,7 @@
 
 pub mod fork_gc;
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_char;
 
 use ffi::{
     DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
@@ -36,45 +36,12 @@ use inverted_index::{
     freqs_offsets::FreqsOffsets,
     freqs_only::FreqsOnly,
     full::{Full, FullWide},
+    ii_dispatch,
     numeric::{Numeric, NumericFloatCompression},
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
 use serde::{Deserialize, Serialize};
-
-/// Get the count of live `IndexBlock` *instances* in the process.
-///
-/// Note: with the three-region snapshot design, snapshots and `apply_gc` both
-/// transiently clone blocks. While a snapshot is alive or GC is mid-flight, this
-/// count is inflated above the logical block total. See MOD-16149 for the
-/// follow-up to expose a clone-free counter.
-#[unsafe(no_mangle)]
-pub extern "C" fn TotalIIBlocks() -> usize {
-    IndexBlock::total_blocks()
-}
-
-// Macro to make calling the methods on the inner index easier
-macro_rules! ii_dispatch {
-    ($self:expr, $method:ident $(, $args:expr)*) => {
-        match $self {
-            InvertedIndex::Full(ii) => ii.$method($($args),*),
-            InvertedIndex::FullWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::Numeric(ii) => ii.$method($($args),*),
-            InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
-        }
-    };
-}
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
 /// the storage format of the index.
@@ -564,22 +531,6 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     ii_dispatch!(ii, gc_marker_inc);
 }
 
-/// Setting to pass to the GC scan function
-#[repr(C)]
-pub struct IndexRepairParams {
-    /// Callback to call for each entry that is still valid.
-    ///
-    /// The C-side signature stays `(res, ib, repair_arg)`. The Rust side now also
-    /// receives the block's logical index, but fork-GC runs in a child process with
-    /// no concurrent writers — pointer equality on `ib` is still meaningful there —
-    /// so we don't expose the new parameter to C.
-    pub repair_callback:
-        Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
-
-    /// Argument to pass to the repair callback
-    pub repair_arg: *mut c_void,
-}
-
 /// Scan the inverted index for garbage and write the GC delta to the provided writer. The function
 /// returns true if the scan was successful and false otherwise.
 ///
@@ -590,7 +541,6 @@ pub struct IndexRepairParams {
 /// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
 /// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
 /// - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
-/// - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
 /// - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
 ///   `IndexSpec` instance.
 #[unsafe(no_mangle)]
@@ -599,7 +549,6 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     sctx: *mut RedisSearchCtx,
     idx: *mut InvertedIndex,
     cb: *mut InvertedIndexGCCallback,
-    params: *mut IndexRepairParams,
 ) -> bool {
     debug_assert!(!sctx.is_null(), "sctx must not be null");
     debug_assert!(!idx.is_null(), "idx must not be null");
@@ -619,23 +568,10 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
     let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
 
-    let repair = if params.is_null() {
-        None
-    } else {
-        // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
-        // we just checked it is not NULL
-        let params = unsafe { &*params };
-        params.repair_callback.map(|cb| {
-            move |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
-                cb(res, ctx.block, params.repair_arg)
-            }
-        })
-    };
-
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };
 
-    let Ok(deltas) = ii_dispatch!(ii, scan_gc, doc_exists, repair) else {
+    let Ok(deltas) = ii.scan_gc(doc_exists) else {
         return false;
     };
 

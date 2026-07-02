@@ -36,6 +36,7 @@ mod c2rust;
 mod empty;
 #[cfg(not(miri))]
 mod format_g;
+mod geo_shape;
 mod id_list;
 mod intersection;
 mod inverted_index;

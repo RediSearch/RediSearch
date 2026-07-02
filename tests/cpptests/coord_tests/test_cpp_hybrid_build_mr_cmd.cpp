@@ -13,11 +13,14 @@
 #include "redisearch_rs/headers/query_error.h"
 #include "hybrid/hybrid_cursor_mappings.h"
 
+#include <string_view>
+
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
 extern "C" {
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                                   ProfileOptions profileOptions,
+                                  bool sendExplainScore,
                                   MRCommand *xcmd, arrayof(char *) serialized,
                                   IndexSpec *sp, int *outKArgIndex);
 }
@@ -32,13 +35,13 @@ protected:
         RMCK::ArgvList createArgs(ctx, "FT.CREATE", "test_idx", "ON", "HASH",
                                   "SCHEMA", "title", "TEXT", "vector_field", "VECTOR", "FLAT", "6",
                                   "TYPE", "FLOAT32", "DIM", "3", "DISTANCE_METRIC", "COSINE");
-        testIndexSpec = IndexSpec_CreateNew(ctx, createArgs, createArgs.size(), &qerr);
+        testIndexSpec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &qerr);
         ASSERT_NE(testIndexSpec, nullptr) << "Failed to create index: " << QueryError_GetDisplayableError(&qerr, false);
     }
 
     void TearDown() override {
         if (testIndexSpec) {
-            IndexSpec_RemoveFromGlobals(testIndexSpec->own_ref, false);
+            Indexes_RemoveSpecFromGlobals(testIndexSpec->own_ref, false);
         }
         if (ctx) {
             RedisModule_FreeThreadSafeContext(ctx);
@@ -121,7 +124,8 @@ protected:
         // Build MR command - now returns kArgIndex instead of calculating effectiveK
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/false, &xcmd,
                                      nullptr, testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
@@ -193,7 +197,8 @@ protected:
         // Build MR command
         MRCommand xcmd;
         int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/false, &xcmd,
                                      nullptr, nullptr, &kArgIndex);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
@@ -238,7 +243,8 @@ protected:
       // Build MR command (not testing SHARD_K_RATIO here)
       MRCommand xcmd;
       int kArgIndex = -1;
-      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS, &xcmd,
+      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                   /*sendExplainScore=*/false, &xcmd,
                                    nullptr, sp, &kArgIndex);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -422,6 +428,78 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "idx", "SEARCH", "test", "VSIM", "@vec", "data"
     });
+}
+
+// EXPLAINSCORE forwarding to the shard is driven by the parsed top-level
+// option, not by argv text. A SEARCH query token or PARAMS value equal to
+// "EXPLAINSCORE" must not trigger forwarding; sendExplainScore=true must.
+TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
+    auto countToken = [](const MRCommand *cmd, std::string_view tok) {
+        int n = 0;
+        for (int i = 0; i < cmd->num; i++) {
+            if (cmd->lens[i] == tok.size() &&
+                strncasecmp(cmd->strs[i], tok.data(), tok.size()) == 0) {
+                n++;
+            }
+        }
+        return n;
+    };
+
+    {
+        std::vector<const char *> input = {
+            "FT.HYBRID", "test_idx", "SEARCH", "EXPLAINSCORE",
+            "VSIM", "@vector_field", TEST_BLOB_DATA, nullptr};
+        RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
+
+        MRCommand xcmd;
+        int kArgIndex = -1;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/false, &xcmd,
+                                     nullptr, nullptr, &kArgIndex);
+
+        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+            << "EXPLAINSCORE in the search query must not be re-appended as a "
+               "top-level shard option";
+        MRCommand_Free(&xcmd);
+    }
+
+    {
+        std::vector<const char *> input = {
+            "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
+            "VSIM", "@vector_field", "$BLOB",
+            "PARAMS", "4", "param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA,
+            nullptr};
+        RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
+
+        MRCommand xcmd;
+        int kArgIndex = -1;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/false, &xcmd,
+                                     nullptr, nullptr, &kArgIndex);
+
+        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+            << "EXPLAINSCORE as a PARAMS value must not be re-appended as a "
+               "top-level shard option";
+        MRCommand_Free(&xcmd);
+    }
+
+    {
+        std::vector<const char *> input = {
+            "FT.HYBRID", "test_idx", "SEARCH", "hello",
+            "VSIM", "@vector_field", TEST_BLOB_DATA, nullptr};
+        RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
+
+        MRCommand xcmd;
+        int kArgIndex = -1;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/true, &xcmd,
+                                     nullptr, nullptr, &kArgIndex);
+
+        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+            << "EXPLAINSCORE should be appended exactly once when the parsed "
+               "flag is set";
+        MRCommand_Free(&xcmd);
+    }
 }
 
 // Test SHARD_K_RATIO modifies K value in distributed command with multiple shards

@@ -55,7 +55,7 @@ where
     ///
     /// `term` is the query term representing the tag value. It is stored in the
     /// result and used during revalidation to look up the tag's inverted index
-    /// in the [`TagIndex`]'s [`TrieMap`](trie_rs::opaque::TrieMap).
+    /// in the [`TagIndex`]'s [`TrieMapOpaque`](trie_rs::TrieMapOpaque).
     ///
     /// `weight` is the scoring weight applied to the result record.
     ///
@@ -65,7 +65,7 @@ where
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
     /// 3. `tag_index` must point to a valid [`TagIndex`].
     /// 4. `tag_index` must remain valid for the lifetime of the iterator.
-    /// 5. `tag_index.values` must be a valid non-null [`TrieMap`](trie_rs::opaque::TrieMap) pointer.
+    /// 5. `tag_index.values` must be a valid non-null [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
     /// 6. The entry in `tag_index.values` for the tag value, when non-null,
     ///    must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
@@ -99,7 +99,7 @@ where
                         .as_bytes()
                         .expect("Tag iterator query term should have a non-null string");
                     // SAFETY: 5. guarantees values is a valid TrieMap.
-                    let trie = unsafe { &*tag_idx.values.cast::<trie_rs::opaque::TrieMap>() };
+                    let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
                     // If the entry exists, `from_opaque` panics when the variant doesn't match E.
                     if let Some(idx) = trie.find(term_bytes) {
                         let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
@@ -154,7 +154,7 @@ where
             .expect("Tag iterator query term should have a non-null string");
         // SAFETY: 5. guarantees `tag_idx.values` is a valid `triemap_ffi::TrieMap`
         // created by `NewTrieMap`.
-        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
 
         let Some(idx) = trie.find(term_bytes) else {
             // The inverted index was collected entirely by GC, or the

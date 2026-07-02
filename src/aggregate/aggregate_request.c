@@ -351,10 +351,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-      return ARG_ERROR;
-    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -663,13 +659,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
-        if (IsCursor(req) && !IsInternal(req)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-          return REDISMODULE_ERR;
-        }
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // WITHOUTCOUNT enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+      // on disk indexes (it relies on RAM-only structures). Reject rather than silently degrade.
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHOUTCOUNT", status)) {
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -721,7 +718,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
-    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
+    // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
+    // is never actually run for them.
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
@@ -1132,13 +1131,46 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
 }
 
+/* See aggregate.h for the full handshake contract. The aggregateResultsLock
+ * serializes the worker's "set holding, then check timedOut" against the main
+ * thread's "set timedOut, then check holding", making the two race-free. */
+bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
+  bool proceed;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  if (RS_AtomicBoolLoadRelaxed(&sync->timedOut)) {
+    // Timeout already fired: do not mark holding, bail instead of blocking on the
+    // GIL the main thread holds while it waits.
+    proceed = false;
+  } else {
+    sync->safeLoaderHoldingGIL = true;
+    proceed = true;
+  }
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return proceed;
+}
+
+void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  sync->safeLoaderHoldingGIL = false;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+}
+
+bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
+  bool holding;
+  pthread_mutex_lock(&sync->aggregateResultsLock);
+  holding = sync->safeLoaderHoldingGIL;
+  pthread_mutex_unlock(&sync->aggregateResultsLock);
+  return holding;
+}
+
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.aggregatingResults, false);
   req->syncCtx.aggregateResultsClaimLost = false;
   pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
   req->syncCtx.aggregateResultsDone = false;
+  req->syncCtx.safeLoaderHoldingGIL = false;
   pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, false);
+  RequestSyncCtx_ClearTimedOut(&req->syncCtx);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1216,7 +1248,20 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
 }
 
 static bool IsNeededDepleter(AREQ *req) {
-  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+  // For cursored requests we only want a depleter when this AREQ owns its
+  // local data source and totalResults is computed by counting rows through
+  // the pipeline (RPIndexIterator increments it per row). That covers both a
+  // standalone request (no cluster) and a shard-side internal cursor in a
+  // cluster — i.e. any non-coordinator AREQ. In both cases, draining the
+  // upstream into a buffer up front lets the first FT.CURSOR READ report the
+  // full total before paginating.
+  //
+  // The cluster coordinator AREQ does not own a local data source: it reads
+  // from RPNet and totalResults is set once at Phase B start from accumulated
+  // shard metadata, so a coordinator-side cursor depleter would buffer the
+  // whole cluster stream before the first cursor chunk for no benefit.
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) &&
+         (!IsCursor(req) || !IsCoordinator(req));
 }
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
@@ -1276,6 +1321,14 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+  // on disk.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      goto error;
+    }
+  }
+
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
   if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->reqConfig.queryTimeoutMS)) {
@@ -1290,8 +1343,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Verify we got slots requested if needed
   if (IsInternal(req) && !req->querySlots) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_MISSING, "Internal query missing slots specification");
-    goto error;
+    // Coordinators older than 8.4 do not send a slots specification. Fall back to the
+    // current local slots so rolling upgrades across the 8.4 boundary keep working.
+    req->querySlots = ASM_FallbackToLocalSlots(ctx, &req->keySpaceVersion);
+    if (req->keySpaceVersion != INVALID_KEYSPACE_VERSION) {
+      ASM_KeySpaceVersionTracker_IncreaseQueryCount(req->keySpaceVersion);
+    }
   }
 
   // Define if we need a depleter in the pipeline to get accurate total results
@@ -1765,7 +1822,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+  if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
         .sctx = req->sctx,

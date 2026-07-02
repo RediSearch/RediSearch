@@ -21,6 +21,59 @@ def testInfo(env):
     env.assertGreater(float(idx_info['key_table_size_mb']), 0)
     env.assertGreater(float(idx_info['vector_index_sz_mb']), 0)
 
+@skip(cluster=False)
+def testCountDistinctishAcrossShards():
+    """COUNT_DISTINCTISH is distributed as a per-shard HLL reducer (REDUCER_T_HLL),
+    merged on the coordinator by HLL_SUM (a register-wise max of the per-shard
+    HLL registers, see `distributeCountDistinctish` in `src/coord/dist_plan.cpp`).
+
+    This merge is only correct if every shard maps the same logical value to the
+    same HLL register/rank pair, i.e. the hash fed into the per-shard HLL
+    (`RSValue_HashStable`) must be deterministic across processes. If a
+    per-process-randomized hash (`RSValue_Hash`) were used instead, the same
+    `n_values` distinct values would map to unrelated registers on each shard,
+    and the merged HLL would estimate roughly `n_values * env.shardsCount`
+    distinct values instead of `n_values`.
+
+    To make the difference observable, every distinct tag value is written to
+    enough documents that (with overwhelming probability) each shard sees all
+    `n_values` of them.
+    """
+    env = Env(shardsCount=2)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'group', 'TAG', 'category', 'TAG').ok()
+
+    n_values = 50
+    docs_per_value = 20
+    for j in range(n_values):
+        for i in range(docs_per_value):
+            conn.execute_command('HSET', f'doc:{j}:{i}', 'group', 'all', 'category', f'cat{j}')
+
+    # COUNT_DISTINCT (exact) has no entry in `reducerDistributors_g`, so a GROUPBY
+    # step containing it is never distributed (see `distributeGroupStep`): it runs
+    # entirely on the coordinator over raw rows gathered from all shards, and is
+    # therefore unaffected by per-shard hash seeds. Issued in its own query so it
+    # doesn't drag the COUNT_DISTINCTISH query (below) into the same fate.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCT', '1', '@category', 'AS', 'exact')
+    exact_count = int(to_dict(res[1])['exact'])
+    env.assertEqual(exact_count, n_values)
+
+    # COUNT_DISTINCTISH is the only reducer in this GROUPBY step and is in
+    # `reducerDistributors_g`, so this step *is* distributed into per-shard HLL
+    # reducers merged via HLL_SUM. The result must be close to the exact count.
+    # With a stable cross-process hash, the merged HLL is ~idempotent across
+    # shards and estimates ~n_values. With a per-process-randomized hash, it
+    # would instead estimate ~n_values * env.shardsCount, well outside this
+    # tolerance for shardsCount >= 2.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*',
+                   'GROUPBY', '1', '@group',
+                   'REDUCE', 'COUNT_DISTINCTISH', '1', '@category', 'AS', 'approx')
+    approx_count = int(to_dict(res[1])['approx'])
+    env.assertAlmostEqual(exact_count, approx_count, delta=exact_count * 0.20)
+
 @skip(cluster=True)
 def test_required_fields(env):
     # Testing coordinator<-> shard `_REQUIRED_FIELDS` protocol
@@ -362,8 +415,8 @@ def test_queries_fail_on_all_shards_unreachable(env: Env):
     must be routed through the user callback so that:
     - FT.SEARCH: The reducer receives the error and returns it to the client
     - FT.AGGREGATE: The error is pushed to the channel and consumed by rpnetNext
-    - FT.HYBRID: The processCursorMappingCallback increments responseCount and signals
-      the condition variable, allowing ProcessHybridCursorMappings to unblock
+    - FT.HYBRID: The no-reply path records the communication error and unblocks
+      ProcessHybridCursorMappings' channel wait
     """
     # Create an index and add data before breaking topology
     env.expect('FT.CREATE', 'idx', 'SCHEMA',

@@ -31,6 +31,11 @@ fn benchmark_id_list(c: &mut Criterion) {
     bencher.bench(c);
 }
 
+fn benchmark_geo_shape(c: &mut Criterion) {
+    let bencher = benchers::geo_shape::Bencher::default();
+    bencher.bench(c);
+}
+
 fn benchmark_metric(c: &mut Criterion) {
     let bencher = benchers::metric::Bencher::default();
     bencher.bench(c);
@@ -171,6 +176,7 @@ criterion_group!(
     benches,
     benchmark_empty,
     benchmark_id_list,
+    benchmark_geo_shape,
     benchmark_metric,
     benchmark_not_iterator,
     benchmark_not_optimized_iterator,

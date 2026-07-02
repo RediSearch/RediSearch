@@ -19,7 +19,7 @@ use rqe_iterators::{RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutc
 
 use crate::{
     heap::{ScoredResult, TopKHeap},
-    traits::{CollectionStrategy, ScoreBatch, ScoreSource},
+    traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
 
 /// Determines which collection algorithm [`TopKIterator`] uses.
@@ -42,7 +42,21 @@ pub enum TopKMode {
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
     /// with the child filter iterator.
+    ///
+    /// The source's [`ScoreSource::batch_strategy`] may return
+    /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
+    /// [`AdhocBF`](TopKMode::AdhocBF) when the source considers it more
+    /// efficient.  Use [`ForcedBatches`](TopKMode::ForcedBatches) to suppress
+    /// that switch.
     Batches,
+    /// Like [`Batches`](TopKMode::Batches), but [`BatchStrategy::SwitchToAdhoc`]
+    /// from the source is ignored and treated as [`BatchStrategy::Continue`].
+    ForcedBatches,
+    /// Walk the child iterator and call [`ScoreSource::lookup_score`] for
+    /// each document it yields.
+    ///
+    /// `BF` stands for "Brute Force": for the lookup, opposed to score-ordered batches.
+    AdhocBF,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,11 +74,16 @@ enum Phase {
 
 /// A generic top-k iterator parameterized over a [`ScoreSource`].
 ///
-/// Implements the two execution modes described in the design doc:
-/// [`Unfiltered`](TopKMode::Unfiltered) and [`Batches`](TopKMode::Batches).
-pub struct TopKIterator<'index, S: ScoreSource> {
+/// Implements the execution mode described in the design doc:
+/// [`Unfiltered`](TopKMode::Unfiltered), [`Batches`](TopKMode::Batches),
+/// and [`AdhocBF`](TopKMode::AdhocBF).
+pub struct TopKIterator<
+    'index,
+    S: ScoreSource,
+    C: RQEIterator<'index> + 'index = Box<dyn RQEIterator<'index> + 'index>,
+> {
     source: S,
-    child: Option<Box<dyn RQEIterator<'index> + 'index>>,
+    child: Option<C>,
     mode: TopKMode,
     /// Preserved so [`rewind`](Self::rewind) can restore the original mode.
     initial_mode: TopKMode,
@@ -83,31 +102,39 @@ pub struct TopKIterator<'index, S: ScoreSource> {
 }
 
 impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
-    /// Create a new [`TopKIterator`].
+    /// Create a new unfiltered [`TopKIterator`] (no child filter).
     ///
-    /// The execution mode is inferred from `child`:
-    /// - `None` → [`TopKMode::Unfiltered`]
-    /// - `Some(_)` → [`TopKMode::Batches`]
+    /// Results are streamed directly from the source's batch — the heap is bypassed.
+    /// Use [`new`](Self::new) when a filter child is present.
+    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+        Self::_new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
+    }
+}
+
+impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKIterator<'index, S, C> {
+    /// Create a new [`TopKIterator`] with a filter child.
     ///
-    /// Use [`new_with_mode`](Self::new_with_mode) to override the initial mode.
-    pub fn new(
-        source: S,
-        child: Option<Box<dyn RQEIterator<'index> + 'index>>,
-        k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
-    ) -> Self {
-        let mode = if child.is_some() {
-            TopKMode::Batches
-        } else {
-            TopKMode::Unfiltered
-        };
-        Self::new_with_mode(source, child, k, compare, mode)
+    /// The initial mode defaults to [`TopKMode::Batches`].
+    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+        Self::_new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
+    #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
         source: S,
-        child: Option<Box<dyn RQEIterator<'index> + 'index>>,
+        child: Option<C>,
+        k: NonZeroUsize,
+        compare: fn(f64, f64) -> Ordering,
+        mode: TopKMode,
+    ) -> Self {
+        Self::_new_with_mode(source, child, k, compare, mode)
+    }
+
+    /// Create a new [`TopKIterator`] with an explicit initial mode.
+    fn _new_with_mode(
+        source: S,
+        child: Option<C>,
         k: NonZeroUsize,
         compare: fn(f64, f64) -> Ordering,
         mode: TopKMode,
@@ -130,39 +157,61 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
         }
     }
 
+    /// Returns the current execution mode.
+    pub fn mode(&self) -> TopKMode {
+        self.mode
+    }
+
+    /// Returns a shared reference to the score source.
+    pub fn source(&self) -> &S {
+        &self.source
+    }
+
+    /// Returns a mutable reference to the score source.
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+
+    /// Returns a reference to the filter child iterator, if present.
+    pub fn child(&self) -> Option<&C> {
+        self.child.as_ref()
+    }
+
     /// Drive collection based on the current mode.
     fn collect(&mut self) -> Result<(), RQEIteratorError> {
         self.phase = Phase::Collecting;
         let result = match self.mode {
             TopKMode::Unfiltered => self.prepare_unfiltered_direct(),
-            TopKMode::Batches => self.collect_batches(),
+            TopKMode::Batches | TopKMode::ForcedBatches => self.collect_batches(),
+            TopKMode::AdhocBF => self.collect_adhoc(),
         };
         if result.is_err() {
             // Reset so a retry via read() works: Phase::Collecting has no handler there.
             // TODO: MOD-14209: bubble up errors
             self.phase = Phase::NotStarted;
+            self.mode = self.initial_mode;
         }
         result
     }
 
     /// Set up the unfiltered direct-yield path.
     ///
-    /// Calls [`ScoreSource::next_batch`] exactly once.  Results are streamed
+    /// Calls [`ScoreSource::all_results_unfiltered_batch`] exactly once. Results are streamed
     /// directly from the batch cursor — no heap is involved.
     ///
     /// # Invariants
     ///
     /// [`TopKMode::Unfiltered`] requires the source to produce at most one
-    /// batch.  In debug builds this method calls [`ScoreSource::next_batch`] a
+    /// batch.  In debug builds this method calls [`ScoreSource::all_results_unfiltered_batch`] a
     /// second time and panics if another batch is returned, catching
     /// misbehaving implementations early.
     fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
-        self.direct_batch = self.source.next_batch()?;
+        self.direct_batch = self.source.all_results_unfiltered_batch()?;
         if self.direct_batch.is_none() {
             self.at_eof = true;
         }
         debug_assert!(
-            matches!(self.source.next_batch(), Ok(None)),
+            matches!(self.source.all_results_unfiltered_batch(), Ok(None)),
             "ScoreSource did not return Ok(None) in TopKMode::Unfiltered \
              (extra batch or error); use a batched mode instead"
         );
@@ -182,13 +231,58 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
             }
+            match self.source.batch_strategy(self.heap.len(), self.k.get()) {
+                BatchStrategy::Continue => continue,
+                BatchStrategy::Stop => break,
+                BatchStrategy::SwitchToAdhoc => {
+                    if self.mode == TopKMode::ForcedBatches {
+                        // Honour the forced-batches contract: never switch
+                        // mid-run.
+                        continue;
+                    }
+                    self.mode = TopKMode::AdhocBF;
+                    // Clear the heap: collect_adhoc rewinds the child and
+                    // rescans every match from scratch, so batch-phase entries
+                    // are redundant. Keeping them would re-admit the same doc id
+                    // (TopKHeap::push only de-dups against the worst element).
+                    self.heap = TopKHeap::new(self.k, self.compare);
+                    self.collect_adhoc()?;
+                    return Ok(());
+                }
+                BatchStrategy::SwitchToBatches => {
+                    // Clear the heap: the source restarts with new parameters
+                    // (e.g. expanded numeric range) and will re-emit previously
+                    // collected docs. Keeping stale entries would cause duplicates.
+                    self.heap = TopKHeap::new(self.k, self.compare);
+                    self.source.rewind();
+                    if let Some(child) = &mut self.child {
+                        child.rewind();
+                    }
+                    continue;
+                }
+            }
+        }
+        self.finalize_collection();
+        Ok(())
+    }
 
-            match self
-                .source
-                .collection_strategy(self.heap.len(), self.k.get())
-            {
-                CollectionStrategy::Continue => continue,
-                CollectionStrategy::Stop => break,
+    /// Collect results by walking the child iterator and calling
+    /// [`ScoreSource::lookup_score`] for each document.
+    fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
+        let child = self
+            .child
+            .as_mut()
+            .expect("AdhocBF mode requires a child iterator");
+        child.rewind();
+
+        loop {
+            let Some(result) = child.read()? else {
+                break;
+            };
+            let doc_id = result.doc_id;
+
+            if let Some(score) = self.source.lookup_score(doc_id) {
+                self.heap.push(doc_id, score);
             }
         }
         self.finalize_collection();
@@ -243,7 +337,9 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     }
 }
 
-impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'index, S> {
+impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterator<'index>
+    for TopKIterator<'index, S, C>
+{
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.current.as_mut()
@@ -338,8 +434,8 @@ impl<'index, S: ScoreSource + 'index> RQEIterator<'index> for TopKIterator<'inde
 /// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
 ///
 /// The child is **rewound** at the start of each call.
-fn intersect_batch_with_child<'index>(
-    child: &mut Box<dyn RQEIterator<'index> + 'index>,
+fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
+    child: &mut C,
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap,
 ) -> Result<(), RQEIteratorError> {
@@ -393,4 +489,17 @@ fn intersect_batch_with_child<'index>(
         }
     }
     Ok(())
+}
+
+impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>
+    for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator>
+{
+    fn profile_children(self) -> Self {
+        TopKIterator {
+            child: self
+                .child
+                .map(rqe_iterators::c2rust::CRQEIterator::into_profiled),
+            ..self
+        }
+    }
 }
