@@ -319,7 +319,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/search_ctx.h",
         fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
-        vars: &[],
+        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
     HeaderAllowlist {
         path: "src/search_disk.h",
