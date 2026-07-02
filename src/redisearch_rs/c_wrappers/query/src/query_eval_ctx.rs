@@ -104,6 +104,19 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().opts }
     }
 
+    /// The query-wide default slop (max term distance) for phrase matching.
+    ///
+    /// A node may override this; a value of `-1` means no phrase constraint.
+    pub const fn slop(&self) -> i32 {
+        self.opts().slop
+    }
+
+    /// Whether the query-wide `INORDER` flag (`Search_InOrder`) is set, forcing
+    /// phrase terms to match in order regardless of per-node options.
+    pub const fn search_in_order(&self) -> bool {
+        self.opts().flags & ffi::RSSearchFlags_Search_InOrder != 0
+    }
+
     /// The [`query_error::QueryError`] accumulator for reporting evaluation
     /// errors and warnings (e.g. max-prefix-expansion limits).
     ///

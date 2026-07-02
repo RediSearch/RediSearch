@@ -21,6 +21,7 @@ use rqe_iterators::{
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
+    intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
     inverted_index::new_missing_iterator,
     not_reducer::{NewNotIterator, new_not_iterator},
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
@@ -161,6 +162,7 @@ pub fn eval_node<'index>(
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
         QueryNode::Optional => Some(eval_optional(ctx, node)),
         QueryNode::Not => Some(eval_not(ctx, node)),
+        QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -449,4 +451,90 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
                 .expect("not iterator must not be null"),
         ),
     }
+}
+
+/// `QN_PHRASE` — an ordered/unordered conjunction of child terms.
+///
+/// A single-child phrase is equivalent to the child itself, so the child is
+/// returned directly (after narrowing its field mask). Otherwise the children
+/// are evaluated and combined with an [`Intersection`], honoring the phrase's
+/// slop/in-order constraints (exact phrases force slop `0`, in order).
+///
+/// Each child's field mask is first intersected with the phrase node's own
+/// mask, so a child only matches the fields shared with the phrase.
+///
+/// * `exact` — whether this is an exact (quoted) phrase. When `true`, the
+///   terms must be adjacent and in order: slop is forced to `0` and in-order
+///   matching is required, ignoring the per-node and query-wide slop/in-order
+///   settings. When `false`, the slop and in-order constraints are resolved
+///   from the node's own options, falling back to the query-wide defaults.
+fn eval_phrase<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    exact: bool,
+) -> Option<Evaluated<'index>> {
+    // Query evaluation is single-threaded and walks each AST node exactly once,
+    // top-down, so we hold exclusive access to this phrase node and its
+    // descendants for the duration of the call: no other wrapper into this
+    // subtree, and no reference derived from one, is live here.
+    //
+    // SAFETY: that exclusive-access precondition is exactly what `as_mut`
+    // requires. It is asserted once, here; every field-mask write below then
+    // goes through the exclusive `QueryNodeMut` and is statically alias-free.
+    let mut node = unsafe { node.as_mut() };
+
+    let num_children = node.num_children();
+    let node_mask = node.opts().field_mask;
+    // SAFETY: `RSGlobalConfig` is the process-wide config instance, read-only here.
+    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+
+    // A single-child intersection is just the child; return it directly.
+    if num_children == 1 {
+        let mut child = node.child_mut(0);
+        child.and_field_mask(node_mask);
+        return eval_node(ctx, child.as_ref());
+    }
+
+    let weight = node.opts().weight;
+
+    let (max_slop, in_order) = if exact {
+        // An exact (quoted) phrase requires adjacent, in-order terms.
+        (Some(0), true)
+    } else {
+        // The node may override the query-wide slop; -1 means "use the default".
+        let slop = match node.opts().max_slop {
+            -1 => ctx.slop(),
+            s => s,
+        };
+        let in_order = ctx.search_in_order() || node.opts().in_order != 0;
+        let max_slop = if slop < 0 { None } else { Some(slop as u32) };
+        (max_slop, in_order)
+    };
+
+    // Recursively evaluate every child, narrowing its field mask first.
+    let mut children = Vec::with_capacity(num_children);
+    for i in 0..num_children {
+        let mut child = node.child_mut(i);
+        child.and_field_mask(node_mask);
+        children.push(eval_child_iterator(ctx, child.as_ref()));
+    }
+
+    let result_ptr = match new_intersection_iterator(children) {
+        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
+        NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
+        NewIntersectionIterator::Proceed(cs) => {
+            let intersection = Intersection::new_with_slop_order(
+                cs,
+                weight,
+                prioritize_union_children,
+                max_slop,
+                in_order,
+            );
+            RQEIteratorWrapper::boxed_new_compound(intersection)
+        }
+    };
+
+    Some(Evaluated::RustCompound(
+        NonNull::new(result_ptr).expect("phrase iterator must not be null"),
+    ))
 }

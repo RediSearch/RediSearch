@@ -9,11 +9,16 @@
 
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
-use std::{ffi::c_char, ops::Bound, ptr::NonNull};
+use std::{
+    ffi::c_char,
+    marker::PhantomData,
+    ops::{Bound, Deref},
+    ptr::NonNull,
+};
 
 use inverted_index::NumericFilter;
 use query_node_type::{QueryNodeOptions, QueryNodeType};
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldMask};
 
 /// The wildcard expansion mode for a [`QueryNode::Prefix`] node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,11 +142,18 @@ pub enum QueryNode<'a> {
 /// and provides typed accessors for each union variant, gated by the node
 /// type.
 ///
+/// All accessors here are read-only. Mutation goes through an exclusive
+/// [`QueryNodeMut`], obtained via [`as_mut`](Self::as_mut).
+///
 /// # Ownership
 ///
 /// `QueryNodeRef` does **not** own the node — it is a borrowed view.
 /// The underlying [`ffi::RSQueryNode`] (and its children) are owned by the
 /// C `QueryAST` and freed when the AST is dropped.
+///
+/// `#[repr(transparent)]` so a [`QueryNodeMut`] (also transparent over the same
+/// pointer) can expose itself as a `&QueryNodeRef` via [`AsRef`].
+#[repr(transparent)]
 pub struct QueryNodeRef(NonNull<ffi::RSQueryNode>);
 
 impl QueryNodeRef {
@@ -160,7 +172,7 @@ impl QueryNodeRef {
     }
 
     /// Shared reference to the underlying [`ffi::RSQueryNode`].
-    const fn as_ref(&self) -> &ffi::RSQueryNode {
+    const fn as_ffi_ref(&self) -> &ffi::RSQueryNode {
         // SAFETY: invariant (1) of `new`.
         unsafe { self.0.as_ref() }
     }
@@ -172,24 +184,42 @@ impl QueryNodeRef {
 
     /// The discriminant that selects which union variant is active.
     pub const fn node_type(&self) -> QueryNodeType {
-        self.as_ref().type_
+        self.as_ffi_ref().type_
     }
 
     /// The shared options header (field mask, weight, slop, flags, …).
     pub const fn opts(&self) -> &QueryNodeOptions {
-        &self.as_ref().opts
+        &self.as_ffi_ref().opts
+    }
+
+    /// Upgrade this shared view into an exclusive [`QueryNodeMut`] over the same
+    /// node subtree, enabling in-place mutation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must have **exclusive** access to this node and all of its
+    /// descendants for the lifetime of the returned [`QueryNodeMut`]: while that
+    /// wrapper — or any [`QueryNodeMut`] reborrowed from it via
+    /// [`child_mut`](QueryNodeMut::child_mut) — is live, no other
+    /// [`QueryNodeRef`]/[`QueryNodeMut`] wrapping a node in this subtree may be
+    /// used, and no reference obtained from one (e.g. via [`opts`](Self::opts))
+    /// may be live. This cannot be enforced by the borrow checker because
+    /// wrappers to the same node can be minted from safe code (e.g.
+    /// [`child`](Self::child)); upholding it is the caller's responsibility.
+    ///
+    /// This is the single point where exclusivity is asserted. Given it, every
+    /// write through the returned [`QueryNodeMut`] is safe: its `&mut`-based API
+    /// and reborrowing [`child_mut`](QueryNodeMut::child_mut) keep each
+    /// individual mutation statically free of aliasing.
+    pub const unsafe fn as_mut(&self) -> QueryNodeMut<'_> {
+        QueryNodeMut(self.0, PhantomData)
     }
 
     /// The number of child nodes.
     ///
     /// Returns 0 when the `children` pointer is null (leaf nodes).
     pub fn num_children(&self) -> usize {
-        let children = self.as_ref().children;
-        if children.is_null() {
-            return 0;
-        }
-        // SAFETY: `children` is a non-null `array_*`-managed pointer.
-        unsafe { ffi::array_len_func(children.cast()) as usize }
+        children_len(self.as_ffi_ref())
     }
 
     /// Return the child at `index` as a new [`QueryNodeRef`].
@@ -198,21 +228,10 @@ impl QueryNodeRef {
     ///
     /// Panics if `index >= self.num_children()`.
     pub fn child(&self, index: usize) -> QueryNodeRef {
-        let n = self.num_children();
-        assert!(index < n, "index {index} out of bounds (num_children: {n})");
-        let children = self.as_ref().children;
-        // SAFETY: `children` is non-null (num_children > 0) and `index <
-        // num_children`, so `add` stays within the `array_*` allocation.
-        let slot = unsafe { children.add(index) };
-        // SAFETY: the slot is within bounds; dereference yields a valid
-        // child pointer.
-        let child_ptr = unsafe { *slot };
-        // SAFETY: all children in the AST are valid, non-null nodes
-        // (invariant 1 of `new`).
-        let child_nn = unsafe { NonNull::new_unchecked(child_ptr) };
-        // SAFETY: invariant (1) of `new` — child nodes in the AST are
-        // properly initialised.
-        unsafe { QueryNodeRef::new(child_nn) }
+        // SAFETY: `child_ptr` yields a valid, non-null child node pointer, and
+        // having (at least) shared access to this node we also have shared
+        // access to its children — invariants (1) and (2) of `new`.
+        unsafe { QueryNodeRef::new(child_ptr(self.as_ffi_ref(), index)) }
     }
 
     /// Iterator over all children as [`QueryNodeRef`]s.
@@ -222,7 +241,7 @@ impl QueryNodeRef {
 
     /// Convert the C tagged union into a [`QueryNode`] enum.
     pub fn as_enum(&self) -> QueryNode<'_> {
-        let inner = self.as_ref();
+        let inner = self.as_ffi_ref();
         // Each arm has its own `unsafe` block so that every union access
         // is individually justified, satisfying `multiple_unsafe_ops_per_block`.
         //
@@ -365,6 +384,125 @@ impl QueryNodeRef {
             }
         }
     }
+}
+
+/// Exclusive, mutable view of a [`ffi::RSQueryNode`] subtree.
+///
+/// Obtained from [`QueryNodeRef::as_mut`], whose `unsafe` contract establishes
+/// exclusive access to the node and its descendants. Given that invariant, the
+/// mutating API here is **safe**: [`and_field_mask`](Self::and_field_mask) takes
+/// `&mut self`, and [`child_mut`](Self::child_mut) reborrows `&mut self`, so the
+/// borrow checker guarantees that while a child view is live the parent (and any
+/// sibling view) cannot be read or mutated — no two live wrappers ever alias the
+/// same node. The exclusivity asserted once at [`as_mut`](QueryNodeRef::as_mut)
+/// thus propagates down the subtree without any further `unsafe`.
+///
+/// The lifetime `'node` ties the view to the originating [`QueryNodeRef`] so it
+/// cannot outlive the borrowed node.
+///
+/// Read-only access goes through [`Deref`]: all of [`QueryNodeRef`]'s shared
+/// accessors (`opts`, `num_children`, …) are reachable on a [`QueryNodeMut`]
+/// without re-implementation.
+///
+/// `#[repr(transparent)]` over the node pointer (the [`PhantomData`] is a ZST),
+/// matching [`QueryNodeRef`]'s layout so the [`Deref`] view can reinterpret a
+/// `&QueryNodeMut` as a borrowed `&QueryNodeRef`.
+#[repr(transparent)]
+pub struct QueryNodeMut<'node>(
+    NonNull<ffi::RSQueryNode>,
+    PhantomData<&'node mut ffi::RSQueryNode>,
+);
+
+impl QueryNodeMut<'_> {
+    /// Intersect `mask` into this node's [field mask](QueryNodeOptions::field_mask).
+    pub fn and_field_mask(&mut self, mask: FieldMask) {
+        // `&mut self` plus the exclusive-access invariant of
+        // [`QueryNodeRef::as_mut`] guarantee no other wrapper or reference
+        // aliases this node, so the read-modify-write below cannot race or
+        // alias a live reference.
+        //
+        // SAFETY: the node is valid, so a raw pointer to its `opts` field is in
+        // bounds; the update goes through the raw pointer without forming an
+        // intermediate reference.
+        let opts = unsafe { &raw mut (*self.0.as_ptr()).opts };
+        // SAFETY: as above — `opts` points to a valid, exclusively-owned
+        // `QueryNodeOptions`.
+        unsafe { (*opts).field_mask &= mask };
+    }
+
+    /// Reborrow the child at `index` as an exclusive [`QueryNodeMut`].
+    ///
+    /// The returned view borrows `*self`, so the parent cannot be read or
+    /// mutated while it is live. Exclusivity therefore propagates down the
+    /// subtree by construction — no further `unsafe` assertion is required.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= self.num_children()`.
+    pub fn child_mut(&mut self, index: usize) -> QueryNodeMut<'_> {
+        // The returned view's lifetime is tied to `&mut self` by the signature,
+        // so the parent stays exclusively borrowed while the child is live even
+        // though `child_ptr` itself only reads.
+        QueryNodeMut(child_ptr(self.as_ref().as_ffi_ref(), index), PhantomData)
+    }
+}
+
+impl Deref for QueryNodeMut<'_> {
+    type Target = QueryNodeRef;
+
+    /// A shared [`QueryNodeRef`] view of this node, for handing to read-only
+    /// evaluation once any mutation through this view is complete. Every
+    /// shared-view method of [`QueryNodeRef`] (e.g.
+    /// [`opts`](QueryNodeRef::opts), [`num_children`](QueryNodeRef::num_children))
+    /// is therefore reachable on a [`QueryNodeMut`] without re-implementation.
+    ///
+    /// The returned reference borrows `*self`, so a read view (or anything
+    /// derived from it, e.g. via [`opts`](QueryNodeRef::opts)) cannot be held
+    /// across — and therefore cannot alias — a mutation through this
+    /// [`QueryNodeMut`]: while the `&QueryNodeRef` is live, `self` is
+    /// shared-borrowed and the `&mut self` methods are unreachable.
+    fn deref(&self) -> &QueryNodeRef {
+        // SAFETY: `QueryNodeMut` and `QueryNodeRef` are both
+        // `#[repr(transparent)]` over `NonNull<ffi::RSQueryNode>`, so they share
+        // an identical layout and a `&QueryNodeMut` can be reinterpreted as a
+        // `&QueryNodeRef`. The shared borrow of `self` is carried into the
+        // returned reference's lifetime.
+        unsafe { &*(self as *const Self as *const QueryNodeRef) }
+    }
+}
+
+impl AsRef<QueryNodeRef> for QueryNodeMut<'_> {
+    fn as_ref(&self) -> &QueryNodeRef {
+        self
+    }
+}
+
+/// The number of children of `node` (0 when the `children` pointer is null).
+fn children_len(node: &ffi::RSQueryNode) -> usize {
+    let children = node.children;
+    if children.is_null() {
+        return 0;
+    }
+    // SAFETY: `children` is a non-null `array_*`-managed pointer.
+    unsafe { ffi::array_len_func(children.cast()) as usize }
+}
+
+/// Pointer to `node`'s child at `index`.
+///
+/// # Panics
+///
+/// Panics if `index >= children_len(node)`.
+fn child_ptr(node: &ffi::RSQueryNode, index: usize) -> NonNull<ffi::RSQueryNode> {
+    let n = children_len(node);
+    assert!(index < n, "index {index} out of bounds (num_children: {n})");
+    // SAFETY: `children` is non-null (`n > 0`) and `index < n`, so `add` stays
+    // within the `array_*` allocation.
+    let slot = unsafe { node.children.add(index) };
+    // SAFETY: the slot is within bounds; dereference yields a valid child
+    // pointer.
+    let child = unsafe { *slot };
+    // SAFETY: all children in the AST are valid, non-null nodes.
+    unsafe { NonNull::new_unchecked(child) }
 }
 
 const fn char_ptr_to_bound(ptr: *mut c_char, inclusive: bool) -> Bound<*const c_char> {
