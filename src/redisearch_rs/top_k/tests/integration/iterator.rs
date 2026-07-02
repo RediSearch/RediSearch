@@ -347,23 +347,24 @@ fn yield_timeout_polled_while_skipping_expired() {
 }
 
 #[test]
-fn unfiltered_timeout_polled_before_yielding_valid() {
-    // No docs expire, so the deadline is never reached via an expired skip. It
-    // must still stop yielding: the first read returns a live doc, the second
-    // trips the per-step poll instead of streaming the rest of the batch.
+fn unfiltered_valid_yields_do_not_poll_timeout() {
+    // With no expired docs the deadline is never polled: yielding drains the
+    // bounded batch in full rather than tripping a per-step poll.
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Continue
     })
     .with_timeout_after(2);
     let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(2));
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(3));
+    assert!(it.read().unwrap().is_none());
 }
 
 #[test]
-fn yield_timeout_polled_before_yielding_valid() {
-    // Same guarantee on the heap-backed yield path: with no expired docs, the
-    // deadline still halts yielding after the first live result.
+fn yield_valid_yields_do_not_poll_timeout() {
+    // Same guarantee on the heap-backed yield path: with no expired docs the
+    // deadline is never polled and the full collected batch streams out.
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Stop
     })
@@ -375,7 +376,9 @@ fn yield_timeout_polled_before_yielding_valid() {
         asc,
     );
     assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(2));
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(3));
+    assert!(it.read().unwrap().is_none());
 }
 
 #[test]

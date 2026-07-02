@@ -316,12 +316,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             let item = self.direct_batch.as_mut().and_then(S::Batch::next);
             let expired = item.is_some_and(|(doc_id, _)| self.source.is_expired(doc_id));
 
-            // Poll once per step, after classifying the entry and before yielding
-            // it — gates valid results, EOF, and expired skips alike.
-            self.source.check_timeout()?;
-
             match item {
-                Some(_) if expired => continue,
+                Some(_) if expired => {
+                    // Poll only on the skip path, the sole branch that loops.
+                    self.source.check_timeout()?;
+                    continue;
+                }
                 Some((doc_id, score)) => {
                     let result = self.source.build_result(doc_id, score);
                     self.current = Some(result);
@@ -352,16 +352,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             let expired =
                 entry.is_some_and(|ScoredResult { doc_id, .. }| self.source.is_expired(doc_id));
 
-            // Poll once per step, after classifying the entry and before yielding
-            // it — gates valid results, EOF, and expired skips alike.
-            self.source.check_timeout()?;
-
             match entry {
                 None => {
                     self.at_eof = true;
                     return Ok(None);
                 }
-                Some(_) if expired => continue,
+                Some(_) if expired => {
+                    // Poll only on the skip path, the sole branch that loops.
+                    self.source.check_timeout()?;
+                    continue;
+                }
                 Some(ScoredResult { doc_id, score }) => {
                     let result = self.source.build_result(doc_id, score);
                     self.current = Some(result);
