@@ -982,14 +982,17 @@ static inline bool loaderResultIsEmittable(const SearchResult *r) {
 // Drop a row a loader could not emit (its document was deleted, re-indexed, or expired
 // between matching and load). Count it against the reported total (which is
 // totalResults - skippedResults; see QueryProcessingCtx::skippedResults for why we bump
-// a separate counter rather than decrementing totalResults) and release the
-// partially-loaded row, leaving an empty slot. SearchResult_Clear also nulls the
-// document metadata, so the safe loader's yield phase treats the emptied slot as a
-// tombstone and rpSafeLoaderFree can destroy it safely; the plain loader reuses the
-// slot for the next upstream row.
+// a separate counter rather than decrementing totalResults) and fully release the
+// partially-loaded row, re-initializing the slot to an empty result. SearchResult_Destroy
+// (not just _Clear) frees the RLookupRow dynamic storage too: the safe loader leaves
+// dropped buffer slots as tombstones that its yield phase skips and that are later
+// overwritten by the next accumulate cycle or bulk-freed with no per-slot destroy, so a
+// mere Clear would leak that storage. SearchResult_New nulls the document metadata, so the
+// emptied slot still reads as a tombstone; the plain loader reuses it for the next row.
 static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
   base->parent->skippedResults++;
-  SearchResult_Clear(r);
+  SearchResult_Destroy(r);
+  *r = SearchResult_New();
 }
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
@@ -1191,7 +1194,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
       // released the read lock to take the GIL). Drop it: loaderDropResult counts it as
-      // skipped and empties the slot into a tombstone (Clear nulls the metadata), which
+      // skipped and re-initializes the slot to an empty tombstone (null metadata), which
       // the yield phase skips and rpSafeLoaderFree can destroy safely.
       loaderDropResult(&self->base_loader.base, curr_res);
     }
