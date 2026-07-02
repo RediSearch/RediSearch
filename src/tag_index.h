@@ -18,6 +18,8 @@
 #include "search_disk_api.h"
 
 struct InvertedIndex;
+typedef struct TrieMapIterator TrieMapIterator;
+typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
 
 #ifdef __cplusplus
 extern "C" {
@@ -122,6 +124,46 @@ TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldInde
 void TagIndex_Free(TagIndex *index);
 
 char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
+
+/* Return the unique id generated in `NewTagIndex` */
+uint32_t TagIndex_GetId(const TagIndex *idx);
+
+/* Return an iterator over the TagIndex values */
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
+
+/* Return the number of unique values that the given `TagIndex` is holding */
+size_t TagIndex_NUniqueValues(const TagIndex *idx);
+
+/**
+ * Mark the tag value node as deleted.
+ * See [`TrieMap_Delete`] for more details.
+ */
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+// must match `tm_iter_mode` defined in triemap_ffi.h
+typedef enum tag_iter_mode {
+  TAG_PREFIX_MODE = 0,
+  TAG_CONTAINS_MODE = 1,
+  TAG_SUFFIX_MODE = 2,
+  TAG_WILDCARD_MODE = 3,
+} tag_iter_mode;
+
+/**
+ * Iterate over the values that match the given predicate.
+ *
+ * See [`TrieMap_IterateWithFilter`] for more details.
+ */
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
+                                                 size_t tagValLen, tag_iter_mode mode);
+
+/**
+ * Iterate the value tags within the specified key range.
+ *
+ * See [`TrieMap_IterateRange`] for more details
+ */
+void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
+                                 const char *max, int maxlen, bool includeMax,
+                                 TrieMapRangeCallback callback, void *ctx);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise

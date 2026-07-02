@@ -36,7 +36,7 @@ TEST_F(TagIndexTest, testCreate) {
     ASSERT_EQ(sz, stats.invertedSize);
   }
 
-  ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
+  ASSERT_EQ(v.size(), TagIndex_NUniqueValues(idx));
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.

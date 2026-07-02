@@ -342,9 +342,37 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
   return spec->tagOpts.tagIndex;
 }
 
+uint32_t TagIndex_GetId(const TagIndex *idx) {
+  return idx->uniqueId;
+}
+
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
+  return TrieMap_Iterate(idx->values);
+}
+
+size_t TagIndex_NUniqueValues(const TagIndex *idx) {
+  return TrieMap_NUniqueKeys(idx->values);
+}
+
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
+  return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+}
+
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
+                                                 size_t tagValLen, tag_iter_mode mode) {
+  return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
+}
+
+void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
+                                 const char *max, int maxlen, bool includeMax,
+                                 TrieMapRangeCallback callback, void *ctx) {
+  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax, callback,
+                       ctx);
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(idx->values);
+  TrieMapIterator *it = TagIndex_IterateValues(idx);
 
   char *str;
   tm_len_t slen;
