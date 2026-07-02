@@ -26,17 +26,20 @@ apt_get_cmd "$MODE" install -yqq wget make clang-format gcc lcov git openssl lib
 
 # Only move the active compiler up, never down — another module's bootstrap
 # may have already pinned something newer in this shared build container.
-_cur=$(gcc -dumpversion | cut -d. -f1)
-if [ "$_cur" -lt 11 ]; then
+_gcc_cur=$(gcc -dumpversion | cut -d. -f1)
+_gpp_cur=$(g++ -dumpversion | cut -d. -f1)
+if [ "$_gcc_cur" -lt 11 ]; then
     $MODE update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-11 100
     $MODE update-alternatives --set     cc  /usr/bin/gcc-11
     $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
     $MODE update-alternatives --set     gcc /usr/bin/gcc-11
-    $MODE update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
-    $MODE update-alternatives --set     g++ /usr/bin/g++-11
     # Align gcov version with gcc version
     $MODE update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-11 100
     $MODE update-alternatives --set     gcov /usr/bin/gcov-11
+fi
+if [ "$_gpp_cur" -lt 11 ]; then
+    $MODE update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
+    $MODE update-alternatives --set     g++ /usr/bin/g++-11
 fi
 
 # Need clang for LTO

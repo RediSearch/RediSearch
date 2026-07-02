@@ -36,7 +36,7 @@ $MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-
 # libLLVM-<ver>.a. Create a thin archive that references the component files.
 if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
     # shellcheck disable=SC2046
-    ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
+    $MODE ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
         /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a \
         /usr/lib/libzstd.a
 fi

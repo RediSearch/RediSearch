@@ -19,8 +19,6 @@ else
     [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
     OS=${OS_NAME,,}_${VERSION}
     OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
-    # CBL-Mariner: normalize to mariner<major> (e.g. mariner2).
-    [[ $OS_NAME == 'Common Base Linux Mariner' ]] && OS="mariner${VERSION%%.*}"
 fi
 echo $OS
 

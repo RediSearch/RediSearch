@@ -25,8 +25,9 @@ apt_get_cmd "$MODE" update
 apt_get_cmd "$MODE" install -yqq build-essential git wget make gcc-11 g++-11 openssl libssl-dev curl libclang-dev clang gdb
 # Only move the active compiler up, never down — another module's bootstrap
 # may have already pinned something newer in this shared build container.
-_cur=$(gcc -dumpversion | cut -d. -f1)
-if [ "$_cur" -lt 11 ]; then
+_gcc_cur=$(gcc -dumpversion | cut -d. -f1)
+_gpp_cur=$(g++ -dumpversion | cut -d. -f1)
+if [ "$_gcc_cur" -lt 11 ]; then
     # Register cc/gcc/g++ separately (no --slave grouping): if a debian-family
     # module ran earlier in this shared build container, its debian_default_install
     # already made g++ an independent master alternative, and --slave-grouping
@@ -35,6 +36,8 @@ if [ "$_cur" -lt 11 ]; then
     $MODE update-alternatives --set     cc  /usr/bin/gcc-11
     $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
     $MODE update-alternatives --set     gcc /usr/bin/gcc-11
+fi
+if [ "$_gpp_cur" -lt 11 ]; then
     $MODE update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
     $MODE update-alternatives --set     g++ /usr/bin/g++-11
 fi
