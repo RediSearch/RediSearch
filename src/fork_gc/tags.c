@@ -170,7 +170,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
 
       // Empty values (INDEXEMPTY) are never inserted into the suffix triemap, so skip the delete.
       if (TagIndex_HasSuffix(tagIdx) && tagValLen) {
-        deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
+        TagIndex_DeleteTagSuffix(tagIdx, tagVal, tagValLen);
       }
     }
 

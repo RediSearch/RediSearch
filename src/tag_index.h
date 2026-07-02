@@ -134,7 +134,7 @@ static inline bool TagIndex_HasSuffix(const TagIndex *idx) {
   return idx->suffix != NULL;
 }
 
-/* Return 1 if TagIndex supports suffix searches */
+/* Return 1 if TagIndex supports disk searches */
 static inline bool TagIndex_HasDiskSpec(const TagIndex *idx) {
   return idx->diskSpec != NULL;
 }
@@ -150,6 +150,11 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx);
  * See [`TrieMap_Delete`] for more details.
  */
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+/**
+ * Remove the given suffix.
+ */
+void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen);
 
 // must match `tm_iter_mode` defined in triemap_ffi.h
 typedef enum tag_iter_mode {
