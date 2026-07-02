@@ -605,6 +605,21 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
   disk->index.flushNoWait(index);
 }
 
+void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.pauseBackgroundWork(index);
+}
+
+void SearchDisk_ContinueBackgroundWork(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.continueBackgroundWork(index);
+}
+
+bool SearchDisk_IsBackgroundWorkPaused(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.isBackgroundWorkPaused(index);
+}
+
 void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread

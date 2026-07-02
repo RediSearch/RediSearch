@@ -1052,6 +1052,14 @@ DEBUG_COMMAND(DiskFlush) {
     return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
   }
 
+  // A blocking flush would deadlock against a paused background worker; refuse
+  // it and point the caller at the non-blocking variant.
+  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Cannot flush while background work is paused; use DISK_FLUSH_NOWAIT or "
+             "DISK_RESUME_BG_WORK first");
+  }
+
   SearchDisk_Flush(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
@@ -1060,7 +1068,7 @@ DEBUG_COMMAND(DiskFlush) {
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
 // Seal the index's memtables and schedule a flush without waiting for it to
 // complete. Test-support primitive for observing flush-state metrics while
-// background work is paused; see docs/mod14619/flush-control-design.md.
+// background work is paused.
 DEBUG_COMMAND(DiskFlushNoWait) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1080,6 +1088,58 @@ DEBUG_COMMAND(DiskFlushNoWait) {
   }
 
   SearchDisk_FlushNoWait(sp->diskSpec);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
+// FT.DEBUG DISK_PAUSE_BG_WORK <index>
+// Pause background flush and compaction on the index's database. Blocks until
+// in-flight jobs drain. Must be balanced by DISK_RESUME_BG_WORK; a blocking
+// DISK_FLUSH while paused is rejected to avoid a deadlock.
+DEBUG_COMMAND(DiskPauseBackgroundWork) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
+  }
+
+  SearchDisk_PauseBackgroundWork(sp->diskSpec);
+  RedisModule_ReplyWithSimpleString(ctx, "OK");
+  return REDISMODULE_OK;
+}
+
+// FT.DEBUG DISK_RESUME_BG_WORK <index>
+// Resume background work paused by DISK_PAUSE_BG_WORK.
+DEBUG_COMMAND(DiskResumeBackgroundWork) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
+  }
+
+  SearchDisk_ContinueBackgroundWork(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -3524,6 +3584,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
+                               {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
+                               {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
                                {"GC_STOP_SCHEDULE", GCStopFutureRuns},
                                {"GC_CONTINUE_SCHEDULE", GCContinueFutureRuns},

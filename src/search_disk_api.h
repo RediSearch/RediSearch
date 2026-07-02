@@ -593,6 +593,35 @@ typedef struct IndexDiskAPI {
   void (*flushNoWait)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Pause background flush and compaction work on the index's database.
+   *
+   * Reference-counted: each call must be balanced by continueBackgroundWork.
+   * Blocks until in-flight background jobs drain, after which no new
+   * flush/compaction is scheduled until resumed. Test-support primitive used
+   * with flushNoWait to observe flush-state INFO metrics deterministically.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*pauseBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Resume background work paused by pauseBackgroundWork.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*continueBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Whether background work is currently paused on the index's database.
+   *
+   * Lets callers refuse a blocking flush while paused (which would deadlock).
+   *
+   * @param index Pointer to the disk index
+   * @return true if background work is paused
+   */
+  bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Update the write buffer size for this index's database
    *
    * Dynamically changes the write_buffer_size option for all column families
