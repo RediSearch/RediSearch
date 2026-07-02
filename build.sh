@@ -506,43 +506,24 @@ prepare_cmake_arguments() {
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
-    # A platform that cannot provide a clang matching rustc's LLVM major
-    # (e.g. Alpine 3.22 ships only LLVM 20, and the official LLVM tarballs
-    # are glibc-only) must still produce a working build: degrade to a
-    # non-LTO build with a loud warning. Only an EXPLICIT user compiler
-    # choice (CC/CXX/LD set) turns these into hard errors — then the user
-    # has stated intent and deserves the failure.
-    _lto_forced=""
-    [[ -n "$CC" || -n "$CXX" || -n "$LD" ]] && _lto_forced=1
-    lto_degrade() {
-        echo "WARNING: $1"
-        echo "WARNING: building WITHOUT cross-language LTO."
-        echo "         (set CC/CXX/LD explicitly to turn this into an error)"
-        LTO=0
-    }
-
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        if [[ -n "$_lto_forced" ]]; then
-            echo "Error: Could not detect LLVM versions for rustc and clang."
-            echo "Cross-language LTO requires matching LLVM major versions."
-            echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
-            echo "Clang LLVM version: $CLANG_LLVM_VERSION"
-            exit 1
-        fi
-        lto_degrade "could not detect LLVM versions (rustc: '$RUSTC_LLVM_VERSION', clang: '$CLANG_LLVM_VERSION')"
-    elif [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
-        if [[ -n "$_lto_forced" ]]; then
-            echo "Error: LLVM version mismatch between rustc and clang"
-            echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
-            echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
-            echo ""
-            echo "Cross-language LTO requires matching LLVM major versions."
-            echo "Please either:"
-            echo "  1. Install clang-$RUSTC_LLVM_VERSION"
-            echo "  2. Or build without LTO by removing the 'LTO' argument"
-            exit 1
-        fi
-        lto_degrade "this platform has no clang matching rustc's LLVM $RUSTC_LLVM_VERSION (found clang with LLVM $CLANG_LLVM_VERSION)"
+        echo "Error: Could not detect LLVM versions for rustc and clang."
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
+        echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        exit 1
+    fi
+
+    if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
+        echo "Error: LLVM version mismatch between rustc and clang"
+        echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
+        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
+        echo ""
+        echo "Cross-language LTO requires matching LLVM major versions."
+        echo "Please either:"
+        echo "  1. Install clang-$RUSTC_LLVM_VERSION"
+        echo "  2. Or build without LTO by removing the 'LTO' argument"
+        exit 1
     fi
   fi
 
