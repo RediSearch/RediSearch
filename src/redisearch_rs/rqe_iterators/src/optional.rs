@@ -9,7 +9,8 @@
 
 //! Supporting types for [`Optional`].
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 use std::cmp;
 
 use crate::{
@@ -22,7 +23,11 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that emits a sequence of results with no gaps, up to a given document id.
 /// Results are pulled from an underlying [`RQEIterator`] instance. If there is no entry
 /// for a given document id, a virtual result is yielded in its place.
-pub struct Optional<'index, I> {
+///
+/// Parameterised over a [`Ref`] mode — see [`Optional`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+#[repr(C)]
+pub struct RawOptional<Rf: Ref, I> {
     /// Inclusive upper bound on document identifiers to iterate over.
     /// Reads from the [`Optional::child`] beyond this bound are ignored.
     /// If the [`Optional::child`] ends before this bound, this [`Optional`] iterator yields virtual
@@ -38,18 +43,70 @@ pub struct Optional<'index, I> {
     ///
     /// Only for actual virtual results do we return a reference to it in
     /// functions such as Read/SkipTo.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 
     /// The child [`RQEIterator`] provided at construction time.
     /// It is used while it can still produce results. Once exhausted,
     /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
     /// In case child aborts during [`RQEIterator::revalidate`],
-    /// this child is turned into [`None`], changed from the [`Some`] state it starts
-    /// at when creating using [`Optional::new`]. From that point onward all results
-    /// will be virtual until `max_doc_id` is reached.
-    child: Option<I>,
+    /// this child is turned into [`OptionalChild::Gone`], changed from the
+    /// [`OptionalChild::Present`] state it starts at when creating using
+    /// [`Optional::new`]. From that point onward all results will be virtual
+    /// until `max_doc_id` is reached.
+    child: OptionalChild<I>,
 }
+
+/// Child slot for [`RawOptional`].
+///
+/// `#[repr(C)]` so that `OptionalChild<I>` is layout-compatible with
+/// `OptionalChild<I::Suspended>` — a plain `Option<I>` is niche-dependent and
+/// not transmute-stable across the `I` → `I::Suspended` swap that the
+/// suspend/resume machinery relies on. Mirrors [`crate::maybe_empty`]'s
+/// `MaybeEmptyOption` for the same reason.
+#[repr(C)]
+enum OptionalChild<I> {
+    /// Child aborted during [`RQEIterator::revalidate`] (or otherwise gone):
+    /// only virtual results from here on.
+    Gone,
+    /// Child still producing results.
+    Present(I),
+}
+
+impl<I> OptionalChild<I> {
+    /// Shared reference to the child, if it is still present.
+    #[inline(always)]
+    const fn as_ref(&self) -> Option<&I> {
+        match self {
+            Self::Gone => None,
+            Self::Present(i) => Some(i),
+        }
+    }
+
+    /// Mutable reference to the child, if it is still present.
+    #[inline(always)]
+    const fn as_mut(&mut self) -> Option<&mut I> {
+        match self {
+            Self::Gone => None,
+            Self::Present(i) => Some(i),
+        }
+    }
+
+    /// Map the child (if present) into a new type, preserving the [`Gone`] state.
+    ///
+    /// [`Gone`]: OptionalChild::Gone
+    #[inline(always)]
+    fn map<J>(self, f: impl FnOnce(I) -> J) -> OptionalChild<J> {
+        match self {
+            Self::Gone => OptionalChild::Gone,
+            Self::Present(i) => OptionalChild::Present(f(i)),
+        }
+    }
+}
+
+/// Alias for an [`Active`] [`RawOptional`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Optional<'index, I> = RawOptional<Active<'index>, I>;
 
 impl<'index, I> Optional<'index, I>
 where
@@ -72,7 +129,7 @@ where
                 .frequency(1)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            child: Some(child),
+            child: OptionalChild::Present(child),
         }
     }
 
@@ -173,7 +230,7 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let Some(ref mut child) = self.child else {
+        let Some(child) = self.child.as_mut() else {
             return Ok(RQEValidateStatus::Ok);
         };
         let last_child_doc_id = child.last_doc_id();
@@ -183,7 +240,7 @@ where
             // Abort: Handle child validation results (but continue processing)
             status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
                 if matches!(status, RQEValidateStatus::Aborted) {
-                    self.child = None; // Drop it so we become fully virtual until max is reached
+                    self.child = OptionalChild::Gone; // Drop it so we become fully virtual until max is reached
                 }
 
                 Ok(if last_child_doc_id != self.result.doc_id {

@@ -45,13 +45,17 @@
 //! via [`UnionTrimmed::child_at`], so trimmed-away children must remain
 //! accessible even though they are inactive.
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
+///
+/// Parameterised over a [`Ref`] mode — see [`UnionTrimmed`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`].
 ///
 /// Created by the query optimizer when a numeric-range union can be trimmed
 /// to satisfy a `LIMIT` clause. See the [module documentation](self) for
@@ -71,9 +75,10 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// # Type Parameters
 ///
-/// - `'index`: Lifetime of the index data.
+/// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
-pub struct UnionTrimmed<'index, I> {
+#[repr(C)]
+pub struct RawUnionTrimmed<Rf: Ref, I> {
     /// All child iterators. The cursor only visits children in the trimmed
     /// window `[trim_start..trim_end)`. Children outside the window are kept
     /// alive (not dropped) so that profile display can query them by index.
@@ -92,8 +97,12 @@ pub struct UnionTrimmed<'index, I> {
     /// Whether all children in the active window have been exhausted.
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawUnionTrimmed`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type UnionTrimmed<'index, I> = RawUnionTrimmed<Active<'index>, I>;
 
 impl<'index, I> UnionTrimmed<'index, I>
 where
