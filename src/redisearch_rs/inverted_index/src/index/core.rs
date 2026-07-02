@@ -22,11 +22,25 @@ use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
     sync::{
-        Arc,
+        Arc, LazyLock,
         atomic::{self, AtomicU32},
     },
 };
 use thin_vec::ThinVec;
+
+/// Shared, immutable empty `sealed` region. Every index with nothing sealed yet — the
+/// common case for small / single-block terms — points its `sealed` `Arc` here instead of
+/// allocating its own refcount box, saving ~24 bytes per index across the many inverted
+/// indexes a keyspace holds. `sealed` is only ever replaced wholesale (never mutated in
+/// place), so sharing one empty instance is safe; GC/`add_record` swap in a fresh `Arc`
+/// the moment they actually seal a block.
+static EMPTY_SEALED: LazyLock<Arc<ThinVec<IndexBlock, BlockCapacity>>> =
+    LazyLock::new(|| Arc::new(ThinVec::new()));
+
+/// An `Arc::clone` of the shared empty `sealed` region — see [`EMPTY_SEALED`].
+pub(crate) fn empty_sealed() -> Arc<ThinVec<IndexBlock, BlockCapacity>> {
+    Arc::clone(&EMPTY_SEALED)
+}
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
@@ -191,7 +205,7 @@ impl<E: Encoder> InvertedIndex<E> {
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
-            sealed: Arc::new(ThinVec::new()),
+            sealed: empty_sealed(),
             pending: ThinVec::new(),
             in_progress: None,
             n_unique_docs: 0,
@@ -227,7 +241,7 @@ impl<E: Encoder> InvertedIndex<E> {
         let pending: ThinVec<Arc<IndexBlock>, BlockCapacity> = iter.map(Arc::new).collect();
 
         Self {
-            sealed: Arc::new(ThinVec::new()),
+            sealed: empty_sealed(),
             pending,
             in_progress,
             n_unique_docs,
