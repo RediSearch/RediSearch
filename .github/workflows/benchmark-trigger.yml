@@ -30,6 +30,10 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
 
   msmarco-benchmark:
     name: Trigger MS MARCO Benchmark
@@ -56,6 +60,9 @@ jobs:
     secrets: inherit
     with:
       allowed_setup: oss-cluster-08-primaries-250gb-threads-8
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
 
   rust-micro-benchmarks:
     name: Trigger Rust Micro Benchmarks
