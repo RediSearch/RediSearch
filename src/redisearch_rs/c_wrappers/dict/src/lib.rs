@@ -20,22 +20,24 @@ use inverted_index::opaque::InvertedIndex;
 /// Describes a `Dict` type defined by a `ffi::dictType` with conversion
 /// functions for keys and values.
 ///
-/// Two separate value types model the ownership split between insertion and
-/// iteration:
+/// Three separate value types model the ownership split between insertion,
+/// shared iteration, and exclusive access:
 ///
 /// - [`InsertV`](Self::InsertV) — what the caller passes on insertion. Must
 ///   match the ownership contract of the dict's `valDestructor`: for owning
 ///   dicts (e.g. `InvIndFreeCb`) this should be an owned type such as
 ///   `Box<V>`; for non-owning dicts it can be a raw pointer or reference.
 /// - [`RefV`](Self::RefV) — what is yielded during iteration. Always a
-///   borrow from the dict for the dict-borrow lifetime `'a`.
+///   shared borrow from the dict for the dict-borrow lifetime `'a`.
+/// - [`MutV`](Self::MutV) — what is yielded by [`Dict::fetch_mut`]. Always a
+///   mutable borrow from the dict for the dict-borrow lifetime `'a`.
 ///
 /// # Safety
 ///
 /// Implementers must ensure that:
 /// - [`as_ptr`](Self::as_ptr) returns a pointer to a valid, live
-///   `ffi::dictType` whose callbacks are consistent with `K`, `InsertV`, and
-///   `RefV`.
+///   `ffi::dictType` whose callbacks are consistent with `K`, `InsertV`,
+///   `RefV`, and `MutV`.
 /// - [`key_from_ptr`](Self::key_from_ptr) correctly reconstructs a key from
 ///   the raw pointer stored by the dict.
 /// - [`key_into_ptr`](Self::key_into_ptr) produces a pointer the `dictType`
@@ -45,6 +47,8 @@ use inverted_index::opaque::InvertedIndex;
 ///   must match the `valDestructor` in the `dictType`.
 /// - [`iter_val_from_ptr`](Self::iter_val_from_ptr) correctly borrows the
 ///   value stored at `ptr` for lifetime `'a`.
+/// - [`mut_val_from_ptr`](Self::mut_val_from_ptr) correctly mutably borrows
+///   the value stored at `ptr` for lifetime `'a`.
 pub unsafe trait DictType {
     /// Key type used for insertion and returned during iteration. `'a` is the
     /// dict-borrow lifetime, tying iterated keys to the underlying dict storage.
@@ -102,7 +106,8 @@ pub struct MissingFieldDictType;
 // - valDestructor is InvIndFreeCb → InvertedIndex_Free, which calls
 //   drop(Box::from_raw(ptr)); insert_val_into_ptr calls Box::into_raw,
 //   transferring ownership to the dict.
-// - iter_val_from_ptr borrows the stored pointer as Option<&InvertedIndex>.
+// - iter_val_from_ptr and mut_val_from_ptr borrow the stored pointer as
+//   &InvertedIndex / &mut InvertedIndex respectively.
 unsafe impl DictType for MissingFieldDictType {
     type K<'a> = HiddenStringRef<'a>;
     type InsertV = Box<InvertedIndex>;
