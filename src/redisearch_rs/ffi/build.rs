@@ -143,6 +143,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geo_index.h",
+        fns: &[
+            "GeoFilter_AllocNumericFiltersArray",
+            "GeoFilter_Free",
+            "NewGeoFilter",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",

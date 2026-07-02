@@ -19,6 +19,7 @@ extern "C" {
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
+typedef struct GeoFilter GeoFilter;
 typedef struct QueryError QueryError;
 
 // Forward declaration for HiddenString
@@ -506,6 +507,32 @@ typedef struct IndexDiskAPI {
    * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
    */
   QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
+
+  /**
+   * @brief Create an iterator for a geo radius query against the disk index.
+   *
+   * Geo fields are stored as geohash-encoded `f64`s in the numeric column
+   * family, so a radius query is answered by decomposing the circle into up to
+   * 9 numeric ranges, scanning each range's candidate buckets through the same
+   * machinery as `newNumericIterator`, unioning them, and post-filtering each
+   * surviving record by true great-circle distance.
+   *
+   * @param index Pointer to the index
+   * @param gf Geo filter; `numericFilters` MUST be NULL on entry and is
+   *           populated by this call (the array is owned by `*gf` and freed by
+   *           `GeoFilter_Free`).
+   *           Must outlive this call; the returned iterator does not retain a
+   *           borrow into `gf` (each per-cell leaf copies the `GeoFilter` onto
+   *           its own heap).
+   * @param fieldIndex Field index for the geo field (same CF naming as numeric:
+   *                   `numeric_<fieldIndex>`)
+   * @param snapshot Required snapshot for the read view. Must have been
+   *                 returned by `createSnapshot(index)` and must remain valid
+   *                 until the returned iterator is freed.
+   * @param status QueryError to populate with the cause when creation fails (may be NULL)
+   * @return Pointer to the created iterator, or NULL if no buckets overlap any cell
+   */
+  QueryIterator *(*newGeoIterator)(RedisSearchDiskIndexSpec *index, GeoFilter *gf, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.

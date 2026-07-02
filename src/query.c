@@ -968,6 +968,11 @@ static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
     return NULL;
   }
 
+  if (q->sctx->spec->diskSpec) {
+    const FieldSpec *fs = node->gn.gf->fieldSpec;
+    return SearchDisk_NewGeoIterator(q->sctx->spec->diskSpec, q->sctx, node->gn.gf, fs->index, q->status);
+  }
+
   return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
 }
 

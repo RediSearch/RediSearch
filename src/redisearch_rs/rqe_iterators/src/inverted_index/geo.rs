@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 
 use ffi::{GeoDistance, GeoFilter};
 use field::FieldFilterContext;
-use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
+use geo::hash::InvalidWGS84Coordinates;
 use inverted_index::NumericFilter;
 
 use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
@@ -68,11 +68,16 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     let center = geo::hash::WGS84Coordinates::from_f64(gf.lon, gf.lat)?;
     let ranges = geo::calc_ranges(center, radius_meters);
 
-    // Allocate the numericFilters array and hand ownership to *gf so that
-    // GeoFilter_Free → NumericFilter_Free → rm_free can clean up each entry.
-    let numeric_filters = Box::into_raw(Box::new(
-        [std::ptr::null_mut::<NumericFilter>(); GEO_RANGE_COUNT],
-    ));
+    // Allocate the `numericFilters` array via the C-side helper so the
+    // container is rm_calloc-backed, matching `GeoFilter_Free`'s
+    // `rm_free(gf->numericFilters)` cleanup.
+    //
+    // SAFETY: the helper just calls `rm_calloc(GEO_RANGE_COUNT, sizeof(*))`
+    // and returns the resulting pointer; on success the returned array is
+    // zero-initialised, so each per-cell slot starts as the null pointer
+    // the loop below expects.
+    let numeric_filters =
+        unsafe { ffi::GeoFilter_AllocNumericFiltersArray() } as *mut *mut NumericFilter;
     // SAFETY: 2. guarantees gf.numericFilters is NULL and writable.
     gf.numericFilters = numeric_filters.cast();
 
@@ -93,8 +98,12 @@ pub unsafe fn build_geo_numeric_filters<'index>(
                 (gf as *const GeoFilter).cast(),
             )
         } as *mut NumericFilter;
-        // SAFETY: numeric_filters is a valid array of GEO_RANGE_COUNT elements; ii is in bounds.
-        unsafe { (*numeric_filters)[ii] = filt_ptr };
+        // SAFETY: numeric_filters points at a freshly-allocated array of
+        // GEO_RANGE_COUNT pointer-sized slots (see the rm_calloc helper);
+        // `ii` is bounded by `ranges.iter()` which has the same length.
+        let slot = unsafe { numeric_filters.add(ii) };
+        // SAFETY: `slot` is a valid, aligned pointer into the array (see above).
+        unsafe { *slot = filt_ptr };
         // SAFETY: filt_ptr is exclusively owned and lives for 'index (stored in gf).
         filters.push(unsafe { &*filt_ptr });
     }
@@ -108,7 +117,7 @@ type GeoFilterAndRangeIterator<'index> =
 /// Creates per-range iterators for all geo-encoded index entries within the radius in `gf`.
 ///
 /// Geo fields are stored as sorted numeric geohash values. The radius maps to up to
-/// [`GEO_RANGE_COUNT`] contiguous geohash ranges; each range is queried via the numeric range
+/// `GEO_RANGE_COUNT` contiguous geohash ranges; each range is queried via the numeric range
 /// tree. Returns one `(filter, variants)` pair per non-trivial range so that callers can
 /// associate each [`NumericIteratorVariant`] with its [`NumericFilter`] (needed by C profiling;
 /// see the comment in `NewGeoRangeIterator`).
