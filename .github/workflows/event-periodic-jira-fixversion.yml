@@ -1,0 +1,69 @@
+name: Jira Fix-Version Reconciliation
+
+# Scheduled safety-net reconciliation (design §5.2): walks every eligible MOD
+# ticket and fills any fixVersions the event path missed. Writes are idempotent.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # every 6h (design recommends 6-24h)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Log intended writes without modifying Jira'
+        type: boolean
+        default: false
+      ticket:
+        description: 'Process a single ticket key (e.g. MOD-123). Empty = full reconciliation.'
+        type: string
+        required: false
+      log_level:
+        description: 'Log level'
+        type: choice
+        options: [INFO, DEBUG, WARNING]
+        default: INFO
+
+permissions:
+  contents: read
+  pull-requests: read  # get_pull_request() is called for every linked PR
+
+concurrency:
+  group: jira-fixversion-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r dev_automation/jira_fixversion/requirements.txt
+
+      - name: Run reconciliation
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}  # reads src/version.h + PR metadata
+          SLACK_WEBHOOK_URL_FIX_VERSION: ${{ secrets.SLACK_WEBHOOK_URL_FIX_VERSION }}
+          # Inputs go via env (never interpolated into the run script) to avoid
+          # shell injection from user-controlled workflow_dispatch values.
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_TICKET: ${{ inputs.ticket }}
+          INPUT_LOG_LEVEL: ${{ inputs.log_level }}
+        run: |
+          set -euo pipefail
+          args=(--log-level "${INPUT_LOG_LEVEL:-INFO}")
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ -n "${INPUT_TICKET:-}" ]; then
+            args+=(--ticket "${INPUT_TICKET}")
+          fi
+          python -m dev_automation.jira_fixversion.reconcile "${args[@]}"
