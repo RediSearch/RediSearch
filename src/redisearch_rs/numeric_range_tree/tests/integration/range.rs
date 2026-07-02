@@ -24,15 +24,15 @@ fn test_new_range_bounds() {
 fn test_add_updates_bounds() {
     let mut range = NumericRange::new(false);
 
-    range.add(1, 5.0);
+    range.add(1, 5.0, false);
     assert_eq!(range.min_val(), 5.0);
     assert_eq!(range.max_val(), 5.0);
 
-    range.add(2, 10.0);
+    range.add(2, 10.0, false);
     assert_eq!(range.min_val(), 5.0);
     assert_eq!(range.max_val(), 10.0);
 
-    range.add(3, 2.0);
+    range.add(3, 2.0, false);
     assert_eq!(range.min_val(), 2.0);
     assert_eq!(range.max_val(), 10.0);
 }
@@ -41,9 +41,9 @@ fn test_add_updates_bounds() {
 fn test_add_updates_cardinality() {
     let mut range = NumericRange::new(false);
 
-    range.add(1, 1.0);
-    range.add(2, 2.0);
-    range.add(3, 3.0);
+    range.add(1, 1.0, false);
+    range.add(2, 2.0, false);
+    range.add(3, 3.0, false);
 
     // HLL gives approximate count, but for small counts it should be reasonably accurate
     let card = range.cardinality();
@@ -56,8 +56,8 @@ fn test_add_updates_cardinality() {
 #[test]
 fn test_contained_in() {
     let mut range = NumericRange::new(false);
-    range.add(1, 5.0);
-    range.add(2, 10.0);
+    range.add(1, 5.0, false);
+    range.add(2, 10.0, false);
 
     // Range [5, 10] is contained in [0, 20]
     assert!(range.contained_in(0.0, 20.0));
@@ -72,8 +72,8 @@ fn test_contained_in() {
 #[test]
 fn test_overlaps() {
     let mut range = NumericRange::new(false);
-    range.add(1, 5.0);
-    range.add(2, 10.0);
+    range.add(1, 5.0, false);
+    range.add(2, 10.0, false);
 
     // Overlapping cases
     assert!(range.overlaps(0.0, 6.0)); // left overlap
@@ -100,9 +100,9 @@ fn test_add_without_cardinality() {
     let mut range = NumericRange::new(false);
 
     // Add entries without updating cardinality
-    range.add_without_cardinality(1, 5.0);
-    range.add_without_cardinality(2, 10.0);
-    range.add_without_cardinality(3, 2.0);
+    range.add_without_cardinality(1, 5.0, false);
+    range.add_without_cardinality(2, 10.0, false);
+    range.add_without_cardinality(3, 2.0, false);
 
     // Bounds should be updated
     assert_eq!(range.min_val(), 2.0);
@@ -119,11 +119,11 @@ fn test_add_without_cardinality_vs_add() {
     let mut range_without_card = NumericRange::new(false);
 
     // Add same values to both
-    range_with_card.add(1, 5.0);
-    range_with_card.add(2, 10.0);
+    range_with_card.add(1, 5.0, false);
+    range_with_card.add(2, 10.0, false);
 
-    range_without_card.add_without_cardinality(1, 5.0);
-    range_without_card.add_without_cardinality(2, 10.0);
+    range_without_card.add_without_cardinality(1, 5.0, false);
+    range_without_card.add_without_cardinality(2, 10.0, false);
 
     // Bounds should be the same
     assert_eq!(range_with_card.min_val(), range_without_card.min_val());
@@ -143,13 +143,13 @@ fn test_num_docs() {
     let mut range = NumericRange::new(false);
     assert_eq!(range.num_docs(), 0);
 
-    range.add(1, 5.0);
+    range.add(1, 5.0, false);
     assert_eq!(range.num_docs(), 1);
 
-    range.add(2, 10.0);
+    range.add(2, 10.0, false);
     assert_eq!(range.num_docs(), 2);
 
-    range.add(3, 15.0);
+    range.add(3, 15.0, false);
     assert_eq!(range.num_docs(), 3);
 }
 
@@ -158,8 +158,8 @@ fn test_entries_accessor() {
     use numeric_range_tree::NumericIndex;
 
     let mut range = NumericRange::new(false);
-    range.add(1, 5.0);
-    range.add(2, 10.0);
+    range.add(1, 5.0, false);
+    range.add(2, 10.0, false);
 
     let entries = range.entries();
     match entries {
@@ -177,9 +177,9 @@ fn test_entries_accessor() {
 #[test]
 fn test_hll_accessor() {
     let mut range = NumericRange::new(false);
-    range.add(1, 5.0);
-    range.add(2, 10.0);
-    range.add(3, 15.0);
+    range.add(1, 5.0, false);
+    range.add(2, 10.0, false);
+    range.add(3, 15.0, false);
 
     let hll = range.hll();
     // HLL count should approximate the number of distinct values
@@ -195,11 +195,11 @@ fn test_inverted_index_size() {
     let mut range = NumericRange::new(false);
     let initial_size = range.memory_usage();
 
-    range.add(1, 5.0);
+    range.add(1, 5.0, false);
     let size_after_one = range.memory_usage();
     assert!(size_after_one >= initial_size);
 
-    range.add(2, 10.0);
+    range.add(2, 10.0, false);
     let size_after_two = range.memory_usage();
     assert!(size_after_two >= size_after_one);
 }

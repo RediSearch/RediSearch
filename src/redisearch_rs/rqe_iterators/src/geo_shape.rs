@@ -131,9 +131,16 @@ where
         expiration_checker: E,
         mem_tracker: M,
     ) -> Self {
-        let result = RSIndexResult::build_virt()
+        let mut result = RSIndexResult::build_virt()
             .field_mask(RS_FIELDMASK_ALL)
             .build();
+        // Unlike the inverted-index readers, this iterator does not decode entries
+        // from an index block, so it cannot populate the per-entry expiration bit.
+        // Set it to `true` (the conservative value) so the expiration checker never
+        // takes its "clear bit ⇒ not expired" short-circuit and always runs the full
+        // TTL-table lookup for geoshape candidates. The checker still self-gates
+        // cheaply when the spec holds no field expirations at all.
+        result.has_field_expiration = true;
         let mut ids = ids.into();
         // The geometry index yields matches in R-tree order; the query engine
         // expects ascending document IDs.

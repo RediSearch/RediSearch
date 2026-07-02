@@ -659,6 +659,19 @@ typedef struct RawIndexResult_Active {
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
   double weight;
+  /**
+   * Whether the document backing this record has at least one field-level
+   * expiration (HFE).
+   *
+   * Set inline by the inverted-index decoder from a bit packed into the
+   * entry's delta (see the `inverted_index` codec). Expiration-aware
+   * iterators use it to skip the TTL-table lookup when it is `false`: that is
+   * an exact predicate — a `false` value means the document has no TTL-table
+   * entry, so the lookup would return "not expired" anyway. It is a
+   * document-level property, so every posting of a given document carries the
+   * same value.
+   */
+  bool hasFieldExpiration;
 } RawIndexResult_Active;
 #endif /* RAWINDEXRESULT_ACTIVE_DEFINED */
 
@@ -686,4 +699,3 @@ typedef struct RawIndexResult_Active RSIndexResult;
 #define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
 #define RSTermRecord_Owned      RawTermRecord_Active_Owned
 #define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
-

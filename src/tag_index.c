@@ -208,10 +208,10 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  IndexStats *stats) {
+                                  bool hasFieldExpiration, IndexStats *stats) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .metrics = MetricsVec_New()};
+                       .hasFieldExpiration = hasFieldExpiration, .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
   IndexStats_BlockCountAdd(stats, r.blocks_added);
@@ -222,12 +222,12 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
  * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
  * if it is not already there. */
 static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
-                                     t_docId docId, IndexStats *stats) {
+                                     t_docId docId, bool hasFieldExpiration, IndexStats *stats) {
   if (!values) return;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, hasFieldExpiration, stats);
     }
   }
 }
@@ -265,13 +265,15 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
  * In disk mode the postings are staged onto `batch` (committed by
  * `commitDocument`). In memory mode they are written inline into the per-tag
  * `InvertedIndex` and `batch` is ignored. */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
-                    const char **values, size_t n, t_docId docId, IndexStats *stats) {
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *indexCtx) {
+  RS_LOG_ASSERT(indexCtx, "TagIndex_Index requires an indexing context");
   if (idx->diskSpec) {
-    if (!values) return true;
-    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
+    if (!indexCtx->values) return true;
+    return SearchDisk_IndexTags(ctx, idx->diskSpec, indexCtx->batch, indexCtx->values, indexCtx->n,
+                                indexCtx->docId, idx->fieldIndex);
   }
-  TagIndex_WritePostings(idx, values, n, docId, stats);
+  TagIndex_WritePostings(idx, indexCtx->values, indexCtx->n, indexCtx->docId,
+                         indexCtx->hasFieldExpiration, indexCtx->stats);
   return true;
 }
 

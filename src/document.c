@@ -612,8 +612,9 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 }
 
 // Passes RSGlobalConfig.numericTreeMaxDepthRange automatically
-#define NumericRangeTree_Add(t, docId, value, isMulti) \
-  _NumericRangeTree_Add((t), (docId), (value), (isMulti), RSGlobalConfig.numericTreeMaxDepthRange)
+#define NumericRangeTree_Add(t, docId, value, hasFieldExpiration, isMulti)              \
+  _NumericRangeTree_Add((t), (docId), (value), (hasFieldExpiration), (isMulti),         \
+                        RSGlobalConfig.numericTreeMaxDepthRange)
 
 static int indexNumericOnDiskBatch(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                                    const FieldSpec *fs, const FieldIndexerData *fdata,
@@ -646,15 +647,21 @@ FIELD_BULK_INDEXER(numericIndexer) {
     return -1;
   }
 
+  // This numeric/geo index belongs to a single field, so the inline expiration
+  // bit is set iff that field has a field-level expiration for this document.
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
   if (!fdata->isMulti) {
-    AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, false);
+    AddResult rv =
+        NumericRangeTree_Add(rt, aCtx->doc->docId, fdata->numeric, fieldHasExpiration, false);
     ctx->spec->stats.invertedSize += rv.size_delta;
     ctx->spec->stats.numRecords += rv.num_records_delta;
     IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
   } else {
     for (uint32_t i = 0; i < array_len(fdata->arrNumeric); ++i) {
       double numval = fdata->arrNumeric[i];
-      AddResult rv = NumericRangeTree_Add(rt, aCtx->doc->docId, numval, true);
+      AddResult rv =
+          NumericRangeTree_Add(rt, aCtx->doc->docId, numval, fieldHasExpiration, true);
       ctx->spec->stats.invertedSize += rv.size_delta;
       ctx->spec->stats.numRecords += rv.num_records_delta;
       IndexStats_BlockCountAdd(&ctx->spec->stats, rv.block_count_delta);
@@ -832,9 +839,19 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
-  if (!TagIndex_Index(ctx->redisCtx, tidx, aCtx->disk.batch,
-                      (const char **)fdata->tags, array_len(fdata->tags),
-                      aCtx->doc->docId, &ctx->spec->stats)) {
+  // This tag index belongs to a single field, so the inline expiration bit is
+  // set iff that field has a field-level expiration for this document.
+  const bool fieldHasExpiration =
+      DocTable_FieldHasExpiration(&ctx->spec->docs, aCtx->doc->docId, fs->index);
+  TagIndexIndexCtx indexCtx = {
+      .batch = aCtx->disk.batch,
+      .values = (const char **)fdata->tags,
+      .n = array_len(fdata->tags),
+      .docId = aCtx->doc->docId,
+      .hasFieldExpiration = fieldHasExpiration,
+      .stats = &ctx->spec->stats,
+  };
+  if (!TagIndex_Index(ctx->redisCtx, tidx, &indexCtx)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Tag indexing failed");
     return -1;
   }

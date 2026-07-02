@@ -28,12 +28,12 @@ fn test_new_tree() {
 fn test_add_basic() {
     let mut tree = NumericRangeTree::new(false);
 
-    let result = tree.add(1, 5.0, false, 0);
+    let result = tree.add(1, 5.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
     assert_eq!(tree.last_doc_id(), 1);
     assert!(result.size_delta > 0);
 
-    let result = tree.add(2, 10.0, false, 0);
+    let result = tree.add(2, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 2);
     assert_eq!(tree.last_doc_id(), 2);
     assert!(result.size_delta > 0);
@@ -43,16 +43,16 @@ fn test_add_basic() {
 fn test_duplicate_doc_id_rejected() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, false, 0);
+    tree.add(5, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate should be rejected
-    let result = tree.add(5, 20.0, false, 0);
+    let result = tree.add(5, 20.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Lower doc_id should also be rejected
-    let result = tree.add(3, 15.0, false, 0);
+    let result = tree.add(3, 15.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 }
@@ -61,11 +61,11 @@ fn test_duplicate_doc_id_rejected() {
 fn test_duplicate_doc_id_allowed_with_multi() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, true, 0);
+    tree.add(5, 10.0, false, true, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate allowed with is_multi=true
-    let result = tree.add(5, 20.0, true, 0);
+    let result = tree.add(5, 20.0, false, true, 0);
     assert!(result.size_delta > 0);
     assert_eq!(tree.num_entries(), 2);
 }
@@ -94,7 +94,7 @@ fn test_inverted_indexes_size() {
     let initial_size = tree.inverted_indexes_size();
 
     let mut tree2 = NumericRangeTree::new(false);
-    tree2.add(1, 5.0, false, 0);
+    tree2.add(1, 5.0, false, false, 0);
     let size_after_add = tree2.inverted_indexes_size();
     assert!(size_after_add > initial_size);
 }
@@ -130,9 +130,9 @@ fn test_mem_usage() {
     let mut tree = NumericRangeTree::new(false);
     let mem_before = tree.mem_usage();
 
-    tree.add(1, 5.0, false, 0);
-    tree.add(2, 10.0, false, 0);
-    tree.add(3, 15.0, false, 0);
+    tree.add(1, 5.0, false, false, 0);
+    tree.add(2, 10.0, false, false, 0);
+    tree.add(3, 15.0, false, false, 0);
 
     let mem_after = tree.mem_usage();
     assert!(mem_after > mem_before);
@@ -143,7 +143,7 @@ fn test_multiple_sequential_adds() {
     let mut tree = NumericRangeTree::new(false);
 
     for i in 1..=100 {
-        let result = tree.add(i as u64, i as f64, false, 0);
+        let result = tree.add(i as u64, i as f64, false, false, 0);
         assert!(result.size_delta >= 0);
     }
 
@@ -191,7 +191,7 @@ fn test_split_with_identical_values() {
     // so the size-overflow path (MAXIMUM_RANGE_SIZE) with card > 1 won't
     // trigger. The tree should remain a single leaf.
     for i in 1..=500u64 {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
 
     assert_eq!(tree.num_entries(), 500);
@@ -211,7 +211,7 @@ fn test_deep_tree_balancing() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in 1..=5000u64 {
-        tree.add(i, i as f64, false, 0);
+        tree.add(i, i as f64, false, false, 0);
     }
 }
 
@@ -226,7 +226,7 @@ fn test_deep_tree_balancing_descending() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in (1..=5000u64).rev() {
-        tree.add(5001 - i, i as f64, true, 0);
+        tree.add(5001 - i, i as f64, false, true, 0);
     }
 }
 
@@ -244,13 +244,13 @@ fn test_deep_tree_balancing_mixed() {
         if batch % 2 == 0 {
             // Ascending batch
             for v in (batch * 500 + 1)..=(batch * 500 + 500) {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         } else {
             // Descending batch
             for v in ((batch * 500 + 1)..=(batch * 500 + 500)).rev() {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         }

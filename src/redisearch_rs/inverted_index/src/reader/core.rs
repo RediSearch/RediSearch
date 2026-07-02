@@ -35,6 +35,11 @@ pub struct IndexReaderCore<'index, E> {
     /// document ID for delta calculations.
     pub(crate) last_doc_id: DocId,
 
+    /// The ordinal (0-based position) within the current block of the *next* entry to be decoded.
+    /// Used to index the block's `expiration_bits` side bitset so each decoded result carries its
+    /// document-level field-expiration flag. Reset to 0 whenever the current block changes.
+    pub(crate) entry_in_block: u16,
+
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
@@ -80,8 +85,14 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             self.set_current_block(self.current_block_idx + 1);
         }
 
-        let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = &self.ii.blocks[self.current_block_idx];
+        let base = D::base_id(block, self.last_doc_id);
         D::decode(&mut self.current_buffer, base, result)?;
+
+        // The codec does not carry the field-expiration flag; it lives in the
+        // block's side bitset, indexed by entry ordinal.
+        result.has_field_expiration = block.expiration_bit(self.entry_in_block);
+        self.entry_in_block += 1;
 
         self.last_doc_id = result.doc_id;
 
@@ -99,13 +110,19 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
         }
 
         let base = D::base_id(&self.ii.blocks[self.current_block_idx], self.last_doc_id);
-        let success = D::seek(&mut self.current_buffer, base, doc_id, result)?;
-
-        if success {
-            self.last_doc_id = result.doc_id;
+        match D::seek(&mut self.current_buffer, base, doc_id, result)? {
+            Some(advanced) => {
+                // `advanced` entries were traversed from the entry we were positioned on, so the
+                // landed entry sits at ordinal `entry_in_block + advanced - 1` within the block.
+                let landed = self.entry_in_block + advanced - 1;
+                result.has_field_expiration =
+                    self.ii.blocks[self.current_block_idx].expiration_bit(landed);
+                self.entry_in_block = landed + 1;
+                self.last_doc_id = result.doc_id;
+                Ok(true)
+            }
+            None => Ok(false),
         }
-
-        Ok(success)
     }
 
     fn skip_to(&mut self, doc_id: DocId) -> bool {
@@ -203,6 +220,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             current_buffer,
             current_block_idx: 0,
             last_doc_id,
+            entry_in_block: 0,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
         }
@@ -238,6 +256,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         let current_block = &self.ii.blocks[self.current_block_idx];
         self.last_doc_id = current_block.first_doc_id;
         self.current_buffer = Cursor::new(&current_block.buffer);
+        self.entry_in_block = 0;
     }
 }
 

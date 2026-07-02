@@ -415,7 +415,7 @@ size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t)
  * - `t` must point to a valid [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  */
-struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, int isMulti, size_t maxDepthRange);
+struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 
 /**
  * Get the root node of the tree.
@@ -552,13 +552,6 @@ void NumericRangeTreeFindResult_Free(struct NumericRangeTreeFindResult result);
 struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
 
 /**
- * Get the base size of a NumericRangeTree struct (not including contents).
- *
- * This is used for memory overhead calculations.
- */
-size_t NumericRangeTree_BaseSize(void);
-
-/**
  * Parse a serialized GC entry and apply it to the specified node.
  *
  * The entry data must have the wire format produced by [`NumericGcScanner_Next`]:
@@ -575,6 +568,13 @@ size_t NumericRangeTree_BaseSize(void);
  * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
  */
 struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree, uint32_t node_position, uint32_t node_generation, const uint8_t *entry_data, size_t entry_len);
+
+/**
+ * Get the base size of a NumericRangeTree struct (not including contents).
+ *
+ * This is used for memory overhead calculations.
+ */
+size_t NumericRangeTree_BaseSize(void);
 
 #ifdef __cplusplus
 }  // extern "C"

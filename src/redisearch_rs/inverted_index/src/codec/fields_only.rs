@@ -69,15 +69,17 @@ impl Decoder for FieldsOnly {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let field_mask = loop {
             let [delta, field_mask] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
 
             base += delta as DocId;
 
@@ -88,7 +90,7 @@ impl Decoder for FieldsOnly {
 
         result.doc_id = base;
         result.field_mask = field_mask as FieldMask;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 
@@ -141,15 +143,17 @@ impl Decoder for FieldsOnlyWide {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let field_mask = loop {
             let delta = match u32::read_as_varint(cursor) {
                 Ok(delta) => delta,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
             let field_mask = u128::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -161,7 +165,7 @@ impl Decoder for FieldsOnlyWide {
 
         result.doc_id = base;
         result.field_mask = field_mask;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 

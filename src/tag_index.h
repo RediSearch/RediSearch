@@ -133,6 +133,15 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
   array_free(s);
 }
 
+typedef struct {
+  SearchDiskWriteBatchHandle *batch;
+  const char **values;
+  size_t n;
+  t_docId docId;
+  bool hasFieldExpiration;
+  IndexStats *stats;
+} TagIndexIndexCtx;
+
 /* Index a vector of pre-processed tags for a docId.
  *
  * In disk mode the writes are staged onto `batch` (phase 1); the matching
@@ -144,8 +153,7 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
  *
  * @param ctx   RedisModuleCtx pointer (required by BigModule APIs in disk mode)
  * @param batch Open per-document write batch (disk mode only; pass NULL for memory mode) */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
-                    const char **values, size_t n, t_docId docId, IndexStats *stats);
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const TagIndexIndexCtx *indexCtx);
 
 /* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
  *
