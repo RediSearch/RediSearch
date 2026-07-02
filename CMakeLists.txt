@@ -279,7 +279,16 @@ endif()
 
 # Platform-specific settings
 if(APPLE)
-    # Find OpenSSL on macOS
+    # Find OpenSSL on macOS — prefer Homebrew arm64 path when not explicitly set
+    if(NOT OPENSSL_ROOT_DIR)
+        if(EXISTS "/opt/homebrew/opt/openssl@3")
+            set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl@3")
+        elseif(EXISTS "/opt/homebrew/opt/openssl")
+            set(OPENSSL_ROOT_DIR "/opt/homebrew/opt/openssl")
+        else()
+            set(OPENSSL_ROOT_DIR "/usr/local/opt/openssl")
+        endif()
+    endif()
     find_package(OpenSSL REQUIRED)
     include_directories(${OPENSSL_INCLUDE_DIR})
 

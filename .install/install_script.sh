@@ -12,12 +12,15 @@ else
     VERSION=${VERSION#"VERSION_ID="}
     OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
     OS_NAME=${OS_NAME#"NAME="}
-    # AlmaLinux is RHEL-compatible and uses the same install scripts as Rocky Linux.
+    # AlmaLinux and RHEL are compatible with Rocky Linux install scripts.
     [[ $OS_NAME == 'AlmaLinux' ]] && OS_NAME='Rocky Linux'
+    [[ $OS_NAME == 'Red Hat Enterprise Linux' ]] && OS_NAME='Rocky Linux'
     [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
     [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
     OS=${OS_NAME,,}_${VERSION}
     OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
+    # CBL-Mariner: normalize to mariner<major> (e.g. mariner2).
+    [[ $OS_NAME == 'Common Base Linux Mariner' ]] && OS="mariner${VERSION%%.*}"
 fi
 echo $OS
 

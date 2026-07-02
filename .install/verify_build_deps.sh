@@ -67,6 +67,7 @@ declare -A os_package_checkers=(
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
   ["almalinux"]="check_package_rpm"
+  ["rhel"]="check_package_rpm"
   ["amzn2"]="check_package_yum"
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"

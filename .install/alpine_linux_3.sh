@@ -25,3 +25,18 @@ fi
 
 # Need clang for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
+
+# Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
+# in document_metadata uses bindgen-static, which links clang-sys statically).
+LLVM_VER=$(ls /usr/lib/ | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm')
+$MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static
+
+# Alpine ships component .a files but no combined libLLVM-<ver>.a.
+# clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
+# libLLVM-<ver>.a. Create a thin archive that references the component files.
+if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
+    # shellcheck disable=SC2046
+    ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
+        /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a \
+        /usr/lib/libzstd.a
+fi
