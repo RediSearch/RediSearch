@@ -842,14 +842,14 @@ typedef struct VectorDiskAPI {
  * `field_mask` carried inside each posting: bytes are bucketed as `exclusive`
  * (posting belongs to a single field) or `shared` (posting belongs to two or
  * more fields, charged in full to every participating field). These counters
- * are maintained on the disk side (write/GC/RDB) — see MOD-16392.
+ * are maintained on the disk side (write/GC/RDB).
  *
  * Bytes are *logical* serialized posting bytes, not physical SST bytes, and are
  * eventually consistent: deletes are reflected once GC compacts the affected
  * postings, not at delete time.
  */
 typedef struct PerFieldTextDiskMetrics {
-  bool available;            // false when the field is unknown or counters are unavailable
+  bool available;            // false for an unknown ftId or when counters are unavailable
   uint64_t exclusive_bytes;  // logical posting bytes charged solely to this field
   uint64_t shared_bytes;     // logical posting bytes for postings shared with other fields
 } PerFieldTextDiskMetrics;
