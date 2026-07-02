@@ -16,7 +16,7 @@ use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index, profile_print,
+    open_numeric_or_geo_index, profile_print, union_opaque::build_union,
 };
 
 /// Wrapper around [`NumericIteratorVariant`].
@@ -198,14 +198,18 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
         })
         .collect();
 
-    crate::union::build_union_from_children(
-        children,
-        true,
-        min_union_iter_heap,
-        node_type,
-        ptr::null(),
-        1.0,
-    )
+    // SAFETY: `q_str` is null and `node_type` is `Numeric` or `Geo`, both
+    // union-compatible, satisfying the requirements of `build_union`.
+    unsafe {
+        build_union(
+            children,
+            true,
+            min_union_iter_heap,
+            node_type,
+            ptr::null(),
+            1.0,
+        )
+    }
 }
 
 impl profile_print::ProfilePrint for NumericIterator<'_> {
