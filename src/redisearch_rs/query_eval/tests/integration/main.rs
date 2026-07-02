@@ -18,5 +18,6 @@ mod null;
 mod optional;
 mod phrase;
 mod qast_iterate;
+mod union;
 mod util;
 mod wildcard;
