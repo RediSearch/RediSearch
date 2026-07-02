@@ -361,94 +361,109 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        // Build a flat working list of all current blocks as `Arc<IndexBlock>`s, in the
-        // sealed → pending → in_progress order. The in_progress (owned directly on
-        // `self`) is `take()`n out so we can move it into the working list; we'll set
-        // self.in_progress to whatever survives at the trailing slot.
-        let mut working: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks_before);
-        // Reclaim the `sealed` region by moving its blocks out when no reader snapshot
-        // pins it (the common case): take the `Arc` out and `try_unwrap` it — on success
-        // the blocks move into the working list with no buffer copy. Only when a live
-        // snapshot still shares the region do we deep-copy (copy-on-write), matching the
-        // pending/in_progress handling and the `unwrap_or_cow` used below. Without this,
-        // every GC deep-copied the whole compacted `sealed` region even with no readers.
+        // Rebuild the compacted region in a single pass into a by-value working list —
+        // no intermediate `Vec<Arc<IndexBlock>>` and no per-block Arc wrap/unwrap
+        // round-trip. Blocks flow in the logical sealed → pending → in_progress order; a
+        // delta at logical index N is matched against the Nth block consumed. A block is
+        // only *materialized* (moved or cloned into `survivors`) when it survives — a
+        // Delete needs only the block's entry-count / size for accounting, so a deleted
+        // block that a snapshot pins is never cloned.
+        let mut survivors: Vec<IndexBlock> = Vec::with_capacity(blocks_before);
+        let mut deltas_iter = deltas.into_iter().peekable();
+        let mut block_index: usize = 0;
+
+        // Apply the delta at `block_index` (if any) using the block's `$num_entries` /
+        // `$mem_usage` for accounting; otherwise run `$keep` to materialize the survivor
+        // into `survivors`. A macro, not a closure, so each caller can supply a survivor
+        // sourced differently (moved value, deep clone, or Arc-unwrap) without a closure
+        // borrowing `self`/`info`/`survivors`/`deltas_iter` all at once.
+        macro_rules! apply_delta_or_keep {
+            ($num_entries:expr, $mem_usage:expr, $keep:block) => {{
+                match deltas_iter.peek() {
+                    Some(d) if d.index == block_index => {
+                        let d = deltas_iter
+                            .next()
+                            .expect("peek() returned Some on this iteration");
+                        match d.repair {
+                            RepairType::Delete {
+                                n_unique_docs_removed,
+                            } => {
+                                info.entries_removed += $num_entries;
+                                info.bytes_freed += $mem_usage;
+                                self.n_unique_docs -= n_unique_docs_removed;
+                            }
+                            RepairType::Replace {
+                                blocks,
+                                n_unique_docs_removed,
+                            } => {
+                                info.entries_removed += $num_entries;
+                                info.bytes_freed += $mem_usage;
+                                self.n_unique_docs -= n_unique_docs_removed;
+                                for b in blocks {
+                                    // Replace can only shrink — new block entries are always
+                                    // a subset of the old. saturating_sub guards against a
+                                    // malformed delta (e.g. corrupted RDB) producing a
+                                    // larger replacement.
+                                    info.entries_removed =
+                                        info.entries_removed.saturating_sub(b.num_entries as usize);
+                                    info.bytes_allocated += b.mem_usage();
+                                    survivors.push(b);
+                                }
+                            }
+                        }
+                    }
+                    _ => $keep,
+                }
+                block_index += 1;
+            }};
+        }
+
+        // `sealed`: when no reader snapshot pins the region (the common case) move each
+        // block out by value — no buffer copy. When a live snapshot still shares it we
+        // must deep-copy the survivors it holds (copy-on-write); a deleted block is only
+        // read for accounting, never cloned.
         let old_sealed = std::mem::replace(&mut self.sealed, Arc::new(ThinVec::new()));
         match Arc::try_unwrap(old_sealed) {
             Ok(sealed_vec) => {
                 for b in sealed_vec.into_iter() {
-                    working.push(Arc::new(b));
+                    let (ne, mu) = (b.num_entries as usize, b.mem_usage());
+                    apply_delta_or_keep!(ne, mu, { survivors.push(b) });
                 }
             }
             Err(shared) => {
+                // A live snapshot pins the whole region, so every block must be
+                // deep-copied out (the reader keeps reading the originals). Clone up
+                // front — matching the pre-existing behavior — then apply deltas to the
+                // owned copy.
                 for b in shared.iter() {
                     COW_CLONED_BLOCKS.fetch_add(1, Ordering::Relaxed);
                     COW_CLONED_BYTES.fetch_add(b.mem_usage() as u64, Ordering::Relaxed);
-                    working.push(Arc::new(b.clone()));
+                    let owned = b.clone();
+                    let (ne, mu) = (owned.num_entries as usize, owned.mem_usage());
+                    apply_delta_or_keep!(ne, mu, { survivors.push(owned) });
                 }
             }
         }
-        let old_pending = std::mem::take(&mut self.pending);
-        working.extend(old_pending);
+        // `pending`: each block is its own `Arc`. Only survivors are materialized via
+        // `unwrap_or_cow` (move when unique, clone when a snapshot pins that block); a
+        // deleted pending block is read through the `Arc` and dropped without cloning.
+        for arc in std::mem::take(&mut self.pending) {
+            let (ne, mu) = (arc.num_entries as usize, arc.mem_usage());
+            apply_delta_or_keep!(ne, mu, { survivors.push(unwrap_or_cow(arc)) });
+        }
+        // `in_progress`: owned directly on `self`, so a survivor always moves by value.
         if let Some(ip) = self.in_progress.take() {
-            working.push(Arc::new(ip));
+            let (ne, mu) = (ip.num_entries as usize, ip.mem_usage());
+            apply_delta_or_keep!(ne, mu, { survivors.push(ip) });
         }
 
-        let mut deltas_iter = deltas.into_iter().peekable();
-        let mut new_all: Vec<Arc<IndexBlock>> = Vec::with_capacity(working.len());
-
-        for (block_index, arc_block) in working.into_iter().enumerate() {
-            match deltas_iter.peek() {
-                Some(d) if d.index == block_index => {
-                    let d = deltas_iter
-                        .next()
-                        .expect("peek() returned Some on this iteration");
-                    match d.repair {
-                        RepairType::Delete {
-                            n_unique_docs_removed,
-                        } => {
-                            info.entries_removed += arc_block.num_entries as usize;
-                            info.bytes_freed += arc_block.mem_usage();
-                            self.n_unique_docs -= n_unique_docs_removed;
-                        }
-                        RepairType::Replace {
-                            blocks,
-                            n_unique_docs_removed,
-                        } => {
-                            info.entries_removed += arc_block.num_entries as usize;
-                            info.bytes_freed += arc_block.mem_usage();
-                            self.n_unique_docs -= n_unique_docs_removed;
-                            for b in blocks {
-                                // Replace can only shrink — new block entries are always
-                                // a subset of the old. saturating_sub guards against a
-                                // malformed delta (e.g. corrupted RDB) producing a
-                                // larger replacement.
-                                info.entries_removed =
-                                    info.entries_removed.saturating_sub(b.num_entries as usize);
-                                info.bytes_allocated += b.mem_usage();
-                                new_all.push(Arc::new(b));
-                            }
-                        }
-                    }
-                }
-                _ => new_all.push(arc_block),
-            }
-        }
-
-        // The trailing block becomes the new `in_progress` (set on self directly).
-        // Everything before it gets compacted into the contiguous `sealed` ThinVec.
-        // pending resets to empty.
-        let new_in_progress_arc = new_all.pop();
-        let new_in_progress: Option<IndexBlock> = new_in_progress_arc.map(|arc| {
-            // The trailing block was either the in_progress we take()'d above (Arc
-            // unique → try_unwrap succeeds) or a Replace-emitted block. Either way,
-            // try_unwrap should succeed; fall back to clone (COW) if a snapshot pins it.
-            unwrap_or_cow(arc)
-        });
-
+        // The trailing survivor becomes the new `in_progress`; the rest are compacted
+        // into a freshly-sized `sealed` ThinVec (exact capacity, no slack).
+        let new_in_progress = survivors.pop();
         let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
-            ThinVec::with_capacity(new_all.len());
-        for arc_b in new_all {
-            new_sealed.push(unwrap_or_cow(arc_b));
+            ThinVec::with_capacity(survivors.len());
+        for b in survivors {
+            new_sealed.push(b);
         }
 
         let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
