@@ -1060,7 +1060,7 @@ typedef struct RPSafeLoader {
   // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
-  RequestSyncCtx *syncCtx;
+  BlockedRequestCtx *syncCtx;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1233,12 +1233,12 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Deadlock-avoidance handshake (syncCtx non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
-  if (self->syncCtx && !RequestSyncCtx_SafeLoaderEnterGIL(self->syncCtx)) {
+  if (self->syncCtx && !BlockedRequestCtx_SafeLoaderEnterGIL(self->syncCtx)) {
     return RS_RESULT_TIMEDOUT;
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // Sync point: pause holding the GIL gate (safeLoadersHoldingGIL > 0),
   // before the Redis lock, so a timeout callback observes it and preempts.
   SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, SearchTime_IsTimedOut, &sctx->time);
 #endif
@@ -1252,10 +1252,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // timeout callback only runs on the main thread while it holds the GIL, so it
   // cannot observe the flag during this window; clearing before the unlock
   // closes the race where a timeout landing in the unlock->clear gap sees a
-  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
   if (self->syncCtx) {
-    RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);
+    BlockedRequestCtx_SafeLoaderExitGIL(self->syncCtx);
   }
 
   // Done loading. Unlock Redis
@@ -1422,7 +1422,7 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 // Link the request sync context into every RP_SAFE_LOADER in the pipeline so
 // they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync) {
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {

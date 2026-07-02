@@ -30,6 +30,9 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
+  // Wrap the debug AREQ in its single-owner sync context.
+  // Must be called after rm_realloc so r points to stable memory.
+  BlockedRequestCtx_NewAREQ(r);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

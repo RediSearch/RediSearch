@@ -218,29 +218,23 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 #endif
 
 void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
-  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, &hreq->syncCtx);
+  // The tail and every subquery pipeline link the top-level wrapper: sub-AREQs
+  // have no wrapper of their own, and the GIL-handshake state (a counter, so
+  // concurrent loaders keep it accurate) lives on the hybrid's BlockedRequestCtx.
+  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, hreq->brc);
 
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
     if (subquery) {
-      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), &subquery->syncCtx);
+      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), hreq->brc);
     }
   }
 }
 
 bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
-  if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&hreq->syncCtx)) {
-    return true;
-  }
-
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    AREQ *subquery = hreq->requests[i];
-    if (subquery && RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&subquery->syncCtx)) {
-      return true;
-    }
-  }
-
-  return false;
+  // The tail and all subquery safe loaders share the top-level wrapper, so a
+  // single check covers every pipeline.
+  return BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(hreq->brc);
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -783,6 +777,13 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       // The cursor lifetime will determine the hybrid request lifetime
       cursor->execState = areq;
       cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      // A cursor-backing sub-AREQ needs its own heap BlockedRequestCtx: RETURN_STRICT
+      // FT.CURSOR READ cycles run the claim/done-latch handshake against the read
+      // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
+      // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
+      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
+      RS_ASSERT(areq->brc == NULL);
+      BlockedRequestCtx_NewAREQ(areq);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
       areq->cursor_id = cursor->id;
@@ -1168,7 +1169,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
         blockClientCtx.timeoutCallback = internal
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
-        hreq->syncCtx.requiresAggregateResultsSync = true;
+        hreq->brc->requiresAggregateResultsSync = true;
       }
     }
 
