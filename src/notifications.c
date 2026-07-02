@@ -148,33 +148,44 @@ static enum RedisCmd GetRedisCmd(const char *event) {
 #undef CHECK_JSON_EVENT
 }
 
-// Payload carried to a deferred per-key notification job. The per-key job
-// callback only receives (ctx, key, pd), so the original notification type and
-// the precomputed event enum are stashed here. We deliberately do not keep the
-// raw event string: RedisJSON event strings are freed once the notification
-// returns (see GetRedisCmd), and the enum already carries everything the handler
-// needs.
+// Payload carried to a deferred notification job. The callback only receives
+// (ctx, pd), so the key, original notification type and precomputed event enum
+// are stashed here. We deliberately do not keep the raw event string: RedisJSON
+// event strings are freed once the notification returns (see GetRedisCmd), and
+// the enum already carries everything the handler needs.
 typedef struct {
   int type;
   enum RedisCmd redisCommand;
+  RedisModuleString *key;
 } KeyspaceNotificationJob;
 
-void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+void FreeKeyspaceNotificationJob(void *pd) {
   KeyspaceNotificationJob *job = pd;
-  HandleKeyspaceNotification(ctx, job->type, job->redisCommand, key);
+  RedisModule_FreeString(NULL, job->key);
+  rm_free(job);
+}
+
+void HandlePostNotificationJob(RedisModuleCtx *ctx, void *pd) {
+  KeyspaceNotificationJob *job = pd;
+  HandleKeyspaceNotification(ctx, job->type, job->redisCommand, job->key);
 }
 
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                 RedisModuleString *key) {
   enum RedisCmd redisCommand = GetRedisCmd(event);
   // When running on SearchDisk, defer the actual handling of every event other
-  // than "loaded" to a post-notification per-key job, so indexing runs outside
-  // the keyspace-notification context.
+  // than "loaded" to a post-notification job, so indexing runs outside the
+  // keyspace-notification context.
   if (SearchDisk_IsEnabled() && redisCommand != loaded_cmd) {
     KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
     job->type = type;
     job->redisCommand = redisCommand;
-    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job, rm_free);
+    job->key = RedisModule_CreateStringFromString(ctx, key);
+    int rc = RedisModule_AddPostNotificationJob(ctx, HandlePostNotificationJob, job,
+                                                FreeKeyspaceNotificationJob);
+    if (rc != REDISMODULE_OK) {
+      FreeKeyspaceNotificationJob(job);
+    }
     RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
     return REDISMODULE_OK;
   }
