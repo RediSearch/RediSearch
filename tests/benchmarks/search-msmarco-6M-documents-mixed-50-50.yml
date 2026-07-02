@@ -32,8 +32,11 @@ dbconfig:
     - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
     # Keep fork-GC active during the run so block churn is reclaimed and, on the
     # snapshot branch, COW/retention of reader-pinned blocks is exercised.
-    - '"FT.CONFIG" "SET" "FORK_GC_RUN_INTERVAL" "1"'
-    - '"FT.CONFIG" "SET" "FORK_GC_CLEAN_THRESHOLD" "1"'
+    # NB: use the unified `CONFIG SET search-*` forms, not `FT.CONFIG` — the latter
+    # is not registered in cluster mode (module.c gates it on !isClusterEnabled) and
+    # this benchmark runs on an oss-cluster setup.
+    - '"CONFIG" "SET" "search-fork-gc-run-interval" "1"'
+    - '"CONFIG" "SET" "search-fork-gc-clean-threshold" "1"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
