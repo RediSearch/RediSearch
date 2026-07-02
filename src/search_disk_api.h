@@ -136,9 +136,10 @@ typedef struct BasicDiskAPI {
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
+   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -288,6 +289,18 @@ typedef struct BasicDiskAPI {
    *         existing indexes via updateWriteBufferSize.
    */
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
+
+  /**
+   * @brief Store a new max_open_files cap on the disk context.
+   *
+   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
+   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+   */
+  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -549,6 +562,17 @@ typedef struct IndexDiskAPI {
    * @param new_budget New total buffer budget in bytes (will be divided internally)
    */
   void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
+
+  /**
+   * @brief Apply a new max_open_files cap to this index's database at runtime.
+   *
+   * Bounds the number of files this index's database keeps open, recycling the
+   * least-recently-used ones and reopening on demand.
+   *
+   * @param index Pointer to the disk index
+   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
+   */
+  void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
    * @brief Master-side SST replication PRE_CHECKPOINT hook.
