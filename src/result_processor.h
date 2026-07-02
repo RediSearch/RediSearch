@@ -94,16 +94,13 @@ void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 // Result count to report to the client: matches minus the rows a loader dropped
 // (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
-// — drops are a subset of counted matches, and any stage that replaces totalResults
-// with an unrelated count (grouper, hybrid merge) clears skippedResults first. The
-// assert enforces that invariant; the subtraction is saturating only as a
-// release-build backstop.
+// — drops are a subset of counted matches, and any stage that transforms or replaces
+// totalResults (grouper, hybrid merge, optimizer offset/limit) folds in and clears
+// skippedResults first. The assert enforces the invariant at every reply site.
 static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
   RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
                 "skippedResults must not exceed totalResults");
-  return qctx->totalResults > qctx->skippedResults
-             ? qctx->totalResults - qctx->skippedResults
-             : 0;
+  return qctx->totalResults - qctx->skippedResults;
 }
 
 /* Result processor return codes */
