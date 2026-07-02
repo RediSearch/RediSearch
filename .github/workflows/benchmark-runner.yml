@@ -242,6 +242,21 @@ jobs:
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
+  # Copy-on-write / lock-free-read stress benchmarks. Share the worker-provisioned
+  # 250gb-threads-8 setup with the msmarco job (both trigger on the same allowed_setup)
+  # but select a disjoint glob, so a benchmark_filter targets exactly one job.
+  benchmark-cow-oss-cluster-08-primaries-250gb-threads-8:
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    needs: build-redisearch
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search-cow*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     needs: build-redisearch
