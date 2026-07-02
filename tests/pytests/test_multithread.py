@@ -1003,7 +1003,7 @@ def _run_query_with_reindex_during_load(env, query_args):
 
 @skip(cluster=True)
 def test_search_drops_doc_reindexed_during_load(env):
-    env = Env(moduleArgs='WORKERS 1')
+    env = initEnv(moduleArgs='WORKERS 1')
     res = _run_query_with_reindex_during_load(env, ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', '10'])
     if res is None:
         env.skip()
@@ -1027,7 +1027,7 @@ def test_aggregate_drops_doc_reindexed_during_load(env):
     # count from a different site (aggregate_exec.c). With WITHCOUNT the count must
     # exclude the dropped row (totalResults - skippedResults) and match the rows
     # actually returned, with no nil/empty placeholder row for the dropped doc.
-    env = Env(moduleArgs='WORKERS 1')
+    env = initEnv(moduleArgs='WORKERS 1')
     res = _run_query_with_reindex_during_load(
         env, ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', '1', '@n'])
     if res is None:
@@ -1055,7 +1055,7 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
     # the only doc that would have been counted yields total_results=0 with a
     # group row still present. doc:1 is re-indexed mid-load and dropped, leaving
     # one group (doc:2, n=2).
-    env = Env(moduleArgs='WORKERS 1')
+    env = initEnv(moduleArgs='WORKERS 1')
     res = _run_query_with_reindex_during_load(
         env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n', 'GROUPBY', '1', '@n'])
     if res is None:
