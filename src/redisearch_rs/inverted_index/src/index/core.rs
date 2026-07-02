@@ -94,17 +94,19 @@ pub struct IndexBlock {
     ///
     /// This is *not* part of the encoded `buffer`; it is kept alongside it so the
     /// document-id codec stays untouched. It is grown lazily and only as far as
-    /// the highest expiring ordinal, so a block whose documents have no field
-    /// expirations (the common case) keeps it empty and pays only the empty-`Vec`
-    /// header. Readers consult it by entry ordinal to set
+    /// the highest expiring ordinal. Readers consult it by entry ordinal to set
     /// [`RSIndexResult::has_field_expiration`](index_result::RSIndexResult::has_field_expiration),
     /// letting expiration-aware iterators skip the TTL-table lookup for documents
     /// that have no field TTL.
     ///
-    /// Represented as `Option<Box<[u8]>>` rather than `Vec<u8>` so that a block
-    /// whose documents have no field expirations (the common case) costs only one
-    /// pointer (`None`) instead of a 3-word `Vec` header — keeping the per-block
-    /// overhead at 8 bytes. It is serialized along with the block (the fork GC
+    /// `Option<Box<[u8]>>` is chosen over `Option<Vec<u8>>` deliberately. `Option`
+    /// keeps the common case — a block whose documents have no field expirations —
+    /// allocation-free (`None`, no heap buffer). `Box<[u8]>` over `Vec<u8>` drops
+    /// the capacity word: the field is then a 2-word fat pointer (16 bytes) rather
+    /// than a 3-word `Vec` header (24 bytes), saving 8 bytes per block. The spare
+    /// capacity a `Vec` carries would be dead weight here anyway, since the bitset
+    /// is reallocated to an exact size on demand (see `set_expiration_bit`) rather
+    /// than pushed into. It is serialized along with the block (the fork GC
     /// round-trips blocks through `rmp_serde`), so the bits survive GC.
     pub(crate) expiration_bits: Option<Box<[u8]>>,
 }
