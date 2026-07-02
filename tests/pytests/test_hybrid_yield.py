@@ -229,7 +229,8 @@ def test_hybrid_search_yield_score_as_after_combine():
     # YIELD_SCORE_AS after COMBINE should work
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
-        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS', 'search_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
@@ -241,6 +242,97 @@ def test_hybrid_search_yield_score_as_after_combine():
         env.assertTrue('search_score' in doc_result)
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
+
+def test_hybrid_combine_yield_score_as_is_positional():
+    """YIELD_SCORE_AS is positional after the COMBINE method clause and must not
+    be counted in the method argument count."""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'PARAMS', '2', 'BLOB', query_vector)\
+            .error().contains('YIELD_SCORE_AS: Unknown argument')
+
+def test_hybrid_combine_duplicate_yield_score_as_error():
+    """A duplicate YIELD_SCORE_AS after the COMBINE clause is rejected."""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS', 'score1',
+            'YIELD_SCORE_AS', 'score2',
+        'PARAMS', '2', 'BLOB', query_vector)\
+            .error().contains('Duplicate YIELD_SCORE_AS argument')
+
+def test_hybrid_combine_missing_argument():
+    """Test that missing argument value for YIELD_SCORE_AS after COMBINE clause
+    results in an error"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS')\
+            .error().contains('Missing argument value for YIELD_SCORE_AS')
+
+def test_hybrid_combine_without_fusion():
+    """Test that COMBINE without a fusion method fails"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE',
+            'YIELD_SCORE_AS', 'score1',
+        'PARAMS', '2', 'BLOB', query_vector)\
+            .error().contains('COMBINE: Invalid value for argument')
+
+def test_hybrid_combine_with_linear_count_0_error():
+    """Test that COMBINE with LINEAR method and count of 0 fails"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'LINEAR', '0',
+            'YIELD_SCORE_AS', 'score1',
+        'PARAMS', '2', 'BLOB', query_vector).error()\
+            .contains('SEARCH_PARSE_ARGS Explicitly specifying LINEAR requires at least one argument, argument count must be positive')
+
+def test_hybrid_combine_with_rrf_constant_0_error():
+    """Test that COMBINE with RRF method and constant of 0 fails"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '0',
+            'YIELD_SCORE_AS', 'score1',
+        'PARAMS', '2', 'BLOB', query_vector).error()\
+            .contains('SEARCH_PARSE_ARGS Explicitly specifying RRF requires at least one argument, argument count must be positive')
 
 def test_hybrid_multiple_yield_after_combine_error():
     """Test that multiple YIELD parameters after COMBINE keyword fail"""
@@ -270,7 +362,7 @@ def test_hybrid_yield_score_as_all_possible_scores():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+        'COMBINE', 'LINEAR', '4', 'ALPHA', alpha, 'BETA', beta,
             'YIELD_SCORE_AS', 'fused_score',
         'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score',
         'PARAMS', '2', 'BLOB', query_vector)
