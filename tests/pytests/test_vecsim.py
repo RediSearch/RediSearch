@@ -1908,6 +1908,9 @@ class TestIndexMultiValueJsonReload:
 
     def __init__(self):
         skipTest(no_json=True)
+        # Flaky under coverage (MOD-15571); skip only on coverage runs until the date below.
+        if CODE_COVERAGE:
+            skipTestUntil("2026-07-06", reason="Flaky test under coverage, see MOD-15571")
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
         self.dim = 4
         self.per_doc = 5
