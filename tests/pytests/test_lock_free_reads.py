@@ -27,7 +27,7 @@ def _run_query_store_result(conn, cmd, result_list):
 
 def test_lock_free_reads_writer_progresses_while_cursor_held():
     # WORKERS 1 so the aggregate runs on a worker thread, leaving the main thread free to
-    # service SYNC_POINT / FT.ALTER while the query is parked.
+    # service SYNC_POINT / the concurrent write while the query is parked.
     env = Env(moduleArgs='WORKERS 1 _LOCK_FREE_READS true DEFAULT_DIALECT 2')
     skipIfNoEnableAssert(env)
 
@@ -36,6 +36,9 @@ def test_lock_free_reads_writer_progresses_while_cursor_held():
     num_docs = 200
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc:{i}', 'body', 'term')
+    # HSET indexing is synchronous (Document_AddToIndexes runs inline in the keyspace
+    # notification), so all num_docs are indexed once this loop returns and the cursor's
+    # snapshot below captures exactly them.
 
     sp = 'AfterIteratorCreate'
     # Control connection: drives the sync point and issues the concurrent writer. Kept
@@ -61,11 +64,16 @@ def test_lock_free_reads_writer_progresses_while_cursor_held():
             lambda: (ctl.execute_command(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sp) == 1, {}),
             'Timeout waiting for the cursor query to reach AfterIteratorCreate')
 
-        # The query is holding a cursor mid-execution. FT.ALTER needs the spec WRITE lock;
-        # with _LOCK_FREE_READS the read lock is already released, so this returns
-        # immediately. If the lock were still held this would block the (single) main
-        # thread and the test would deadlock — a regression here fails as a timeout.
-        env.assertEqual(conn.execute_command('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'body2', 'TEXT'), 'OK')
+        # The query is holding a cursor mid-execution. Add a NEW matching doc: indexing
+        # runs inline in the keyspace notification and needs the spec WRITE lock. With
+        # _LOCK_FREE_READS the read lock is already released, so the HSET completes
+        # immediately; if the lock were still held the (single) main thread would block
+        # and the test would deadlock — a regression here surfaces as a timeout.
+        # (We use an append rather than FT.ALTER: an append only extends the live index
+        # beyond the snapshot, so the reader's point-in-time view is unaffected and the
+        # count stays deterministic. FT.ALTER concurrently mutates the index the reader is
+        # scanning, which makes the counted total racy — see git history.)
+        env.assertEqual(conn.execute_command('HSET', f'doc:{num_docs}', 'body', 'term'), 1)
 
         # ...and the reader is still parked: the writer made progress *while* the cursor
         # was held, which is only possible because the read lock was released.
@@ -76,8 +84,11 @@ def test_lock_free_reads_writer_progresses_while_cursor_held():
         t.join(timeout=30)
         env.assertFalse(t.is_alive(), message='cursor query did not finish after SIGNAL')
 
-        # The query must have completed successfully (snapshot stayed valid across the
-        # release + the concurrent schema change), counting every matching doc.
+        # The cursor's snapshot is point-in-time (taken before the HSET), so the newly
+        # added matching doc must NOT be counted — appends are absorbed by the COW
+        # snapshot (append-immunity). The count is therefore exactly the original set,
+        # deterministically. A count of num_docs+1 would mean the reader re-snapshotted
+        # and saw the concurrent append; anything less means it dropped snapshot results.
         env.assertEqual(len(query_result), 1)
         res = query_result[0]
         env.assertFalse(isinstance(res, Exception), message=f'query failed: {res}')

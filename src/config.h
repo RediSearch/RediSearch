@@ -106,6 +106,10 @@ typedef struct {
   // (lock-free-read snapshot path). Off by default; for benchmarking the COW
   // snapshot work. See docs/design/snapshot-cow-benchmark-plan.md.
   bool lockFreeReads;
+  // Lock-free reads: number of results served under a single spec-read-lock acquisition
+  // before releasing (amortizes the per-result lock acquire/release and iterator
+  // Revalidate). Only consulted when lockFreeReads is on; 1 == release per result.
+  uint32_t lockFreeReadsBatchSize;
   // BM25STD.TANH factor
   unsigned int BM25STD_TanhFactor;
   // OOM policy
@@ -421,6 +425,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .requestConfigParams.lockFreeReads = false,                                \
+    .requestConfigParams.lockFreeReadsBatchSize = 100,                         \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \
