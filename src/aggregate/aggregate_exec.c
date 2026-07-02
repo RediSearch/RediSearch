@@ -1177,12 +1177,43 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   RedisModule_EndReply(reply);
 }
 
+// See aggregate.h for the request-cycle bookend contract.
+void RequestCycle_AssertLockUnset(const RedisSearchCtx *sctx) {
+  if (!sctx) {
+    return;
+  }
+  RS_LOG_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET,
+                "Spec lock state must be clean at background request-cycle entry");
+}
+
+// See aggregate.h for the request-cycle bookend contract.
+void RequestCycle_EnsureLockReleased(RedisSearchCtx *sctx) {
+  if (!sctx) {
+    return;
+  }
+  if (sctx->lock_state != SPEC_LOCK_UNSET) {
+    // Debug builds: crash with a report so the leaking path is found and fixed.
+    RS_LOG_ASSERT(sctx->lock_state == SPEC_LOCK_UNSET,
+                  "Spec lock still held at background request-cycle exit");
+    // Release builds: recover by unlocking here, on the worker thread that took
+    // the lock. Leaving it to a later cleanup (request free / client unblock on
+    // the main thread) would unlock the pthread_rwlock from a thread that does
+    // not own it, which is undefined behavior.
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Spec lock still held at background request-cycle exit; force-unlocking");
+    RedisSearchCtx_UnlockSpec(sctx);
+  }
+}
+
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
   // Release the spec read lock before dropping our reference to `req`.
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
+  // BG-cycle exit bookend (non-cursor path): `req` may be freed by the DecrRef
+  // below, so this is the last point where its sctx is alive on every path.
+  RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
 
@@ -1250,11 +1281,16 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  // BG-cycle entry bookend: the lock state must be clean from the previous
+  // cycle (or from the main-thread setup) before the pipeline may take it.
+  RequestCycle_AssertLockUnset(AREQ_SearchCtx(req));
 
   // Check if timed out while in the job queue.
   if (AREQ_TimedOut(req)) {
     // Timeout callback already replied.
     // blockedClientReqCtx_destroy will release the AREQ ref.
+    // BG-cycle exit bookend (early bail): the lock was never taken.
+    RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
@@ -1272,6 +1308,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     AREQ_ReplyOrStoreError(req, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
+    // BG-cycle exit bookend (early bail): the lock was never taken.
+    RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
@@ -1337,6 +1375,11 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
 error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
+  // BG-cycle exit bookend (error paths): both jumps here explicitly unlocked,
+  // and `req` is still owned by BCRctx, so its sctx is alive. The success paths
+  // are covered inside AREQ_Execute / runCursor, where the request is still
+  // guaranteed alive (it may already be freed once we reach `cleanup`).
+  RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
@@ -2082,6 +2125,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
+  // BG-cycle exit bookend (cursor path): the read is done; below this point the
+  // cursor (and with it `req`) may be freed, paused, or handed off to the
+  // reply-store owner, so the lock must provably be released here, on this
+  // same worker thread.
+  RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
 
   if (req->useReplyCallback) {
     if (req->syncCtx.aggregateResultsClaimLost) {
@@ -2157,6 +2205,9 @@ static void cursorRead(RedisModuleCtx *ctx, Cursor *cursor, size_t count, bool b
       // only AREQ ref, so freeing first would UAF the req->useReplyCallback
       // read inside AREQ_ReplyOrStoreError.
       AREQ_ReplyOrStoreError(req, ctx, &status);
+      // BG-cycle exit bookend (early bail): the lock was never taken on this
+      // read, and Cursor_Free below may free `req`.
+      RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
       Cursor_Free(cursor);
       return;
     }
@@ -2210,9 +2261,17 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // reply and park/free the cursor before the timeout callback replies.
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
+  // BG-cycle entry bookend: a paused cursor must have released the spec lock
+  // at the end of the previous read cycle.
+  RequestCycle_AssertLockUnset(AREQ_SearchCtx(req));
   if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
+    // Exit bookends for this cycle live inside cursorRead/runCursor, where
+    // `req` is still guaranteed alive.
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
+    // BG-cycle exit bookend (early bail): the lock was never taken, and
+    // Cursor_Free below may free `req`.
+    RequestCycle_EnsureLockReleased(AREQ_SearchCtx(req));
     Cursor_Free(cr_ctx->cursor);
   }
   RedisModule_FreeThreadSafeContext(ctx);
