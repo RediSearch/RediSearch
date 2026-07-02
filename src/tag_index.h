@@ -130,14 +130,10 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 uint32_t TagIndex_GetId(const TagIndex *idx);
 
 /* Return 1 if TagIndex supports suffix searches */
-static inline bool TagIndex_HasSuffix(const TagIndex *idx) {
-  return idx->suffix != NULL;
-}
+bool TagIndex_HasSuffix(const TagIndex *idx);
 
 /* Return 1 if TagIndex supports disk searches */
-static inline bool TagIndex_HasDiskSpec(const TagIndex *idx) {
-  return idx->diskSpec != NULL;
-}
+bool TagIndex_HasDiskSpec(const TagIndex *idx);
 
 /* Return an iterator over the TagIndex values */
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);

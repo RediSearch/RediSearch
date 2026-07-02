@@ -347,6 +347,14 @@ uint32_t TagIndex_GetId(const TagIndex *idx) {
   return idx->uniqueId;
 }
 
+bool TagIndex_HasSuffix(const TagIndex *idx) {
+  return idx->suffix != NULL;
+}
+
+bool TagIndex_HasDiskSpec(const TagIndex *idx) {
+  return idx->diskSpec != NULL;
+}
+
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
   return TrieMap_Iterate(idx->values);
 }
