@@ -361,22 +361,52 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        // Rebuild the compacted region in a single pass into a by-value working list —
-        // no intermediate `Vec<Arc<IndexBlock>>` and no per-block Arc wrap/unwrap
-        // round-trip. Blocks flow in the logical sealed → pending → in_progress order; a
-        // delta at logical index N is matched against the Nth block consumed. A block is
-        // only *materialized* (moved or cloned into `survivors`) when it survives — a
-        // Delete needs only the block's entry-count / size for accounting, so a deleted
-        // block that a snapshot pins is never cloned.
-        let mut survivors: Vec<IndexBlock> = Vec::with_capacity(blocks_before);
+        // Count survivors up front so the new `sealed` ThinVec is allocated to fit
+        // exactly (no slack) and built straight into the `Arc` — no intermediate `Vec`,
+        // no final block-buffer copy. `deltas` is sorted ascending and every remaining
+        // entry targets a live block (the one possibly-stale trailing delta was dropped
+        // by the last-block-changed check above); a Delete removes one block and a
+        // Replace swaps one block for its shrunk replacements. The `< blocks_before`
+        // guard ignores any delta that would land past the current tail (never applied).
+        let mut n_survivors: usize = blocks_before;
+        for d in &deltas {
+            if d.index >= blocks_before {
+                continue;
+            }
+            match &d.repair {
+                RepairType::Delete { .. } => n_survivors -= 1,
+                RepairType::Replace { blocks, .. } => n_survivors = n_survivors + blocks.len() - 1,
+            }
+        }
+
+        // Build the compacted region straight into the `sealed` ThinVec, sized to fit
+        // exactly. Blocks flow in logical sealed → pending → in_progress order; a delta
+        // at logical index N is matched against the Nth block consumed. `trailing` holds
+        // the most recent survivor — the next survivor displaces it into `sealed`, so
+        // whatever remains after the pass is the tail block and becomes `in_progress`.
+        // A block is only *materialized* (moved or cloned) when it survives — a Delete
+        // reads only its entry-count / size for accounting, so a deleted block that a
+        // snapshot pins is never cloned.
+        let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
+            ThinVec::with_capacity(n_survivors.saturating_sub(1));
+        let mut trailing: Option<IndexBlock> = None;
         let mut deltas_iter = deltas.into_iter().peekable();
         let mut block_index: usize = 0;
 
+        // Add a survivor to the compacted region via the trailing slot.
+        macro_rules! keep_survivor {
+            ($block:expr) => {{
+                if let Some(prev) = trailing.replace($block) {
+                    new_sealed.push(prev);
+                }
+            }};
+        }
+
         // Apply the delta at `block_index` (if any) using the block's `$num_entries` /
-        // `$mem_usage` for accounting; otherwise run `$keep` to materialize the survivor
-        // into `survivors`. A macro, not a closure, so each caller can supply a survivor
-        // sourced differently (moved value, deep clone, or Arc-unwrap) without a closure
-        // borrowing `self`/`info`/`survivors`/`deltas_iter` all at once.
+        // `$mem_usage` for accounting; otherwise run `$keep` to materialize the survivor.
+        // A macro, not a closure, so each caller can supply a survivor sourced differently
+        // (moved value, deep clone, or Arc-unwrap) without a closure borrowing
+        // `self`/`info`/`new_sealed`/`trailing`/`deltas_iter` all at once.
         macro_rules! apply_delta_or_keep {
             ($num_entries:expr, $mem_usage:expr, $keep:block) => {{
                 match deltas_iter.peek() {
@@ -407,7 +437,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                                     info.entries_removed =
                                         info.entries_removed.saturating_sub(b.num_entries as usize);
                                     info.bytes_allocated += b.mem_usage();
-                                    survivors.push(b);
+                                    keep_survivor!(b);
                                 }
                             }
                         }
@@ -427,7 +457,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             Ok(sealed_vec) => {
                 for b in sealed_vec.into_iter() {
                     let (ne, mu) = (b.num_entries as usize, b.mem_usage());
-                    apply_delta_or_keep!(ne, mu, { survivors.push(b) });
+                    apply_delta_or_keep!(ne, mu, { keep_survivor!(b) });
                 }
             }
             Err(shared) => {
@@ -440,7 +470,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                     COW_CLONED_BYTES.fetch_add(b.mem_usage() as u64, Ordering::Relaxed);
                     let owned = b.clone();
                     let (ne, mu) = (owned.num_entries as usize, owned.mem_usage());
-                    apply_delta_or_keep!(ne, mu, { survivors.push(owned) });
+                    apply_delta_or_keep!(ne, mu, { keep_survivor!(owned) });
                 }
             }
         }
@@ -449,22 +479,21 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // deleted pending block is read through the `Arc` and dropped without cloning.
         for arc in std::mem::take(&mut self.pending) {
             let (ne, mu) = (arc.num_entries as usize, arc.mem_usage());
-            apply_delta_or_keep!(ne, mu, { survivors.push(unwrap_or_cow(arc)) });
+            apply_delta_or_keep!(ne, mu, { keep_survivor!(unwrap_or_cow(arc)) });
         }
         // `in_progress`: owned directly on `self`, so a survivor always moves by value.
         if let Some(ip) = self.in_progress.take() {
             let (ne, mu) = (ip.num_entries as usize, ip.mem_usage());
-            apply_delta_or_keep!(ne, mu, { survivors.push(ip) });
+            apply_delta_or_keep!(ne, mu, { keep_survivor!(ip) });
         }
 
-        // The trailing survivor becomes the new `in_progress`; the rest are compacted
-        // into a freshly-sized `sealed` ThinVec (exact capacity, no slack).
-        let new_in_progress = survivors.pop();
-        let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
-            ThinVec::with_capacity(survivors.len());
-        for b in survivors {
-            new_sealed.push(b);
-        }
+        // Whatever remains in `trailing` is the tail block → new `in_progress`.
+        let new_in_progress = trailing;
+        debug_assert_eq!(
+            new_sealed.len() + usize::from(new_in_progress.is_some()),
+            n_survivors,
+            "survivor pre-count must match the blocks actually kept"
+        );
 
         let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
 
