@@ -2864,7 +2864,7 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
     if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec);
+    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
   }
 }
 

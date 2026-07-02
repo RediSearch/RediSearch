@@ -118,8 +118,9 @@ typedef struct TagIndex {
 /* Create a new tag index
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
  * @param fieldIndex Field index for disk API calls
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex);
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex, bool withSuffix);
 
 void TagIndex_Free(TagIndex *index);
 
@@ -127,6 +128,12 @@ char *TagIndex_SepString(char sep, char **s, size_t *toklen, bool indexEmpty);
 
 /* Return the unique id generated in `NewTagIndex` */
 uint32_t TagIndex_GetId(const TagIndex *idx);
+
+/* Return 1 if TagIndex supports suffix searches */
+bool TagIndex_HasSuffix(const TagIndex *idx);
+
+/* Return 1 if TagIndex supports disk searches */
+bool TagIndex_HasDiskSpec(const TagIndex *idx);
 
 /* Return an iterator over the TagIndex values */
 TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx);
@@ -139,6 +146,11 @@ size_t TagIndex_NUniqueValues(const TagIndex *idx);
  * See [`TrieMap_Delete`] for more details.
  */
 int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen);
+
+/**
+ * Remove the given suffix.
+ */
+void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen);
 
 // must match `tm_iter_mode` defined in triemap_ffi.h
 typedef enum tag_iter_mode {
@@ -164,6 +176,20 @@ TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tag
 void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
                                  const char *max, int maxlen, bool includeMax,
                                  TrieMapRangeCallback callback, void *ctx);
+
+/* Return an iterator over the TagIndex suffix or null */
+TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
+
+/* Return a list of list of terms which match the suffix or contains term or NULL */
+arrayof(char **)
+    TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                           struct timespec timeout, bool skipTimeoutChecks);
+
+/* Return a list of terms which match the wildcard pattern or NULL
+ * If pattern does not match using suffix trie, return 0xBAAAAAAD */
+arrayof(char *)
+    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                      struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
@@ -224,14 +250,15 @@ TagIndex *TagIndex_Open(const FieldSpec *spec);
 /* Open the tag index, creating it if it doesn't exist.
  * @param spec Field spec for the tag field
  * @param diskSpec NULL for memory mode, non-NULL for disk mode
+ * @param withSuffix Let TagIndex support suffix searches
  */
-TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec);
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
  * If a new index was created, the size of the new index is returned in *sz,
  * otherwise *sz is set to 0
-*/
+ */
 struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
                                          size_t len, int create_if_missing, size_t *sz);
 
