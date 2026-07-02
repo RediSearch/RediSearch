@@ -32,15 +32,21 @@ remote:
 
 dbconfig:
   - dataset_name: "6M-msmarco-documents"
+  # Apply on EVERY cluster primary at module load. A runtime `CONFIG SET` is
+  # node-local in a Redis Cluster (not broadcast; FT.CONFIG unavailable in cluster
+  # mode), so it would force GC — and, critically, enable lock-free reads — on only
+  # 1 of 8 primaries, leaving the other 7 lock-based and defeating the comparison.
+  - module-configuration-parameters:
+      redisearch:
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+        _LOCK_FREE_READS: "true"
+      module-oss:
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+        _LOCK_FREE_READS: "true"
   - init_commands:
     - '"FT.CREATE" "ms_marco_idx" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "url" "TEXT" "title" "TEXT" "WEIGHT" "2.0" "headings" "TEXT" "WEIGHT" "1.5" "body" "TEXT" "tags" "TAG" "SEPARATOR" ","'
-    # Keep fork-GC active so block churn is reclaimed and, with lock-free reads on,
-    # COW/retention of reader-pinned blocks is exercised when GC overlaps a live reader.
-    - '"CONFIG" "SET" "search-fork-gc-run-interval" "1"'
-    - '"CONFIG" "SET" "search-fork-gc-clean-threshold" "1"'
-    # Enable the experimental lock-free-read path (feature-branch only). Unified
-    # CONFIG SET form so it works in cluster mode.
-    - '"CONFIG" "SET" "search-_lock-free-reads" "true"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
