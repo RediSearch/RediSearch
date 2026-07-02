@@ -14,6 +14,56 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BINROOT="$ROOT/bin"
 
 #-----------------------------------------------------------------------------
+# Locate the pinned LLVM without relying on global defaults.
+# Bootstrap installs LLVM side-by-side (versioned tarball dir on RHEL-family,
+# clang-NN packages on apt/apk) and never touches /usr/bin or alternatives;
+# the build selects the right one here. Explicit user env always wins:
+# LIBCLANG_PATH is only set when unset, PATH only extended when the pinned
+# dir actually exists.
+#-----------------------------------------------------------------------------
+# Rust lives in the standard user-scoped rustup home; make it visible even in
+# shells that never sourced ~/.cargo/env (e.g. the same shell that just ran
+# `make bootstrap`, or a docker RUN step). The cargo/rustc proxies resolve the
+# pinned toolchain per-directory via rust-toolchain.toml.
+if [[ -d "$HOME/.cargo/bin" ]] && ! command -v cargo &>/dev/null; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
+if [[ -f "$ROOT/.install/LLVM_VERSION.sh" ]]; then
+  source "$ROOT/.install/LLVM_VERSION.sh" # LLVM_VERSION, LLVM_FULL_VERSION
+  _llvm_pinned_dir="${LLVM_INSTALL_DIR:-/usr/local/llvm-${LLVM_FULL_VERSION}}"
+  if [[ -x "${_llvm_pinned_dir}/bin/clang" ]]; then
+    export PATH="${_llvm_pinned_dir}/bin:$PATH"
+    export LIBCLANG_PATH="${LIBCLANG_PATH:-${_llvm_pinned_dir}/lib}"
+  else
+    # Versioned distro packages (apk llvmNN/clangNN, apt.llvm.org llvm-NN)
+    # install under /usr/lib/llvm*NN* without creating unversioned defaults.
+    # Prepend their bin dir so this build resolves the pinned major even when
+    # the system default clang is another version, and point bindgen at the
+    # matching libclang.
+    for _d in "/usr/lib/llvm${LLVM_VERSION}" "/usr/lib/llvm-${LLVM_VERSION}"; do
+      if [[ -x "$_d/bin/clang" ]]; then
+        export PATH="$_d/bin:$PATH"
+        export LIBCLANG_PATH="${LIBCLANG_PATH:-$_d/lib}"
+        break
+      elif [[ -z "${LIBCLANG_PATH:-}" && -d "$_d/lib" ]]; then
+        export LIBCLANG_PATH="$_d/lib"
+      fi
+    done
+    unset _d
+    # Pinned major unavailable on this platform (e.g. Alpine 3.22 tops out
+    # at LLVM 20): bindgen still needs a libclang to parse headers, and it
+    # tolerates other majors. Use the newest one installed.
+    if [[ -z "${LIBCLANG_PATH:-}" ]]; then
+      _d=$(ls -d /usr/lib/llvm*[0-9]/lib 2>/dev/null | sort -V | tail -1)
+      [[ -n "$_d" ]] && export LIBCLANG_PATH="$_d"
+      unset _d
+    fi
+  fi
+  unset _llvm_pinned_dir
+fi
+
+#-----------------------------------------------------------------------------
 # Default configuration values
 #-----------------------------------------------------------------------------
 COORD="oss"      # Coordinator type: oss or rlec
@@ -374,6 +424,23 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  # Bootstrap installs a newer gcc side-by-side (gcc-12 on Ubuntu 22.04,
+  # gcc-toolset on RHEL-family) without flipping global defaults; select it
+  # here when the user hasn't chosen a compiler. LTO builds pick clang below.
+  if [[ "$LTO" != "1" && -z "$CC" && "$OS_NAME" != "macos" ]]; then
+    _gcc_toolset=$(ls -d /opt/rh/gcc-toolset-*/enable 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$_gcc_toolset" ]]; then
+      source "$_gcc_toolset"
+    elif command -v gcc-12 &>/dev/null; then
+      _gcc_major=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+      if [[ "${_gcc_major:-0}" -lt 12 ]]; then
+        export CC=gcc-12 CXX=g++-12
+      fi
+      unset _gcc_major
+    fi
+    unset _gcc_toolset
+  fi
+
   if [[ "$LTO" == "1" ]]; then
     # LTO is only supported on Linux
     if [[ "$OS_NAME" != "linux" ]]; then
@@ -439,26 +506,47 @@ prepare_cmake_arguments() {
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
+    # A platform that cannot provide a clang matching rustc's LLVM major
+    # (e.g. Alpine 3.22 ships only LLVM 20, and the official LLVM tarballs
+    # are glibc-only) must still produce a working build: degrade to a
+    # non-LTO build with a loud warning. Only an EXPLICIT user compiler
+    # choice (CC/CXX/LD set) turns these into hard errors — then the user
+    # has stated intent and deserves the failure.
+    _lto_forced=""
+    [[ -n "$CC" || -n "$CXX" || -n "$LD" ]] && _lto_forced=1
+    lto_degrade() {
+        echo "WARNING: $1"
+        echo "WARNING: building WITHOUT cross-language LTO."
+        echo "         (set CC/CXX/LD explicitly to turn this into an error)"
+        LTO=0
+    }
+
     if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for rustc and clang."
-        echo "Cross-language LTO requires matching LLVM major versions."
-        echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
-        echo "Clang LLVM version: $CLANG_LLVM_VERSION"
-        exit 1
+        if [[ -n "$_lto_forced" ]]; then
+            echo "Error: Could not detect LLVM versions for rustc and clang."
+            echo "Cross-language LTO requires matching LLVM major versions."
+            echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
+            echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+            exit 1
+        fi
+        lto_degrade "could not detect LLVM versions (rustc: '$RUSTC_LLVM_VERSION', clang: '$CLANG_LLVM_VERSION')"
+    elif [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
+        if [[ -n "$_lto_forced" ]]; then
+            echo "Error: LLVM version mismatch between rustc and clang"
+            echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
+            echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
+            echo ""
+            echo "Cross-language LTO requires matching LLVM major versions."
+            echo "Please either:"
+            echo "  1. Install clang-$RUSTC_LLVM_VERSION"
+            echo "  2. Or build without LTO by removing the 'LTO' argument"
+            exit 1
+        fi
+        lto_degrade "this platform has no clang matching rustc's LLVM $RUSTC_LLVM_VERSION (found clang with LLVM $CLANG_LLVM_VERSION)"
     fi
+  fi
 
-    if [[ "$RUSTC_LLVM_VERSION" != "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: LLVM version mismatch between rustc and clang"
-        echo "Rust uses LLVM $RUSTC_LLVM_VERSION (from: rustc --version --verbose)"
-        echo "Clang uses LLVM $CLANG_LLVM_VERSION (from: $C_COMPILER --version)"
-        echo ""
-        echo "Cross-language LTO requires matching LLVM major versions."
-        echo "Please either:"
-        echo "  1. Install clang-$RUSTC_LLVM_VERSION"
-        echo "  2. Or build without LTO by removing the 'LTO' argument"
-        exit 1
-    fi
-
+  if [[ "$LTO" == "1" ]]; then
     echo "Enabling C/Rust LTO"
 
     # LLVM version alignment with the Rust compiler forces us to build with

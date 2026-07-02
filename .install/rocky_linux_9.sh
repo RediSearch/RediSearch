@@ -5,9 +5,10 @@ $MODE dnf update -y
 
 $MODE dnf install -y gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ make wget git --nobest --skip-broken --allowerasing
 
-# Add to profile for _future_ shells
-$MODE cp /opt/rh/gcc-toolset-14/enable /etc/profile.d/gcc-toolset-14.sh
-# Source for _this_ shell
+# Source for _this_ shell only, so the rest of the bootstrap (e.g. boost)
+# builds with it. Not copied to /etc/profile.d: that would silently change
+# the default compiler for every other checkout on this host. build.sh
+# enables the toolset itself when CC is unset.
 source /opt/rh/gcc-toolset-14/enable
 
 # install other stuff after installing gcc-toolset-14 to avoid dependencies conflicts

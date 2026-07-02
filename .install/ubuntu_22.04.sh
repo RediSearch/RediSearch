@@ -7,20 +7,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/apt_get_cmd.sh"
 apt_get_cmd "$MODE" update -qq
 apt_get_cmd "$MODE" install -yqq gcc-12 g++-12 git wget build-essential lcov openssl libssl-dev \
     unzip rsync curl gdb
-# Only move the active compiler up, never down — another module's bootstrap
-# may have already pinned something newer in this shared build container.
-_cur=$(gcc -dumpversion | cut -d. -f1)
-if [ "$_cur" -lt 12 ]; then
-    $MODE update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-12 60
-    $MODE update-alternatives --set     cc  /usr/bin/gcc-12
-    $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60
-    $MODE update-alternatives --set     gcc /usr/bin/gcc-12
-    $MODE update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 60
-    $MODE update-alternatives --set     g++ /usr/bin/g++-12
-    # Align gcov version with gcc version
-    $MODE update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
-    $MODE update-alternatives --set     gcov /usr/bin/gcov-12
-fi
+# gcc-12 is installed side-by-side only (versioned names). No update-alternatives:
+# flipping /usr/bin/gcc would change the compiler every other checkout on this
+# host resolves. build.sh selects gcc-12 explicitly when CC is unset.
 
 # Need clang for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

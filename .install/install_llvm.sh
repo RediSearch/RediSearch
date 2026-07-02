@@ -16,7 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 # LLVM_FULL_VERSION (e.g. "21.1.8").
 #
 # Environment variables:
-#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm)
+#   LLVM_INSTALL_DIR  — Where to unpack tarball installs
+#                       (default: /usr/local/llvm-<full version>)
 # =============================================================================
 
 OS_TYPE=$(uname -s)
@@ -27,12 +28,24 @@ source "$(dirname "${BASH_SOURCE[0]}")/LLVM_VERSION.sh"
 LLVM_VER="${LLVM_VERSION}"
 LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 
-INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+# Version-addressed install dir: lives side-by-side with any other LLVM on the
+# host, so no bootstrap (ours or a co-located module's) can change what an
+# existing build resolves. build.sh locates this path via LLVM_VERSION.sh;
+# nothing global (/usr/bin symlinks, alternatives, profiles) is modified.
+INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm-${LLVM_FULL_VER}}"
 MODE="${1:-}"
 
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
 # Works on any glibc-based Linux. Will NOT work on musl/Alpine.
+# Write-once: an existing $INSTALL_DIR is trusted as-is (the path encodes the
+# full version), making re-runs and concurrent module bootstraps no-ops.
 install_from_tarball() {
+    if [[ -x "${INSTALL_DIR}/bin/clang" ]]; then
+        echo ">>> LLVM already present at ${INSTALL_DIR} - skipping download"
+        export_path_gha
+        return 0
+    fi
+
     local tarball_name
     case "$ARCH" in
         x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
@@ -48,10 +61,21 @@ install_from_tarball() {
     tmpdir=$(mktemp -d)
     curl -fSL --retry 3 -o "${tmpdir}/${tarball_name}" "$url"
 
+    # Extract into a staging dir next to the destination, then atomically
+    # rename into place. A concurrent bootstrap that wins the race is fine:
+    # same version, same bytes — we discard our copy and use the winner's.
+    local staging="${INSTALL_DIR}.staging.$$"
     echo ">>> Extracting to ${INSTALL_DIR}..."
-    $MODE mkdir -p "$INSTALL_DIR"
-    $MODE tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1
+    $MODE mkdir -p "$staging"
+    $MODE tar -xf "${tmpdir}/${tarball_name}" -C "$staging" --strip-components=1
     rm -rf "$tmpdir"
+    if ! $MODE mv -T "$staging" "$INSTALL_DIR" 2>/dev/null; then
+        $MODE rm -rf "$staging"
+        if [[ ! -x "${INSTALL_DIR}/bin/clang" ]]; then
+            echo "ERROR: failed to move ${staging} into ${INSTALL_DIR}"
+            return 1
+        fi
+    fi
 
     export_path_gha
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
@@ -158,12 +182,10 @@ install_llvm() {
         # Official tarballs are glibc-based and won't work here.
         if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "clang${LLVM_VER}-libclang" "lld${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
-            # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
-            for tool in llvm-config clang clang++ lld ld.lld; do
-                if [ -f "/usr/bin/${tool}-${LLVM_VER}" ] && [ ! -e "/usr/bin/${tool}" ]; then
-                    $MODE ln -s "${tool}-${LLVM_VER}" "/usr/bin/${tool}"
-                fi
-            done
+            # Versioned binaries (clang-NN) and /usr/lib/llvmNN are enough:
+            # build.sh resolves both explicitly (compiler by versioned name,
+            # bindgen via LIBCLANG_PATH). No unversioned /usr/bin symlinks —
+            # those would silently change which clang other checkouts get.
         elif $MODE apk add --no-cache llvm clang lld; then
             echo ">>> Installed default llvm/clang (may not be version ${LLVM_VER})"
             # Install matching libclang for bindgen — package name is version-specific.

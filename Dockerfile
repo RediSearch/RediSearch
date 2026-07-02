@@ -23,8 +23,16 @@ COPY . .
 
 WORKDIR /project/.install
 # Install base dependencies, Rust toolchain, and optionally LLVM for sanitizer builds.
+# install_llvm.sh unpacks tarballs into a versioned dir (/usr/local/llvm-<ver>);
+# the unversioned symlink keeps the static ENV PATH below working. Image-scoped:
+# this image builds only RediSearch, so the unversioned name can't mislead
+# anything else.
 RUN SKIP_BOOST=1 bash retry.sh bash -l -eo pipefail install_script.sh && \
-    if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail install_llvm.sh; fi
+    if [ "$SAN" = "address" ]; then \
+        bash retry.sh bash -l -eo pipefail install_llvm.sh && \
+        . ./LLVM_VERSION.sh && \
+        if [ -d "/usr/local/llvm-${LLVM_FULL_VERSION}" ]; then ln -sfn "/usr/local/llvm-${LLVM_FULL_VERSION}" /usr/local/llvm; fi; \
+    fi
 # Mount the GitHub token as a build secret so cargo-binstall benefits from
 # higher GitHub API rate limits when fetching prebuilt release artifacts.
 RUN --mount=type=secret,id=GITHUB_TOKEN \

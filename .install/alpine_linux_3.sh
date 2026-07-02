@@ -33,10 +33,18 @@ $MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-
 
 # Alpine ships component .a files but no combined libLLVM-<ver>.a.
 # clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
-# libLLVM-<ver>.a. Create a thin archive that references the component files.
+# libLLVM-<ver>.a. Create a fat archive using llvm-ar -M so that lld can link
+# it. lld builds a full symbol table from the archive up front, resolving LLVM's
+# circular inter-component references without needing GROUP rescanning.
+# (ar rcT creates a GNU thin archive that lld rejects outright.)
 if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
-    # shellcheck disable=SC2046
-    ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
-        /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a \
-        /usr/lib/libzstd.a
+    {
+        echo "CREATE /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a"
+        for _f in /usr/lib/llvm${LLVM_VER}/lib/libLLVM[A-Za-z]*.a; do
+            echo "ADDLIB $_f"
+        done
+        echo "ADDLIB /usr/lib/libzstd.a"
+        echo "SAVE"
+        echo "END"
+    } | $MODE /usr/lib/llvm${LLVM_VER}/bin/llvm-ar -M
 fi

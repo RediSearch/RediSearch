@@ -13,5 +13,8 @@ APT_GET_LOCK_TIMEOUT_SECONDS="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}"
 
 apt_get_cmd() {
     local mode="$1"; shift
-    $mode apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" "$@"
+    # env goes THROUGH $mode: sudo's env_reset strips exported variables, so
+    # the callers' `export DEBIAN_FRONTEND=noninteractive` never reaches dpkg
+    # under sudo — debconf (e.g. tzdata) then blocks on an interactive prompt.
+    $mode env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout="$APT_GET_LOCK_TIMEOUT_SECONDS" "$@"
 }
