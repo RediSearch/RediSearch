@@ -96,10 +96,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
           ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
-          // Create a depleter processor for foreground depletion (WORKERS == 0)
-          // This depletes all results synchronously on the main thread while
-          // the spec lock is held, preventing crashes when the index is
-          // modified between cursor creation and first read.
+          // Foreground depletion (WORKERS == 0): deplete synchronously on the
+          // main thread. The depleter takes no spec lock; its upstream
+          // query-iterator locks and revalidates against GC on each drain. The
+          // caller must NOT hold the spec lock across this, or re-acquisition
+          // deadlocks on the non-recursive, writer-preferring rwlock (see
+          // buildPipelineAndExecute).
           ResultProcessor *depleter = RPDepleter_New();
           QITR_PushRP(qctx, depleter);
         }
