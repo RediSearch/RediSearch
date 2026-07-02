@@ -3411,6 +3411,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "vector_score_source",
  "workspace_hack",
