@@ -220,8 +220,11 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
-  // Per-DB cap on the number of files kept open.
-  // -1 = unlimited.
+  // Per-DB cap on the number of files kept open. Valid values: -1 (unlimited) or >= 11.
+  // The disk backend reserves ~10 descriptors for non-data files and uses (cap - 10) as its
+  // open-file cache size, so caps of 0..10 would underflow that to an effectively unbounded
+  // cache — silently disabling the limit — rather than bounding it. Values in that range are
+  // rejected (see set_search_disk_max_open_files_config).
   int diskMaxOpenFiles;
   // If true, fallback to main thread when BlockClient is unavailable.
   bool fallbackToMainThreadWhenBlockClientUnavailable;
@@ -383,6 +386,9 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
 #define DEFAULT_DISK_BUFFER_PERCENTAGE 20  // 20% of available memory for disk write buffer
 #define DEFAULT_DISK_MAX_OPEN_FILES 1024   // open-file cap; -1 = unlimited
+// Smallest accepted positive cap. Below this the disk backend's open-file cache (cap - 10)
+// underflows to unbounded, so a positive cap must leave at least one cached reader.
+#define DISK_MAX_OPEN_FILES_MIN 11
 #define DEFAULT_MAX_INDEXES 200000
 
 // default configuration

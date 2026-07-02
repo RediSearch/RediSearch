@@ -253,7 +253,17 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
 static int set_search_disk_max_open_files_config(const char *name, long long val,
   void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  // -1 means unlimited. A positive cap becomes the disk backend's open-file cache size,
+  // which is (cap - 10) after reserving ~10 descriptors for non-data files; caps of 0..10
+  // would underflow that to an effectively unbounded cache and silently disable the limit,
+  // so require -1 or >= DISK_MAX_OPEN_FILES_MIN. Validated here (rather than via the config
+  // min bound) because -1 must stay valid while 0..10 must not.
+  if (val != -1 && val < DISK_MAX_OPEN_FILES_MIN) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-disk-max-open-files must be -1 (unlimited) or >= %d", DISK_MAX_OPEN_FILES_MIN);
+    return REDISMODULE_ERR;
+  }
   *(int *)privdata = (int)val;
   // Reapply the new cap to every live disk database (mirrors buffer-percentage).
   if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
