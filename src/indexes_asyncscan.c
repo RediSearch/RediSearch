@@ -122,9 +122,11 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
         IndexSpec_UpdateDoc(sp, ctx, name, type, key);
       }
     }
-    IndexSpecRef_Release(curr_run_ref);
   } else {
     RedisModule_AsyncScanAbort(cursor);
+  }
+  if (sp) {
+    IndexSpecRef_Release(curr_run_ref);
   }
   ++scanner->scannedKeys;
 }
