@@ -272,7 +272,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     base->Next = Grouper_rpYield;
     base->parent->totalResults = kh_size(g->groups);
     // Group count doesn't include rows the loader dropped upstream; clear the skip
-    // correction so it isn't subtracted from it at reply time. [MOD-16507]
+    // correction so it isn't subtracted from it at reply time.
     base->parent->skippedResults = 0;
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
