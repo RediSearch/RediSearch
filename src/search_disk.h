@@ -856,6 +856,19 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Seal all memtables and schedule a flush without waiting for it.
+ *
+ * Rolls every column family's active memtable into an immutable one and
+ * schedules a flush, returning immediately instead of blocking until the data
+ * reaches L0 (unlike SearchDisk_Flush). Test-support primitive: paired with a
+ * paused background worker it lets flush-state INFO metrics be observed
+ * deterministically. A blocking flush would deadlock against a paused worker.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
  *
  * Acquires the IndexSpec read lock (blocks writes, allows queries) and

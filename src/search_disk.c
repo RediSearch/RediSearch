@@ -600,6 +600,11 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
+void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  disk->index.flushNoWait(index);
+}
+
 void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
