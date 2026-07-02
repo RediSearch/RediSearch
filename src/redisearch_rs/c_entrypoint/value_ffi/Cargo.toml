@@ -11,7 +11,6 @@ workspace = true
 [dependencies]
 cheadergen.workspace = true
 ffi.workspace = true
-fnv.workspace = true
 libc.workspace = true
 query_error.workspace = true
 value.workspace = true

@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "indexes.h"
 #include "alias.h"
 #include "rdb.h"
 

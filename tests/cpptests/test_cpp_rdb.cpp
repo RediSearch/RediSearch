@@ -17,13 +17,13 @@
 
 extern "C" {
 #include "spec.h"
+#include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
 #include "stopwords.h"
 #include "doc_table.h"
 
 // Forward declarations for RDB functions
-extern void Indexes_RdbSave(RedisModuleIO *rdb, int when);
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
 }
@@ -121,7 +121,7 @@ TEST_F(RdbMockTest, testCreateIndexSpec) {
     EXPECT_EQ(0, lock_result);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
 }
 
 // Helper function to test lock state
@@ -286,13 +286,14 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_TRUE(serialized != nullptr);
 
     // Drop the original spec from globals
-    IndexSpec_RemoveFromGlobals(original_spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_rdb_idx").rm == NULL);
+    Indexes_RemoveSpecFromGlobals(original_spec_ref, false);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_rdb_idx").rm == NULL);
 
     // Deserialize
-    int res = IndexSpec_Deserialize(serialized, encver);
+    IndexSpec *deserialized = IndexSpec_Deserialize(serialized, encver);
+    int res = Indexes_StoreSpecAfterRdbLoad(deserialized);
     ASSERT_EQ(REDISMODULE_OK, res);
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_rdb_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_rdb_idx");
     spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
 
     // Sanity checks that the spec is loaded correctly
@@ -306,7 +307,7 @@ TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
     ASSERT_STREQ(HiddenString_GetUnsafe(spec->fields[2].fieldName, NULL), "price");
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
     RedisModule_FreeString(NULL, serialized);
 }
 
@@ -339,8 +340,8 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     EXPECT_EQ(0, RMCK_IsIOError(io));
 
     // Remove the original spec from globals before loading from RDB
-    IndexSpec_RemoveFromGlobals(spec_ref, false);
-    ASSERT_TRUE(IndexSpec_LoadUnsafe("test_duplicate_idx").rm == NULL);
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
+    ASSERT_TRUE(Indexes_LoadIndexSpecUnsafe("test_duplicate_idx").rm == NULL);
 
     // Reset read position to load from RDB
     io->read_pos = 0;
@@ -352,14 +353,14 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 
 
     // Verify the loaded index exists and has the correct name
-    StrongRef loaded_spec_ref = IndexSpec_LoadUnsafe("test_duplicate_idx");
+    StrongRef loaded_spec_ref = Indexes_LoadIndexSpecUnsafe("test_duplicate_idx");
     IndexSpec *loaded_spec = (IndexSpec *)StrongRef_Get(loaded_spec_ref);
     ASSERT_TRUE(loaded_spec != nullptr);
     ASSERT_STREQ(HiddenString_GetUnsafe(loaded_spec->specName, NULL), "test_duplicate_idx");
     ASSERT_EQ(loaded_spec->numFields, 1);
 
     // Clean up
-    IndexSpec_RemoveFromGlobals(loaded_spec_ref, false);
+    Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
@@ -917,4 +918,67 @@ TEST_F(RdbMockTest, testDocTableLegacyRdbLoadOverflow) {
     // buckets should be NULL and cap should be 0
     EXPECT_TRUE(t.buckets == nullptr) << "buckets should be NULL after overflow error";
     EXPECT_EQ(0, t.cap) << "cap should be 0 after overflow error";
+}
+
+// Returns the index of the (single) vector field in `spec`, or -1 if not found.
+static int findVectorField(const IndexSpec *spec) {
+    for (int i = 0; i < spec->numFields; i++) {
+        if (FIELD_IS(&spec->fields[i], INDEXFLD_T_VECTOR)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Round-trip an HNSW field's diskCtx.rerank through IndexSpec_RdbSave +
+// IndexSpec_RdbLoad and check both possible values survive. Flow tests can't
+// reach this path because diskCtx.indexName is only set when isFlex==true
+// (Enterprise-only), so this is the only place we exercise the new
+// INDEX_VECTOR_RERANK_VERSION byte end-to-end in OSS CI.
+TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
+    const char *args[] = {
+        "SCHEMA", "v", "VECTOR", "HNSW", "6",
+        "TYPE", "FLOAT32", "DIM", "2", "DISTANCE_METRIC", "L2",
+    };
+    for (bool initialRerank : {true, false}) {
+        QueryError err = QueryError_Default();
+        StrongRef original_ref = IndexSpec_ParseC(
+            NULL, "rerank_idx", args, sizeof(args) / sizeof(const char *), &err);
+        ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+        IndexSpec *spec = (IndexSpec *)StrongRef_Get(original_ref);
+        ASSERT_TRUE(spec != nullptr);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+            spec, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+        // FT.CREATE only stores rerank into diskCtx when sp->diskSpec is set
+        // (i.e. isFlex). isFlex is false here, so set the field directly so
+        // RdbSave has a known value to persist.
+        int vfIdx = findVectorField(spec);
+        ASSERT_GE(vfIdx, 0) << "vector field not found in parsed spec";
+        spec->fields[vfIdx].vectorOpts.diskCtx.rerank = initialRerank;
+
+        RedisModuleIO *io = RMCK_CreateRdbIO();
+        std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+            io, [](RedisModuleIO *x) { RMCK_FreeRdbIO(x); });
+        ASSERT_TRUE(io != nullptr);
+
+        IndexSpec_RdbSave(io, spec, 0);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        io->read_pos = 0;
+        QueryError status = QueryError_Default();
+        IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+        ASSERT_TRUE(loaded != nullptr)
+            << "load failed for rerank=" << initialRerank
+            << ": " << QueryError_GetUserError(&status);
+        std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+            loaded, [](IndexSpec *s) { StrongRef_Release(s->own_ref); });
+        EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+        EXPECT_EQ(0, RMCK_IsIOError(io));
+
+        int loadedVfIdx = findVectorField(loaded);
+        ASSERT_GE(loadedVfIdx, 0) << "vector field not found in loaded spec";
+        EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
+            << "rerank did not round-trip (expected " << initialRerank << ")";
+    }
 }

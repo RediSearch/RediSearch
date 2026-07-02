@@ -78,6 +78,19 @@ impl GcScanDelta {
     }
 }
 
+#[cfg(feature = "test_utils")]
+impl GcScanDelta {
+    /// Returns a no-op delta with no block repairs, for use in tests that need
+    /// to encode/decode the wire protocol without exercising GC logic.
+    pub const fn empty_for_testing() -> Self {
+        Self {
+            last_block_idx: 0,
+            last_block_num_entries: 0,
+            deltas: vec![],
+        }
+    }
+}
+
 /// Result of scanning a block for garbage collection
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub(crate) struct BlockGcScanResult {
@@ -195,6 +208,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// exists and `false` otherwise.
     ///
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    ///
+    /// The higher-ranked bound (`for<'call> FnMut(&RSIndexResult<'call>, ..)`) scopes the
+    /// record and context borrows to a single callback invocation: `repair` must accept any
+    /// lifetime, so it cannot stash a borrow and use it after the call returns. This keeps the
+    /// callback sound regardless of whether records are read in place or decoded into a
+    /// short-lived buffer for the duration of the call.
     ///
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(

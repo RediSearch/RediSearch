@@ -288,11 +288,12 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
 // In memory mode: ptr is InvertedIndex*, uses it directly
 QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
                                                     const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex) {
+                                                    double weight, t_fieldIndex fieldIndex,
+                                                    QueryError *status) {
   if (idx->diskSpec) {
     // DISK MODE: Use tag string to query disk
     RSToken tok = {.str = (char *)tag, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, fieldIndex, weight);
+    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
   }
 
   // MEMORY MODE: Use InvertedIndex from TrieMap
@@ -304,9 +305,10 @@ QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSe
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
- * Returns NULL if there is no such tag in the index */
+ * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
+ * NULL and populates `status` (when non-null) with the cause. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex) {
+                                   double weight, t_fieldIndex fieldIndex, QueryError *status) {
   if (!idx) {
     return NULL;
   }
@@ -314,7 +316,7 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
   if (idx->diskSpec) {
     // DISK MODE: Direct disk API call
     RSToken tok = {.str = (char *)value, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, &tok, fieldIndex, weight);
+    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
   }
 
   // MEMORY MODE: Look up in TrieMap

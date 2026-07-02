@@ -93,7 +93,10 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         if: steps.benchmark-filter.outputs.skip != 'true'
-        run: .install/test_deps/common_installations.sh sudo
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/common_installations.sh sudo
+          github_token: ${{ github.token }}
       - name: Download prebuilt redisearch.so
         if: steps.benchmark-filter.outputs.skip != 'true'
         uses: actions/download-artifact@v7

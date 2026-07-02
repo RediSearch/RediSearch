@@ -15,14 +15,22 @@ build_utils.workspace = true
 
 [dependencies]
 ffi.workspace = true
+index_result.workspace = true
+inverted_index.workspace = true
+query.workspace = true
+query_node_type.workspace = true
+rqe_core.workspace = true
+rqe_iterators.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+query = { workspace = true, features = ["unittest"] }
 query_eval = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+rqe_iterators_test_utils.workspace = true
 
 [lints]
 workspace = true

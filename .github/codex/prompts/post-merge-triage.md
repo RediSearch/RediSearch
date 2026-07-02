@@ -21,8 +21,14 @@ tests that actually failed) or a job/step name (fallback when no per-test logs
 were available — e.g. build-only failures). If the file is missing, empty, or
 unreadable, output one line saying so and stop.
 
+If a `KEY FAILURE LINES` section is present at the top of the file, it holds the
+highest-signal lines (tracebacks, `[FAIL]`/error markers, failed-test counts)
+grepped from the full log before truncation. Start there: the rest of the file
+may be tail-truncated and a passing summary near the tail can be misleading, so
+do not conclude "no failures" from the tail alone when these lines disagree.
+
 If a `failed-tests-*.txt` file is bundled inside the input, it contains the
-RLTest list of failed tests in `test_file.py:test_name` form — use it as the
+RLTest list of failed tests in `test_file:test_name` form — use it as the
 authoritative list of distinct failures.
 
 ## Task

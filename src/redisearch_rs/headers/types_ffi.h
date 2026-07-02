@@ -25,6 +25,32 @@ typedef struct NumericFilter NumericFilter;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+#ifndef RSOFFSETVECTOR_DEFINED
+#define RSOFFSETVECTOR_DEFINED
+/**
+ * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
+ * iterating over it with RSIndexResult_IterateOffsets.
+ *
+ * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
+ * Use [`RSOffsetVector`] for owned offset data.
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (the data
+ * pointer is a valid `&'index [u8]`) and [`ref_mode::Suspended`] mode (the
+ * data pointer may be stale).
+ *
+ * `data` is `Option<SharedPtr<R, u8>>` so the empty slice can be represented
+ * with a null pointer. Thanks to `NonNull`'s niche, the in-memory layout
+ * is still a bare `*const u8` followed by a `u32`.
+ */
+typedef struct RSOffsetVector {
+  /**
+   * Pointer to the borrowed offset data, or `None` for the empty slice.
+   */
+  SharedPtr_Active__u8 data;
+  uint32_t len;
+} RSOffsetVector;
+#endif /* RSOFFSETVECTOR_DEFINED */
+
 /**
  * A view over the records stored inside an [`RSAggregateResult`].
  *
@@ -33,7 +59,7 @@ typedef struct RSQueryTerm RSQueryTerm;
  * C->Rust FFI calls.
  */
 typedef struct AggregateRecordsSlice {
-  const struct RSIndexResult *const *ptr;
+  const RSIndexResult *const *ptr;
   size_t len;
 } AggregateRecordsSlice;
 
@@ -55,29 +81,29 @@ bool NumericFilter_Match(const struct NumericFilter *filter, double value);
  * Allocate a new intersect result with a given capacity and weight. This result should be freed
  * using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewIntersectResult(size_t cap, double weight);
+RSIndexResult *NewIntersectResult(size_t cap, double weight);
 
 /**
  * Allocate a new union result with a given capacity and weight. This result should be freed using
  * [`IndexResult_Free`].
  */
-struct RSIndexResult *NewUnionResult(size_t cap, double weight);
+RSIndexResult *NewUnionResult(size_t cap, double weight);
 
 /**
  * Allocate a new virtual result with a given weight and field mask. This result should be freed
  * using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
+RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
 
 /**
  * Allocate a new numeric result. This result should be freed using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewNumericResult(void);
+RSIndexResult *NewNumericResult(void);
 
 /**
  * Allocate a new metric result. This result should be freed using [`IndexResult_Free`].
  */
-struct RSIndexResult *NewMetricResult(void);
+RSIndexResult *NewMetricResult(void);
 
 /**
  * Allocate a new hybrid result. This result should be freed using [`IndexResult_Free`].
@@ -85,7 +111,7 @@ struct RSIndexResult *NewMetricResult(void);
  * This constructor is only used by the hydrid reader which will pushed owned copies to it.
  * Therefore, this also returns an owned `RSIndexResult`.
  */
-struct RSIndexResult *NewHybridResult(void);
+RSIndexResult *NewHybridResult(void);
 
 /**
  * Allocate a new token record with a given term and weight. This result should be freed using
@@ -96,7 +122,7 @@ struct RSIndexResult *NewHybridResult(void);
  * `term` must be a heap-allocated `RSQueryTerm` (e.g. created by `NewQueryTerm`) and the
  * caller transfers ownership — it must not be freed separately.
  */
-struct RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
+RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
 
 /**
  * Free an index result's internal allocations and also free the result itself.
@@ -114,7 +140,7 @@ struct RSIndexResult *NewTokenRecord(struct RSQueryTerm *term, double weight);
  *   - [`NewTokenRecord`]
  *   - [`IndexResult_DeepCopy`]
  */
-void IndexResult_Free(struct RSIndexResult *result);
+void IndexResult_Free(RSIndexResult *result);
 
 /**
  * Create a deep copy of the results that is totally thread safe. This is very slow so use it with
@@ -126,7 +152,7 @@ void IndexResult_Free(struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
+RSIndexResult *IndexResult_DeepCopy(const RSIndexResult *source);
 
 /**
  * Check if the result is an aggregate result.
@@ -136,7 +162,7 @@ struct RSIndexResult *IndexResult_DeepCopy(const struct RSIndexResult *source);
  * The following invariants must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-bool IndexResult_IsAggregate(const struct RSIndexResult *result);
+bool IndexResult_IsAggregate(const RSIndexResult *result);
 
 /**
  * Get the numeric value of the result if it is a numeric result. If the result is not numeric,
@@ -147,7 +173,7 @@ bool IndexResult_IsAggregate(const struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-double IndexResult_NumValue(const struct RSIndexResult *result);
+double IndexResult_NumValue(const RSIndexResult *result);
 
 /**
  * Set the numeric value of the result if it is a numeric result. If the result is not numeric,
@@ -158,7 +184,7 @@ double IndexResult_NumValue(const struct RSIndexResult *result);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
+void IndexResult_SetNumValue(RSIndexResult *result, double value);
 
 /**
  * Get the query term from a result if it is a term result. If the result is not a term, then
@@ -169,7 +195,7 @@ void IndexResult_SetNumValue(struct RSIndexResult *result, double value);
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-struct RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result);
+struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
 
 /**
  * Get the term offsets from a result if it is a term result. If the result is not a term, then
@@ -180,7 +206,7 @@ struct RSQueryTerm *IndexResult_QueryTermRef(const struct RSIndexResult *result)
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResult *result);
+const RSOffsetSlice *IndexResult_TermOffsetsRef(const RSIndexResult *result);
 
 /**
  * Get the aggregate result reference if the result is an aggregate result. If the result is
@@ -191,7 +217,7 @@ const struct RSOffsetVector *IndexResult_TermOffsetsRef(const struct RSIndexResu
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResult *result);
+const RSAggregateResult *IndexResult_AggregateRef(const RSIndexResult *result);
 
 /**
  * Get the aggregate result reference without performing a runtime check
@@ -207,7 +233,7 @@ const union RSAggregateResult *IndexResult_AggregateRef(const struct RSIndexResu
  * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
  */
-const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RSIndexResult *result);
+const RSAggregateResult *IndexResult_AggregateRefUnchecked(const RSIndexResult *result);
 
 /**
  * Get a mutable aggregate result reference without performing a runtime check
@@ -223,7 +249,7 @@ const union RSAggregateResult *IndexResult_AggregateRefUnchecked(const struct RS
  * 1. `result` must point to a valid `RSIndexResult` and cannot be NULL.
  * 2. `result`'s data payload must be of the aggregate kind
  */
-union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResult *result);
+RSAggregateResult *IndexResult_AggregateRefMutUnchecked(RSIndexResult *result);
 
 /**
  * Reset the result if it is an aggregate result. This will clear the children vector
@@ -234,7 +260,7 @@ union RSAggregateResult *IndexResult_AggregateRefMutUnchecked(struct RSIndexResu
  * The following invariant must be upheld when calling this function:
  * - `result` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void IndexResult_AggregateReset(struct RSIndexResult *result);
+void IndexResult_AggregateReset(RSIndexResult *result);
 
 /**
  * Get the result at the specified index in the aggregate result. This will return a `NULL` pointer
@@ -245,7 +271,7 @@ void IndexResult_AggregateReset(struct RSIndexResult *result);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *agg, size_t index);
+const RSIndexResult *AggregateResult_Get(const RSAggregateResult *agg, size_t index);
 
 /**
  * Get the result at the specified index in the aggregate result, without checking bounds.
@@ -256,7 +282,7 @@ const struct RSIndexResult *AggregateResult_Get(const union RSAggregateResult *a
  * 1. `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  * 2. `index` must be lower than the length of the aggregate result children vector.
  */
-const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregateResult *agg, size_t index);
+const RSIndexResult *AggregateResult_GetUnchecked(const RSAggregateResult *agg, size_t index);
 
 /**
  * Get a mutable result at the specified index in the aggregate result, without checking bounds.
@@ -268,7 +294,7 @@ const struct RSIndexResult *AggregateResult_GetUnchecked(const union RSAggregate
  * 2. `index` must be lower than the length of the aggregate result children vector.
  * 3. `agg` must be of the `Owned` variant.
  */
-struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *agg, size_t index);
+RSIndexResult *AggregateResult_GetMutUnchecked(RSAggregateResult *agg, size_t index);
 
 /**
  * Get the element count of the aggregate result.
@@ -278,7 +304,7 @@ struct RSIndexResult *AggregateResult_GetMutUnchecked(union RSAggregateResult *a
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-size_t AggregateResult_NumChildren(const union RSAggregateResult *agg);
+size_t AggregateResult_NumChildren(const RSAggregateResult *agg);
 
 /**
  * Get the capacity of the aggregate result.
@@ -288,7 +314,7 @@ size_t AggregateResult_NumChildren(const union RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-size_t AggregateResult_Capacity(const union RSAggregateResult *agg);
+size_t AggregateResult_Capacity(const RSAggregateResult *agg);
 
 /**
  * Get the kind mask of the aggregate result.
@@ -298,14 +324,14 @@ size_t AggregateResult_Capacity(const union RSAggregateResult *agg);
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-uint8_t AggregateResult_KindMask(const union RSAggregateResult *agg);
+uint8_t AggregateResult_KindMask(const RSAggregateResult *agg);
 
 /**
  * Create a new aggregate result with the specified capacity. This function will make the result
  * in Rust memory, but the ownership ends up being transferred to C's memory space. This ownership
  * should return to Rust to free up any heap memory using [`AggregateResult_Free`].
  */
-union RSAggregateResult AggregateResult_New(size_t cap);
+RSAggregateResult AggregateResult_New(size_t cap);
 
 /**
  * Take ownership of a `RSAggregateResult` to free any heap memory it owns. This function will not
@@ -315,7 +341,7 @@ union RSAggregateResult AggregateResult_New(size_t cap);
  *
  * The `agg` parameter should have been created with [`AggregateResult_New`].
  */
-void AggregateResult_Free(union RSAggregateResult agg);
+void AggregateResult_Free(RSAggregateResult agg);
 
 /**
  * Add a child to a result if it is an aggregate result.
@@ -336,7 +362,7 @@ void AggregateResult_Free(union RSAggregateResult agg);
  * - `parent` must point to a valid `RSIndexResult` and cannot be NULL.
  * - `child` must point to a valid `RSIndexResult` and cannot be NULL.
  */
-void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult *child);
+void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child);
 
 /**
  * Get a view of the records stored inside the aggregate result.
@@ -345,7 +371,7 @@ void AggregateResult_AddChild(struct RSIndexResult *parent, struct RSIndexResult
  * The following invariants must be upheld when calling this function:
  * - `agg` must point to a valid `RSAggregateResult` and cannot be NULL.
  */
-struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggregateResult *agg);
+struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const RSAggregateResult *agg);
 
 /**
  * Retrieve the offsets array from an offset vector.
@@ -360,7 +386,7 @@ struct AggregateRecordsSlice AggregateResult_GetRecordsSlice(const union RSAggre
  *   and cannot be NULL.
  * - `len` cannot be NULL and must point to an allocated memory big enough to hold an u32.
  */
-const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_t *len);
+const char *RSOffsetVector_GetData(const RSOffsetSlice *offsets, uint32_t *len);
 
 /**
  * Set the offsets array on an offset vector.
@@ -376,7 +402,7 @@ const char *RSOffsetVector_GetData(const struct RSOffsetVector *offsets, uint32_
  * - `data` must point to an array of `len` offsets.
  * - if `data` is NULL then `len` should be 0.
  */
-void RSOffsetVector_SetData(struct RSOffsetVector *offsets, const char *data, uint32_t len);
+void RSOffsetVector_SetData(RSOffsetSlice *offsets, const char *data, uint32_t len);
 
 /**
  * Free the data inside an offset vector.
@@ -404,7 +430,7 @@ void RSOffsetVector_FreeData(RSOffsetVector *offsets);
  *   and cannot be NULL.
  * - `src` data should point to a valid array of `src.len` offsets.
  */
-void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *src);
+void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
 
 /**
  * Retrieve the number of offsets in an offset vector.
@@ -415,7 +441,7 @@ void RSOffsetVector_CopyData(RSOffsetVector *dest, const struct RSOffsetVector *
  * - `offsets` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
  *   and cannot be NULL.
  */
-uint32_t RSOffsetVector_Len(const struct RSOffsetVector *offsets);
+uint32_t RSOffsetVector_Len(const RSOffsetSlice *offsets);
 
 #ifdef __cplusplus
 }  // extern "C"

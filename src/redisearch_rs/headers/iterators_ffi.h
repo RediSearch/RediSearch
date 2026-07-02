@@ -336,8 +336,12 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
  * 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
  * 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
- *    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec). `SearchDisk_NewWildcardIterator` must return
- *    a valid, owning `QueryIterator` pointer with all required callbacks set.
+ *    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for the
+ *    lifetime of the returned iterator, and the disk iterator backend must be initialized.
+ * 8. When `q.sctx.spec.diskSpec` is non-null, `q.sctx.diskSnapshot` must be a **non-null**
+ *    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for `q.sctx.spec.diskSpec`
+ *    that remains valid for the lifetime of the returned iterator. The disk path requires a
+ *    point-in-time view: a null snapshot alongside a non-null `diskSpec` makes the call panic.
  */
 QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
 
@@ -351,6 +355,35 @@ QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
+
+/**
+ * Creates a new geometry-query iterator over a list of matching document IDs.
+ *
+ * `ids` is the set of documents matched by the geometry index, in arbitrary
+ * order; the iterator sorts them on construction and yields them in ascending
+ * order, skipping documents whose queried field has expired and aborting on
+ * query timeout.
+ *
+ * Ownership of `ids` is transferred to the iterator, which frees it with
+ * `RedisModule_Free` when dropped. When `allocated` is non-null, the byte size
+ * of the iterator is added to `*allocated` on construction and subtracted on
+ * drop, keeping the geometry index's memory accounting in sync.
+ *
+ * # Safety
+ *
+ * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
+ *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
+ *    returned iterator.
+ * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
+ * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
+ *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
+ *    is null, `num` must be zero.
+ * 4. `allocated`, when non-null, must point to a valid, initialized `usize`
+ *    (it is read-modify-written) that outlives the iterator and is only
+ *    accessed single-threaded (it is mutated without synchronization, which
+ *    holds under the spec lock).
+ */
+QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
  *

@@ -7,14 +7,28 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+
+should_check_cheadergen() {
+  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
+    0|OFF|off|false|FALSE|False|NO|no)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # ============================================
 # Dependencies
 # ============================================
 # Define dependencies and their corresponding check methods
-mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "clang" "openssl" "brew")
+mac_os_deps=("make" "python3" "cmake" "cargo" "clang" "openssl" "brew")
 mac_os_deps_types=(
     "check_command" # Check for "make"
-    "check_command" # Check for "uv"
     "check_command" # Check for "python3"
     "check_command" # Check for "cmake"
     "check_command" # Check for "cargo"
@@ -22,6 +36,13 @@ mac_os_deps_types=(
     "check_command" # Check for "openssl"
     "check_command" # Check for "brew"
 )
+
+# cheadergen is only needed when regenerating Rust C headers.
+# REDISEARCH_GENERATE_HEADERS=0 builds from checked-in headers.
+if should_check_cheadergen; then
+  mac_os_deps+=("cheadergen")
+  mac_os_deps_types+=("check_cheadergen")
+fi
 
 # Function to check if a command is available
 check_command() {
@@ -45,10 +66,32 @@ check_clang() {
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
+            missing_deps=true
         fi
     else
         echo -e "${RED}✗${NC}"
+        missing_deps=true
     fi
+}
+
+check_cheadergen() {
+  local cmd=$1
+  printf "%-20s" "$cmd"
+
+  if ! command -v "$cmd" &>/dev/null; then
+    echo -e "${RED}✗${NC}"
+    missing_deps=true
+    return
+  fi
+
+  local actual_version
+  actual_version=$("$cmd" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+  if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+    echo -e "${GREEN}✓${NC}"
+  else
+    echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
+    missing_deps=true
+  fi
 }
 
 # ============================================
@@ -64,3 +107,17 @@ for i in "${!mac_os_deps[@]}"; do
   check_function="${mac_os_deps_types[$i]}"
   $check_function "$dep"
 done
+
+# ============================================
+# Missing Dependencies Handling
+# ============================================
+
+if $missing_deps; then
+  echo -e "\n${YELLOW}WARNING: Some dependencies are missing or do not meet the required version. \nBuild may fail without these dependencies.${NC}"
+  exit_code=1
+else
+  echo -e "\n${GREEN}All required dependencies are met.${NC}"
+  exit_code=0
+fi
+
+return "$exit_code" 2>/dev/null || exit "$exit_code"

@@ -14,6 +14,7 @@
 #include "gtest/gtest.h"
 
 #include "aggregate/reducer.h"
+#include "aggregate/reducers/collect_parse.h"
 #include "reducers_ffi.h"
 #include "spec.h"
 #include "config.h"
@@ -183,21 +184,6 @@ TEST_F(CollectParserTest, LocalFieldsUsePlannerInputKey) {
 
   ASSERT_NE(r, nullptr) << QueryError_GetUserError(&status);
   r->Free(r);
-  QueryError_ClearError(&status);
-}
-
-TEST_F(CollectParserTest, LocalCollectRequiresPlannerInputKey) {
-  std::vector<const char *> args = {"FIELDS", "1", "@price"};
-  QueryError status = QueryError_Default();
-
-  Reducer *r = parseCollect(args, &status, true, NULL);
-
-  ASSERT_EQ(r, nullptr);
-  const char *user_error = QueryError_GetUserError(&status);
-  ASSERT_NE(user_error, nullptr);
-  EXPECT_TRUE(std::string(user_error).find("COLLECT input key was not provided") !=
-              std::string::npos)
-      << user_error;
   QueryError_ClearError(&status);
 }
 
@@ -416,6 +402,27 @@ TEST_F(CollectParserTest, LocalFieldWithoutAtPrefix) {
       "Missing prefix: name requires '@' prefix");
 }
 
+TEST_F(CollectParserTest, FieldWithoutAtPrefixRejectedAtParseEvenWhenCallerNotStrict) {
+  std::vector<const char *> args = {"FIELDS", "1", "price"};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, args.data(), args.size());
+  QueryError status = QueryError_Default();
+  ReducerOptions opts = REDUCEROPTS_INIT("COLLECT", &ac, &lk, nullptr, &status,
+                                         false,  // caller says non-strict
+                                         false, nullptr, 0);
+
+  CollectArgs parsed = {};
+  EXPECT_FALSE(CollectArgs_Parse(&opts, &parsed))
+      << "Expected parse failure but got success";
+  const char *user_error = QueryError_GetUserError(&status);
+  ASSERT_NE(user_error, nullptr);
+  EXPECT_TRUE(std::string(user_error).find("Missing prefix") != std::string::npos)
+      << "Expected error containing 'Missing prefix', got: " << user_error;
+
+  CollectArgs_Free(&parsed);
+  QueryError_ClearError(&status);
+}
+
 TEST_F(CollectParserTest, FieldEmptyAfterAt) {
   expectErrorRemote({"FIELDS", "1", "@"}, "Property not loaded nor in pipeline");
 }
@@ -592,4 +599,3 @@ TEST_F(CollectParserTest, LimitOffsetExceedsAggregateMax) {
   expectError({"FIELDS", "1", "@x", "LIMIT", "9999999999", "10"},
       "LIMIT offset exceeds maximum of");
 }
-

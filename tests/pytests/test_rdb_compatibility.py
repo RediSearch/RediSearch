@@ -98,7 +98,8 @@ def testRDBCompatibility_vecsim():
           'dim', 2,
           'distance_metric', 'L2',
           'M', 16,
-          'ef_construction', 200
+          'ef_construction', 200,
+          'ef_runtime', 10
         ], [
           'identifier', 'flat_vec',
           'attribute', 'flat_vec',
