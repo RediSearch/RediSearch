@@ -654,3 +654,28 @@ def testForceGCBypassesThreshold(env):
     forceInvokeGC(env, 'idx')
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal([10])
 
+
+# Regression for [MOD-15940](https://redislabs.atlassian.net/browse/MOD-15940)
+@skip(cluster=True)
+def testForkGCEmptyTagSuffixTrieMap_emptyValue_MOD_15996():
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', '')
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+
+
+@skip(cluster=True)
+def testForkGCEmptyTextSuffixTrie_emptyValue():
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', '')
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+

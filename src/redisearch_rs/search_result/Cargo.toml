@@ -5,8 +5,13 @@ edition.workspace = true
 license-file.workspace = true
 publish.workspace = true
 
+[lib]
+test = false
+
 [dependencies]
 ffi.workspace = true
+rqe_core.workspace = true
+index_result.workspace = true
 inverted_index.workspace = true
 rlookup.workspace = true
 enumflags2.workspace = true

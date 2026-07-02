@@ -21,6 +21,9 @@ on:
 jobs:
   generate-and-send-report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
 
     steps:
       - name: Checkout repository
@@ -93,9 +96,17 @@ jobs:
             echo "⚠️ Failure report file not found: $FAILURE_FILE"
           fi
 
+      - name: Run Codex CI triage
+        id: ai_triage
+        if: steps.failure_report.outputs.failure_exists == 'true'
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/ci-triage.md
+
       - name: Send reports to Slack
         if: always()
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@v3
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
@@ -105,13 +116,16 @@ jobs:
               "header": "${{ steps.collect.outcome == 'failure' && format('❌ CI Report Generation Failed - {0}', steps.date.outputs.date) || format('📊 Daily CI Report - {0}', steps.date.outputs.date) }}",
               "summary_report": ${{ steps.summary.outputs.summary_exists == 'true' && steps.summary.outputs.summary_content || '""' }},
               "failure_report": ${{ steps.failure_report.outputs.failure_exists == 'true' && steps.failure_report.outputs.failure_content || '""' }},
+              "ai_triage": ${{ steps.ai_triage.outputs.triage-exists == 'true' && steps.ai_triage.outputs.triage-content-json || '""' }},
               "error": "${{ steps.collect.outcome == 'failure' && 'The collect_nightly_results.py script failed. Check workflow logs for details.' || '' }}"
             }
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ci-reports-${{ steps.date.outputs.date }}
-          path: merge-to-queue_${{ steps.date.outputs.date }}/
+          path: |
+            merge-to-queue_${{ steps.date.outputs.date }}/
           retention-days: 30
+          if-no-files-found: ignore

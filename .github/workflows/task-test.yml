@@ -50,6 +50,10 @@ on:
         type: boolean
         default: false
         description: "If true, the workflow will terminate as soon as one test step fails."
+      skip-tests:
+        type: boolean
+        default: false
+        description: "If true, build the module for this platform but skip all test steps."
 
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }} # convert the boolean input to numeric
@@ -57,6 +61,8 @@ env:
   COV: ${{ inputs.coverage && 1 || 0 }} # convert the boolean input to numeric
   # Setting RUST_BACKTRACE here to ensure that we get a full report if something goes wrong.
   RUST_BACKTRACE: "full"
+  # Header freshness is checked in the lint job. No need to regenerate here.
+  REDISEARCH_GENERATE_HEADERS: "0"
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
   BUILD_INTEL_SVS_OPT: "yes"
@@ -106,7 +112,7 @@ jobs:
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -122,7 +128,7 @@ jobs:
           permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
           github-token: ${{ steps.generate-app-token.outputs.token }}
@@ -150,7 +156,7 @@ jobs:
       !cancelled() &&
       needs.get-config.result == 'success' &&
       (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success') &&
-      (inputs.standalone || inputs.coordinator || inputs.unit-tests)
+      (inputs.skip-tests || inputs.standalone || inputs.coordinator || inputs.unit-tests)
     runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{
       needs.get-config.outputs.container
@@ -168,6 +174,7 @@ jobs:
       actions: write  # Swatinem/rust-cache read/write of GH cache
 
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       # LTO is disabled on coverage and sanitizer tasks
       LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
 
@@ -276,6 +283,7 @@ jobs:
           echo "Runner Architecture: $RUNNER_ARCH"
           echo "========================"
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -306,12 +314,11 @@ jobs:
           cache-on-failure: true
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
-        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
-        # that force ~18 min source compilations on macOS Intel runners.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+        # compilations on macOS Intel runners.
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
 
       - name: Setup Python test dependencies
         uses: ./.github/actions/retry-command
@@ -338,6 +345,7 @@ jobs:
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Build Redis (cached)
+        if: ${{ !inputs.skip-tests }}
         uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
@@ -399,6 +407,20 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make rust-tests
+      - name: Build TESTFILE excluding flaky tests (standalone)
+        id: standalone_testfile
+        if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: standalone
+          redis-standalone: "1"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -413,7 +435,35 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          # Relative path: ${{ github.workspace }} resolves to the runner host
+          # path, which is unreachable when the step runs in a container.
+          # runtests.sh prepends $ROOT for non-absolute FAILEDFILE values.
+          FAILEDFILE: .failed_standalone.txt
+          TESTFILE: ${{ steps.standalone_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record standalone failures to flaky DB
+        if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_standalone.txt
+          job-name: ${{ needs.get-config.outputs.name }} standalone
+
+      - name: Build TESTFILE excluding flaky tests (coordinator)
+        id: coordinator_testfile
+        if: ${{ inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-build-testfile
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          variant: coordinator
+          redis-standalone: "0"
+          test-config: ${{ inputs.test-config }}
+          rejson: ${{ env.REJSON }}
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
 
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -429,7 +479,18 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
+          FAILEDFILE: .failed_coordinator.txt
+          TESTFILE: ${{ steps.coordinator_testfile.outputs.testfile }}
         run: make pytest $TEST_CONFIG
+
+      - name: Record coordinator failures to flaky DB
+        if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/flaky-record-results
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: .failed_coordinator.txt
+          job-name: ${{ needs.get-config.outputs.name }} coordinator
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
@@ -444,7 +505,7 @@ jobs:
         run: make rust-tests
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Check test logs folder size
         if: always()
@@ -510,7 +571,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -518,6 +579,106 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
 
+          if-no-files-found: ignore
+
+      - name: Collect failed-test-only logs
+        # Build a focused log bundle containing only logs for tests that actually
+        # failed, so downstream tools (e.g. Codex triage) get high-signal input.
+        # Driven by RLTest's FAILEDFILE output (test ids in `test_file:test_name`
+        # form, e.g. `test_foo:TestBar.test_baz` for class-based tests).
+        #
+        # RLTest creates one Env — and one set of redis logs — per test *class*
+        # (or per module-level function), not per method, and names the files
+        # `<uuid>.<role>-<file>_<class-or-func>-<env>.log`; the method name is NOT
+        # part of the filename. So we key the glob on `<file>_<class-or-func>`,
+        # dropping any `.method` suffix from the failed id — otherwise the glob can
+        # never match and the focused bundle silently misses the real failure.
+        #
+        # Mirror the "Upload Artifacts" guard: with fail-fast disabled the test
+        # steps are continue-on-error, so a unit-test-only failure never trips
+        # `failure()` here and we must check the step outcomes explicitly —
+        # otherwise no focused bundle is produced for unit-test-only failures.
+        if: >
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        env:
+          C_UNIT_TESTS_OUTCOME: ${{ steps.c_unit_tests.outcome }}
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+
+          copy_for_failed_list() {
+            local listfile="$1"
+            [ -f "$listfile" ] || return 0
+            while IFS= read -r test_id; do
+              [ -z "$test_id" ] && continue
+              local file_part="${test_id%%:*}"
+              local test_part="${test_id#*:}"
+              local file_no_py="${file_part%.py}"
+              # Log files are named per class/function, not per method: turn
+              # `Class.method` into `Class` (a bare function name is unchanged).
+              local class_part="${test_part%%.*}"
+              local pattern="*-${file_no_py}_${class_part}-*.log*"
+              find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | \
+                while read -r log; do
+                  mkdir -p "$DEST/$(dirname "$log")"
+                  cp "$log" "$DEST/$log"
+                done
+            done < "$listfile"
+          }
+
+          copy_for_failed_list ".failed_standalone.txt"
+          copy_for_failed_list ".failed_coordinator.txt"
+
+          # The C/C++ CTest summary logs (rstest*.log) are only relevant when the
+          # C/C++ unit tests themselves failed. Including them unconditionally is
+          # misleading for flow-test failures: they report "100% tests passed" and,
+          # when no per-test flow logs match, become the *only* content the triage
+          # sees — making a real failure look like a clean run. Gate strictly on a
+          # C/C++ unit-test failure: a Rust-only failure leaves these CTest logs
+          # passing, so copying them would recreate the same misleading artifact
+          # (the real Rust failure lives in the job log, surfaced via the triage
+          # KEY FAILURE LINES extraction instead).
+          if [ "$C_UNIT_TESTS_OUTCOME" = "failure" ]; then
+            find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
+              mkdir -p "$DEST/$(dirname "$log")"
+              cp "$log" "$DEST/$log"
+            done
+          fi
+
+          # Stash the failed-test lists alongside the logs under non-hidden names.
+          # The triage prompt treats `failed-tests-*.txt` as the authoritative list
+          # of distinct failures; copying the source `.failed_*.txt` verbatim would
+          # both miss that naming convention and be silently dropped on upload,
+          # since actions/upload-artifact excludes hidden (dot-prefixed) files.
+          [ -f .failed_standalone.txt ] && cp .failed_standalone.txt "$DEST/failed-tests-standalone.txt"
+          [ -f .failed_coordinator.txt ] && cp .failed_coordinator.txt "$DEST/failed-tests-coordinator.txt"
+
+          echo "Failed-test logs bundled:"
+          find "$DEST" -type f | wc -l
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        # Keep this guard in lockstep with "Collect failed-test-only logs" above,
+        # otherwise the bundle is built but never uploaded (or vice versa).
+        if: >
+          failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v7
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
@@ -548,7 +709,7 @@ jobs:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
@@ -557,7 +718,7 @@ jobs:
           files: bin/flow_standalone.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
@@ -566,7 +727,7 @@ jobs:
           files: bin/flow_coordinator.info
           disable_search: true
           flags: flow
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
@@ -575,7 +736,7 @@ jobs:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
@@ -586,7 +747,7 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -601,7 +762,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
           github-token: ${{ steps.generate-app-token.outputs.token }}

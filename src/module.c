@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include "triemap_ffi.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
@@ -27,6 +28,8 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
+#include "indexes.h"
+#include "indexes_scan.h"
 #include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
@@ -40,10 +43,8 @@
 #include "query_param.h"
 #include "dictionary.h"
 #include "suggest.h"
-#include "redisearch_api.h"
 #include "alias.h"
 #include "module.h"
-#include "rwlock.h"
 #include "info/info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
@@ -94,7 +95,7 @@
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                                             \
     IndexLoadOptions lopts =                                                                                \
       {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                                             \
-    StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);                                                    \
+    StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);                                                    \
     IndexSpec *sp = StrongRef_Get(spec_ref);                                                                \
     if (!sp) {                                                                                              \
       return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idxName); \
@@ -121,7 +122,7 @@ arrayof(int*) asm_sanitizer_allocs;
 
 redisearch_thpool_t *depleterPool = NULL;
 
-static int DIST_THREADPOOL = -1;
+int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
@@ -193,8 +194,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // OOM check with heuristics
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
-static inline bool estimateOOM(RedisModuleCtx *ctx) {
-  return RedisMemory_GetUsedMemoryRatioUnified(ctx) > 1;
+static inline bool estimateOOM(void) {
+  return RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -205,7 +206,7 @@ bool QueryMemoryGuard(RedisModuleCtx *ctx) {
   // Check OOM if OOM policy is not ignore
   if (RSGlobalConfig.requestConfigParams.oomPolicy != OomPolicy_Ignore) {
     // No need to hold the GIL since we are not in a background thread
-    return estimateOOM(ctx);
+    return estimateOOM();
   }
   return false;
 }
@@ -493,7 +494,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
@@ -624,7 +625,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
   }
 
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
+  IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
@@ -679,7 +680,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef global_ref = IndexSpec_LoadUnsafe(spec_name);
+  StrongRef global_ref = Indexes_LoadIndexSpecUnsafe(spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), spec_name);
@@ -718,7 +719,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp->diskSpec);
+    SearchDisk_UnregisterIndex(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -728,7 +729,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     StrongRef own_ref = StrongRef_Clone(global_ref);
     // We remove the index from the globals first, so it will not be found by the
     // delete key notification callbacks.
-    IndexSpec_RemoveFromGlobals(global_ref, false);
+    Indexes_RemoveSpecFromGlobals(global_ref, false);
 
     DocTable *dt = &sp->docs;
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
@@ -738,7 +739,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     StrongRef_Release(own_ref);
   } else {
     // If we don't delete the docs, we just remove the index from the global dict
-    IndexSpec_RemoveFromGlobals(global_ref, true);
+    Indexes_RemoveSpecFromGlobals(global_ref, true);
   }
 
   // Log index deletion
@@ -756,7 +757,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -804,7 +805,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
@@ -870,7 +871,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef ref = IndexSpec_LoadUnsafe(idx);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(idx);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
@@ -926,7 +927,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = QueryError_Default();
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
-  StrongRef ref = IndexSpec_LoadUnsafe(ixname);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), ixname);
@@ -973,13 +974,18 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     }
   }
   RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_AddFields(ref, sp, ctx, &ac, initialScan, &status);
+  int addFieldsOk = IndexSpec_AddFields(ref, sp, ctx, &ac, &status);
 
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
     CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
+  }
+
+  // Schedule the initial background scan for the new fields.
+  if (addFieldsOk && initialScan) {
+    IndexSpec_ScanAndReindex(ctx, ref);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
@@ -1010,7 +1016,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   IndexLoadOptions loadOpts = {
       .nameR = argv[2],
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&loadOpts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     QueryError_SetError(error, QUERY_ERROR_CODE_NO_INDEX, "Unknown index name (or name is an alias itself)");
@@ -1072,7 +1078,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
@@ -1107,7 +1113,7 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   if (!StrongRef_Get(ref)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -1122,7 +1128,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = QueryError_Default();
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
-  StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
+  StrongRef Orig_ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   size_t length = 0;
   const char* rawAlias = RedisModule_StringPtrLen(argv[1], &length);
@@ -1143,7 +1149,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
-    // Add back the previous index. this shouldn't fail
+    // Add back the previous index. This shouldn't fail
     if (spOrig) {
       QueryError e2 = QueryError_Default();
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
@@ -1156,6 +1162,41 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   }
   HiddenString_Free(alias, false);
   return rc;
+}
+
+// FT.ALIASLIST <index>
+// Returns all aliases for the given index.
+// Only accepts index names, not aliases (INDEXSPEC_LOAD_NOALIAS).
+int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lOpts = {.nameR = argv[1],
+                            .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
+  CurrentThread_SetIndexSpec(sp->own_ref);
+
+  size_t count = array_len(sp->aliases);
+  RedisModule_ReplyWithSet(ctx, count);
+  for (size_t i = 0; i < count; i++) {
+    size_t len;
+    const char *alias = HiddenString_GetUnsafe(sp->aliases[i], &len);
+    RedisModule_ReplyWithStringBuffer(ctx, alias, len);
+  }
+
+  CurrentThread_ClearIndexSpec();
+  return REDISMODULE_OK;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1228,7 +1269,8 @@ int RestoreSchema(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithErrorFormat(ctx, "ERRBADVAL Max number of indexes reached for Flex indexes: %zu", Indexes_Count());
   }
 
-  int rc = IndexSpec_Deserialize(argv[3], encodeVersion);
+  IndexSpec *sp = IndexSpec_Deserialize(argv[3], encodeVersion);
+  int rc = Indexes_StoreSpecAfterRdbLoad(sp);
 
   if (rc != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "ERRBADVAL Failed to deserialize schema");
@@ -1358,6 +1400,14 @@ typedef union {
   SetCommandInfo setCommandInfo;
   SubscribeSubCommands subscribeSubCommands;
 } MutuallyExclusiveCommandCallbacks;
+
+static int SetDontCacheInfo(RedisModuleCommand *cmd) {
+  const RedisModuleCommandInfo info = {
+    .version = REDISMODULE_COMMAND_INFO_VERSION,
+    .tips = "dont_cache",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
 
 typedef struct {
   const char *name;
@@ -1719,7 +1769,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     }
   }
 
-  if (RediSearch_Init(ctx, REDISEARCH_INIT_MODULE) != REDISMODULE_OK) {
+  if (RediSearch_Init(ctx) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1729,7 +1779,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   // register the trie type (half-legacy, still used by `FT.SUG*` commands)
   RM_TRY_F(TrieType_Register, ctx);
 
-  RM_TRY_F(IndexSpec_RegisterType, ctx);
+  RM_TRY_F(Indexes_RegisterType, ctx);
 
   RM_TRY_F(RegisterLegacyTypes, ctx);
 
@@ -1776,6 +1826,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
     DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
     // Suggestion commands key specs should be 1, 1, 1
     DEFINE_COMMAND(RS_SUGADD_CMD,     DiskDisabledCmd(RSSuggestAddCommand), "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
@@ -1790,13 +1841,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
     DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
     // read only commands
-    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetFtInfoInfo,             SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , NULL,                      NONE,                  "read",                 true,             indexDocCmdArgs,  false),
+    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_AGGREGATE_CMD, DiskDisabledCmd(RSAggregateCommand),       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , NULL,                      NONE,                  "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
@@ -1871,7 +1922,6 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // GeometryApi_Free();
 
   Dictionary_Free();
-  RediSearch_LockDestory();
 
   IndexError_GlobalCleanup();
 }
@@ -3643,9 +3693,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistAggregateTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Free privdata callback for distributed aggregate and hybrid query
 static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
@@ -3706,7 +3756,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
-  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
@@ -3747,16 +3797,20 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   handlerCtx.coordStartTime = coordInitialTime;
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
+  handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
+  // Capture the policy on the main thread so BG and the timeout callback agree
+  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
-        ? DistAggregateTimeoutFailClient
-        : DistAggregateTimeoutReturnStrictClient;
+        ? DistAggregateTimeoutFailCallback
+        : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
@@ -3801,7 +3855,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
-  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
@@ -3832,6 +3886,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
 
+  // Capture the policy on the main thread so BG and the timeout callback agree
+  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
+  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3843,9 +3901,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.bcCtx.privdata = reqCtx;
   handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
-    handlerCtx.bcCtx.timeout_callback = DistHybridTimeoutFailClient;
+    handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
+        ? DistHybridTimeoutFailCallback
+        : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
   }
@@ -3922,16 +3982,30 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
       RS_ASSERT(!info.isHybrid);
 #endif
+      // Apply the foreground cap to the blocked-client timer budget. The cursor
+      // cached its queryTimeoutMS at WITHCURSOR time; tightening
+      // search-_max-foreground-timeout-limit (or disabling workers) between
+      // cursor open and this READ must shrink both the execution deadline
+      // (capped in runCursor) and the coordinator-side timer here.
+      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
+                           ? LLONG_MAX
+                           : (long long)info.queryTimeoutMS;
+      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+        RedisModule_Log(ctx, "verbose",
+          "FT.CURSOR READ: coordinator blocked-client timer capped by "
+          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
+          info.queryTimeoutMS, capped);
+      }
       CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
       handlerCtx.bcCtx.privdata = reqCtx;
       handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = info.queryTimeoutMS;
+      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
       CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
       if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailClient;
+        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
       } else {
-        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictClient;
+        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictCallback;
         CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
       }
     }
@@ -3967,10 +4041,10 @@ static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *curso
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
      .handler = DiskDisabledCmd(RSCursorProfileCommand),
-     .setCommandInfo = NULL, .position = keys},
+     .setCommandInfo = SetDontCacheInfo, .position = keys},
     {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
      .handler = DiskDisabledCmd(RSCursorGCCommand),
-     .setCommandInfo = NULL, .position = keys}
+     .setCommandInfo = SetDontCacheInfo, .position = keys}
     };
 
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
@@ -3989,7 +4063,7 @@ static int RegisterCoordCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "GC",      .fullName = "FT.CURSOR|GC",      .flags = "readonly",
      .handler = SafeCmd(DiskDisabledCmd(CursorGCCommand)),
-     .setCommandInfo = NULL, .position = keys}
+     .setCommandInfo = SetDontCacheInfo, .position = keys}
     };
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
@@ -3998,7 +4072,6 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
-    // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
   RS_AutoMemory(ctx);
@@ -4013,12 +4086,12 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
   MRCommand_SetProtocol(&cmd, ctx);
-  /* Replace our own FT command with _FT. command */
   MRCommand_SetPrefix(&cmd, "_FT");
 
   MR_Fanout(MR_CreateCtx(ctx, 0, NULL, NumShards), uniqueStringsReducer, cmd, true);
   return REDISMODULE_OK;
 }
+
 
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) {
@@ -4104,7 +4177,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, int proto
           // No modification needed if K values are the same
           if (knn_query->k == effectiveK) break;
           // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-          modifyKNNCommand(cmd, 2 + req->profileArgs, effectiveK, knnCtx->knn.queryNode->vn.vq);
+          modifyKNNCommand(cmd, 2 + req->profileArgs, knn_query->k, effectiveK,
+                           knn_query->k_token_pos, knn_query->k_token_len);
         }
         break; // Only handle KNN context
       }
@@ -4230,7 +4304,7 @@ static void DistSearchCommandHandler(void* pd) {
 // Reply callback for distributed search.
 // Called on the main thread when the client is unblocked.
 // The free_privdata callback (DistSearchFreePrivData) will be called automatically after this to clean up.
-static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
@@ -4311,6 +4385,9 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 
 // Initialize query timeout from command args or global config.
 // Always assigns a non-negative timeout value to *timeout.
+// The value is also silently capped to search-_max-foreground-timeout-limit
+// when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
+// flag on its own request, which is what surfaces the warning to the user.
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
@@ -4322,7 +4399,17 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
     ArgsCursor ac;
     ArgsCursor_InitRString(&ac, argv + timeoutArgIdx, argc - timeoutArgIdx);
     // parseTimeout validates non-negative timeout and returns error if no argument is provided
-    return parseTimeout(timeout, &ac, status);
+    if (parseTimeout(timeout, &ac, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  }
+  // Saturate the size_t to LLONG_MAX before casting so values >= 2^63 do not
+  // wrap to a negative long long. Without this clamp, an oversized timeout
+  // would be treated by the cap helper as "unlimited" (<= 0) and silently
+  // capped anyway, but the saturation here is defensive and self-documenting.
+  long long capped = (*timeout > (size_t)LLONG_MAX) ? LLONG_MAX : (long long)*timeout;
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+    *timeout = (size_t)capped;
   }
   return REDISMODULE_OK;
 }
@@ -4330,7 +4417,7 @@ static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc,
 // Timeout callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the blocking client times out.
 // For FAIL policy
-static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
@@ -4357,7 +4444,7 @@ static int DistSearchTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **
 // Timeout callback for FT.SEARCH in coordinator mode.
 // Called on the main thread when the blocking client times out.
 // Used for RETURN-STRICT policy - returns partial results using the blocked client timeout mechanism instead of error
-static int DistSearchTimeoutPartialClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (!mrctx) {
@@ -4425,14 +4512,14 @@ static RedisModuleBlockedClient* DistSearchBlockClientWithTimeout(RedisModuleCtx
   BlockedClientFreePrivDataCB freePrivDataCallback = DistSearchFreePrivData;
 
   if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail) {
-    timeoutCallback = DistSearchTimeoutFailClient;
+    timeoutCallback = DistSearchTimeoutFailCallback;
   } else if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    timeoutCallback = DistSearchTimeoutPartialClient;
+    timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
   }
 
-  return RedisModule_BlockClient(ctx, DistSearchUnblockClient, timeoutCallback, freePrivDataCallback, queryTimeout);
+  return RedisModule_BlockClient(ctx, DistSearchReplyCallback, timeoutCallback, freePrivDataCallback, queryTimeout);
 }
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -4478,7 +4565,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Prepare spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
-  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
@@ -4627,26 +4714,10 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // this means a parsing error, the parser already sent the explicit error to the client
   if (!topo) {
     RedisModule_Log(ctx, "warning", "Received invalid cluster topology");
-    for (int i = 1; i < argc; i++) {
-      size_t len;
-      const char *arg = RedisModule_StringPtrLen(argv[i], &len);
-      RedisModule_Log(ctx, "warning", " Arg %d: %.*s", i, (int)len, arg);
-    }
     return REDISMODULE_ERR;
   }
-  // Build a comma-separated list of ranges per shard
-  char ranges_info[256];
-  ranges_info[0] = '\0';
-  size_t offset = 0;
-  for (uint32_t i = 0; i < topo->numShards && offset < sizeof(ranges_info) - 2; i++) {
-    if (i > 0) {
-      offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, ", ");
-    }
-    offset += snprintf(ranges_info + offset, sizeof(ranges_info) - offset, "%d",
-                      topo->shards[i].slotRanges ? topo->shards[i].slotRanges->num_ranges : 0);
-  }
 
-  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards (%s)", topo->numShards, ranges_info);
+  RedisModule_Log(ctx, "notice", "Received new cluster topology with %u shards", topo->numShards);
 
   if (my_shard_idx != UINT32_MAX) {
     // Take a reference to our own shard slot ranges (MR_UpdateTopology won't consume it)
@@ -4781,7 +4852,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  TracingRedisModule_Init(ctx);
+  RedisModuleString *logLevel = getRedisConfigValue(ctx, "loglevel");
+  RS_ASSERT(logLevel);
+  TracingRedisModule_Init(ctx, RedisModule_StringPtrLen(logLevel, NULL));
+  RedisModule_FreeString(ctx, logLevel);
   RustPanicHook_Init();
 
   setHiredisAllocators();
@@ -4891,16 +4965,16 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // cluster set commands
   SearchCommand clusterSetCommands[] = {
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               NULL, NONE, "", true, noKeyArgs, false),
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", NULL, NONE, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, clusterSetCommands, sizeof(clusterSetCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
   // Deprecated commands. Grouped here for easy tracking
   SearchCommand deprecatedCommands[] = {
-    DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", NULL,             NONE,             "read",           true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.MGET",           SafeCmd(DiskDisabledCmd(MGetCommandHandler)),    "readonly", SetDontCacheInfo, SET_COMMAND_INFO, "read",           true, noKeyArgs, false),
     DEFINE_COMMAND("FT.TAGVALS",        SafeCmd(DiskDisabledCmd(TagValsCommandHandler)), "readonly", SetFtTagvalsInfo, SET_COMMAND_INFO, "read slow dangerous", true, noKeyArgs, false)
   };
   if (CreateSearchCommands(ctx, deprecatedCommands, sizeof(deprecatedCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {

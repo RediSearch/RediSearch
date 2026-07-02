@@ -18,4 +18,7 @@ workspace = true
 cheadergen.workspace = true
 ffi = { workspace = true }
 fork_gc = { workspace = true }
+index_spec.workspace = true
+tracing.workspace = true
+tracing_log_error.workspace = true
 workspace_hack.workspace = true

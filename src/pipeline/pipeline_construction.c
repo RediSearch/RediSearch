@@ -13,6 +13,7 @@ extern "C" {
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, uint32_t reqflags,
+                                     GroupByLimits groupByLimits,
                                      QueryError *err) {
   arrayof(const char*) properties = PLNGroupStep_GetProperties(gstp);
   size_t nproperties = array_len(properties);
@@ -41,7 +42,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -107,7 +108,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
   RLookup *firstLk = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_FIRST); // first lookup can load fields from redis
   const RLookupKey **loadKeys = NULL;
-  ResultProcessor *groupRP = buildGroupRP(gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL, params->common.reqflags, status);
+  ResultProcessor *groupRP = buildGroupRP(
+      gstp, lookup, (firstLk == lookup && RLookup_HasIndexSpecCache(firstLk)) ? &loadKeys : NULL,
+      params->common.reqflags, params->groupByLimits, status);
 
   if (!groupRP) {
     array_free(loadKeys);
@@ -237,7 +240,13 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
               HasScorer(&params->common)) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(maxResults);
+      // Resolve the score-tie-break field if one was requested.
+      const RLookupKey *scoreTieBreakKey = NULL;
+      if (astp->scoreTieBreakField) {
+        RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
+        scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
+      }
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey);
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
@@ -401,12 +410,19 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * This creates the initial pipeline components that find matching documents and calculate
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
-void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
+void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, QueryError *status) {
   IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
   RLookup_SetCache(first, cache);
+
+  // Buffering RPs only need to preserve each result's RSIndexResult if something
+  // downstream (highlighter or matched_terms()) reads it; otherwise they may drop
+  // the borrow instead of paying for a deep copy. The query and output parts share
+  // this qctx, so setting it here covers the whole pipeline.
+  pipeline->qctx.skipIndexResultDeepCopy =
+      !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
   ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
@@ -418,7 +434,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (params->ast->metricRequests) {
-    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, pipeline->qctx.err);
+    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, status);
     if (!rp) {
       return;
     }
@@ -455,7 +471,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params) {
       if (params->common.scoreAlias) {
         scoreKey = RLookup_GetKey_Write(first, params->common.scoreAlias, RLOOKUP_F_NOFLAGS);
         if (!scoreKey) {
-          QueryError_SetWithUserDataFmt(pipeline->qctx.err, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
+          QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Could not create score alias, name already exists in query", "%s", params->common.scoreAlias);
           return;
         }
       } else {
@@ -536,12 +552,41 @@ error:
   return REDISMODULE_ERR;
 }
 
-int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags) {
+// Whether `expr` (or any sub-expression) calls a function that reads the
+// result's RSIndexResult. matched_terms() is currently the only such function;
+// an APPLY/FILTER using it after a buffering step needs the index result kept
+// alive, so the buffering RP must deep-copy rather than drop the borrow.
+static bool exprReadsIndexResult(const RSExpr *expr) {
+  if (!expr) return false;
+  switch (expr->t) {
+    case RSExpr_Function:
+      if (expr->func.name && !strcasecmp(expr->func.name, "matched_terms")) {
+        return true;
+      }
+      if (expr->func.args) {
+        for (size_t i = 0; i < expr->func.args->len; i++) {
+          if (exprReadsIndexResult(expr->func.args->args[i])) return true;
+        }
+      }
+      return false;
+    case RSExpr_Op:
+      return exprReadsIndexResult(expr->op.left) || exprReadsIndexResult(expr->op.right);
+    case RSExpr_Predicate:
+      return exprReadsIndexResult(expr->pred.left) || exprReadsIndexResult(expr->pred.right);
+    case RSExpr_Inverted:
+      return exprReadsIndexResult(expr->inverted.child);
+    case RSExpr_Literal:
+    case RSExpr_Property:
+      return false;
+  }
+  return false;
+}
+
+int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineParams *params, uint32_t *outStateFlags, QueryError *status) {
   AGGPlan *pln = &pipeline->ap;
   ResultProcessor *rp = NULL, *rpUpstream = pipeline->qctx.endProc;
   RedisSearchCtx *sctx = params->common.sctx;
   int requestFlags = params->common.reqflags;
-  QueryError *status = pipeline->qctx.err;
 
   // If we have a JSON spec, and an "old" API version (DIALECT < 3), we don't store all the data of a multi-value field
   // in the SV as we want to return it, so we need to load and override all requested return fields that are SV source.
@@ -581,6 +626,12 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
+        }
+
+        // matched_terms() reads the result's index result; if any APPLY/FILTER
+        // needs it, buffering RPs must deep-copy it rather than drop the borrow.
+        if (exprReadsIndexResult(mstp->parsedExpr)) {
+          pipeline->qctx.skipIndexResultDeepCopy = false;
         }
 
         // Ensure the lookups can actually find what they need

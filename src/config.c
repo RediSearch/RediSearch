@@ -20,6 +20,7 @@
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
+#include "indexes.h"
 #include "extension.h"
 #include "util/dict.h"
 #include "resp3.h"
@@ -31,6 +32,21 @@
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
+
+bool RSConfig_CapQueryTimeoutToForegroundLimit(long long *timeoutMS) {
+  if (!timeoutMS) return false;
+  const long long limit = RSGlobalConfig.maxForegroundTimeoutLimitMS;
+  if (limit <= 0 || RSGlobalConfig.numWorkerThreads != 0) {
+    return false;
+  }
+  // *timeoutMS <= 0 represents "unlimited" (TIMEOUT 0) or a wrapped oversized
+  // value; both are semantically above the configured maximum, so cap them.
+  if (*timeoutMS > 0 && *timeoutMS <= limit) {
+    return false;
+  }
+  *timeoutMS = limit;
+  return true;
+}
 
 typedef struct {
   const char *FTConfigName;
@@ -63,10 +79,12 @@ configPair_t __configPairs[] = {
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
+  {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
   {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
   {"MAXSEARCHRESULTS",                "search-max-search-results"},
+  {"_MAX_FOREGROUND_TIMEOUT_LIMIT",   "search-_max-foreground-timeout-limit"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
@@ -97,6 +115,8 @@ configPair_t __configPairs[] = {
   {"_MAX_TRIM_DELAY_MS",               "search-_max-trim-delay-ms"},
   {"_TRIMMING_STATE_CHECK_DELAY_MS",   "search-_trimming-state-check-delay-ms"},
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
+  {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
+  {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -149,6 +169,21 @@ static int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
+  *(unsigned int *)privdata = (unsigned int) val;
+  return REDISMODULE_OK;
+}
+
+// Like set_uint_numeric_config but accepts values above UINT32_MAX (clamping with a warning).
+// Used for fields that were previously long long and may have larger values persisted in RDB.
+static int set_uint_clamped_numeric_config(const char *name, long long val,
+                                           void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "%s value %lld exceeds maximum (%u), clamping",
+                    name, val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
   *(unsigned int *)privdata = (unsigned int) val;
   return REDISMODULE_OK;
 }
@@ -213,6 +248,7 @@ static long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(uint8_t *)privdata);
 }
+
 
 static int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
@@ -378,13 +414,24 @@ CONFIG_BOOLEAN_GETTER(getNoMemPools, noMemPool, 0)
 
 // MINPREFIX
 CONFIG_SETTER(setMinPrefix) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minTermPrefix, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "MINPREFIX value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.minTermPrefix = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMinPrefix) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minTermPrefix);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minTermPrefix);
 }
 
 // MINSTEMLEN
@@ -477,26 +524,86 @@ CONFIG_GETTER(getMaxAggregateResults) {
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
 }
 
+// MAX_AGGREGATE_GROUPS
+CONFIG_SETTER(setMaxAggregateGroups) {
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize > MAX_AGGREGATE_GROUPS) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "Value exceeds maximum possible aggregate groups");
+    return REDISMODULE_ERR;
+  }
+  config->maxAggregateGroups = newSize;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxAggregateGroups) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->maxAggregateGroups);
+}
+
 // MAXEXPANSIONS MAXPREFIXEXPANSIONS
 CONFIG_SETTER(setMaxExpansions) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.maxPrefixExpansions, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "MAXPREFIXEXPANSIONS value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.maxPrefixExpansions = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxExpansions) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%llu", config->iteratorsConfigParams.maxPrefixExpansions);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.maxPrefixExpansions);
 }
 
 // TIMEOUT
 CONFIG_SETTER(setTimeout) {
-  int acrc = AC_GetLongLong(ac, &config->requestConfigParams.queryTimeoutMS, AC_F_GE0);
-  RETURN_STATUS(acrc);
+  long long newTimeoutMS;
+  int acrc = AC_GetLongLong(ac, &newTimeoutMS, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  // Warn only when the new value would actually be capped at query time
+  // (workers disabled and limit configured). The per-query cap is handled by
+  // RSConfig_CapQueryTimeoutToForegroundLimit, which also emits the RESP3
+  // MAX_TIMEOUT_CAPPED warning to the client.
+  if (config->maxForegroundTimeoutLimitMS > 0 &&
+      config->numWorkerThreads == 0 &&
+      (newTimeoutMS == 0 || newTimeoutMS > config->maxForegroundTimeoutLimitMS)) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "TIMEOUT %lld exceeds _MAX_FOREGROUND_TIMEOUT_LIMIT %lld and WORKERS is 0; "
+      "queries timeout will be capped at %lld",
+      newTimeoutMS, config->maxForegroundTimeoutLimitMS,
+      config->maxForegroundTimeoutLimitMS);
+  }
+  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+}
+
+// _MAX_FOREGROUND_TIMEOUT_LIMIT
+CONFIG_SETTER(setMaxForegroundTimeoutLimit) {
+  long long newLimit;
+  int acrc = AC_GetLongLong(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->maxForegroundTimeoutLimitMS = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMaxForegroundTimeoutLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lld", config->maxForegroundTimeoutLimitMS);
 }
 
 static inline int errorTooManyThreads(QueryError *status) {
@@ -907,13 +1014,24 @@ CONFIG_GETTER(getForkGcRetryInterval) {
 
 // UNION_ITERATOR_HEAP
 CONFIG_SETTER(setMinUnionIteratorHeap) {
-  int acrc = AC_GetLongLong(ac, &config->iteratorsConfigParams.minUnionIterHeap, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  long long val;
+  int acrc = AC_GetLongLong(ac, &val, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  if (val > UINT32_MAX) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "UNION_ITERATOR_HEAP value %lld exceeds maximum (%u), clamping",
+                    val, UINT32_MAX);
+    val = UINT32_MAX;
+  }
+  config->iteratorsConfigParams.minUnionIterHeap = (uint32_t) val;
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMinUnionIteratorHeap) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->iteratorsConfigParams.minUnionIterHeap);
+  return sdscatprintf(ss, "%u", config->iteratorsConfigParams.minUnionIterHeap);
 }
 
 // CURSOR_MAX_IDLE
@@ -982,7 +1100,7 @@ CONFIG_SETTER(setNumericTreeMaxDepthRange) {
 
 CONFIG_GETTER(getNumericTreeMaxDepthRange) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%ld", config->numericTreeMaxDepthRange);
+  return sdscatprintf(ss, "%zu", config->numericTreeMaxDepthRange);
 }
 
 // DEFAULT_DIALECT
@@ -1296,6 +1414,44 @@ static int get_on_oom(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSOomPolicy *)privdata);
 }
+// Legacy module-ARGS setter for search-disk-drop-read-cache.
+// Handles yes/no/true/false (case-insensitive).
+// TODO: remove once RLTest can emit `--<config-name> <value>` directly (see RLTest
+// moduleConfigs follow-up); new immutable configs should not need a legacy ARGS entry.
+CONFIG_SETTER(setDiskDropReadCache) {
+  const char *tf;
+  int acrc = AC_GetString(ac, &tf, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
+    config->diskDropReadCache = true;
+  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
+    config->diskDropReadCache = false;
+  } else {
+    acrc = AC_ERR_PARSE;
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_BOOLEAN_GETTER(getDiskDropReadCache, diskDropReadCache, 0)
+
+// Legacy module-ARGS setter for search-disk-use-direct-reads.
+// Handles yes/no/true/false (case-insensitive).
+CONFIG_SETTER(setDiskUseDirectReads) {
+  const char *tf;
+  int acrc = AC_GetString(ac, &tf, NULL, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
+    config->diskUseDirectReads = true;
+  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
+    config->diskUseDirectReads = false;
+  } else {
+    acrc = AC_ERR_PARSE;
+  }
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1410,6 +1566,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Maximum number of results from ft.aggregate command",
          .setValue = setMaxAggregateResults,
          .getValue = getMaxAggregateResults},
+        {.name = "MAX_AGGREGATE_GROUPS",
+         .helpText = "Maximum number of GROUPBY groups materialized by ft.aggregate command",
+         .setValue = setMaxAggregateGroups,
+         .getValue = getMaxAggregateGroups},
         {.name = "MAXEXPANSIONS",
          .helpText = "Maximum prefix expansions to be used in a query",
          .setValue = setMaxExpansions,
@@ -1422,6 +1582,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Query (search) timeout",
          .setValue = setTimeout,
          .getValue = getTimeout},
+        {.name = "_MAX_FOREGROUND_TIMEOUT_LIMIT",
+         .helpText = "Maximum allowed value (ms) for search-timeout and per-query TIMEOUT when workers are disabled (0 = unlimited)",
+         .setValue = setMaxForegroundTimeoutLimit,
+         .getValue = getMaxForegroundTimeoutLimit},
         {.name = "WORKERS",
          .helpText = "Number of worker threads to use for query processing and background tasks. Default is 0."
                      " This configuration also affects the number of connections per shard. See CONN_PER_SHARD."
@@ -1652,6 +1816,16 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDebugSimulateInFlex,
          .getValue = getDebugSimulateInFlex,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "search-disk-drop-read-cache",
+         .helpText = "Drop OS read cache after each SpeedB read (yes/no, default no)",
+         .setValue = setDiskDropReadCache,
+         .getValue = getDiskDropReadCache,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
+        {.name = "search-disk-use-direct-reads",
+         .helpText = "Use O_DIRECT for SpeedB reads (yes/no, default no)",
+         .setValue = setDiskUseDirectReads,
+         .getValue = getDiskUseDirectReads,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1750,9 +1924,9 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   sds ss = sdsempty();
 
   ss = sdscatprintf(ss, "gc: %s, ", config->gcConfigParams.enableGC ? "ON" : "OFF");
-  ss = sdscatprintf(ss, "prefix min length: %lld, ", config->iteratorsConfigParams.minTermPrefix);
+  ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
-  ss = sdscatprintf(ss, "prefix max expansions: %lld, ", config->iteratorsConfigParams.maxPrefixExpansions);
+  ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
   ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
   ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
@@ -2006,9 +2180,18 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
+      NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
-      get_long_numeric_config, set_long_numeric_config, NULL,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)
     )
   )
@@ -2063,7 +2246,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-prefix", DEFAULT_MIN_TERM_PREFIX,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minTermPrefix)
     )
   )
@@ -2106,9 +2289,18 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
+      ctx, "search-_max-foreground-timeout-limit", DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.maxForegroundTimeoutLimitMS)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
       ctx, "search-union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
+      LLONG_MAX, get_uint_numeric_config, set_uint_clamped_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap)
     )
   )
@@ -2386,6 +2578,24 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-drop-read-cache", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskDropReadCache)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-use-direct-reads", 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskUseDirectReads)
     )
   )
 

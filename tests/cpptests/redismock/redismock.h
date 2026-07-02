@@ -23,6 +23,12 @@ struct RedisModuleIO {
   bool error_flag = false;
 };
 
+// Minimal INFO-context recorder: RMCK_InfoAddFieldCString appends the
+// (field, value) pairs a module writes, so tests can assert on them.
+struct RedisModuleInfoCtx {
+  std::vector<std::pair<std::string, std::string>> fields;
+};
+
 std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx *ctx);
 
 // External interface for clearing KeyMeta storage
@@ -34,6 +40,15 @@ void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
                          uint64_t *meta);
 void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta);
 std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
+
+// Configure the mock cluster topology used by RedisModule_GetClusterNodesList /
+// GetClusterNodeInfo / GetClusterNodeSlotRanges / GetMyClusterID. Tests
+// should call RMCK_ClusterMock_Reset() between cases. Pass an empty `slots`
+// for a slot-less node. Mark the local node by including REDISMODULE_NODE_MYSELF
+// in `flags`.
+void RMCK_ClusterMock_Reset();
+void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flags,
+                              const std::vector<RedisModuleSlotRange> &slots = {});
 
 extern "C" {
 #else

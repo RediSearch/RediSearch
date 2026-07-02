@@ -17,6 +17,11 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
+#include "ttl_table.h"
+
+// Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
+// Forward-declared here to avoid pulling the entire disk-API surface into document.h.
+typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct QueryError QueryError;
 
@@ -94,7 +99,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
@@ -213,6 +218,15 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
 int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
 
 /**
+ * Append a `FieldExpiration` entry for `field` (at position `ii` in
+ * `spec->fields`) to `*out` when the hash key has a TTL on that field; no-op
+ * otherwise. Calling this in `spec->fields` order keeps `*out` sorted by
+ * `t_fieldIndex`, which is the invariant the TTL table relies on.
+ */
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, FieldExpirations *out);
+
+/**
  * Load all the fields into the document.
  */
 int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx);
@@ -303,6 +317,14 @@ typedef struct RSAddDocumentCtx {
   uint8_t stateFlags;    // Indexing state, ACTX_F_xxx
   DocumentAddCompleted donecb;
   void *donecbData;
+
+  // Disk-mode-only state. `batch` is NULL outside disk mode; the other fields
+  // are unused there.
+  struct {
+    SearchDiskWriteBatchHandle *batch;
+    t_docId oldDocId;
+    uint32_t oldDocLen;
+  } disk;
 } RSAddDocumentCtx;
 
 /**

@@ -10,13 +10,14 @@
 use std::{hint::black_box, io::Cursor, vec};
 
 use criterion::{BatchSize, Criterion};
-use ffi::t_fieldMask;
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     test_utils::TestTermRecord,
 };
 use itertools::Itertools;
+use rqe_core::FieldMask;
 
 pub struct Bencher {
     test_values: Vec<TestValue>,
@@ -26,7 +27,7 @@ pub struct Bencher {
 #[derive(Debug)]
 struct TestValue {
     delta: u32,
-    field_mask: t_fieldMask,
+    field_mask: FieldMask,
     term_offsets: Vec<u8>,
 
     encoded: Vec<u8>,
@@ -45,11 +46,11 @@ impl Bencher {
 
     fn new(wide: bool) -> Self {
         let deltas = vec![0, u32::MAX];
-        let mut field_masks_values = vec![0, 10, 100, 1_000, 10_000, u32::MAX as t_fieldMask - 1];
+        let mut field_masks_values = vec![0, 10, 100, 1_000, 10_000, u32::MAX as FieldMask - 1];
         #[cfg(target_pointer_width = "64")]
         if wide {
             // Add a larger field mask for wide mode
-            field_masks_values.extend(vec![u32::MAX as t_fieldMask, u128::MAX]);
+            field_masks_values.extend(vec![u32::MAX as FieldMask, u128::MAX]);
         }
         let term_offsets_values = vec![
             vec![0],

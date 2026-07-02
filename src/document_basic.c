@@ -26,6 +26,7 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
   doc->payload = NULL;
   doc->payloadSize = 0;
   doc->type = type;
+  doc->fieldExpirations = FieldExpirations_Empty();
 }
 
 // Nor related to AS attribute. Used by LLAPI.
@@ -128,6 +129,19 @@ t_expirationTimePoint GetKeyExpirationTime(RedisModuleKey *openedKey) {
   return timespecFromMilliseconds(totalMilliseconds);
 }
 
+void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
+                                      size_t ii, FieldExpirations *out) {
+  mstime_t expireAt = REDISMODULE_NO_EXPIRE;
+  RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME,
+                      HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
+  if (expireAt == REDISMODULE_NO_EXPIRE) {
+    return;
+  }
+  FieldExpiration fx = {.index = (t_fieldIndex)ii, .point = timespecFromMilliseconds(expireAt)};
+
+  FieldExpirations_Push(out, fx);
+}
+
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
   // must happen before opening the key, in case the call will cause a lazy expiration
   IndexSpec *spec = sctx->spec;
@@ -173,12 +187,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     if (hasExpireTimeOnFields) {
-      mstime_t expireAt = REDISMODULE_NO_EXPIRE;
-      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
-      if (expireAt != REDISMODULE_NO_EXPIRE) {
-        FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
-        array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
-      }
+      Document_LoadHashFieldExpiration(k, field, ii, &doc->fieldExpirations);
     }
 
     size_t oix = doc->numFields++;
@@ -459,8 +468,7 @@ void Document_Clear(Document *d) {
 
 void Document_Free(Document *doc) {
   Document_Clear(doc);
-  array_free(doc->fieldExpirations);
-  doc->fieldExpirations = NULL;
+  FieldExpirations_Free(&doc->fieldExpirations);
   if (doc->flags & (DOCUMENT_F_OWNREFS | DOCUMENT_F_OWNSTRINGS)) {
     RedisModule_FreeString(RSDummyContext, doc->docKey);
   }

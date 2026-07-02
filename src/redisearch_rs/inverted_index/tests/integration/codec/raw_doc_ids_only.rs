@@ -9,7 +9,8 @@
 
 use std::io::Cursor;
 
-use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, raw_doc_ids_only::RawDocIdsOnly};
 
 #[test]
 fn test_encode_raw_doc_ids_only() {
@@ -53,7 +54,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     // Not enough space in the buffer to write the encoded data.
     let buf = [0u8; 1];
     let mut cursor = Cursor::new(buf);
-    let record = inverted_index::RSIndexResult::build_virt().build();
+    let record = index_result::RSIndexResult::build_virt().build();
 
     let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
     assert_eq!(res.is_err(), true);
@@ -128,8 +129,9 @@ fn test_seek_raw_doc_ids_only() {
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to be run under miri.")]
 fn test_inverted_index_raw_doc_ids_gc() {
-    use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
-    use inverted_index::{IndexBlock, IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+    use ffi::IndexFlags_Index_DocIdsOnly;
+    use inverted_index::{IndexReader, InvertedIndex, raw_doc_ids_only::RawDocIdsOnly};
+    use rqe_core::DocId;
 
     let mut ii = InvertedIndex::<RawDocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
 
@@ -159,7 +161,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id >= 2_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -186,7 +188,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     let delta = ii
         .scan_gc(
             |doc_id| doc_id < 3_000,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -197,7 +199,10 @@ fn test_inverted_index_raw_doc_ids_gc() {
 
     // Test GC: Remove all remaining records
     let delta = ii
-        .scan_gc(|_| false, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(
+            |_| false,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
+        )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
     let apply_info = ii.apply_gc(delta);
@@ -221,7 +226,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
     for i in 0..100 {
         ii.add_record(
             &RSIndexResult::build_virt()
-                .doc_id(i * (u32::MAX as t_docId))
+                .doc_id(i * (u32::MAX as DocId))
                 .build(),
         )
         .unwrap();
@@ -232,8 +237,8 @@ fn test_inverted_index_raw_doc_ids_gc() {
     // GC every second entry (causes large deltas after GC)
     let delta = ii
         .scan_gc(
-            |doc_id| doc_id % (u32::MAX as t_docId * 2) == 0,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            |doc_id| doc_id % (u32::MAX as DocId * 2) == 0,
+            None::<fn(&RSIndexResult, &inverted_index::RepairContext<'_>)>,
         )
         .expect("scan_gc should not fail for valid index")
         .expect("scan_gc should return Some delta when entries are removed");
@@ -248,7 +253,7 @@ fn test_inverted_index_raw_doc_ids_gc() {
         let mut result = RSIndexResult::build_virt().build();
 
         for i in 0..50 {
-            let target_id = i * (u32::MAX as t_docId * 2);
+            let target_id = i * (u32::MAX as DocId * 2);
             let found = reader.seek_record(target_id, &mut result).unwrap();
             assert!(found, "expected to find doc_id {}", target_id);
             assert_eq!(result.doc_id, target_id);

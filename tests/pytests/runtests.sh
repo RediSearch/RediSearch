@@ -17,6 +17,14 @@ cd $HERE
 
 #----------------------------------------------------------------------------------------------
 
+# Returns 0 (success) if $1 is an absolute path, non-zero otherwise.
+# Used to decide whether to prepend $ROOT to user-supplied file arguments.
+is_abspath() {
+	[[ "$1" == /* ]]
+}
+
+#----------------------------------------------------------------------------------------------
+
 help() {
 	cat <<-'END'
 		Run Python tests using RLTest
@@ -69,8 +77,7 @@ help() {
 		LOG_LEVEL=<level>     Set log level (default: debug)
 		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
 
-		PARALLEL=1            Runs tests in parallel
-		SLOW=1                Do not test in parallel
+		PARALLEL=0|1|N       Test workers: 0=serial, 1=nproc (default), N=exact count
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
@@ -155,6 +162,17 @@ setup_clang_sanitizer() {
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
+		# Preload libstdc++ so ASAN resolves __cxa_throw at process init.
+		# redis-server no longer links libstdc++ (upstream 670993a), so the
+		# interceptor captures NULL and the first C++ throw from a module
+		# aborts the process.
+		if [[ $OS != macos ]] && command -v g++ &> /dev/null; then
+			local libstdcxx
+			libstdcxx=$(g++ -print-file-name=libstdc++.so.6 2> /dev/null)
+			if [[ -n $libstdcxx && -e $libstdcxx ]]; then
+				export LD_PRELOAD="${libstdcxx}${LD_PRELOAD:+:$LD_PRELOAD}"
+			fi
+		fi
 	fi
 }
 
@@ -451,7 +469,7 @@ fi
 
 if [[ -n $FAILEDFILE ]]; then
 	if ! is_abspath "$FAILEDFILE"; then
-		TESTFILE="$ROOT/$FAILEDFILE"
+		FAILEDFILE="$ROOT/$FAILEDFILE"
 	fi
 	RLTEST_TEST_ARGS+=" -F $FAILEDFILE"
 fi
@@ -521,6 +539,7 @@ E=0
 # Test suite assumes WORKERS=0; tests that need workers enable them explicitly.
 MODARGS="${MODARGS}; WORKERS 0;"
 MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
+MODARGS="${MODARGS}; _MAX_FOREGROUND_TIMEOUT_LIMIT 0;" # disable per-query TIMEOUT cap by default
 MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" # set default dialect to 2
 
 if [[ $GC == 0 ]]; then

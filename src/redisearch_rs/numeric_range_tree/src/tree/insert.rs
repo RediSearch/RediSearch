@@ -13,8 +13,9 @@
 //! descends to the appropriate leaf, inserts the entry, and may trigger
 //! splitting and AVL-like rebalancing on the way back up.
 
-use ffi::t_docId;
-use inverted_index::{IndexReader as _, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader as _;
+use rqe_core::DocId;
 
 use super::{AddResult, CheckedCount, NumericRangeTree};
 use crate::arena::{NodeArena, NodeIndex};
@@ -57,7 +58,7 @@ impl NumericRangeTree {
     /// that are an ancestor of the node that stored the new value.
     pub fn add(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         is_multivalued: bool,
         max_depth_range: usize,
@@ -83,7 +84,7 @@ impl NumericRangeTree {
 
     fn _add(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         is_multivalued: bool,
         max_depth_range: usize,
@@ -157,7 +158,7 @@ impl NumericRangeTree {
     fn node_add(
         nodes: &mut NodeArena,
         node_idx: NodeIndex,
-        doc_id: t_docId,
+        doc_id: DocId,
         value: f64,
         depth: usize,
         max_depth_range: usize,
@@ -191,8 +192,9 @@ impl NumericRangeTree {
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx]
                     && let Some(range) = internal.range.as_mut()
                 {
-                    let size = range.add_without_cardinality(doc_id, value);
-                    rv.size_delta += size as i64;
+                    let outcome = range.add_without_cardinality(doc_id, value);
+                    rv.size_delta += outcome.mem_growth as i64;
+                    rv.block_count_delta += outcome.blocks_added as i32;
                     rv.num_records_delta += 1;
                 }
 
@@ -202,6 +204,7 @@ impl NumericRangeTree {
                     rv.size_delta += br.size_delta;
                     rv.num_records_delta += br.num_records_delta;
                     rv.num_ranges_delta += br.num_ranges_delta;
+                    rv.block_count_delta += br.block_count_delta;
                     if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
                         internal.max_depth = br.new_depth;
                     }
@@ -226,13 +229,14 @@ impl NumericRangeTree {
                     *empty_leaves -= 1;
                 }
 
-                let size = leaf.range.add(doc_id, value);
+                let outcome = leaf.range.add(doc_id, value);
                 let mut rv = AddResult {
-                    size_delta: size as i64,
+                    size_delta: outcome.mem_growth as i64,
                     num_records_delta: 1,
                     changed: false,
                     num_ranges_delta: 0,
                     num_leaves_delta: 0,
+                    block_count_delta: outcome.blocks_added as i32,
                 };
 
                 let card = leaf.range.cardinality();
@@ -317,7 +321,7 @@ impl NumericRangeTree {
 
         // Redistribute entries to children
         let mut reader = parent_range.reader();
-        let mut result = inverted_index::RSIndexResult::build_numeric(0.0).build();
+        let mut result = index_result::RSIndexResult::build_numeric(0.0).build();
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let entry_value = unsafe { result.as_numeric_unchecked() };
@@ -328,8 +332,9 @@ impl NumericRangeTree {
             };
 
             if let Some(target_range) = nodes[target_idx].range_mut() {
-                let size = target_range.add(result.doc_id, entry_value);
-                rv.size_delta += size as i64;
+                let outcome = target_range.add(result.doc_id, entry_value);
+                rv.size_delta += outcome.mem_growth as i64;
+                rv.block_count_delta += outcome.blocks_added as i32;
             }
             rv.num_records_delta += 1;
         }
@@ -377,6 +382,7 @@ impl NumericRangeTree {
             rv.size_delta -= range.memory_usage() as i64;
             rv.num_records_delta -= range.num_entries() as i32;
             rv.num_ranges_delta -= 1;
+            rv.block_count_delta -= range.entries().num_blocks() as i32;
         }
     }
 
@@ -434,6 +440,7 @@ impl NumericRangeTree {
                 result.size_delta -= range.memory_usage() as i64;
                 result.num_records_delta -= range.num_entries() as i32;
                 result.num_ranges_delta -= 1;
+                result.block_count_delta -= range.entries().num_blocks() as i32;
             }
         }
 
@@ -456,4 +463,6 @@ pub(super) struct BalanceResult {
     pub num_records_delta: i32,
     /// Change in range count from dropped ranges.
     pub num_ranges_delta: i32,
+    /// Change in inverted-index block count from dropped ranges (always ≤ 0).
+    pub block_count_delta: i32,
 }

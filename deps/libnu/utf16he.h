@@ -15,6 +15,8 @@ extern "C" {
 
 /** Read codepoint from UTF-16 string
  *
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf16
  * @see nu_utf16le_read
  */
@@ -38,6 +40,8 @@ const char* nu_utf16he_read(const char *utf16, uint32_t *unicode) {
 #ifdef NU_WITH_REVERSE_READ
 
 /** Read codepoint from UTF-16 string in backward direction
+ *
+ * @note This is nunicode extenstion.
  *
  * @ingroup utf16
  * @see nu_utf16le_revread
@@ -66,6 +70,8 @@ const char* nu_utf16he_revread(uint32_t *unicode, const char *utf16) {
 
 /** Validate codepoint in string
  *
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf16
  * @see nu_utf16le_validread
  */
@@ -78,6 +84,8 @@ int nu_utf16he_validread(const char *encoded, size_t max_len);
 #ifdef NU_WITH_UTF16HE_WRITER
 
 /** Write unicode codepoints into UTF-16 encoded string
+ *
+ * @note This is nunicode extenstion.
  *
  * @ingroup utf16
  * @see nu_utf16le_write

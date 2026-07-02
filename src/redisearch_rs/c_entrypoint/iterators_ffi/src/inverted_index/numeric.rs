@@ -15,63 +15,33 @@ use inverted_index::NumericFilter;
 use query_node_type::QueryNodeType;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index,
+    IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    open_numeric_or_geo_index, profile_print,
 };
 
 /// Wrapper around [`NumericIteratorVariant`].
-/// Needed to keep the `filter` pointer around so it can be returned in
-/// [`NumericInvIndIterator_GetNumericFilter`].
 pub(super) struct NumericIterator<'index> {
-    /// The user numeric filter, or None if no filter was provided.
-    ///
-    /// Kept here (rather than in `rqe_iterators`) solely so that
-    /// `NumericInvIndIterator_GetNumericFilter` can hand the pointer back to C callers.
-    /// Once those callers are ported to Rust, this field and `NumericIterator` itself can be
-    /// removed — callers will use [`NumericIteratorVariant`] directly.
-    filter: Option<NonNull<NumericFilter>>,
     /// The iterator variant (unfiltered, filtered numeric, or geo).
     iterator: NumericIteratorVariant<'index>,
 }
 
 impl<'index> NumericIterator<'index> {
-    /// Wrap a variant with a filter, for use by [`crate::inverted_index::geo`].
-    pub(super) const fn with_filter(
-        filter: NonNull<NumericFilter>,
-        iterator: NumericIteratorVariant<'index>,
-    ) -> Self {
-        Self {
-            filter: Some(filter),
-            iterator,
-        }
-    }
-
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
-        self.iterator.flags()
-    }
-
-    /// Get the range minimum value for profiling.
-    const fn range_min(&self) -> f64 {
-        self.iterator.range_min()
-    }
-
-    /// Get the range maximum value for profiling.
-    const fn range_max(&self) -> f64 {
-        self.iterator.range_max()
+    /// Wrap a variant for use by [`crate::inverted_index::geo`].
+    pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
+        Self { iterator }
     }
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     #[inline(always)]
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         self.iterator.current()
     }
 
     #[inline(always)]
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
     {
         self.iterator.read()
     }
@@ -123,83 +93,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
     }
 }
 
-/// Gets the numeric filter from a numeric inverted index iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// A pointer to the numeric filter, or NULL if no filter was provided when creating the iterator.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetNumericFilter(
-    it: *const ffi::QueryIterator,
-) -> *const ffi::NumericFilter {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-
-    // Return a pointer to the pinned filter, or NULL if no filter was provided
-    // SAFETY: The filter is pinned and has a stable address for the lifetime of the iterator
-    // Both types have the same #[repr(C)] layout so we can cast the pointer
-    wrapper
-        .inner
-        .filter
-        .map(|f| f.as_ptr() as *const ffi::NumericFilter)
-        .unwrap_or(std::ptr::null())
-}
-
-/// Gets the minimum range value for profiling a numeric iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// The minimum range value from the filter, or negative infinity if no filter was provided.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMin(
-    it: *const ffi::QueryIterator,
-) -> f64 {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_min()
-}
-
-/// Gets the maximum range value for profiling a numeric iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
-///
-/// # Returns
-///
-/// The maximum range value from the filter, or positive infinity if no filter was provided.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericInvIndIterator_GetProfileRangeMax(
-    it: *const ffi::QueryIterator,
-) -> f64 {
-    debug_assert!(!it.is_null());
-    // SAFETY: we just checked for NULL and 1 ensure `it` is an iterator.
-    debug_assert!(unsafe { &*it }.type_ == IteratorType::InvIdxNumeric);
-
-    // SAFETY: 1
-    let wrapper =
-        unsafe { RQEIteratorWrapper::<NumericIterator<'static>>::ref_from_header_ptr(it.cast()) };
-    wrapper.inner.range_max()
-}
-
 ///
 /// # Safety
 ///
@@ -245,7 +138,7 @@ pub unsafe extern "C" fn openNumericOrGeoIndex(
 /// 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
 ///    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
 ///    returned iterator.
-/// 4. `config` must be a valid non-NULL pointer to an [`ffi::IteratorsConfig`].
+/// 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
 /// 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
 ///    index (not a field mask).
 #[unsafe(no_mangle)]
@@ -253,7 +146,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     ctx: *const ffi::RedisSearchCtx,
     flt: *const NumericFilter,
     _for_type: ffi::FieldType,
-    config: *const ffi::IteratorsConfig,
+    config: *const IteratorsConfig,
     filter_ctx: *const FieldFilterContext,
 ) -> *mut ffi::QueryIterator {
     debug_assert!(!ctx.is_null());
@@ -264,14 +157,13 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     // SAFETY: RSGlobalConfig is initialised by the time any index is created.
     let compress = unsafe { RSGlobalConfig.numericCompress };
     // SAFETY: 4. guarantees config is valid and non-null.
-    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
+    let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
 
     // SAFETY: 1. guarantees ctx is valid and non-null.
     let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
 
-    let filter_nn = NonNull::from(flt_ref);
     let node_type = if flt_ref.is_numeric_filter() {
         QueryNodeType::Numeric
     } else {
@@ -298,10 +190,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     let children: Vec<CRQEIterator> = variants
         .into_iter()
         .map(|iterator| {
-            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator {
-                filter: Some(filter_nn),
-                iterator,
-            });
+            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::new(iterator));
             // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
             let ptr = unsafe { NonNull::new_unchecked(ptr) };
             // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
@@ -317,4 +206,14 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
         ptr::null(),
         1.0,
     )
+}
+
+impl profile_print::ProfilePrint for NumericIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.iterator.print_profile(map, ctx);
+    }
 }

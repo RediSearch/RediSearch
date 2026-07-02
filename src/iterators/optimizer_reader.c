@@ -89,8 +89,8 @@ static void OPT_Rewind(QueryIterator *self) {
     optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
   }
 
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   // create new numeric filter
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   optIt->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, optIt->config, &filterCtx);
 
   optIt->heapOldSize = heap_count(heap);
@@ -214,7 +214,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         }
       } else {
         RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %ld, childEstimate: %ld",
+        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %zu, childEstimate: %zu",
                                         heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
       }
     }
@@ -269,6 +269,9 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
+  // Disk specs are filtered out in QOptimizer_Iterators — OPT_Read and
+  // numDocs both consult spec->docs, which is empty on disk.
+  RS_ASSERT(!qOpt->sctx->spec->diskSpec);
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
     OptimizerIterator_Free(&oi->base);
@@ -289,6 +292,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;
+  ri->PrintProfile = Optimus_PrintProfile;
   ri->current = NULL;
 
   return &oi->base;

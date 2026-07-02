@@ -19,21 +19,49 @@ types = "skip"
 # Avoid a name conflict with the pre-existing `document.h` header file.
 header_name = "document_rs"
 
+[package.index_result]
+# Avoid a name conflict with the pre-existing `index_result.h` header file.
+header_name = "index_result_rs"
+
 [package.search_result]
 # Avoid a name conflict with the pre-existing `search_result.h` header file.
 header_name = "search_result_rs"
 
+[package.ttl_table]
+header_name = "ttl_table_rs"
+
+[package.ttl_table_ffi]
+header_name = "ttl_table"
+
 [c]
 cpp_compat = true
 
+[header.rqe_core]
+includes = ["<time.h>"]
+trailer = """
+typedef struct timespec t_expirationTimePoint;
+
+#if UINTPTR_MAX == UINT64_MAX
+/* 64 bit architectures use 128 bit field masks and up to 128 fields */
+typedef __uint128_t t_fieldMask;
+#define RS_FIELDMASK_ALL (((__uint128_t)1 << 127) - (__uint128_t)1 + ((__uint128_t)1 << 127))
+#elif UINTPTR_MAX == UINT32_MAX
+/* 32 bit architectures use 64 bits and 64 fields only */
+typedef uint64_t t_fieldMask;
+#define RS_FIELDMASK_ALL 0xFFFFFFFFFFFFFFFF
+#endif
+"""
+
 [header.field]
-includes = ["redisearch_types.h"]
 
 [header.fork_gc_ffi]
-includes = ["fork_gc.h"]
+includes = ["fork_gc.h", "search_ctx.h"]
 
 [header.inverted_index]
-includes = ["redisearch_types.h"]
+# `index_result_rs.h` carries the types historically defined in this header
+# (RSIndexResult and friends, now in their own crate). Pull it in so C
+# consumers of `inverted_index.h` keep getting the full set.
+includes = ["index_result_rs.h"]
 after_includes = """
 // Forward declarations of C types defined in redisearch.h and elsewhere.
 // We can't include redisearch.h directly: it transitively includes inverted_index.h.
@@ -41,8 +69,34 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef struct FieldSpec FieldSpec;
 """
 
+[header.index_result_rs]
+after_includes = """
+// Forward declaration of `RSDocumentMetadata`, defined in `redisearch.h`.
+// We can't include redisearch.h directly: it transitively includes this header.
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+"""
+trailer = """
+/* Backward-compatible aliases for the variant tag enumerators. cheadergen
+ * mangles them with the underlying generic+instantiation name; the C codebase
+ * uses the unsuffixed forms. */
+#define RSResultData_Union        RawResultData_Active_Union
+#define RSResultData_Intersection RawResultData_Active_Intersection
+#define RSResultData_Term         RawResultData_Active_Term
+#define RSResultData_Virtual      RawResultData_Active_Virtual
+#define RSResultData_Numeric      RawResultData_Active_Numeric
+#define RSResultData_Metric       RawResultData_Active_Metric
+#define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+
+#define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
+#define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
+
+#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned      RawTermRecord_Active_Owned
+#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+"""
+
 [header.inverted_index_ffi]
-includes = ["redisearch_types.h", "config.h", "search_ctx.h", "spec.h"]
+includes = ["config.h", "search_ctx.h", "spec.h"]
 trailer = """
 // Create a new inverted index object, with the given flag.
 // The out parameter memsize must be not NULL, the total of allocated memory
@@ -60,6 +114,24 @@ after_includes = """
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to
 // the bare name, so we introduce a typedef to make it valid C.
 typedef struct timespec timespec;
+// `AREQ` is forward-declared as a struct tag in `query.h` (above) but its
+// typedef lives in `aggregate/aggregate.h`. cheadergen emits `*mut ffi::AREQ`
+// as the bare `AREQ *`, so we surface the typedef here for the C compiler.
+typedef struct AREQ AREQ;
+"""
+
+[header.query_eval_ffi]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+after_includes = """
+// `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
+// i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
+// Rust type name `RSQueryNode` as a bare reference, so we surface a matching
+// typedef here for the C compiler.
+typedef struct RSQueryNode RSQueryNode;
+// `AREQ` is defined in `aggregate/aggregate.h`, a heavy header we avoid pulling
+// in here. `QAST_Iterate` only takes an `AREQ *`, so a forward typedef (matching
+// the full `typedef struct AREQ { ... } AREQ;` definition) is sufficient.
+typedef struct AREQ AREQ;
 """
 
 [header.module_init_ffi]
@@ -137,6 +209,46 @@ after_includes = """
 typedef struct RLookupKey RLookupKey;
 """
 
+[header.query_flags]
+after_includes = """
+/* QEFlags is a uint32_t bitfield; the enum provides named constants. */
+typedef uint32_t QEFlags;
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QEXEC_F_IS_AGGREGATE                       QEFlag_IsAggregate
+#define QEXEC_F_SEND_SCORES                        QEFlag_SendScores
+#define QEXEC_F_SEND_SORTKEYS                      QEFlag_SendSortkeys
+#define QEXEC_F_SEND_NOFIELDS                      QEFlag_SendNoFields
+#define QEXEC_F_SEND_PAYLOADS                      QEFlag_SendPayloads
+#define QEXEC_F_IS_CURSOR                          QEFlag_IsCursor
+#define QEXEC_F_REQUIRED_FIELDS                    QEFlag_RequiredFields
+#define QEXEC_F_IS_COORDINATOR                     QEFlag_IsCoordinator
+#define QEXEC_F_RUN_IN_BACKGROUND                  QEFlag_RunInBackground
+#define QEXEC_F_IS_SEARCH                          QEFlag_IsSearch
+#define QEXEC_F_SEND_HIGHLIGHT                     QEFlag_SendHighlight
+#define QEXEC_F_NOROWS                             QEFlag_NoRows
+#define QEXEC_F_TYPED                              QEFlag_Typed
+#define QEXEC_F_SENDRAWIDS                         QEFlag_SendRawIds
+#define QEXEC_F_SEND_SCOREEXPLAIN                  QEFlag_SendScoreExplain
+#define QEXEC_F_PROFILE                            QEFlag_Profile
+#define QEXEC_F_PROFILE_LIMITED                    QEFlag_ProfileLimited
+#define QEXEC_AGG_LOAD_ALL                         QEFlag_AggLoadAll
+#define QEXEC_OPTIMIZE                             QEFlag_Optimize
+#define QEXEC_FORMAT_EXPAND                        QEFlag_FormatExpand
+#define QEXEC_FORMAT_DEFAULT                       QEFlag_FormatDefault
+#define QEXEC_F_SEND_SCORES_AS_FIELD               QEFlag_SendScoresAsField
+#define QEXEC_F_INTERNAL                           QEFlag_Internal
+#define QEXEC_F_IS_HYBRID_TAIL                     QEFlag_IsHybridTail
+#define QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY          QEFlag_IsHybridSearchSubquery
+#define QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY QEFlag_IsHybridVectorAggregateSubquery
+#define QEXEC_F_NO_SORT                            QEFlag_NoSort
+#define QEXEC_F_HAS_SORTBY                         QEFlag_HasSortby
+#define QEXEC_F_HAS_DEPLETER                       QEFlag_HasDepleter
+#define QEXEC_F_HAS_WITHCOUNT                      QEFlag_HasWithcount
+#define QEXEC_F_HAS_GROUPBY                        QEFlag_HasGroupby
+#define QEXEC_F_DEBUG                              QEFlag_Debug
+"""
+
 [header.query_node_type]
 after_includes = """
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
@@ -159,6 +271,25 @@ after_includes = """
 #define QN_NULL            QueryNodeType_Null
 #define QN_MISSING         QueryNodeType_Missing
 #define QN_MAX             QueryNodeType_Max
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QueryNode_Verbatim                   QueryNodeFlags_Verbatim
+#define QueryNode_OverriddenInOrder          QueryNodeFlags_OverriddenInOrder
+#define QueryNode_YieldsDistance              QueryNodeFlags_YieldsDistance
+#define QueryNode_IndexesEmpty               QueryNodeFlags_IndexesEmpty
+#define QueryNode_IsTag                      QueryNodeFlags_IsTag
+#define QueryNode_HybridVectorSubqueryNode   QueryNodeFlags_HybridVectorSubqueryNode
+#define QueryNode_HideVectorDistanceField    QueryNodeFlags_HideVectorDistanceField
+
+/* Backward-compatible aliases for C code that uses the old enum constant names. */
+#define QAST_SYNTAX_DEFAULT  0
+#define QAST_NO_WEIGHT       QASTValidationFlags_NoWeight
+#define QAST_NO_VECTOR       QASTValidationFlags_NoVector
+
+/* Backward-compatible aliases for C code that uses the old PHONETIC_* macros. */
+#define PHONETIC_DEFAULT  PhoneticMode_Default
+#define PHONETIC_ENABLED  PhoneticMode_Enabled
+#define PHONETIC_DISABLED PhoneticMode_Disabled
 """
 
 [header.rqe_iterator_type]
@@ -212,20 +343,22 @@ typedef struct QueryProcessingCtx {
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
+  bool skipIndexResultDeepCopy;
 } QueryProcessingCtx;
 """
 
 [header.search_result_rs]
-includes = ["redisearch_types.h", "score_explain.h"]
+includes = ["score_explain.h"]
 after_includes = """
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;
+static const uint8_t Result_OwnsIndexResult = 1 << 1;
 
 /* Forward decl + reference-counted pointer to a const RSDocumentMetadata.
  * Declared directly here (rather than auto-generated from the document_metadata
  * crate) to preserve the `const` qualifier that C callers rely on. */
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef const RSDocumentMetadata *DocumentMetadata;
+typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 """
 
 [header.triemap_ffi]
@@ -237,7 +370,10 @@ typedef struct timespec timespec;
 """
 
 [header.types_ffi]
-includes = ["redisearch_types.h"]
+# Pull in `inverted_index.h` so consumers see the full `NumericFilter`
+# body (embedded by value in `LegacyNumericFilter` and friends on the C
+# side).
+includes = ["inverted_index.h"]
 
 [header.numeric_range_tree_ffi]
 includes = ["redisearch.h", "redismodule.h"]
@@ -287,3 +423,11 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 
 [header.varint_ffi]
 includes = ["buffer.h", "redisearch.h"]
+
+[header.ttl_table]
+includes = ["redisearch.h"]
+after_includes = """
+
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+"""

@@ -84,19 +84,50 @@ void CoordReduceDebugCtx_SetPauseBeforeN(int n);
 void CoordReduceDebugCtx_IncrementReduceCount(void);
 int CoordReduceDebugCtx_GetReduceCount(void);
 
+// Sentinel for the pauseAfterN field of AggregateResultsDebugCtx
+#define AGGREGATE_RESULTS_NO_PAUSE 0  // Disable pause (no pause point set)
+
+// Struct used for debugging the AggregateResults loop in aggregate_exec_common.c
+// (pause after extracting N results from the pipeline). Only available in debug
+// builds to avoid affecting release performance.
+typedef struct AggregateResultsDebugCtx {
+  atomic_bool pause;          // Atomic bool to wait for the resume command
+  atomic_int  pauseAfterN;    // AGGREGATE_RESULTS_NO_PAUSE, or N>0 to pause after the Nth result is extracted
+  atomic_int  resultsCount;   // Counter of results extracted so far
+} AggregateResultsDebugCtx;
+
+// AggregateResultsDebugCtx API function declarations
+bool AggregateResultsDebugCtx_IsPaused(void);
+void AggregateResultsDebugCtx_SetPause(bool pause);
+int  AggregateResultsDebugCtx_GetPauseAfterN(void);
+void AggregateResultsDebugCtx_SetPauseAfterN(int n);
+void AggregateResultsDebugCtx_IncrementResultsCount(void);
+int  AggregateResultsDebugCtx_GetResultsCount(void);
+
+// Scope selector for StoreResults pauses: restricts which AREQ/HybridRequest
+// populations the global pause applies to (matches the INTERNAL_ONLY token
+// convention used in src/aggregate/aggregate_debug.c).
+typedef enum {
+  STORE_RESULTS_SCOPE_BOTH = 0,         // Default: pause for both internal and non-internal requests
+  STORE_RESULTS_SCOPE_INTERNAL_ONLY,    // Pause only for internal (coordinator-dispatched) requests
+  STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY,// Pause only for non-internal (user-facing) requests
+} StoreResultsScope;
+
 // Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
   atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
   atomic_bool pauseAfterEnabled;    // Whether pause after StoreResults is enabled
+  atomic_int  scope;                // StoreResultsScope; updated together with the enable flags
   atomic_bool pause;                // Atomic bool to wait for the resume command
 } StoreResultsDebugCtx;
 
 // StoreResultsDebugCtx API function declarations
 bool StoreResultsDebugCtx_IsPauseBeforeEnabled(void);
-void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseBeforeEnabled(bool enabled, StoreResultsScope scope);
 bool StoreResultsDebugCtx_IsPauseAfterEnabled(void);
-void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled);
+void StoreResultsDebugCtx_SetPauseAfterEnabled(bool enabled, StoreResultsScope scope);
+StoreResultsScope StoreResultsDebugCtx_GetScope(void);
 bool StoreResultsDebugCtx_IsPaused(void);
 void StoreResultsDebugCtx_SetPause(bool pause);
 
@@ -113,17 +144,29 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK          "BeforeSafeLoaderGILLock"
+#define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
+#define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
+#define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
+#define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
+#define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+#define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// Like SyncPoint_Arm, but a parked SyncPoint_Wait self-releases after
+// `auto_release_ms` even without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm).
+// For tests where the thread that would SIGNAL is itself blocked waiting on the
+// parked work (e.g. disable_compactions() during FT.DROPINDEX).
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point
@@ -141,6 +184,14 @@ typedef bool (*SyncPointStopFn)(void *arg);
 // Like SyncPoint_Wait, but also exits the wait loop when `stop_fn(arg)` returns
 // true. Lets workers release early when a timeout fires on the main thread.
 void SyncPoint_WaitUntil(const char *name, SyncPointStopFn stop_fn, void *arg);
+
+// Shard dispatch fault injection (test-only, ENABLE_ASSERT builds): arm the next
+// `count` MRCluster_SendCommand calls to return REDIS_ERR, so DebugSendError_Consume
+// returns true that many times. Exercises the no-reply error path.
+void DebugSendError_Arm(int count);
+// Consume one armed failure; returns true if the caller should treat the send as
+// failed. Thread-safe.
+bool DebugSendError_Consume(void);
 
 // Process-wide counter of threads parked in `RedisSearchCtx_LockSpecWrite`
 // waiting on a spec rwlock. Bumped before `pthread_rwlock_wrlock` and

@@ -27,6 +27,7 @@
     clippy::approx_constant,
     clippy::missing_const_for_fn,
     clippy::disallowed_types,
+    clippy::type_complexity,
     rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
@@ -40,7 +41,10 @@ pub mod context;
 
 /// Use the Rust definitions directly
 pub use document::DocumentType;
-pub use query_node_type::QueryNodeType;
+pub use query_node_type::{
+    QASTValidationFlagsSet, QueryNodeFlags, QueryNodeOptions, QueryNodeType,
+};
+
 pub use query_term::{RSQueryTerm, RSTokenFlags};
 pub use rqe_iterator_type::IteratorType;
 
@@ -80,6 +84,18 @@ pub struct QueryProcessingCtx {
     /// RETURN-STRICT timeout path to drain queued shard replies on the main
     /// thread after the background pipeline has aborted.
     pub canYieldPartialResults: bool,
+    /// Whether a buffering result processor may *skip* deep-copying a result's
+    /// `RSIndexResult` and instead drop the borrow when storing it across an
+    /// iterator advance.
+    ///
+    /// Only the highlighter and the `matched_terms()` aggregate function read
+    /// the index result downstream of the buffering point, so this is set iff
+    /// the request needs neither highlighting nor scores.
+    ///
+    /// Polarity is deliberate: the safe (always deep-copy) behavior is the zero
+    /// value, so any qctx that is zero-initialized outside the constructor
+    /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
+    pub skipIndexResultDeepCopy: bool,
 }
 
 impl QueryProcessingCtx {
@@ -100,6 +116,7 @@ impl QueryProcessingCtx {
             isProfile: false,
             timeoutPolicy: 0,
             canYieldPartialResults: false,
+            skipIndexResultDeepCopy: false,
         };
 
         Box::pin(ctx)
@@ -113,14 +130,3 @@ impl QueryProcessingCtx {
         unsafe { *self.endProc.get() = result_processor_ptr };
     }
 }
-
-/// Rust implementation of `t_fieldMask` from `redisearch.h`
-pub type FieldMask = t_fieldMask;
-
-#[cfg(target_pointer_width = "64")]
-pub const RS_FIELDMASK_ALL: FieldMask = u128::MAX;
-
-#[cfg(target_pointer_width = "32")]
-pub const RS_FIELDMASK_ALL: FieldMask = u64::MAX;
-
-pub const RS_INVALID_FIELD_INDEX: t_fieldIndex = 0xFFFF;

@@ -10,8 +10,9 @@
 use std::{collections::HashMap, hint::black_box, io::Cursor};
 
 use criterion::{BatchSize, BenchmarkGroup, BenchmarkId, Criterion, measurement::Measurement};
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, IdDelta, RSIndexResult,
+    Decoder, Encoder, IdDelta,
     numeric::{Numeric, NumericDelta},
 };
 use itertools::Itertools;
@@ -170,7 +171,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
                     .into_iter()
                     // We need to find the actual resulting output for the decoding benchmarks
                     .map(|value| {
-                        let record = inverted_index::RSIndexResult::build_numeric(value).build();
+                        let record = index_result::RSIndexResult::build_numeric(value).build();
                         let mut buffer = Cursor::new(Vec::new());
                         let _grew_size = Numeric::encode(
                             &mut buffer,
@@ -238,7 +239,7 @@ fn encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchGroup)
                 },
                 |mut buffer| {
                     for (value, delta, _) in values {
-                        let record = inverted_index::RSIndexResult::build_numeric(*value).build();
+                        let record = index_result::RSIndexResult::build_numeric(*value).build();
 
                         let grew_size = Numeric::encode(
                             &mut buffer,

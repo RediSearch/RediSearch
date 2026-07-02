@@ -118,19 +118,24 @@ void b4_utf8(uint32_t codepoint, char *p) {
 
 	/* UNICODE: 000xxxxx xxxxxxxx xxxxxxxx
 	 *                                                      |__ 1st UTF-8 octet
-	 * 000xxxxx >> 18 -> 11110xxx 1000000 10000000 10000000 |
-	 *                   --------
-	 * 000xxxxx >> 12 -> 11110xxx 10xx000 10000000 10000000 |__ 2nd UTF-8 octet
-	 * xxxxxxxx >> 12 -> 11110xxx 10xxxxx 10000000 10000000 |
-	 *                            -------
-	 * xxxxxxxx >> 6  -> 11110xxx 10xxxxx 10xxxxx0 10000000 |__ 3rd UTF-8 octet
-	 * xxxxxxxx >> 6  -> 11110xxx 10xxxxx 10xxxxxx 10000000 |
-	 *                                    --------
+	 * bits 18-20 -> 11110xxx 10000000 10000000 10000000   |
+	 *               --------
+	 *                                                      |__ 2nd UTF-8 octet
+	 * bits 12-17 -> 11110xxx 10xxxxxx 10000000 10000000   |
+	 *                        --------
+	 *                                                      |__ 3rd UTF-8 octet
+	 * bits  6-11 -> 11110xxx 10xxxxxx 10xxxxxx 10000000   |
+	 *                                 --------
 	 *                                                      |__ 4th UTF-8 octet
-	 * xxxxxxxx       -> 11110xxx 10xxxxx 10xxxxxx 10000000 | */
+	 * bits  0-5  -> 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx   |
+	 *                                          --------    */
+	/* RediSearch local patch: fix upstream libnu bug where the original masks
+	 * dropped codepoint bit 12 from byte 1 and leaked it into byte 2, producing
+	 * invalid UTF-8 for any supplementary-plane codepoint with bit 12 set
+	 * (e.g. U+118C0). Byte 1 must hold codepoint bits 12-17, byte 2 bits 6-11. */
 	*(up) = (0xF0 | ((codepoint & 0x1C0000) >> 18));
-	*(up + 1) = (0x80 | (codepoint & 0x030000) >> 12 | (codepoint & 0x00E000) >> 12);
-	*(up + 2) = (0x80 | (codepoint & 0x001F00) >> 6 | (codepoint & 0x0000E0) >> 6);
+	*(up + 1) = (0x80 | ((codepoint & 0x03F000) >> 12));
+	*(up + 2) = (0x80 | ((codepoint & 0x000FC0) >> 6));
 	*(up + 3) = (0x80 | (codepoint & 0x3F));
 }
 

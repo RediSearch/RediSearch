@@ -9,9 +9,10 @@
 
 use std::io::{Cursor, Seek, Write};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
-use crate::{Decoder, DocIdsDecoder, Encoder, IndexBlock, RSIndexResult, TermDecoder};
+use crate::{Decoder, DocIdsDecoder, Encoder, IndexBlock, TermDecoder};
+use index_result::RSIndexResult;
 
 /// Encode and decode only the raw document ID delta without any compression.
 ///
@@ -35,7 +36,7 @@ impl Encoder for RawDocIdsOnly {
         Ok(4)
     }
 
-    fn delta_base(block: &IndexBlock) -> t_docId {
+    fn delta_base(block: &IndexBlock) -> DocId {
         block.first_doc_id
     }
 }
@@ -44,32 +45,32 @@ impl Decoder for RawDocIdsOnly {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
-        result.doc_id = base + delta as t_docId;
+        result.doc_id = base + delta as DocId;
         Ok(())
     }
 
-    fn base_id(block: &IndexBlock, _last_doc_id: t_docId) -> t_docId {
+    fn base_id(block: &IndexBlock, _last_doc_id: DocId) -> DocId {
         block.first_doc_id
     }
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
-        target: t_docId,
+        base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         // Check if the very next record is the target before starting a binary search
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
-        let mut doc_id = base + delta as t_docId;
+        let mut doc_id = base + delta as DocId;
 
         if doc_id >= target {
             result.doc_id = doc_id;
@@ -87,7 +88,7 @@ impl Decoder for RawDocIdsOnly {
             cursor.set_position(mid * 4);
             std::io::Read::read_exact(cursor, &mut delta_bytes)?;
             let delta = u32::from_ne_bytes(delta_bytes);
-            doc_id = base + delta as t_docId;
+            doc_id = base + delta as DocId;
 
             if doc_id < target {
                 left = mid + 1;
@@ -105,7 +106,7 @@ impl Decoder for RawDocIdsOnly {
         cursor.set_position(left * 4);
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
-        doc_id = base + delta as t_docId;
+        doc_id = base + delta as DocId;
 
         result.doc_id = doc_id;
         Ok(true)

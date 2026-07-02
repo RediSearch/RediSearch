@@ -15,7 +15,11 @@
 //! in the `fork_gc_ffi` crate, which is a thin trampoline on top of this
 //! one.
 
+pub mod existing_docs;
 pub mod fork_gc;
-pub mod pipe;
+pub mod frame;
+pub mod io_result_ext;
+pub mod util;
 
 pub use fork_gc::ForkGC;
+pub use frame::Frame;

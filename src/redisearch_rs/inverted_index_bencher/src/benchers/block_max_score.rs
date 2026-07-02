@@ -25,11 +25,12 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use ffi::t_docId;
+use index_result::RSIndexResult;
 use inverted_index::{
-    IndexReader, InvertedIndex, RSIndexResult, block_max_score::BlockScorer, freqs_only::FreqsOnly,
+    IndexReader, InvertedIndex, block_max_score::BlockScorer, freqs_only::FreqsOnly,
 };
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 /// Document metadata stored in a simulated DocTable.
 #[derive(Clone, Copy, Debug)]

@@ -13,7 +13,7 @@
 //! `headers/metrics_ffi.h`.
 
 use ffi::RLookupKey;
-use inverted_index::{MetricsSlice, MetricsVec, RSIndexResult};
+use index_result::{MetricsSlice, MetricsVec, RSIndexResult};
 
 /// Creates an empty metrics collection. Does not allocate.
 ///
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn RSYieldableMetric_Concat<'a>(
 ///    (or null).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ResultMetrics_Add(
-    r: *mut RSIndexResult<'_>,
+    r: *mut RSIndexResult,
     key: *const RLookupKey,
     val: f64,
 ) {
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn ResultMetrics_Add(
 ///
 /// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ResultMetrics_Reset(r: *mut RSIndexResult<'_>) {
+pub unsafe extern "C" fn ResultMetrics_Reset(r: *mut RSIndexResult) {
     debug_assert!(!r.is_null(), "result must not be null");
 
     // SAFETY: caller guarantees validity (1).
@@ -100,7 +100,7 @@ pub unsafe extern "C" fn ResultMetrics_Reset(r: *mut RSIndexResult<'_>) {
 ///
 /// 1. `r` must point to a valid `RSIndexResult` and cannot be null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult<'_>) {
+pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult) {
     debug_assert!(!r.is_null(), "result must not be null");
 
     // SAFETY: caller guarantees validity (1).

@@ -10,7 +10,7 @@
 #include "module.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
-#include "trie/trie_type.h"
+#include "trie/trie.h"
 #include "query_error_ffi.h"
 #include "util/likely.h"
 
@@ -90,7 +90,6 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithError(ctx, "ERR invalid score");
     goto end;
   }
-
   /* Create an empty value object if the key is currently empty. */
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
     tree = NewTrie(NULL, Trie_Sort_Score);
@@ -294,7 +293,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   // get the string to search for
   size_t len = 0;
   const char *s = RedisModule_StringPtrLen(argv[2], &len);
-  if (len >= TRIE_MAX_PREFIX * sizeof(rune)) {
+  if (len > TRIE_MAX_PREFIX * sizeof(rune)) {
     return RedisModule_ReplyWithError(ctx, "Invalid query length");
   }
 
@@ -329,8 +328,8 @@ parse_error:
     goto end;
   }
 
-  res = Trie_Search(tree, s, len, options.numResults, options.maxDistance, 1, options.trim,
-                    options.optimize);
+  res = Trie_CollectFuzzy(tree, s, len, options.numResults, options.maxDistance, TRIE_MATCH_PREFIX,
+                          options.trim, options.optimize);
   if (!res) {
     RedisModule_ReplyWithError(ctx, "Invalid query");
     goto end;

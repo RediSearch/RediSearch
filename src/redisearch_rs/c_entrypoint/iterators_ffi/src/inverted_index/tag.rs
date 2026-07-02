@@ -10,12 +10,12 @@
 use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::{
-    IndexReader, RSIndexResult, RSQueryTerm, doc_ids_only::DocIdsOnly,
-    raw_doc_ids_only::RawDocIdsOnly, t_docId,
-};
+use index_result::{RSIndexResult, RSQueryTerm};
+use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    profile_print,
 };
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
@@ -35,16 +35,6 @@ impl Debug for TagIterator<'_> {
             TagIterator::Raw(_) => "Raw",
         };
         write!(f, "TagIterator({variant})")
-    }
-}
-
-impl<'index> TagIterator<'index> {
-    /// Get the flags from the underlying reader.
-    pub(super) fn flags(&self) -> ffi::IndexFlags {
-        match self {
-            TagIterator::Encoded(t) => t.reader().flags(),
-            TagIterator::Raw(t) => t.reader().flags(),
-        }
     }
 }
 
@@ -74,7 +64,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
     {
         tag_it_dispatch!(self, skip_to, doc_id)
@@ -91,7 +81,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         tag_it_dispatch!(self, last_doc_id)
     }
 
@@ -222,4 +212,14 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     };
 
     RQEIteratorWrapper::boxed_new(iterator)
+}
+
+impl profile_print::ProfilePrint for TagIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        tag_it_dispatch!(self, print_profile, map, ctx);
+    }
 }

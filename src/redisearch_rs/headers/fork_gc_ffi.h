@@ -8,10 +8,69 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "fork_gc.h"
+#include "search_ctx.h"
+
+/**
+ * Status code returned by Fork GC parent-side pipe-receive operations.
+ */
+typedef enum FGCError {
+  /**
+   * Data has been collected; more may follow.
+   */
+  FGC_COLLECTED = 0,
+  /**
+   * No more data remains; iteration is complete.
+   */
+  FGC_DONE = 1,
+  /**
+   * Pipe error — the child process likely crashed.
+   */
+  FGC_CHILD_ERROR = 2,
+  /**
+   * Error on the parent side.
+   */
+  FGC_PARENT_ERROR = 3,
+  /**
+   * The index spec was deleted.
+   */
+  FGC_SPEC_DELETED = 4,
+} FGCError;
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Collect GC delta data for the spec's `existingDocs` inverted index and
+ * send it to the parent process over the pipe.
+ *
+ * If the spec has no existing-docs index, or the scan produces no delta,
+ * only the terminator is sent.  Otherwise an empty header followed by the
+ * serialised GC delta is sent before the terminator.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an open,
+ *    writable file descriptor.
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is
+ *    a non-null `IndexSpec`.
+ */
+void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
+ * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
+ * the child sent no data (index absent or nothing to collect),
+ * [`FGCError::Collected`] after successfully applying a delta, or an
+ * error variant on pipe or spec failure.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ */
+enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
 /**
  * Write exactly `len` bytes from `buff` to the FGC pipe.
@@ -27,6 +86,102 @@ extern "C" {
  * 3. `len` must be greater than zero.
  */
 void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
+
+/**
+ * Write a length-prefixed buffer frame: a native-endian `size_t` header
+ * followed by `len` payload bytes.
+ *
+ * On error, logs the failure and terminates the child process via
+ * `RedisModule_ExitFromChild(1)`.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ *    writable file descriptor.
+ * 2. If `len > 0`, `buff` must point to a readable region of at least
+ *    `len` bytes. When `len == 0`, `buff` is unused and may be anything
+ *    (including NULL).
+ */
+void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
+
+/**
+ * Write the end-of-stream sentinel, signalling to the parent reader
+ * that no more buffers will follow.
+ *
+ * On error, logs the failure and terminates the child process via
+ * `RedisModule_ExitFromChild(1)`.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ *    writable file descriptor.
+ */
+void FGC_sendTerminator(ForkGC *fgc);
+
+/**
+ * Read exactly `len` bytes from the FGC pipe into `buf`.
+ *
+ * Polls the pipe fd with a 3-minute timeout and retries on `EINTR`. On
+ * timeout, read error, or unexpected EOF, logs a detailed warning
+ * (matching the original C format) and returns `REDISMODULE_ERR`.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ *    readable file descriptor.
+ * 2. `buf` must point to a writable region of at least `len` bytes.
+ */
+int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
+
+/**
+ * Read a length-prefixed buffer frame from the FGC pipe.
+ *
+ * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
+ * `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
+ * end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
+ * writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+ * writing its pointer and length to `*buf` / `*len`; the caller is
+ * responsible for releasing it with [`FGC_freeBuffer`].
+ *
+ * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
+ * and leaves `*buf` / `*len` unchanged.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+ *    open, readable file descriptor.
+ * 2. `buf` and `len` must point to writable `void*` and `size_t`
+ *    locations respectively.
+ */
+int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
+
+/**
+ * Receive a field header (field name + unique id).
+ *
+ * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
+ * or an error variant on pipe failure.
+ *
+ * # Safety
+ *
+ * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ *    readable file descriptor.
+ * 2. `field_name` and `field_name_len` must point to writable `char*` and
+ *    `size_t` locations respectively.
+ * 3. `id_ptr` must point to a writable `uint64_t` location.
+ */
+enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
+
+/**
+ * Free a buffer previously returned by [`FGC_recvBuffer`] or [`recvFieldHeader`].
+ *
+ * No-ops for null pointers (returned for both the terminator and empty-frame cases).
+ *
+ * # Safety
+ *
+ * 1. `buf` and `len` must be the pointer and length returned by a prior call to
+ *    [`FGC_recvBuffer`] or [`recvFieldHeader`], and must not have been freed before.
+ */
+void FGC_freeBuffer(void *buf, size_t len);
 
 #ifdef __cplusplus
 }  // extern "C"

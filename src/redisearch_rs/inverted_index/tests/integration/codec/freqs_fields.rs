@@ -9,18 +9,19 @@
 
 use std::io::Cursor;
 
-use ffi::t_fieldMask;
+use index_result::RSIndexResult;
 use inverted_index::{
-    Decoder, Encoder, RSIndexResult,
+    Decoder, Encoder,
     freqs_fields::{FreqsFields, FreqsFieldsWide},
 };
+use rqe_core::FieldMask;
 
 /// Helper to encode a sequence of (delta, freq, field_mask) records using FreqsFields.
 fn encode_freqs_fields(records: &[(u32, u32, u32)]) -> Vec<u8> {
     let mut buf = Cursor::new(Vec::new());
     for &(delta, freq, field_mask) in records {
         let record = RSIndexResult::build_term()
-            .field_mask(field_mask as t_fieldMask)
+            .field_mask(field_mask as FieldMask)
             .frequency(freq)
             .build();
         FreqsFields::encode(&mut buf, delta, &record).expect("to encode");
@@ -50,7 +51,7 @@ fn test_encode_freqs_fields() {
         (
             10,
             5,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![48, 10, 5, 255, 255, 255, 255],
         ),
         (256, 1, 1, vec![1, 0, 1, 1, 1]),
@@ -60,7 +61,7 @@ fn test_encode_freqs_fields() {
         (
             u32::MAX,
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![
                 63, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
             ],
@@ -104,7 +105,7 @@ fn test_encode_freqs_fields_wide() {
         (
             10,
             5,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![0, 10, 5, 142, 254, 254, 254, 127],
         ),
         (256, 1, 1, vec![1, 0, 1, 1, 1]),
@@ -116,7 +117,7 @@ fn test_encode_freqs_fields_wide() {
         (
             u32::MAX,
             u32::MAX,
-            u32::MAX as t_fieldMask,
+            u32::MAX as FieldMask,
             vec![
                 15, 255, 255, 255, 255, 255, 255, 255, 255, 142, 254, 254, 254, 127,
             ],
@@ -169,7 +170,7 @@ fn test_encode_freqs_fields_field_mask_overflow() {
     let mut cursor = Cursor::new(buf);
 
     let record = RSIndexResult::build_term()
-        .field_mask(u32::MAX as t_fieldMask + 1)
+        .field_mask(u32::MAX as FieldMask + 1)
         .build();
     let _res = FreqsFields::encode(&mut cursor, 0, &record);
 }

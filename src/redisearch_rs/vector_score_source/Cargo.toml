@@ -1,0 +1,16 @@
+[package]
+edition.workspace = true
+license-file.workspace = true
+name = "vector_score_source"
+publish.workspace = true
+version.workspace = true
+
+[dependencies]
+ffi.workspace = true
+index_result.workspace = true
+rqe_core.workspace = true
+rqe_iterators.workspace = true
+top_k = {path = "../top_k"}
+tracing.workspace = true
+vecsim.workspace = true
+workspace_hack.workspace = true

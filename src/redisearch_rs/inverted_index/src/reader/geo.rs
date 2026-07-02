@@ -8,8 +8,10 @@
 */
 
 use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
-use crate::{DecodedBy, Decoder, InvertedIndex, RSIndexResult};
-use ffi::{GeoFilter, IndexFlags, t_docId};
+use crate::{DecodedBy, Decoder, InvertedIndex};
+use ffi::{GeoFilter, IndexFlags};
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 // Manually define some C functions, because we'll create a circular dependency if we use the FFI
 // crate to make them automatically.
@@ -26,34 +28,44 @@ unsafe extern "C" {
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
-pub struct FilterGeoReader<'filter, IR> {
+pub struct FilterGeoReader<IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
-    /// This is only needed because the reader needs to be able to return the original numeric
-    /// filter.
-    filter: &'filter NumericFilter,
+    /// `filter.geo_filter` is rebound at construction to point at our owned
+    /// [`geo_filter`](Self::geo_filter), so consumers of [`filter`](Self::filter)
+    /// never observe the caller's (potentially short-lived) `GeoFilter`.
+    filter: NumericFilter,
 
-    /// Geo filter which a record needs to match to be valid
-    geo_filter: &'filter GeoFilter,
+    /// Owned heap-allocated copy of the geo filter. Boxed so its address is
+    /// stable across moves of `Self`, which lets `filter.geo_filter` safely
+    /// alias it for the reader's lifetime.
+    geo_filter: Box<GeoFilter>,
 
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
 
-impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
+impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
     /// Create a new filter geo reader with the given numeric filter and inner iterator
     ///
     /// # Safety
     /// The caller should ensure the `geo_filter` pointer in the numeric filter is set and a valid
-    /// pointer to a `GeoFilter` struct for the lifetime of this reader.
-    pub fn new(filter: &'filter NumericFilter, inner: IR) -> Self {
+    /// pointer to a `GeoFilter` struct at the time of construction; the
+    /// reader copies the geo filter onto the heap, so the original need only
+    /// outlive this call.
+    pub fn new(mut filter: NumericFilter, inner: IR) -> Self {
         debug_assert!(
             !filter.geo_filter.is_null(),
             "FilterGeoReader needs the geo filter to be set on the numeric filter"
         );
 
         // SAFETY: we just asserted the filter is set and the caller is to ensure it is a valid
-        // `GeoFilter` instance
-        let geo_filter = unsafe { &*(filter.geo_filter as *const GeoFilter) };
+        // `GeoFilter` instance. We copy the geo filter onto the heap so we own it for the
+        // reader's lifetime.
+        let geo_filter = Box::new(unsafe { *(filter.geo_filter as *const GeoFilter) });
+
+        // Rebind `filter.geo_filter` to our owned heap copy. The box's address is stable across
+        // moves of `Self`, so this pointer stays valid for as long as the reader is alive.
+        filter.geo_filter = std::ptr::from_ref::<GeoFilter>(&geo_filter).cast();
 
         Self {
             filter,
@@ -63,14 +75,14 @@ impl<'filter, 'index, IR: NumericReader<'index>> FilterGeoReader<'filter, IR> {
     }
 }
 
-impl<'filter, 'index, E> FilterGeoReader<'filter, IndexReaderCore<'index, E>> {
+impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {
     /// Get the numeric filter used by this reader.
     pub const fn filter(&self) -> &NumericFilter {
-        self.filter
+        &self.filter
     }
 }
 
-impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<'index, IR> {
+impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<IR> {
     /// Get the next record from the inner reader that matches the geo filter.
     ///
     /// # Safety
@@ -89,7 +101,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
             // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+            let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
 
             if in_radius {
                 return Ok(true);
@@ -105,7 +117,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
     #[inline(always)]
     fn seek_record(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let success = self.inner.seek_record(doc_id, result)?;
@@ -118,7 +130,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         let value = unsafe { result.as_numeric_unchecked_mut() };
 
         // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-        let in_radius = unsafe { isWithinRadius(self.geo_filter, *value, value) };
+        let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
 
         if in_radius {
             Ok(true)
@@ -127,7 +139,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         }
     }
 
-    fn skip_to(&mut self, doc_id: t_docId) -> bool {
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
         self.inner.skip_to(doc_id)
     }
 
@@ -169,9 +181,7 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
     }
 }
 
-impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
-    FilterGeoReader<'filter, IndexReaderCore<'index, E>>
-{
+impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterGeoReader<IndexReaderCore<'index, E>> {
     /// Check if the underlying index has been modified since the last time this reader read from it.
     /// If it has, then the reader should be reset before reading from it again.
     pub fn needs_revalidation(&self) -> bool {
@@ -196,4 +206,4 @@ impl<'filter, 'index, E: DecodedBy<Decoder = D>, D: Decoder>
 }
 
 /// A [`FilterGeoReader`] wrapping a [`NumericReader`] is also a [`NumericReader`].
-impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterGeoReader<'index, IR> {}
+impl<'index, IR: NumericReader<'index>> NumericReader<'index> for FilterGeoReader<IR> {}

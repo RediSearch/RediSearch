@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{QueryIterator, t_docId};
-use inverted_index::RSIndexResult;
+use ffi::QueryIterator;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 
@@ -17,13 +18,13 @@ use rqe_iterators::{id_list::IdList, utils::OwnedSlice};
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 ///    The array must be sorted in ascending order.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 pub unsafe extern "C" fn NewSortedIdListIterator(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -36,12 +37,12 @@ pub unsafe extern "C" fn NewSortedIdListIterator(
 ///
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 pub unsafe extern "C" fn NewUnsortedIdListIterator(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
@@ -51,12 +52,12 @@ pub unsafe extern "C" fn NewUnsortedIdListIterator(
 
 /// # Safety
 ///
-/// 1. `ids` must be a valid pointer to an array of `t_docId` with at least `num` elements.
+/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
 /// 2. The caller must ensure that `ids` is not null unless `num` is zero.
 /// 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
 ///    so the caller must ensure that the pointer was allocated in a compatible manner.
 unsafe fn new_id_list_iterator<const SORTED: bool>(
-    ids: *mut t_docId,
+    ids: *mut DocId,
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {

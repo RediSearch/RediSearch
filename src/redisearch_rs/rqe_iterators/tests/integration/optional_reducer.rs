@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use inverted_index::RSResultKind;
+use index_result::RSResultKind;
+use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator,
     empty::Empty,
@@ -27,7 +28,7 @@ mod optional_reducer_tests {
     /// and returns a wildcard that covers the full document range.
     #[test]
     fn shortcircuit_1_empty_child_returns_wildcard_fallback() {
-        const MAX_DOC_ID: ffi::t_docId = 10;
+        const MAX_DOC_ID: DocId = 10;
 
         let ctx = MockContext::new(MAX_DOC_ID, 0);
 
@@ -67,7 +68,7 @@ mod optional_reducer_tests {
     fn shortcircuit_2_wildcard_child_returned_as_passthrough_with_weight_applied() {
         const INITIAL_WEIGHT: f64 = 1.0;
         const NEW_WEIGHT: f64 = 3.5;
-        const MAX_DOC_ID: ffi::t_docId = 100;
+        const MAX_DOC_ID: DocId = 100;
 
         let mut child = Wildcard::new(100, INITIAL_WEIGHT);
         // Advance the child so that `current()` holds a real document result.
@@ -100,10 +101,11 @@ mod optional_reducer_tests {
     #[test]
     fn shortcircuit_2_inverted_index_wildcard_child_returned_as_passthrough() {
         use ffi::IndexFlags_Index_DocIdsOnly;
-        use inverted_index::{InvertedIndex, RSIndexResult, doc_ids_only::DocIdsOnly};
+        use index_result::RSIndexResult;
+        use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
         use rqe_iterators::{IteratorType, inverted_index::Wildcard as InvIdxWildcard};
 
-        const MAX_DOC_ID: ffi::t_docId = 1000;
+        const MAX_DOC_ID: DocId = 1000;
         const INITIAL_WEIGHT: f64 = 1.0;
         const NEW_WEIGHT: f64 = 2.0;
 
@@ -153,9 +155,9 @@ mod optional_reducer_tests {
     /// wraps it in a plain [`Optional`].
     #[test]
     fn regular_non_optimized_child_wrapped_in_optional() {
-        const MAX_DOC_ID: ffi::t_docId = 100;
+        const MAX_DOC_ID: DocId = 100;
         const WEIGHT: f64 = 2.0;
-        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+        const DOCS: [DocId; 3] = [10, 20, 30];
 
         let ctx = MockContext::new(MAX_DOC_ID, 0);
         let child = Mock::new(DOCS);
@@ -182,9 +184,9 @@ mod optional_reducer_tests {
     /// [`MOCK_DISK_WILDCARD_TOP_ID`] as the sentinel `top_id`.
     #[test]
     fn regular_disk_index_child_wrapped_in_optional_optimized_via_disk_wildcard() {
-        const MAX_DOC_ID: ffi::t_docId = 100;
+        const MAX_DOC_ID: DocId = 100;
         const WEIGHT: f64 = 1.5;
-        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+        const DOCS: [DocId; 3] = [10, 20, 30];
 
         // Ensure the global enterprise-iterator registry is populated.
         init_enterprise_iterators();
@@ -195,11 +197,15 @@ mod optional_reducer_tests {
         let mut disk_spec_storage: ffi::RedisSearchDiskIndexSpec = std::ptr::null();
         // `disk_spec_storage` outlives all iterators created below.
         ctx.spec_write().set_disk_spec(&mut disk_spec_storage);
+        // Disk-backed iterators now require a non-null snapshot. The mock
+        // enterprise iterator never dereferences it, so a sentinel suffices.
+        ctx.set_dummy_disk_snapshot();
 
         let child = Mock::new(DOCS);
 
         // SAFETY: `ctx` provides a valid `QueryEvalCtx`; `spec.diskSpec` is
         // non-null so `new_wildcard_iterator_on_disk` is called;
+        // `sctx.diskSnapshot` is set to a non-null sentinel;
         // `SEARCH_ENTERPRISE_ITERATORS` is initialized above.
         let result = unsafe { new_optional_iterator(child, WEIGHT, ctx.qctx(), MAX_DOC_ID) };
 
@@ -222,9 +228,9 @@ mod optional_reducer_tests {
     /// `existingDocs` is null in the [`MockContext`]).
     #[test]
     fn regular_optimized_child_wrapped_in_optional_optimized() {
-        const MAX_DOC_ID: ffi::t_docId = 100;
+        const MAX_DOC_ID: DocId = 100;
         const WEIGHT: f64 = 2.0;
-        const DOCS: [ffi::t_docId; 3] = [10, 20, 30];
+        const DOCS: [DocId; 3] = [10, 20, 30];
 
         let ctx = MockContext::new(MAX_DOC_ID, 0);
         // SAFETY: no iterator from `ctx` is alive at this point.

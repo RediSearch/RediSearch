@@ -9,9 +9,444 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use build_utils::{repository_root, rerun_if_c_changes};
+
+/// One C header bindgen consumes, plus the FFI symbols Rust code reaches
+/// for from that file. The build script verifies at startup that every
+/// listed symbol appears in the file at `path` — typos and upstream renames
+/// fail the build with a clear error instead of leaking into bindings.
+struct HeaderAllowlist {
+    /// Repository-relative path, e.g. `src/buffer/buffer.h`.
+    path: &'static str,
+    fns: &'static [&'static str],
+    types: &'static [&'static str],
+    vars: &'static [&'static str],
+}
+
+/// Bindgen inputs. Each entry both feeds clang and constrains which symbols
+/// bindgen emits. Sorted alphabetically by `path` for easy scanning.
+const HEADERS: &[HeaderAllowlist] = &[
+    // `c_wrappers/vecsim`: query replies and their iterators.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/query_results.h",
+        fns: &[
+            "VecSimBatchIterator_Free",
+            "VecSimBatchIterator_HasNext",
+            "VecSimBatchIterator_Next",
+            "VecSimQueryReply_Free",
+            "VecSimQueryReply_GetCode",
+            "VecSimQueryReply_GetIterator",
+            "VecSimQueryReply_IteratorFree",
+            "VecSimQueryReply_IteratorNext",
+            "VecSimQueryResult_GetId",
+            "VecSimQueryResult_GetScore",
+        ],
+        types: &[
+            "VecSimQueryReply",
+            "VecSimQueryReply_Code",
+            "VecSimQueryReply_Iterator",
+            "VecSimQueryReply_Order",
+        ],
+        vars: &[],
+    },
+    // `c_wrappers/vecsim`: index handle + adhoc-BF / batch-iterator entry points.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/vec_sim.h",
+        fns: &[
+            "VecSimBatchIterator_New",
+            "VecSimIndex_AddVector",
+            "VecSimIndex_AdhocBfCtx_Free",
+            "VecSimIndex_AdhocBfCtx_GetDistanceFrom",
+            "VecSimIndex_AdhocBfCtx_GetExactDistances",
+            "VecSimIndex_AdhocBfCtx_New",
+            "VecSimIndex_BasicInfo",
+            "VecSimIndex_Free",
+            "VecSimIndex_GetDistanceFrom_Unsafe",
+            "VecSimIndex_IndexSize",
+            "VecSimIndex_New",
+            "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_TopKQuery",
+            "VecSimParams_GetQueryBlobSize",
+            "VecSimTieredIndex_AcquireSharedLocks",
+            "VecSimTieredIndex_ReleaseSharedLocks",
+            "VecSim_Normalize",
+        ],
+        types: &["VecSimBatchIterator", "VecSimIndex"],
+        vars: &[],
+    },
+    // RSE: `ThrottleCB` and `VecSimParamsDisk` are consumed by the disk
+    // vector-index API exposed through `src/search_disk_api.h`.
+    HeaderAllowlist {
+        path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
+        fns: &[],
+        types: &[
+            "ThrottleCB",
+            "VecSimIndexBasicInfo",
+            "VecSimParamsDisk",
+            "VecSimQueryParams",
+        ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "deps/hiredis/sds.h",
+        fns: &["sdscatlen", "sdsnewlen", "sdsfree"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/aggregate/aggregate.h",
+        fns: &["AREQ_CheckTimedOut"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/aggregate/reducer.h",
+        fns: &[],
+        types: &["Reducer", "ReducerOptions"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/buffer/buffer.h",
+        fns: &["Buffer_Free", "Buffer_Grow"],
+        types: &["BufferReader", "BufferWriter"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/config.h",
+        fns: &[],
+        types: &[],
+        vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
+    },
+    HeaderAllowlist {
+        path: "src/doc_table.h",
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_GetId",
+            "DocTable_Put",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/fork_gc.h",
+        fns: &[],
+        types: &["ForkGC"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/forward_index.h",
+        fns: &["InvertedIndex_WriteForwardIndexEntry"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/indexes.h",
+        fns: &[
+            "Indexes_Init",
+            "Indexes_RemoveSpecFromGlobals",
+            "Spec_AddToDict",
+        ],
+        types: &[],
+        vars: &["specDict_g", "specIdDict_g"],
+    },
+    HeaderAllowlist {
+        path: "src/iterators/hybrid_reader.h",
+        fns: &[
+            "HybridIterator_GetChild",
+            "HybridIterator_GetMaxBatchIteration",
+            "HybridIterator_GetMaxBatchSize",
+            "HybridIterator_GetNumIterations",
+            "HybridIterator_GetSearchModeString",
+            "HybridIterator_IsBatchMode",
+        ],
+        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
+        // deadline) handed to VecSim. Exposed via this already-included header
+        // rather than a dedicated `timeout.h` bindgen root.
+        types: &["TimeoutCtx", "timespec"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/iterators/iterator_api.h",
+        fns: &[],
+        types: &["QueryIterator"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/iterators/optimizer_reader.h",
+        fns: &[
+            "OptimizerIterator_GetChild",
+            "OptimizerIterator_GetOptimizationType",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/json.h",
+        fns: &[],
+        types: &[],
+        vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
+    },
+    HeaderAllowlist {
+        path: "src/numeric_filter.h",
+        fns: &["NewNumericFilter"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/obfuscation/hidden.h",
+        fns: &[
+            "HiddenString_CompareC",
+            "HiddenString_Free",
+            "HiddenString_GetUnsafe",
+            "NewHiddenString",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/obfuscation/obfuscation_api.h",
+        fns: &["Obfuscate_Number", "Obfuscate_Text"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query.h",
+        fns: &["Query_EvalNode", "tag_strtolower"],
+        types: &["QueryAST", "QueryEvalCtx"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_node.h",
+        fns: &[],
+        types: &[
+            "QueryFuzzyNode",
+            "QueryGeofilterNode",
+            "QueryGeometryNode",
+            "QueryIdFilterNode",
+            "QueryLexRangeNode",
+            "QueryMissingNode",
+            "QueryNullNode",
+            "QueryNumericNode",
+            "QueryPhraseNode",
+            "QueryPrefixNode",
+            "QueryTagNode",
+            "QueryTokenNode",
+            "QueryVectorNode",
+            "QueryVerbatimNode",
+            "RSQueryNode",
+        ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/redis_index.h",
+        fns: &["Redis_OpenInvertedIndex"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/redisearch.h",
+        fns: &[],
+        types: &["RSToken"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/redismodule.h",
+        fns: &[],
+        // RSE: `RedisModuleIO` is referenced by the RDB save/load entry points
+        // in `src/search_disk_api.h`.
+        types: &["RedisModuleIO", "RedisModuleString"],
+        vars: &[
+            "REDISMODULE_ERR",
+            "REDISMODULE_OK",
+            "REDISMODULE_POSTPONED_ARRAY_LEN",
+            "REDISMODULE_POSTPONED_LEN",
+            "RedisModule_Alloc",
+            "RedisModule_Free",
+            "RedisModule_FreeString",
+            "RedisModule_FreeThreadSafeContext",
+            "RedisModule_GetDetachedThreadSafeContext",
+            "RedisModule_GetThreadSafeContext",
+            "RedisModule_InfoAddFieldCString",
+            // RSE: u64 field writer used by `redisearch_disk`'s
+            // `RedisModuleInfoCtx`-backed INFO sink.
+            "RedisModule_InfoAddFieldULongLong",
+            "RedisModule_InfoAddSection",
+            // RSE: open/close pair for nested dict fields, used by the same
+            // INFO sink in `redisearch_disk`.
+            "RedisModule_InfoBeginDictField",
+            "RedisModule_InfoEndDictField",
+            "RedisModule_Log",
+            "RedisModule_ReplySetArrayLength",
+            "RedisModule_ReplySetMapLength",
+            "RedisModule_ReplyWithArray",
+            "RedisModule_ReplyWithDouble",
+            "RedisModule_ReplyWithEmptyArray",
+            "RedisModule_ReplyWithLongLong",
+            "RedisModule_ReplyWithMap",
+            "RedisModule_ReplyWithSimpleString",
+            "RedisModule_ReplyWithStringBuffer",
+            "RedisModule_StringPtrLen",
+        ],
+    },
+    HeaderAllowlist {
+        path: "src/result_processor.h",
+        fns: &["RPProfile_IncrementCount"],
+        types: &["RPStatus"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/rlookup_load_document.h",
+        fns: &["loadIndividualKeys", "sdslen_rust"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/rules.h",
+        fns: &["SchemaPrefixes_Free"],
+        types: &[],
+        vars: &["SchemaPrefixes_g"],
+    },
+    HeaderAllowlist {
+        path: "src/score_explain.h",
+        fns: &["SEDestroy"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_ctx.h",
+        fns: &["NewSearchCtxC", "SearchCtx_Free"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
+        types: &[],
+        vars: &[],
+    },
+    // RSE: the entire disk API struct family lives in this header and is
+    // consumed by `redisearch_disk` to bridge from C into the Rust storage
+    // layer. None of these symbols are referenced by RediSearch itself.
+    HeaderAllowlist {
+        path: "src/search_disk_api.h",
+        fns: &[],
+        types: &[
+            "AllocateDMDCallback",
+            "AllocateKeyCallback",
+            "AsyncPollResult",
+            "AsyncReadResult",
+            "BasicDiskAPI",
+            "DocTableDiskAPI",
+            "IndexDiskAPI",
+            "MetricsDiskAPI",
+            "RedisSearchDisk",
+            "RedisSearchDiskAPI",
+            "RedisSearchDiskAsyncReadPool",
+            "RedisSearchDiskRdbState",
+            "RedisSearchDiskSnapshot",
+            "SearchDiskCompactionCallbacks",
+            "SearchDiskWriteBatchHandle",
+            "VectorDiskAPI",
+        ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_options.h",
+        fns: &[],
+        types: &["RSSearchFlags"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/spec.h",
+        fns: &[
+            "IndexSpec_AcquireWriteLock",
+            "IndexSpec_DecrementNumTerms",
+            "IndexSpec_DecrementTrieTermCount",
+            "IndexSpec_GetFieldWithLength",
+            "IndexSpec_ParseC",
+            "IndexSpec_ReleaseWriteLock",
+            "IndexSpecCache_Decref",
+            "IndexSpecRef_Promote",
+            "IndexSpecRef_Release",
+        ],
+        types: &[],
+        vars: &["isCrdt"],
+    },
+    HeaderAllowlist {
+        path: "src/stopwords.h",
+        fns: &["StopWordList_FreeGlobals"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
+    },
+    HeaderAllowlist {
+        path: "src/tag_index.h",
+        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/rune_util.h",
+        fns: &["strToLowerRunes"],
+        types: &[],
+        vars: &["MAX_RUNE_STR_LEN"],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie.h",
+        fns: &["Trie_DecrementNumDocs"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie_node.h",
+        fns: &[],
+        types: &[],
+        vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
+    },
+    HeaderAllowlist {
+        path: "src/util/arr/arr.h",
+        fns: &["array_free", "array_len_func", "array_new_sz"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/dict/dict.h",
+        fns: &[
+            "RS_dictAdd",
+            "RS_dictDelete",
+            "RS_dictFetchValue",
+            "RS_dictRelease",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/references.h",
+        fns: &["StrongRef_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/strconv.h",
+        fns: &["unicode_tolower_fn"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/wildcard/wildcard.h",
+        fns: &["Wildcard_RemoveEscape"],
+        types: &[],
+        vars: &[],
+    },
+];
 
 /// Generated headers (from `src/redisearch_rs/headers/`) that bindgen is allowed
 /// to consume transitively. Every entry is an explicit decision: each new entry
@@ -20,32 +455,51 @@ use build_utils::{repository_root, rerun_if_c_changes};
 /// Prefer adding a forward declaration in the C header instead — see e.g.
 /// `src/redis_index.h` for `InvertedIndex` or `src/spec.h` for `QueryError`.
 const PERMITTED_GENERATED_HEADERS: &[&str] = &[
+    // Fundamental type aliases (t_docId, t_fieldIndex, t_fieldMask) used
+    // across both C code and Rust-generated headers. Bindgen emits these
+    // as `pub type t_docId = u64` etc.; user code should import the
+    // canonical names (`DocId`, `FieldIndex`, `FieldMask`) from `rqe_core`.
+    "rqe_core.h",
     // `DocumentType` is used as a bitfield in `RSDocumentMetadata`
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
     // `FieldExpirationPredicate` is taken by value in TTL table function
-    // signatures (src/ttl_table/ttl_table.h).
+    // signatures (src/ttl_table.h).
     "field.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.
     "inverted_index.h",
+    // Required by `inverted_index.h`.
+    "index_result_rs.h",
     // Carries `QueryError`'s actual struct body (kept separate from
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
+    // `QEFlags` is included by `src/aggregate/aggregate.h`.
+    "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`.
     "query_node_type.h",
+    // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
+    "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
     // / `QueryError_SetCode` etc., so they need the function declarations.
     "query_error_ffi.h",
+    // `QEFlags` and the `QEFlag_*` named constants are required by
+    // `src/aggregate/aggregate.h` (pulled in for `AREQ_CheckTimedOut`).
+    "query_flags.h",
     // `QueryProcessingCtx` is embedded by value in `src/pipeline/pipeline.h`
     // and `src/aggregate/aggregate.h`. Brings `rs_wall_clock.h` into bindgen's
     // closure too, which is needed by `ffi::QueryProcessingCtx` (defined in
     // `ffi/src/lib.rs`).
     "result_processor_ffi.h",
+    // `RSValueType` and friends are required by `src/aggregate/aggregate.h`
+    // (pulled in transitively for `AREQ_CheckTimedOut`).
+    "value_ffi.h",
     // `enum IteratorType` is used by value in `src/iterators/iterator_api.h`.
     "rqe_iterator_type.h",
+    // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
+    "rqe_iterators.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`
@@ -56,46 +510,65 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSSortingVector` (a typedef of `ThinVec_SharedValue__u64`) is embedded
     // by value in `RSDocumentMetadata` (src/redisearch.h).
     "sorting_vector.h",
+    // `aggregate.h` includes `value_ffi.h`; reachable via
+    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    "value_ffi.h",
+    // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
+    // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
+    "types_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
     "varint_ffi.h",
 ];
 
+/// Types defined in Rust (re-exported from their owning crate in
+/// `ffi/src/lib.rs`). Blocklisted so bindgen doesn't emit a conflicting
+/// opaque stub when it sees a forward reference.
+const BLOCKLIST_TYPES: &[&str] = &[
+    "IteratorType",
+    "QueryNodeType",
+    "QASTValidationFlagsSet",
+    "QueryNodeOptions",
+    "QueryProcessingCtx", // defined directly in `ffi/src/lib.rs`
+    "RSQueryTerm",
+    "RSTokenFlags",
+];
+
+/// cheadergen-produced headers whose types are provided from the owning
+/// Rust crate via `pub use` in `ffi/src/lib.rs`, not from bindgen's output.
+const BLOCKLIST_FILES: &[&str] = &[
+    ".*/document_rs.h",
+    ".*/numeric_range_tree.h",
+    ".*/query_node_type.h",
+    ".*/query_term.h",
+    ".*/query_term_ffi.h",
+    ".*/rqe_iterator_type.h",
+];
+
 fn main() {
     let root =
         repository_root().expect("Could not find repository root for static library linking");
+    let src = root.join("src");
+    let deps = root.join("deps");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // Construct the correct folder path based on OS and architecture
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-
-    // There are several symbols exposed by the C code that we don't
-    // actually invoke (either directly or indirectly) in our benchmarks.
-    // We provide a definition for the ones we need (e.g. Redis' allocation functions),
-    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
-    // We prefer to fail at runtime if we try to use a symbol that's undefined.
-    // This is the default linker behaviour on macOS. On other platforms, the default
-    // configuration is stricter: it exits with an error if any symbol is undefined.
-    // We intentionally relax it here.
-    if target_os != "macos" {
+    // On non-macOS platforms the default linker rejects undefined symbols.
+    // Several symbols exposed by the C code aren't actually invoked from our
+    // benchmarks; relax the check so we don't have to ship dummy definitions.
+    if env::var("CARGO_CFG_TARGET_OS").unwrap() != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-
-    // Stage the explicitly permitted generated headers into an OUT_DIR
-    // subdirectory and put only that subdirectory on bindgen's include path.
-    // Generated headers not on the allowlist are unreachable from bindgen's
-    // clang invocation, so a malformed regeneration of an unlisted header
-    // cannot wedge the build.
+    // Stage permitted generated headers into an OUT_DIR subdirectory and put
+    // only that subdirectory on bindgen's clang include path. Generated
+    // headers not on the allowlist are unreachable from bindgen, so a
+    // malformed regeneration of an unlisted header cannot wedge the build.
     let permitted_dir = out_dir.join("permitted_generated_headers");
     fs::create_dir_all(&permitted_dir).expect("create permitted_generated_headers");
+    let cheadergen_dir = src.join("redisearch_rs").join("headers");
     for hdr in PERMITTED_GENERATED_HEADERS {
-        let src_path = root
-            .join("src")
-            .join("redisearch_rs")
-            .join("headers")
-            .join(hdr);
+        let src_path = cheadergen_dir.join(hdr);
         let dst_path = permitted_dir.join(hdr);
         fs::copy(&src_path, &dst_path).unwrap_or_else(|e| {
             panic!("copy {} -> {}: {e}", src_path.display(), dst_path.display())
@@ -103,129 +576,106 @@ fn main() {
         println!("cargo:rerun-if-changed={}", src_path.display());
     }
 
-    let includes = {
-        let src = root.join("src");
-        let deps = root.join("deps");
-
-        let inverted_index = src.join("inverted_index");
-        let vecsim = deps.join("VectorSimilarity").join("src");
-        let buffer = src.join("buffer");
-        let ttl_table = src.join("ttl_table");
-        let trie = src.join("trie");
-        let rmalloc = deps.join("rmalloc");
-
-        [
-            src,
-            deps,
-            permitted_dir,
-            inverted_index,
-            vecsim,
-            buffer,
-            ttl_table,
-            trie,
-            rmalloc,
-        ]
-    };
-
-    let src = root.join("src");
-    let deps = root.join("deps");
-    let headers = [
-        src.join("redismodule.h"),
-        deps.join("hiredis").join("sds.h"),
-        deps.join("rmutil").join("vector.h"),
-        src.join("aggregate").join("reducer.h"),
-        src.join("buffer/buffer.h"),
-        src.join("config.h"),
-        src.join("doc_table.h"),
-        src.join("fork_gc.h"),
-        src.join("forward_index.h"),
-        src.join("geo_index.h"),
-        src.join("rs_geo.h"),
-        deps.join("geohash").join("geohash.h"),
-        src.join("index_result").join("index_result.h"),
-        src.join("json.h"),
-        src.join("obfuscation").join("hidden.h"),
-        src.join("obfuscation").join("obfuscation_api.h"),
-        src.join("query.h"),
-        src.join("redis_index.h"),
-        src.join("redisearch.h"),
-        src.join("result_processor.h"),
-        src.join("rlookup.h"),
-        src.join("rlookup_load_document.h"),
-        src.join("rules.h"),
-        src.join("score_explain.h"),
-        src.join("search_ctx.h"),
-        src.join("search_disk.h"),
-        src.join("search_disk_api.h"),
-        src.join("search_result.h"),
-        src.join("sortable.h"),
-        src.join("spec.h"),
-        src.join("stopwords.h"),
-        src.join("numeric_filter.h"),
-        src.join("tag_index.h"),
-        src.join("trie").join("trie.h"),
-        src.join("trie").join("trie_type.h"),
-        src.join("ttl_table").join("ttl_table.h"),
-        src.join("util").join("arr").join("arr.h"),
-        src.join("util").join("dict").join("dict.h"),
-        src.join("util").join("references.h"),
+    let includes = [
+        src.clone(),
+        deps.clone(),
+        permitted_dir.clone(),
+        src.join("inverted_index"),
+        deps.join("VectorSimilarity").join("src"),
+        src.join("buffer"),
+        src.join("ttl_table"),
+        src.join("trie"),
+        deps.join("rmalloc"),
     ];
 
     let mut bindings = bindgen::Builder::default();
+    for entry in HEADERS {
+        let abs = root.join(entry.path);
+        verify_symbols(&abs, entry);
+        bindings = bindings.header(abs.display().to_string());
+        println!("cargo:rerun-if-changed={}", abs.display());
 
-    for header in headers {
-        bindings = bindings
-            .header(header.display().to_string())
-            .allowlist_file(header.display().to_string());
-
-        println!("cargo:rerun-if-changed={}", header.display());
+        for func in entry.fns {
+            bindings = bindings.allowlist_function(func);
+        }
+        for ty in entry.types {
+            bindings = bindings.allowlist_type(ty);
+        }
+        for var in entry.vars {
+            bindings = bindings.allowlist_var(var);
+        }
     }
-    for include in includes {
+    for include in &includes {
         bindings = bindings.clang_arg(format!("-I{}", include.display()));
-        // Re-run the build script if any of the C files in the included
-        // directory changes
-        let _ = rerun_if_c_changes(&include);
+        // Don't watch the staged copies under OUT_DIR: the build script writes
+        // them itself, so their mtimes will always be post-date cargo's fingerprint
+        // reference and would force a rebuild on every invocation. The source
+        // generated headers are already watched above.
+        if include != &permitted_dir {
+            let _ = rerun_if_c_changes(include);
+        }
     }
-
-    // Required so `<stdio.h>` declares `asprintf`/`vasprintf` (used by
-    // `deps/rmalloc/rmalloc.h`) when bindgen parses the headers with clang.
+    // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
+    // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
 
+    for ty in BLOCKLIST_TYPES {
+        bindings = bindings.blocklist_type(ty);
+    }
+    for file in BLOCKLIST_FILES {
+        bindings = bindings.blocklist_file(file);
+    }
+
     bindings
-        .blocklist_file(".*/document_rs.h")
-        // numeric_range_tree.h is generated by Rust (cheadergen) and those types
-        // are provided by the numeric_range_tree_ffi crate, not parsed from C
-        .blocklist_file(".*/numeric_range_tree.h")
-        // Provided by the query_term crate, not parsed from C
-        .blocklist_file(".*/query_term_ffi.h")
-        .blocklist_file(".*/query_term.h")
-        // IteratorType is defined in Rust (rqe_iterator_type crate);
-        // cheadergen generates rqe_iterator_type.h which is included by
-        // iterator_api.h. We blocklist the generated header so bindgen
-        // doesn't re-parse it, and re-export the Rust type from lib.rs.
-        .blocklist_file(".*/rqe_iterator_type.h")
-        // QueryNodeType is defined in Rust (query_node_type crate);
-        // cheadergen generates query_node_type.h which is included by
-        // query_node.h. We blocklist the generated header so bindgen
-        // doesn't re-parse it, and re-export the Rust type from lib.rs.
-        .blocklist_file(".*/query_node_type.h")
-        .blocklist_file(".*/rqe_iterators.h")
-        // Suppress bindgen's opaque-struct fallbacks for types it sees
-        // referenced (in allowlisted headers) but whose definitions live in
-        // the blocklisted Rust-generated headers above. The Rust side
-        // re-exports these from their owning crates.
-        .blocklist_type("RSQueryTerm")
-        .blocklist_type("RSTokenFlags")
-        .blocklist_type("IteratorType")
-        .blocklist_type("QueryNodeType")
-        // QueryProcessingCtx is defined directly in the `ffi` crate
-        // (`ffi/src/lib.rs`). Without this blocklist, bindgen would emit a
-        // conflicting opaque struct from its forward reference in
-        // `result_processor.h`.
-        .blocklist_type("QueryProcessingCtx")
-        .allowlist_file(".*/types_ffi.h")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+/// Verify that every symbol claimed in `entry` actually appears (as a
+/// whole identifier) in the file at `abs`. Catches typos and upstream
+/// renames at `cargo build` time.
+fn verify_symbols(abs: &Path, entry: &HeaderAllowlist) {
+    let content = fs::read_to_string(abs)
+        .unwrap_or_else(|e| panic!("ffi build.rs: read {}: {e}", abs.display()));
+    let check = |sym: &str, kind: &str| {
+        if !contains_word(&content, sym) {
+            panic!(
+                "ffi build.rs: {kind} `{sym}` claimed to be in `{}` but not found",
+                entry.path,
+            );
+        }
+    };
+    for f in entry.fns {
+        check(f, "function");
+    }
+    for t in entry.types {
+        check(t, "type");
+    }
+    for v in entry.vars {
+        check(v, "variable");
+    }
+}
+
+/// True when `sym` appears in `haystack` surrounded by non-identifier
+/// characters (so `Buffer` doesn't match inside `BufferReader`).
+fn contains_word(haystack: &str, sym: &str) -> bool {
+    let bytes = haystack.as_bytes();
+    let mut start = 0;
+    while let Some(idx) = haystack[start..].find(sym) {
+        let pos = start + idx;
+        let end = pos + sym.len();
+        let left_ok = pos == 0 || !is_ident_byte(bytes[pos - 1]);
+        let right_ok = end == bytes.len() || !is_ident_byte(bytes[end]);
+        if left_ok && right_ok {
+            return true;
+        }
+        start = pos + 1;
+    }
+    false
+}
+
+const fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }

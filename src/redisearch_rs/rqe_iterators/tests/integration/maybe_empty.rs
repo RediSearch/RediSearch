@@ -7,29 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
-struct Infinite<'index>(inverted_index::RSIndexResult<'index>);
+struct Infinite<'index>(index_result::RSIndexResult<'index>);
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
-    fn current(&mut self) -> Option<&mut inverted_index::RSIndexResult<'index>> {
+    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         Some(&mut self.0)
     }
 
     fn read(
         &mut self,
-    ) -> Result<Option<&mut inverted_index::RSIndexResult<'index>>, RQEIteratorError> {
+    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, RQEIteratorError> {
         self.0.doc_id += 1;
         Ok(Some(&mut self.0))
     }
 
     fn skip_to(
         &mut self,
-        doc_id: ffi::t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.0.doc_id = doc_id;
         Ok(Some(SkipToOutcome::Found(&mut self.0)))
@@ -43,7 +44,7 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
         usize::MAX
     }
 
-    fn last_doc_id(&self) -> ffi::t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.0.doc_id
     }
 
@@ -140,14 +141,12 @@ fn skip_to_not_empty() {
     let mut it = MaybeEmpty::new(Infinite::default());
 
     for i in 1..=5 {
-        let id = (i * 5) as ffi::t_docId;
+        let id = (i * 5) as DocId;
         let outcome = it.skip_to(id).unwrap();
         assert_eq!(
             outcome,
             Some(SkipToOutcome::Found(
-                &mut inverted_index::RSIndexResult::build_virt()
-                    .doc_id(id)
-                    .build()
+                &mut index_result::RSIndexResult::build_virt().doc_id(id).build()
             ))
         );
         assert_eq!(it.last_doc_id(), id);

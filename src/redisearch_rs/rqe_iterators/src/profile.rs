@@ -16,9 +16,9 @@
 use std::time::{Duration, Instant};
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
-use ffi::t_docId;
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::RSIndexResult;
+use rqe_core::DocId;
 
 /// Profile counters collected during query execution.
 ///
@@ -33,6 +33,17 @@ pub struct ProfileCounters {
     pub skip_to: usize,
     /// Whether the iterator reached EOF.
     pub eof: bool,
+}
+
+impl ProfileCounters {
+    /// Returns the number of reading operations for profile display.
+    ///
+    /// This is the sum of `read` and `skip_to` counts, minus one if EOF was
+    /// reached (to exclude the final unsuccessful read). The result is
+    /// clamped to zero.
+    pub fn num_reading_operations(&self) -> usize {
+        (self.read + self.skip_to).saturating_sub(usize::from(self.eof))
+    }
 }
 
 /// A wrapper iterator that collects profiling metrics from a child iterator.
@@ -105,7 +116,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let start = Instant::now();
         let result = self.child.skip_to(doc_id);
@@ -126,7 +137,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
         self.child.num_estimated()
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.child.last_doc_id()
     }
 
@@ -149,5 +160,18 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.child
             .intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
+
+impl<'index, I> ProfilePrint for Profile<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        let counters = self.counters();
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
+        self.child().print_profile(map, &mut child_ctx);
     }
 }

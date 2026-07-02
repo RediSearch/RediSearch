@@ -22,7 +22,8 @@ use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IteratorStatus_ITERATOR_OK,
 };
-use inverted_index::{InvertedIndex, RSIndexResult, RSOffsetSlice, full::Full};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use inverted_index::{InvertedIndex, full::Full};
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     Intersection, NoOpChecker, RQEIterator, id_list::IdListSorted, inverted_index::Term,
@@ -195,10 +196,7 @@ impl Bencher {
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
+        super::group(c, label, Self::MEASUREMENT_TIME, Self::WARMUP_TIME)
     }
 
     /// Sweep `NUM_CHILDREN_CASES` × `OVERLAP_CASES`, building a fresh `Intersection` from

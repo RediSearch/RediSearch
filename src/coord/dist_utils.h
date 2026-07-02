@@ -10,6 +10,7 @@
 #pragma once
 
 #include "../coord/rmr/rmr.h"
+#include "rpnet.h"
 
 #define CURSOR_EOF 0
 
@@ -17,7 +18,13 @@
 extern "C" {
 #endif
 
+// Cursor callback for network responses: re-dispatches cursor reads, handles
+// errors, and pushes replies onto the iterator channel.
 void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+// Helper function to extract total_results from a shard reply.
+// Returns true if total_results was found, false otherwise.
+bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total);
 
 #ifdef __cplusplus
 }

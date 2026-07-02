@@ -314,7 +314,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
-  notify-failure:
+  triage-benchmark-failures:
     needs:
       - benchmark-search-oss-standalone
       - benchmark-search-oss-standalone-aarch64
@@ -331,31 +331,94 @@ jobs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
       - benchmark-hybrid-oss-standalone
     if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      triage-exists: ${{ steps.triage.outputs.triage-exists }}
+      triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/fetch-failed-run-logs
+        with:
+          github-token: ${{ github.token }}
+          # Benchmarks run sequentially and the runner keeps going after one
+          # fails, so a failing benchmark's root cause lands far above the
+          # tail-capped window (the final per-test summary table only reports a
+          # status, not the cause). Extract the decisive lines from the full log
+          # so they survive truncation. redisbench_admin / ftsb / memtier and
+          # crash markers:
+          highlight-patterns: |
+            CRITICAL:root:Exception during remote work
+            Failing test\.\.\.\.
+            ERROR:root:The benchmark returned an error exit status
+            RedisTimeSeries connection error while pushing metrics
+            The benchmark ran successfully but the post-benchmark metrics export failed
+            The benchmark itself completed successfully
+            Traceback \(most recent call last\)
+            ^Exception:
+            \|(server|client)\|(exception|error)\|
+            (Segmentation fault|signal SIG|core dumped|panicked at|AddressSanitizer|terminate called|Sanitizer)
+            Connection reset by peer
+            Connection refused
+            (Total Errors|Total Timeouts): [1-9]
+            ##\[error\]
+      - name: Run Codex triage
+        id: triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/benchmark-triage.md
+
+  notify-failure:
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-search-oss-standalone-aarch64
+      - benchmark-search-oss-standalone-threads-6
+      - benchmark-vecsim-oss-standalone
+      - benchmark-vecsim-oss-standalone-threads-6
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-04-primaries-threads-6
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - benchmark-hybrid-oss-standalone
+      - triage-benchmark-failures
+    if: ${{ always() && contains(needs.*.result, 'failure') && inputs.notify_failure }}
     runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v3
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
 
   notify-msmarco-failure:
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
+      - triage-benchmark-failures
     if: ${{ always() && needs.benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8.result == 'failure' && inputs.notify_failure }}
     runs-on: ubuntu-slim
     steps:
       - name: Notify MSMARCO Benchmark Failure
-        uses: slackapi/slack-github-action@v1
+        uses: slackapi/slack-github-action@v3
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}"
+              "repository": "${{ github.repository }}",
+              "ai_triage": ${{ needs.triage-benchmark-failures.outputs.triage-exists == 'true' && needs.triage-benchmark-failures.outputs.triage-content-json || '""' }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}

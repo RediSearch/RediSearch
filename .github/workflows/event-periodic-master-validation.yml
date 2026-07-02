@@ -1,0 +1,250 @@
+name: Periodic Master Validation
+
+# Runs broad validation on master against stable dependencies. Busy-day runs
+# start after enough PRs land; the daily sweep covers low-traffic leftovers.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run validation even if master has not changed"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 */3 * * *"
+    - cron: "47 21 * * *"
+
+concurrency:
+  group: master-periodic-validation
+  cancel-in-progress: false
+
+jobs:
+  # Decide whether this workflow should run the selected-platform validation now.
+  # Skipped validation runs still finish successfully, so this job finds the last
+  # successful run that actually completed validation and batches PRs from there.
+  should-run:
+    runs-on: ubuntu-slim
+    outputs:
+      run-validation: ${{ steps.check.outputs.run-validation }}
+      covered-prs: ${{ steps.check.outputs.covered-prs }}
+    steps:
+      - name: Check latest successful validation
+        id: check
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+          CURRENT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          MIN_MERGED_PRS: 3
+          MAX_MERGED_PRS: 5
+          NIGHTLY_SWEEP: ${{ github.event.schedule == '47 21 * * *' }}
+        run: |
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+
+          WORKFLOW_FILE = "event-periodic-master-validation.yml"
+          VALIDATION_JOB_PREFIX = "test-selected-platforms"
+
+          def gh_api(path, attempts=5):
+              # The Actions REST API (esp. /actions/runs/{id}/jobs) occasionally
+              # returns transient HTTP 404 / 5xx for resources that exist; retry
+              # with short backoff before giving up.
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(
+                      ["gh", "api", path],
+                      capture_output=True, text=True, check=False,
+                  )
+                  if result.returncode == 0:
+                      return json.loads(result.stdout)
+                  if attempt == attempts:
+                      sys.stderr.write(result.stderr)
+                      result.check_returncode()
+                  time.sleep(2 * attempt)
+
+          def validation_passed(run):
+              jobs = gh_api(
+                  f"/repos/{repository}/actions/runs/{run['id']}/jobs"
+                  "?per_page=100"
+              ).get("jobs", [])
+              return any(
+                  job.get("name", "").startswith(VALIDATION_JOB_PREFIX)
+                  and job.get("conclusion") == "success"
+                  for job in jobs
+              )
+
+          def last_validated_sha():
+              runs = gh_api(
+                  f"/repos/{repository}/actions/workflows/{WORKFLOW_FILE}/runs"
+                  "?branch=master&status=success&per_page=20"
+              ).get("workflow_runs", [])
+              for run in runs:
+                  if validation_passed(run):
+                      return run.get("head_sha", "")
+              return ""
+
+          def decide(value, message, covered_prs):
+              covered = ", ".join(f"#{pr}" for pr in covered_prs) if covered_prs else "none"
+              print(message)
+              print(f"Covered PRs: {covered}")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"run-validation={str(value).lower()}\n")
+                  output.write(f"covered-prs={covered}\n")
+              raise SystemExit
+
+          force = os.environ["FORCE"].lower() == "true"
+          current_sha = os.environ["CURRENT_SHA"]
+          event_name = os.environ["EVENT_NAME"]
+          repository = os.environ["REPOSITORY"]
+          min_merged_prs = int(os.environ["MIN_MERGED_PRS"])
+          max_merged_prs = int(os.environ["MAX_MERGED_PRS"])
+          nightly_sweep = os.environ["NIGHTLY_SWEEP"].lower() == "true"
+
+          last_successful_sha = last_validated_sha()
+
+          if last_successful_sha == current_sha and not force:
+              decide(False, "Master has not changed since the last successful periodic validation.", [])
+
+          if last_successful_sha:
+              comparison = gh_api(f"/repos/{repository}/compare/{last_successful_sha}...{current_sha}")
+              covered_prs = sorted({
+                  int(match.group(1))
+                  for commit in comparison.get("commits", [])
+                  if (message := commit.get("commit", {}).get("message", ""))
+                  for match in re.finditer(r"\(#([0-9]+)\)", message)
+              })
+          else:
+              covered_prs = []
+
+          if force:
+              decide(True, "Manual dispatch forced validation.", covered_prs)
+
+          if nightly_sweep:
+              decide(True, "Daily sweep: master changed since the last successful periodic validation.", covered_prs)
+
+          if not last_successful_sha:
+              decide(True, "No previous successful periodic validation found.", covered_prs)
+
+          threshold = max_merged_prs if event_name == "push" else min_merged_prs
+          reason = "Push threshold" if event_name == "push" else "Periodic threshold"
+          merged_pr_count = len(covered_prs)
+
+          print(f"Merged PRs since last successful periodic validation: {merged_pr_count}")
+          if merged_pr_count >= threshold:
+              decide(True, f"{reason} reached: at least {threshold} PRs merged.", covered_prs)
+
+          decide(False, f"Fewer than {threshold} PRs merged; daily sweep will cover these changes.", covered_prs)
+
+      - name: Log covered PRs
+        if: ${{ steps.check.outputs.run-validation == 'true' }}
+        run: |
+          echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
+
+  get-latest-redis-tag:
+    needs: should-run
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+
+  test-selected-platforms:
+    needs: [should-run, get-latest-redis-tag]
+    if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
+    uses: ./.github/workflows/flow-test.yml
+    secrets: inherit
+    with:
+      platform: 'ubuntu:noble,macos-26,alpine:3.23,intel'
+      architecture: all
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
+      options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      rejson-branch: master
+
+  notify-cie-failure:
+    needs: [should-run, get-latest-redis-tag, test-selected-platforms]
+    if: failure()
+    runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Resolve covered PR URLs
+        id: covered-prs
+        shell: python3 {0}
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          COVERED_PRS: ${{ needs.should-run.outputs.covered-prs }}
+        run: |
+          import os
+          import re
+          import uuid
+
+          def append_output(name, value):
+              delimiter = f"EOF_{name}_{uuid.uuid4().hex}"
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
+
+          repository = os.environ["REPOSITORY"]
+          covered_prs = os.environ.get("COVERED_PRS", "").strip()
+          if not covered_prs or covered_prs == "none":
+              covered_prs_text = "none"
+          else:
+              pr_urls = [
+                  f"{os.environ['SERVER_URL']}/{repository}/pull/{pr_number}"
+                  for pr_number in re.findall(r"#([0-9]+)", covered_prs)
+              ]
+              covered_prs_text = "\n".join(pr_urls) if pr_urls else covered_prs
+
+          append_output("covered_prs", covered_prs_text)
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Triage only needs the local workflow/action files. Codex then reads
+          # untrusted CI logs and emits external output, so don't leave a usable
+          # git credential available to later steps.
+          persist-credentials: false
+
+      - name: Collect failure context
+        id: failure-context
+        uses: ./.github/actions/ci-failure-context
+
+      - name: Run Codex triage
+        id: ai_triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/post-merge-triage.md
+
+      - name: Notify CIE failure triage
+        if: always()
+        uses: slackapi/slack-github-action@v3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_POST_MERGE_VALIDATION_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "repository": "${{ github.repository }}",
+              "covered_prs": ${{ toJson(steps.covered-prs.outputs.covered_prs) }},
+              "failed_jobs": ${{ toJson(steps.failure-context.outputs.failed-jobs) }},
+              "ai_triage": ${{ steps.ai_triage.outputs.triage-exists == 'true' && steps.ai_triage.outputs.triage-content-json || '""' }},
+              "owner": "CIE",
+              "expectation": "Post-merge selected-platform validation failure requires CIE triage"
+            }

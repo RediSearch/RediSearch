@@ -32,7 +32,7 @@ jobs:
       ec2_instance_id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -48,7 +48,7 @@ jobs:
           permission-administration: write
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: start
           github-token: ${{ steps.generate-app-token.outputs.token }}
@@ -65,6 +65,8 @@ jobs:
     permissions:
       contents: read  # actions/checkout
       id-token: write # OIDC role assumption for sccache S3
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
       - name: Pre checkout deps
         run:  sudo apt-get update && sudo apt-get -y --no-install-recommends install git
@@ -84,6 +86,7 @@ jobs:
         with:
           python-version: 3.11
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -100,17 +103,23 @@ jobs:
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
         env:
           DEBIAN_FRONTEND: noninteractive
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
           LTO: 1
+          # Use committed Rust C headers; cheadergen is not installed on the
+          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
+          REDISEARCH_GENERATE_HEADERS: "0"
         timeout-minutes: 300
         run: |
           export HOME=/home/ubuntu
           export PATH="$HOME/.cargo/bin:$PATH"
           make micro-benchmarks
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
@@ -184,7 +193,7 @@ jobs:
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -199,7 +208,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
       - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.4.2
+        uses: machulav/ec2-github-runner@v2.6.1
         with:
           mode: stop
           github-token: ${{ steps.generate-app-token.outputs.token }}

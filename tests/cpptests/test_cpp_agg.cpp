@@ -38,7 +38,7 @@ TEST_F(AggTest, testBasic) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  auto spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 
   // Try to create a document...
@@ -169,7 +169,8 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -213,7 +214,8 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;

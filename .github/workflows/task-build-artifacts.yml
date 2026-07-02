@@ -77,6 +77,7 @@ jobs:
       || null }}
 
     env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       LTO: ${{ needs.get-config.outputs.enable_lto }}
@@ -133,6 +134,7 @@ jobs:
           submodules: recursive
           ref: ${{ env.REF }}
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -151,9 +153,12 @@ jobs:
           command: ./install_aws.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Setup test dependencies
+        # github_token (scoped to this step) lets cargo-binstall, invoked via
+        # common_installations.sh, use authenticated GitHub API calls
         uses: ./.github/actions/retry-command
         with:
           command: .install/test_deps/common_installations.sh ${{ needs.get-config.outputs.install_mode }}
+          github_token: ${{ github.token }}
       - name: install build artifacts req
         uses: ./.github/actions/retry-command
         with:
@@ -173,7 +178,7 @@ jobs:
         run: ${{ env.BUILD_CMD }} && make pack
 
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
 
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'

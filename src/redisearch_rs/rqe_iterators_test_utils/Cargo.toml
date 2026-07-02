@@ -14,7 +14,9 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+rqe_core.workspace = true
 field.workspace = true
+index_result.workspace = true
 index_spec.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = [
@@ -26,5 +28,6 @@ rqe_iterators = { path = "../rqe_iterators" }
 libc.workspace = true
 query_error.workspace = true
 redis_mock.workspace = true
+ttl_table.workspace = true
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 workspace_hack.workspace = true

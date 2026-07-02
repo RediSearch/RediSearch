@@ -33,6 +33,10 @@ typedef struct ForwardIndexEntry {
   uint32_t len;
   uint32_t hash;
   VarintVectorWriter *vw;
+  // Disk-mode-only: per-term flag set when staging the term on a disk write
+  // batch succeeded, consumed by the matching apply step to decide whether
+  // to bump the in-memory term trie. Unused in memory mode.
+  bool staged;
 } ForwardIndexEntry;
 
 // the quantizationn factor used to encode normalized (0..1) frequencies in the index
@@ -87,9 +91,11 @@ ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 // Find an existing entry within the index
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash);
 
-/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+/* Write a ForwardIndexEntry into an indexWriter. Returns an `AddRecordOutcome` carrying the
+ * memory growth and the number of new blocks created — callers maintaining per-spec
+ * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
  */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
 
 #ifdef __cplusplus
 }

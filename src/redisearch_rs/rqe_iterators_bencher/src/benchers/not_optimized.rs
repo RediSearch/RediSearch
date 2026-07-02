@@ -14,7 +14,7 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_iterators::{
     RQEIterator, empty::Empty, id_list::IdListSorted, not_optimized::NotOptimized,
-    wildcard::new_wildcard_iterator_optimized,
+    utils::NoTimeout, wildcard::new_wildcard_iterator_optimized,
 };
 use rqe_iterators_test_utils::TestContext;
 
@@ -49,16 +49,17 @@ impl Bencher {
     const SPARSE_STEP: usize = 200;
     /// Step size for skip_to() calls.
     const SKIP_TO_STEP: u64 = 100;
+    /// Disable timeout checks in benchmarks: [`NoTimeout`] is a zero-sized
+    /// no-op so the iterator's `check_timeout` path is dead code after
+    /// monomorphization.
+    const TIMEOUT_CTX: NoTimeout = NoTimeout;
 
     fn benchmark_group<'a>(
         &self,
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
-        let mut group = c.benchmark_group(label);
-        group.measurement_time(Self::MEASUREMENT_TIME);
-        group.warm_up_time(Self::WARMUP_TIME);
-        group
+        super::group(c, label, Self::MEASUREMENT_TIME, Self::WARMUP_TIME)
     }
 
     /// Dense child data: 99% of docs (all except every 100th doc).
@@ -90,7 +91,7 @@ impl Bencher {
                 || {
                     // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
                     let wc = unsafe { new_wildcard_iterator_optimized(context.sctx, Self::WEIGHT) };
-                    NotOptimized::new(wc, Empty, Self::MAX_DOC_ID, Self::WEIGHT, None)
+                    NotOptimized::new(wc, Empty, Self::MAX_DOC_ID, Self::WEIGHT, Self::TIMEOUT_CTX)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.read() {
@@ -119,7 +120,7 @@ impl Bencher {
                         IdListSorted::new(Self::dense_child()),
                         Self::MAX_DOC_ID,
                         Self::WEIGHT,
-                        None,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
@@ -149,7 +150,7 @@ impl Bencher {
                         IdListSorted::new(Self::sparse_child()),
                         Self::MAX_DOC_ID,
                         Self::WEIGHT,
-                        None,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
@@ -174,7 +175,7 @@ impl Bencher {
                 || {
                     // SAFETY: context has index_all=true and existingDocs wired by TestContext::wildcard.
                     let wc = unsafe { new_wildcard_iterator_optimized(context.sctx, Self::WEIGHT) };
-                    NotOptimized::new(wc, Empty, Self::MAX_DOC_ID, Self::WEIGHT, None)
+                    NotOptimized::new(wc, Empty, Self::MAX_DOC_ID, Self::WEIGHT, Self::TIMEOUT_CTX)
                 },
                 |it| {
                     while let Ok(Some(current)) = it.skip_to(it.last_doc_id() + Self::SKIP_TO_STEP)
@@ -204,7 +205,7 @@ impl Bencher {
                         IdListSorted::new(Self::sparse_child()),
                         Self::MAX_DOC_ID,
                         Self::WEIGHT,
-                        None,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {
@@ -235,7 +236,7 @@ impl Bencher {
                         IdListSorted::new(Self::dense_child()),
                         Self::MAX_DOC_ID,
                         Self::WEIGHT,
-                        None,
+                        Self::TIMEOUT_CTX,
                     )
                 },
                 |it| {

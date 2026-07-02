@@ -11,18 +11,19 @@ use approx::assert_abs_diff_eq;
 use ffi::{
     IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets, IndexFlags_Index_WideSchema,
-    t_docId, t_fieldMask,
 };
 use field::FieldMaskOrIndex;
-use inverted_index::{FilterMaskReader, RSIndexResult, RSOffsetSlice, full::Full};
+use index_result::{RSIndexResult, RSOffsetSlice};
+use inverted_index::{FilterMaskReader, full::Full};
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Term};
 
 use crate::inverted_index::utils::{BaseTest, RevalidateIndexType, RevalidateTest};
 
 fn expected_record(
-    doc_id: t_docId,
-    field_mask: t_fieldMask,
+    doc_id: DocId,
+    field_mask: FieldMask,
     term: Box<query_term::RSQueryTerm>,
     offsets: &'static [u8],
 ) -> RSIndexResult<'static> {
@@ -55,7 +56,7 @@ impl TermBaseTest {
                     term.set_idf(5.0);
                     term.set_bm25_idf(10.0);
                     // Use doc_id as field_mask so we can test FilterMaskReader
-                    expected_record(doc_id, doc_id as t_fieldMask, term, OFFSETS)
+                    expected_record(doc_id, doc_id as FieldMask, term, OFFSETS)
                 }),
                 n_docs,
             ),
@@ -165,7 +166,7 @@ mod not_miri {
                         // Use a field mask with all bits set so all docs match the filter
                         // and expiration is actually tested (not just field mask filtering).
                         // Use u32::MAX for non-wide tests to avoid overflow in the encoder.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
+                        expected_record(doc_id, u32::MAX as FieldMask, term, OFFSETS)
                     }),
                     n_docs,
                     multi,
@@ -307,7 +308,7 @@ mod not_miri {
                         term.set_idf(5.0);
                         term.set_bm25_idf(10.0);
                         // Use a field mask with all bits set so all docs match the filter.
-                        expected_record(doc_id, u32::MAX as t_fieldMask, term, OFFSETS)
+                        expected_record(doc_id, u32::MAX as FieldMask, term, OFFSETS)
                     }),
                     n_docs,
                 ),

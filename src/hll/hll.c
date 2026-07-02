@@ -12,7 +12,7 @@
 
 #include <stdio.h>
 
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "hll.h"
 
 #include "rmalloc.h"
@@ -138,6 +138,7 @@ int hll_load(struct HLL *hll, const void *registers, uint32_t size) {
   if (hll_init(hll, __builtin_ctz(size)) == -1) return -1;
 
   memcpy(hll->registers, registers, size * sizeof(*hll->registers));
+  hll->cachedCard = INVALID_CACHE_CARDINALITY; // Invalidate the cache populated by hll_init
 
   return 0;
 }

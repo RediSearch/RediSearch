@@ -30,10 +30,7 @@ void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
       II_GCWriter wr = { .ctx = gc, .write = pipe_write_cb };
 
-      InvertedIndex_GcDelta_Scan(
-          &wr, sctx, idx,
-          &cb, NULL
-      );
+      InvertedIndex_GcDelta_Scan(&wr, sctx, idx, &cb);
     }
   }
   dictReleaseIterator(iter);
@@ -60,7 +57,7 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     return FGC_CHILD_ERROR;
   }
 
-  if (rawFieldName == RECV_BUFFER_EMPTY) {
+  if (fieldNameLen == NO_MORE_DATA) {
     return FGC_DONE;
   }
 
@@ -68,7 +65,7 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   delta = InvertedIndex_GcDelta_Read(&rd);
 
   if (delta == NULL) {
-    rm_free(rawFieldName);
+    FGC_freeBuffer(rawFieldName, fieldNameLen);
     return FGC_CHILD_ERROR;
   }
 
@@ -91,12 +88,15 @@ FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     goto cleanup;
   }
 
-  InvertedIndex_ApplyGcDelta(idx, delta, &info);
+  InvertedIndex_ApplyGCDelta(idx, delta, &info);
   delta = NULL;
+  IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
   if (InvertedIndex_NumDocs(idx) == 0) {
-    // inverted index was cleaned entirely lets free it
+    // Sample memory and block count before the destructor callback (InvIndFreeCb) frees
+    // the index without spec context.
     info.bytes_freed += InvertedIndex_MemUsage(idx);
+    IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
   FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.ignored_last_block);
@@ -108,7 +108,7 @@ cleanup:
     IndexSpecRef_Release(spec_ref);
   }
   HiddenString_Free(fieldName, false);
-  rm_free(rawFieldName);
+  FGC_freeBuffer(rawFieldName, fieldNameLen);
   InvertedIndex_GcDelta_Free(delta);
 
   return status;

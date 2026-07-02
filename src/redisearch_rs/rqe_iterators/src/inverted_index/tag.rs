@@ -9,17 +9,19 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, TagIndex, t_docId};
+use ffi::{RedisSearchCtx, TagIndex};
+use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RSIndexResult, RSOffsetSlice,
-    opaque::OpaqueEncoding,
+    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, opaque::OpaqueEncoding,
 };
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::InvIndIterator;
@@ -53,7 +55,7 @@ where
     ///
     /// `term` is the query term representing the tag value. It is stored in the
     /// result and used during revalidation to look up the tag's inverted index
-    /// in the [`TagIndex`]'s [`TrieMap`](trie_rs::opaque::TrieMap).
+    /// in the [`TagIndex`]'s [`TrieMapOpaque`](trie_rs::TrieMapOpaque).
     ///
     /// `weight` is the scoring weight applied to the result record.
     ///
@@ -63,7 +65,7 @@ where
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
     /// 3. `tag_index` must point to a valid [`TagIndex`].
     /// 4. `tag_index` must remain valid for the lifetime of the iterator.
-    /// 5. `tag_index.values` must be a valid non-null [`TrieMap`](trie_rs::opaque::TrieMap) pointer.
+    /// 5. `tag_index.values` must be a valid non-null [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
     /// 6. The entry in `tag_index.values` for the tag value, when non-null,
     ///    must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
@@ -97,7 +99,7 @@ where
                         .as_bytes()
                         .expect("Tag iterator query term should have a non-null string");
                     // SAFETY: 5. guarantees values is a valid TrieMap.
-                    let trie = unsafe { &*tag_idx.values.cast::<trie_rs::opaque::TrieMap>() };
+                    let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
                     // If the entry exists, `from_opaque` panics when the variant doesn't match E.
                     if let Some(idx) = trie.find(term_bytes) {
                         let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
@@ -152,7 +154,7 @@ where
             .expect("Tag iterator query term should have a non-null string");
         // SAFETY: 5. guarantees `tag_idx.values` is a valid `triemap_ffi::TrieMap`
         // created by `NewTrieMap`.
-        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
 
         let Some(idx) = trie.find(term_bytes) else {
             // The inverted index was collected entirely by GC, or the
@@ -193,7 +195,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -209,7 +211,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -237,5 +239,22 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, E, C> ProfilePrint for Tag<'index, E, C>
+where
+    E: inverted_index::DecodedBy
+        + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
+    C: crate::expiration_checker::ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"TAG");
+        if let Some(term_bytes) = self.it.query_term_bytes() {
+            map.kv_string_buffer(c"Term", term_bytes);
+        }
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }

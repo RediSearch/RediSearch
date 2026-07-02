@@ -34,6 +34,9 @@ fn id_cases(#[case] case: &[u64]) {}
 
 mod c2rust;
 mod empty;
+#[cfg(not(miri))]
+mod format_g;
+mod geo_shape;
 mod id_list;
 mod intersection;
 mod inverted_index;
@@ -48,6 +51,8 @@ mod optional_optimized;
 mod optional_reducer;
 mod profilable;
 mod profile;
+#[cfg(not(miri))]
+mod profile_print;
 #[macro_use]
 mod union_common;
 mod union_flat;

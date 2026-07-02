@@ -9,8 +9,10 @@
 
 //! Tests for the missing-field inverted index iterator.
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
+use inverted_index::doc_ids_only::DocIdsOnly;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
 use rqe_iterators_test_utils::MockContext;
 
@@ -21,7 +23,7 @@ struct MissingBaseTest {
 }
 
 impl MissingBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         RSIndexResult::build_virt()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
@@ -97,7 +99,7 @@ mod not_miri {
     }
 
     impl MissingRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             RSIndexResult::build_virt()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -191,7 +193,7 @@ mod not_miri {
         assert_eq!(status, RQEValidateStatus::Aborted);
 
         // No restore needed: the new II will be freed by `dictRelease` during
-        // `IndexSpec_RemoveFromGlobals` in `TestContext::drop`.
+        // `Indexes_RemoveSpecFromGlobals` in `TestContext::drop`.
     }
 
     #[test]

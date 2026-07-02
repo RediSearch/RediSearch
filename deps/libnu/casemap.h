@@ -12,6 +12,11 @@
 extern "C" {
 #endif
 
+/**
+ * @example folding.c
+ * @example special_casing.c
+ */
+
 /** Synonim to nu_casemap_read. It is recommended to use
  * nu_casemap_read instead.
  */

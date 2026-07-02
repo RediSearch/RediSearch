@@ -52,7 +52,7 @@ Run this skill to check for lint errors and formatting issues.
 
 5. If license headers are missing, add them:
    ```bash
-   cd src/redisearch_rs && cargo license-fix
+   (cd src/redisearch_rs && cargo license-fix)   # subshell: custom subcommand, no --manifest-path
    ```
 
 ### Common Clippy Fixes
@@ -63,5 +63,5 @@ Run this skill to check for lint errors and formatting issues.
 ### Rust-Only Quick Check
 
 ```bash
-cd src/redisearch_rs && cargo clippy --all-targets --all-features
+cargo clippy --manifest-path src/redisearch_rs/Cargo.toml --all-targets --all-features
 ```

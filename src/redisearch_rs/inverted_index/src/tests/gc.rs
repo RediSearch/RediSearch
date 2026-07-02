@@ -14,10 +14,12 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, RSIndexResult, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
 };
-use ffi::{IndexFlags_Index_DocIdsOnly, t_docId};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
+use rqe_core::DocId;
 use smallvec::smallvec;
 use thin_vec::medium_thin_vec;
 
@@ -34,14 +36,15 @@ fn index_block_repair_delete() {
         ..Default::default()
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         ![10, 11].contains(&doc_id)
     }
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -65,14 +68,15 @@ fn index_block_repair_unchanged() {
         ..Default::default()
     };
 
-    fn cb(_doc_id: t_docId) -> bool {
+    fn cb(_doc_id: DocId) -> bool {
         true
     }
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -91,14 +95,15 @@ fn index_block_repair_some_deletions() {
         ..Default::default()
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         [11].contains(&doc_id)
     }
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>::default(),
         )
         .unwrap();
@@ -156,7 +161,7 @@ fn index_block_repair_delta_too_big() {
     impl Decoder for SmallDeltaDummy {
         fn decode<'index>(
             cursor: &mut Cursor<&'index [u8]>,
-            base: t_docId,
+            base: DocId,
             result: &mut RSIndexResult<'index>,
         ) -> std::io::Result<()> {
             let mut buffer = [0; 1];
@@ -202,14 +207,15 @@ fn index_block_repair_delta_too_big() {
         ..Default::default()
     };
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         ![41].contains(&doc_id)
     }
 
     let repair_status = block
         .repair(
+            0,
             cb,
-            None::<fn(&RSIndexResult, &IndexBlock)>,
+            None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<SmallDeltaDummy>::default(),
         )
         .unwrap();
@@ -298,12 +304,12 @@ fn ii_scan_gc() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    fn cb(doc_id: t_docId) -> bool {
+    fn cb(doc_id: DocId) -> bool {
         [21, 22, 30, 40].contains(&doc_id)
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
         .unwrap()
         .unwrap();
 
@@ -358,12 +364,12 @@ fn ii_scan_gc_no_change() {
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    fn cb(_doc_id: t_docId) -> bool {
+    fn cb(_doc_id: DocId) -> bool {
         true
     }
 
     let gc_result = ii
-        .scan_gc(cb, None::<fn(&RSIndexResult, &IndexBlock)>)
+        .scan_gc(cb, None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>)
         .unwrap();
 
     assert_eq!(gc_result, None, "there should be no changes");
@@ -531,7 +537,9 @@ fn ii_apply_gc() {
             // Block 1 replacement: STACK_SIZE + 8, Block 3 replacements: 2 * (STACK_SIZE + 8)
             bytes_allocated: IndexBlock::STACK_SIZE * 3 + 8 + 8 + 8,
             entries_removed: 5,
-            ignored_last_block: false
+            // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
+            block_count_delta: 0,
+            ignored_last_block: false,
         }
     );
 }
@@ -630,8 +638,10 @@ fn ii_apply_gc_last_block_updated() {
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
+            // Removed one block
+            block_count_delta: -1,
             // Ignored the last block
-            ignored_last_block: true
+            ignored_last_block: true,
         }
     );
 }
@@ -686,6 +696,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             bytes_freed: IndexBlock::STACK_SIZE + 8,
             bytes_allocated: 0,
             entries_removed: 2,
+            block_count_delta: -1,
             // The key assertion: ignored_last_block must be true even without
             // a delta for the last block.
             ignored_last_block: true,
@@ -788,7 +799,8 @@ fn ii_apply_gc_entries_tracking_index() {
 
     let mut repaired = Vec::new();
 
-    let repair = |result: &RSIndexResult, _ib: &IndexBlock| repaired.push(result.doc_id);
+    let repair =
+        |result: &RSIndexResult, _ctx: &crate::RepairContext<'_>| repaired.push(result.doc_id);
 
     assert_eq!(
         ii.scan_gc(doc_exist, Some(repair)).unwrap().unwrap(),
@@ -821,7 +833,8 @@ fn ii_apply_gc_entries_tracking_index() {
             // New block: STACK_SIZE + 8 (buffer capacity for 2 entries)
             bytes_allocated: IndexBlock::STACK_SIZE + 8,
             entries_removed: 2,
-            ignored_last_block: false
+            block_count_delta: 0,
+            ignored_last_block: false,
         }
     );
 }

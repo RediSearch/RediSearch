@@ -7,9 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod timespec;
-
 pub mod empty;
+pub mod geo_shape;
 pub mod id_list;
 pub mod intersection;
 pub mod inverted_index;
@@ -17,5 +16,6 @@ pub mod metric;
 pub mod not;
 pub mod optional;
 pub mod profile;
+mod profile_print;
 pub mod union;
 pub mod wildcard;

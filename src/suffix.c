@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "suffix.h"
+#include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
@@ -16,8 +17,9 @@
 #include <string.h>
 #include <strings.h>
 
-#define Suffix_GetData(node) node ? node->payload ? \
-                             (suffixData *)node->payload->data : NULL : NULL
+static inline suffixData *Suffix_GetData(const TrieNode *node) {
+  return (suffixData *)TrieNode_GetPayloadData(node);
+}
 
 
 /***********************************************************/
@@ -44,6 +46,8 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
+  // Callers never insert empty strings into the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
 
   TrieNode *trienode = Trie_GetNode(trie, runes, rlen, true, NULL);
   suffixData *data = NULL;
@@ -80,11 +84,11 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  for (size_t j = 1; j < rlen; ++j) {
     TrieNode *trienode = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
 
     data = Suffix_GetData(trienode);
-    if (!trienode || !trienode->payload) {
+    if (!data) {
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
       int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
@@ -119,21 +123,33 @@ void deleteSuffixTrie(Trie *trie, const char *str, uint32_t len) {
   size_t rlen = 0;
   runeBuf buf;
   rune *runes = runeBufFill(str, len, &buf, &rlen);
+  // Callers never delete empty strings from the suffix trie (gated outside).
+  RS_LOG_ASSERT(rlen, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  // Remove the full-word entry (always inserted by addSuffixTrie).
+  {
+    TrieNode *node = Trie_GetNode(trie, runes, rlen, true, NULL);
+    suffixData *data = Suffix_GetData(node);
+    if (data) {
+      oldTerm = data->term;
+      data->term = NULL;
+      removeSuffix(str, len, data->array);
+      if (array_len(data->array) == 0) {
+        RS_LOG_ASSERT(!data->term, "array should contain a pointer to the string");
+        Trie_DeleteRunes(trie, runes, rlen);
+      }
+    }
+  }
+
+  // Remove suffix entries.
+  for (size_t j = 1; j < rlen; ++j) {
     TrieNode *node = Trie_GetNode(trie, runes + j, rlen - j, true, NULL);
     suffixData *data = Suffix_GetData(node);
     // suffix trie is shared between all text fields in index, even if they don't use it.
     // if the trie is owned by other fields and not any one containing this suffix,
     // then failure to find the suffix is not an error. just move along.
     if (!data) continue;
-    if (j == 0) {
-      // keep pointer to word string to free after it was found in al sub tokens.
-      oldTerm = data->term;
-      data->term = NULL;
-    }
     // remove from array
     removeSuffix(str, len, data->array);
     // if array is empty, remove the node
@@ -161,19 +177,16 @@ static int processSuffixData(suffixData *data, SuffixCtx *sufCtx) {
 }
 
 static int recursiveAdd(TrieNode *node, SuffixCtx *sufCtx) {
-  if (node->payload) {
-    size_t rlen;
-    suffixData *data = Suffix_GetData(node);
+  suffixData *data = Suffix_GetData(node);
+  if (data) {
     if (processSuffixData(data, sufCtx) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   }
-  if (node->numChildren) {
-    TrieNode **children = __trieNode_children(node);
-    for (int i = 0; i < node->numChildren; ++i) {
-      if (recursiveAdd(children[i], sufCtx) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-      }
+  t_len numChildren = TrieNode_NumChildren(node);
+  for (t_len i = 0; i < numChildren; ++i) {
+    if (recursiveAdd(TrieNode_ChildAt(node, i), sufCtx) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
   }
   return REDISMODULE_OK;
@@ -230,17 +243,13 @@ int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *to
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
-    if (tokenLen[i] < MIN_SUFFIX) {
-      continue;
-    }
-
     // 1. long string are likely to have less results
     // 2. tokens at end of pattern are likely to be more relevant
     int curScore = tokenLen[i] + i;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == '*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
@@ -288,23 +297,19 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
-    if (tokenLen[i] < MIN_SUFFIX) {
-      continue;
-    }
-
     // 1. long string are likely to have less results
     // 2. tokens at end of pattern are likely to be more relevant
     int curScore = tokenLen[i] + 1;
 
     // iterating all children is demanding
     if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
-      curScore -= 5;
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     // this branching is heavy
     for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
       if (str[j] == (rune)'?') {
-        --score;
+        --curScore;
       }
     }
 
@@ -324,7 +329,7 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
     return REDISMODULE_OK;
   }
 
-  suffixData *data = (suffixData *)pl->data;
+  suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
     if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
@@ -373,6 +378,8 @@ void suffixTrie_freeCallback(void *payload) {
 
 
 void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  // Callers never insert empty strings into the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   suffixData *data = TrieMap_Find(trie, (char *)str, len);
 
   // if we found a node and term exists, we already have the term in the suffix
@@ -394,7 +401,7 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 
   // Save string copy to all suffixes of it
   // If it exists, move to the next field
-  for (int j = 1; j < len - MIN_SUFFIX + 1; ++j) {
+  for (uint32_t j = 1; j < len; ++j) {
     data = TrieMap_Find(trie, copyStr + j, len - j);
 
     if (data == TRIEMAP_NOTFOUND) {
@@ -408,10 +415,11 @@ void addSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
 }
 
 void deleteSuffixTrieMap(TrieMap *trie, const char *str, uint32_t len) {
+  // Callers never delete empty strings from the suffix triemap (gated outside).
+  RS_LOG_ASSERT(len, "empty string is likely a caller-level mistake");
   char *oldTerm = NULL;
 
-  // iterate all matching terms and remove word
-  for (int j = 0; j < len - MIN_SUFFIX + 1; ++j) {
+  for (uint32_t j = 0; j < len; ++j) {
     suffixData *data = TrieMap_Find(trie, str + j, len - j);
     RS_LOG_ASSERT(data != TRIEMAP_NOTFOUND, "all suffixes must exist");
     if (j == 0) {

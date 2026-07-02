@@ -47,6 +47,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     limit_offset: u64,
     limit_count: u64,
     is_internal: bool,
+    distinct: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -76,11 +77,12 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_asc_map,
         limit,
         is_internal,
+        distinct,
     ));
 
     cr.reducer_mut()
         .set_new_instance(collectRemoteNewInstance)
-        .set_add(collectRemoteAdd)
+        .set_add_with_doc_id(collectRemoteAddWithDocId)
         .set_finalize(collectRemoteFinalize)
         .set_free_instance(collectRemoteFreeInstance)
         .set_free(collectRemoteFree);
@@ -116,8 +118,8 @@ pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *
     unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
 
-/// Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
-/// instance.
+/// Processes the provided [`ffi::RLookupRow`] and document id with the shard
+/// collect reducer instance.
 ///
 /// # Safety
 ///
@@ -127,10 +129,11 @@ pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteAdd(
+pub unsafe extern "C" fn collectRemoteAddWithDocId(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
+    doc_id: ffi::t_docId,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };
@@ -139,7 +142,7 @@ pub unsafe extern "C" fn collectRemoteAdd(
     // SAFETY: ensured by caller (3.)
     let srcrow = unsafe { srcrow.cast::<RLookupRow>().as_ref().unwrap() };
 
-    collect.add(r, srcrow);
+    collect.add(r, srcrow, doc_id);
 
     1 // C reducer->Add convention: always returns 1
 }

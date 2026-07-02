@@ -14,13 +14,13 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <time.h>
-#include "redisearch_types.h"
+#include "rqe_core.h"
 #include "document_rs.h"
 #include "util/dllist.h"
 #include "stemmer.h"
 
 typedef struct RSQueryTerm RSQueryTerm;
-typedef struct RSIndexResult RSIndexResult;
+typedef struct RawIndexResult_Active RSIndexResult;
 typedef struct RSOffsetVector RSOffsetVector;
 typedef uint32_t RSTokenFlags;
 
@@ -31,7 +31,6 @@ typedef uint16_t t_fieldId;
 #define RS_INVALID_FIELD_ID (t_fieldId)-1
 #define RS_INVALID_FIELD_INDEX (t_fieldIndex)0xFFFF
 struct timespec;
-typedef struct timespec t_expirationTimePoint;
 
 typedef uint64_t t_uniqueId;
 #define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned

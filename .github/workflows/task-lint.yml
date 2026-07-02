@@ -40,6 +40,9 @@ jobs:
         && fromJSON(format('{{"image":"{0}","options":"--user root"}}', needs.build-image.outputs.image))
       || null }}
 
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -70,6 +73,7 @@ jobs:
             echo "mode=sudo" >> "$GITHUB_OUTPUT"
           fi
       - name: Setup sccache
+        if: ${{ env.IS_FORK_PR != 'true' }}
         uses: ./.github/actions/setup-sccache
         with:
           aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
@@ -86,9 +90,10 @@ jobs:
         # `Stale headers check` step below needs. The cached container image
         # already runs this script in its Dockerfile.
         if: needs.build-image.outputs.succeeded != 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+          github_token: ${{ github.token }}
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@v2
         with:
@@ -158,7 +163,7 @@ jobs:
             exit 1
           fi
       - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats
+        run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||

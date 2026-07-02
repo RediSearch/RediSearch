@@ -8,18 +8,20 @@
 */
 // TODO: remove once we have compound iterators written in Rust that leverage
 //   this shim.
+
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
     IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, t_docId,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
+use rqe_core::DocId;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection,
+    intersection::Intersection, profile_print,
 };
+use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::RSIndexResult;
 use std::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
@@ -210,7 +212,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         let callback = self
             .SkipTo
@@ -295,7 +297,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         unsafe { callback(self.header.as_ptr()) }
     }
 
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.lastDocId
     }
 
@@ -440,5 +442,46 @@ impl CRQEIterator {
         // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
         // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
         unsafe { CRQEIterator::new(ptr) }
+    }
+}
+
+/// Call [`PrintProfile`](QueryIterator::PrintProfile) on a raw
+/// [`QueryIterator`] pointer.
+///
+/// # Safety
+///
+/// `it` must be a valid pointer to a [`QueryIterator`] whose
+/// `PrintProfile` vtable entry is set.
+pub unsafe fn call_print_profile(
+    it: NonNull<QueryIterator>,
+    map: &mut redis_reply::MapBuilder<'_>,
+    ctx: &mut profile_print::ProfilePrintCtx<'_>,
+) {
+    // SAFETY: it is valid per precondition.
+    let print_fn = unsafe { (*it.as_ptr()).PrintProfile }
+        .expect("PrintProfile vtable entry not set on QueryIterator");
+    // SAFETY: print_fn was set at construction time to a function that
+    // interprets the opaque pointers as &mut MapBuilder and
+    // &mut ProfilePrintCtx respectively.
+    unsafe {
+        print_fn(
+            it.as_ptr(),
+            std::ptr::from_mut(map).cast(),
+            std::ptr::from_mut(ctx).cast(),
+        );
+    }
+}
+
+impl profile_print::ProfilePrint for CRQEIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        let ptr = std::ptr::NonNull::from(self.as_ref());
+        // SAFETY: ptr is valid (owned by self) and its PrintProfile vtable
+        // entry was set at construction time by RQEIteratorWrapper::boxed_new
+        // or by the C iterator constructor.
+        unsafe { call_print_profile(ptr, map, ctx) };
     }
 }

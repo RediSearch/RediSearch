@@ -28,7 +28,7 @@ def test_acl_search_commands(env):
         'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
         'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
         'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
-        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD'
+        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD', 'FT.ALIASLIST'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
@@ -76,7 +76,7 @@ def test_acl_non_default_user(env):
         # `test` should not be able to run `search` commands that are not `read`,
         # like `FT.CREATE`
         try:
-            conn.execute_command('FT.CREATE', 'idx', '*', "hello")
+            conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT')
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("User test has no permissions to run the 'FT.CREATE' command", str(e))
@@ -225,6 +225,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.SPELLCHECK', no_perm_index, 'name'],
         ['FT.ALIASADD', 'myAlias', no_perm_index],
         ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
+        ['FT.ALIASLIST', no_perm_index],
         ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
         ['FT.EXPLAIN', no_perm_index, '*'],
         ['FT.EXPLAINCLI', no_perm_index, '*'],

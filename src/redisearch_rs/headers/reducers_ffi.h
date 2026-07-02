@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rqe_core.h"
 
 /**
  * The C version of a [`SharedValue`](value::SharedValue)
@@ -59,7 +60,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t field_keys_len, const RLookup *srclookup, const RLookupKey *const *sort_keys, size_t sort_keys_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool is_internal);
+Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t field_keys_len, const RLookup *srclookup, const RLookupKey *const *sort_keys, size_t sort_keys_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool is_internal, bool distinct);
 
 /**
  * Create a local COLLECT reducer; free it with [`collectLocalFree`].
@@ -76,7 +77,7 @@ Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *const *field_names, size_t field_names_len, bool load_all, const char *const *sort_names, size_t sort_names_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count);
+Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *const *field_names, size_t field_names_len, bool load_all, const char *const *sort_names, size_t sort_names_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool distinct);
 
 /**
  * Creates a new per-group shard collect reducer instance.
@@ -127,8 +128,8 @@ void collectRemoteFreeInstance(Reducer *_r, void *ctx);
 void collectLocalFreeInstance(Reducer *_r, void *ctx);
 
 /**
- * Processes the provided [`ffi::RLookupRow`] with the shard collect reducer
- * instance.
+ * Processes the provided [`ffi::RLookupRow`] and document id with the shard
+ * collect reducer instance.
  *
  * # Safety
  *
@@ -138,7 +139,7 @@ void collectLocalFreeInstance(Reducer *_r, void *ctx);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int collectRemoteAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+int collectRemoteAddWithDocId(Reducer *r, void *ctx, const RLookupRow *srcrow, t_docId doc_id);
 
 /**
  * # Safety

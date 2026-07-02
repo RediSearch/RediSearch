@@ -1,0 +1,220 @@
+name: Fix CI failures on auto-backport PR (Codex agent)
+
+# Companion to task-backport_pr-agent.yml. Once the auto-backport workflow has
+# opened a backport PR, that PR runs the normal `Pull Request Flow` CI. When CI
+# fails, a human can ask a Codex agent to make a minimal mechanical fix (or to
+# bail out and tag a human) by commenting on the backport PR.
+#
+# Trigger (comment-only, on purpose):
+#   - A repo collaborator/member/owner comments `/backport-agent-fix` on the
+#     backport PR. Any inline text after the command is passed to the agent as
+#     extra context. Additional `/backport-agent-context <text>` comments from
+#     write-level users are also collected.
+#
+# This flow is deliberately NOT wired to `workflow_run`/CI-failure events: we do
+# not want an agent run (which holds a write token) firing automatically on
+# every PR failure across the repo. A human collaborator explicitly opts in per
+# PR, which also keeps the trigger actor a trusted human (no bot-actor gate to
+# relax) and removes the need for a once-per-PR throttle label.
+#
+# Behavior is defined by .github/codex/prompts/pr-backport-auto-fix.md.
+#
+# Expected "skipped" runs — this is normal, not a misconfiguration:
+#   GitHub creates a workflow run for EVERY comment (the `on:` trigger cannot
+#   filter on comment body) and only then evaluates the job `if:` below, so any
+#   comment that isn't `/backport-agent-fix` produces a run whose single job is
+#   skipped. These `issue_comment` skips live only in the Actions tab — they are
+#   never attached to a PR as a check and never block merging.
+
+on:
+  issue_comment:
+    types: [created]
+
+# Token split. The read-only resolve step runs on the default GITHUB_TOKEN,
+# scoped just below to the reads it needs. Every WRITE — checkout, the agent's
+# `git push`, the PR comment — goes through the scoped App token minted below,
+# whose `permission-*` inputs carry the write grants (including `workflows: write`,
+# so a fix commit touching .github/workflows/* can be pushed; see the token step).
+# Keeping reads on the ephemeral, job-scoped default token means the App never
+# needs a standing `actions:read` grant just to read CI logs — and avoids the
+# token-mint failure that grant would otherwise cause (see the token step).
+permissions:
+  contents: read
+  actions: read          # resolve_fix.py: read the failed "Pull Request Flow" run + job logs
+  pull-requests: read    # resolve_fix.py: `gh pr view` of the backport PR
+  issues: read           # resolve_fix.py: read /backport-agent-context comments (PR comments are issue comments)
+
+# Serialize per-PR so two quick `/backport-agent-fix` comments can't run
+# concurrently against the same branch and race on push.
+concurrency:
+  group: backport-agent-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  backport-fix:
+    name: Auto-fix CI failure via Codex
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+
+    # The `author_association` allow-list (OWNER/MEMBER/COLLABORATOR) is required
+    # because `!= 'NONE'` would also admit CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR —
+    # users who merged a prior PR but do not have repo write access.
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      startsWith(github.event.comment.body, '/backport-agent-fix')
+
+    steps:
+      - name: 🔑 Generate GitHub App Token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # Scope the installation token to THIS repo only (see the create
+          # workflow for rationale) — without `repositories`, the token covers
+          # every repo the App can access in the org.
+          repositories: ${{ github.event.repository.name }}
+          # Hard-cap the minted token to exactly what this flow needs, so it
+          # stays least-privilege even if the redis-pr-app App is granted more
+          # at the installation level. Without these, the token inherits the
+          # App's full installed permission set, not the `permissions:` block
+          # above (which only governs the unused default GITHUB_TOKEN).
+          permission-contents: write       # push fix commits to the PR branch
+          permission-pull-requests: write  # comment on the backport PR
+          # NOTE: deliberately NO `permission-actions: read` here. The
+          # redis-pr-app installation is not granted the Actions permission, and
+          # `permission-*` can only *attenuate* the App's installed grants — never
+          # add one. Requesting actions:read therefore made the entire token mint
+          # fail with "The permissions requested are not granted to this
+          # installation", which skipped the whole fix run. Reading CI run/job
+          # logs is read-only, so the resolve step does it with the default
+          # GITHUB_TOKEN (which has actions:read) instead; this App token stays
+          # write-only.
+          # A fix commit that edits a file under .github/workflows/ produces a
+          # workflow blob GitHub will not let a `workflows`-less App push (see
+          # the create workflow's token step for the full rationale). Requires
+          # the redis-pr-app App itself to be granted the "Workflows" permission.
+          permission-workflows: write
+
+      # Check out master first so the resolve script in
+      # `scripts/auto_backport/` and the auto-fix prompt file in
+      # `.github/codex/prompts/` are both present on the working tree.
+      # The backport branch (an older release line) may not carry either.
+      #
+      # Using a literal `ref: master` (no `${{ }}` expression) also avoids
+      # the SonarCloud `githubactions:S7631` pattern that flags a checkout
+      # in a privileged workflow when `ref:` is driven by a workflow output.
+      # The actual branch switch happens later via explicit git commands
+      # against validated inputs.
+      - name: Checkout master
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.generate-app-token.outputs.token }}
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git identity
+        # Set the identity GLOBALLY (not just in this checkout): the Codex
+        # sandbox mounts this checkout's `.git` read-only by design (it blocks
+        # an agent from rewriting history/refs), so the agent commits the fix
+        # inside a fresh clone under /tmp. A global identity is the only one
+        # such a clone inherits — a repo-local one would leave the agent's
+        # commit failing with "Committer identity unknown".
+        run: |
+          git config --global user.name "redis-pr-app[bot]"
+          git config --global user.email "redis-pr-app[bot]@users.noreply.github.com"
+
+      # The script in scripts/auto_backport/resolve_fix.py is the source of
+      # truth for the resolve logic — eligibility (state, isCrossRepository,
+      # backport-agent/ branch namespace), failed-run lookup pinned to the
+      # current HEAD, log-excerpt tailing, and write-level
+      # `/backport-agent-context` collection. Bash plumbing is intentionally
+      # minimal here so the logic stays testable and shared with the create
+      # workflow.
+      - name: Resolve PR, eligibility, and failure context
+        id: ctx
+        env:
+          # resolve_fix.py only READS (PR metadata, CI run/job logs, PR
+          # comments), so it runs on the default GITHUB_TOKEN — scoped above to
+          # contents/actions/pull-requests/issues read. Deliberately NOT the App
+          # token: the App has no actions:read grant, and these reads don't need
+          # the App's write scopes. The App token is reserved for the writes in
+          # the Codex step below.
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python3 scripts/auto_backport/resolve_fix.py
+
+      # Stash the prompt outside the worktree before we switch branches —
+      # otherwise `git checkout` of the older branch will remove it.
+      - name: Stash auto-fix prompt
+        id: stash-prompt
+        if: steps.ctx.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          prompt_dst="${RUNNER_TEMP}/pr-backport-auto-fix.md"
+          cp .github/codex/prompts/pr-backport-auto-fix.md "$prompt_dst"
+          echo "prompt_file=$prompt_dst" >> "$GITHUB_OUTPUT"
+
+      # Switch to the backport branch using explicit git commands rather
+      # than a second `actions/checkout` with `ref: ${{ … expression }}`.
+      # The branch name has already been validated by the resolve step to
+      # be inside this repo and inside the `backport-agent/` namespace.
+      #
+      # This runs in the normal runner shell, where `.git` is writable. The
+      # Codex step that follows runs in a sandbox that mounts this checkout's
+      # `.git` read-only by design, so the agent re-clones into /tmp (see
+      # pr-backport-auto-fix.md). Fetching the branch + base + original commit
+      # here primes those objects locally so the agent's `--reference-if-able`
+      # clone is fast and mostly offline.
+      - name: Switch to backport branch
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          BRANCH: ${{ steps.ctx.outputs.branch }}
+          BASE_BRANCH: ${{ steps.ctx.outputs.base }}
+          ORIGINAL_SHA: ${{ steps.ctx.outputs.original_sha }}
+        run: |
+          set -euo pipefail
+          # Fetch the backport branch, plus the base branch and original
+          # commit the agent compares against. The master fetch was already
+          # done by the previous checkout step.
+          git fetch origin "$BRANCH"
+          if [ -n "$BASE_BRANCH" ] && [ "$BASE_BRANCH" != "master" ]; then
+            git fetch origin "$BASE_BRANCH" || true
+          fi
+          if [ -n "$ORIGINAL_SHA" ]; then
+            git fetch origin "$ORIGINAL_SHA" || true
+          fi
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+
+      - name: Run /pr-backport-auto-fix via Codex
+        if: steps.ctx.outputs.skip != 'true'
+        # Pinned to a commit SHA per Sonar's S7670; see task-backport_pr-agent.yml
+        # for the rationale and the upgrade procedure. Keep this in sync with
+        # the create workflow's pin so both flows run the same Codex version.
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          # The prompt reads this env var to find its context JSON. The file
+          # lives in $RUNNER_TEMP rather than the workspace so it can never be
+          # accidentally staged into the fix commit by `git add -A`.
+          BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        with:
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
+          # The prompt-file is stashed to $RUNNER_TEMP by an earlier step
+          # because the backport branch (an older release line) generally
+          # will not contain `.github/codex/prompts/pr-backport-auto-fix.md`.
+          prompt-file: ${{ steps.stash-prompt.outputs.prompt_file }}
+          # See task-backport_pr-agent.yml for the full rationale: keep the
+          # filesystem confined to the checkout (`workspace-write`) and enable
+          # only outbound network (for `git push` / `gh`) via the codex
+          # `sandbox_workspace_write.network_access` override on Linux/Landlock,
+          # rather than the much broader `danger-full-access`. `drop-sudo` is the
+          # action default and blocks privilege escalation on the runner.
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: -c sandbox_workspace_write.network_access=true

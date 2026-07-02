@@ -9,10 +9,12 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric, t_docId};
+use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric};
+use index_result::RSIndexResult;
 use inverted_index::{
-    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader, RSIndexResult,
+    FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
 };
+use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, NoOpChecker, RQEIterator, RQEValidateStatus, SkipToOutcome,
     inverted_index::Numeric,
@@ -117,7 +119,7 @@ struct NumericBaseTest {
 }
 
 impl NumericBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         // The numeric record has a value of `doc_id * 2.0`.
         RSIndexResult::build_numeric(doc_id as f64 * 2.0)
             .doc_id(doc_id)
@@ -167,7 +169,7 @@ fn numeric_read() {
     let test = NumericBaseTest::new(100);
     let filter = NumericFilter::default();
     let reader = test.test.ii.reader();
-    let reader = FilterNumericReader::new(&filter, reader);
+    let reader = FilterNumericReader::new(filter, reader);
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -191,7 +193,7 @@ fn numeric_filter() {
         max: 75.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, test.test.ii.reader());
+    let reader = FilterNumericReader::new(filter, test.test.ii.reader());
     let mut it = NumericBuilder::new(reader)
         .range_tree(test.test.mock_ctx.numeric_range_tree())
         .build();
@@ -276,7 +278,7 @@ fn get_correct_value() {
         max: 3.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
 
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
@@ -314,7 +316,7 @@ fn eof_after_filtering() {
         max: 2.0,
         ..Default::default()
     };
-    let reader = FilterNumericReader::new(&filter, ii.reader());
+    let reader = FilterNumericReader::new(filter, ii.reader());
     let context = MockContext::new(0, 0);
     let mut it = NumericBuilder::new(reader)
         .range_tree(context.numeric_range_tree())
@@ -428,10 +430,10 @@ pub fn geo_filter_stub() -> GeoFilter {
 }
 
 mod from_tree {
-    use ffi::t_docId;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
+    use rqe_core::DocId;
     use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQEValidateStatus};
     use rqe_iterators_test_utils::MockContext;
 
@@ -452,7 +454,7 @@ mod from_tree {
         }
     }
 
-    fn build_tree(entries: &[(t_docId, f64)]) -> NumericRangeTree {
+    fn build_tree(entries: &[(DocId, f64)]) -> NumericRangeTree {
         let mut tree = NumericRangeTree::new(false);
         for (doc_id, value) in entries {
             tree.add(*doc_id, *value, false, 0);
@@ -703,7 +705,8 @@ mod from_tree {
 mod variant {
     use ffi::IndexFlags_Index_StoreNumeric;
     use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-    use inverted_index::{NumericFilter, RSIndexResult};
+    use index_result::RSIndexResult;
+    use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;
@@ -825,7 +828,7 @@ mod not_miri {
     }
 
     impl NumericExpirationTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)
@@ -1014,7 +1017,7 @@ mod not_miri {
     }
 
     impl NumericRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             // The numeric record has a value of `doc_id * 2.0`.
             RSIndexResult::build_numeric(doc_id as f64 * 2.0)
                 .doc_id(doc_id)

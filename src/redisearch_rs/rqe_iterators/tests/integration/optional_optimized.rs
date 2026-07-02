@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{InvertedIndex, RSIndexResult, RSResultKind, doc_ids_only::DocIdsOnly};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::{RSIndexResult, RSResultKind};
+use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
     RQEIterator, RQEValidateStatus, SkipToOutcome, empty::Empty, inverted_index::Wildcard,
     optional_optimized::OptionalOptimized,
@@ -30,7 +32,7 @@ struct WildcardIndex {
 }
 
 impl WildcardIndex {
-    fn new(max_doc_id: t_docId) -> Self {
+    fn new(max_doc_id: DocId) -> Self {
         let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
         for doc_id in 1..=max_doc_id {
             let record = RSIndexResult::build_virt()
@@ -53,10 +55,10 @@ mod optional_optimized_iterator_tests {
 
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;
     const NUM_DOCS: usize = 5;
-    const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
+    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup() -> WildcardIndex {
         WildcardIndex::new(MAX_DOC_ID)
@@ -105,7 +107,7 @@ mod optional_optimized_iterator_tests {
         let wcii_index = setup();
         let mut it = create_optional_optimized(&wcii_index);
 
-        const TARGET: t_docId = 20;
+        const TARGET: DocId = 20;
         match it.skip_to(TARGET).expect("no error") {
             Some(SkipToOutcome::Found(r)) => {
                 assert_eq!(r.doc_id, TARGET);
@@ -126,7 +128,7 @@ mod optional_optimized_iterator_tests {
         let mut it = create_optional_optimized(&wcii_index);
 
         // 25 is not in CHILD_DOCS but is present in wcii (covers 1..=100)
-        const TARGET: t_docId = 25;
+        const TARGET: DocId = 25;
         match it.skip_to(TARGET).expect("no error") {
             Some(SkipToOutcome::Found(r)) => {
                 assert_eq!(r.doc_id, TARGET);
@@ -218,7 +220,7 @@ mod optional_optimized_iterator_tests {
     fn test_read_stops_at_max_doc_id() {
         // wcii has docs [5, 150] and max_doc_id is 100.
         // Doc 150 must never be returned; after doc 5 the next read must be EOF.
-        const WCII_DOCS: [t_docId; 2] = [5, 150];
+        const WCII_DOCS: [DocId; 2] = [5, 150];
         let wcii = utils::Mock::new(WCII_DOCS);
         let child: Empty = Empty;
         let mut it = OptionalOptimized::new(wcii, child, 100, WEIGHT);
@@ -236,7 +238,7 @@ mod optional_optimized_iterator_tests {
     fn test_skip_to_stops_at_max_doc_id() {
         // wcii has docs [5, 150] and max_doc_id is 100.
         // Skipping to 10 causes wcii to land on 150 > max_doc_id → EOF.
-        const WCII_DOCS: [t_docId; 2] = [5, 150];
+        const WCII_DOCS: [DocId; 2] = [5, 150];
         let wcii = utils::Mock::new(WCII_DOCS);
         let child: Empty = Empty;
         let mut it = OptionalOptimized::new(wcii, child, 100, WEIGHT);
@@ -259,12 +261,12 @@ mod optional_optimized_iterator_tests {
     fn test_skip_to_exhaustive() {
         // Mirror the C++ fixture: wildcard = multiples of 5 in [5..=95],
         // child = even multiples of 10 in [20..=90].
-        const WILDCARD_DOCS: [t_docId; 19] = [
+        const WILDCARD_DOCS: [DocId; 19] = [
             5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95,
         ];
-        const CHILD_DOCS_EXH: [t_docId; 8] = [20, 30, 40, 50, 60, 70, 80, 90];
+        const CHILD_DOCS_EXH: [DocId; 8] = [20, 30, 40, 50, 60, 70, 80, 90];
         const WEIGHT_EXH: f64 = 4.6;
-        const MAX_EXH: t_docId = 95;
+        const MAX_EXH: DocId = 95;
 
         let wcii = utils::Mock::new(WILDCARD_DOCS);
         let child = utils::Mock::new(CHILD_DOCS_EXH);
@@ -332,7 +334,7 @@ mod optional_optimized_iterator_with_empty_child_tests {
 
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 50;
+    const MAX_DOC_ID: DocId = 50;
     const WEIGHT: f64 = 3.;
 
     fn setup() -> WildcardIndex {
@@ -410,7 +412,7 @@ mod optional_optimized_iterator_with_empty_child_tests {
 mod optional_optimized_iterator_sparse_wcii_tests {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 1.5;
 
     /// `read()` returns `None` and sets `at_eof` when `wcii` runs out of documents
@@ -594,10 +596,10 @@ mod optional_optimized_iterator_sparse_wcii_tests {
 mod optional_optimized_iterator_revalidate_tests {
     use super::*;
 
-    const MAX_DOC_ID: t_docId = 100;
+    const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;
     const NUM_DOCS: usize = 5;
-    const CHILD_DOCS: [t_docId; NUM_DOCS] = [10, 20, 30, 50, 80];
+    const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     /// Tests using [`Wildcard`] as the wildcard iterator,
     /// requiring [`TestContext::wildcard`] which touches global C state and is not
@@ -712,7 +714,7 @@ mod optional_optimized_iterator_revalidate_tests {
     fn test_revalidate_wcii_aborted() {
         // Use Mock as wcii so we can configure it to abort.
         const WCII_DOCS: usize = 10;
-        let wcii_docs: [t_docId; WCII_DOCS] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let wcii_docs: [DocId; WCII_DOCS] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let wcii = utils::Mock::new(wcii_docs);
         let mut wcii_data = wcii.data();
         let child = utils::Mock::new(CHILD_DOCS);

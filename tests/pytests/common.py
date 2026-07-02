@@ -14,7 +14,7 @@ from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
 from typing import Any, Callable, List, Dict
-from RLTest import Env
+from RLTest import Env, env_spec
 from RLTest.env import Query
 import numpy as np
 from scipy import spatial
@@ -23,12 +23,12 @@ from deepdiff import DeepDiff
 from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
-import subprocess
 import math
+import tempfile
 import faker
 
-BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
-REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
+TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
+REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
 VECSIM_DATA_TYPES = ['FLOAT32', 'FLOAT64', 'FLOAT16', 'BFLOAT16']
 VECSIM_ALGOS = ['FLAT', 'HNSW', 'SVS-VAMANA']
 
@@ -497,36 +497,124 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
+def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
+                            redis_greater_equal, min_shards, arch, gc_no_fork,
+                            no_json):
+    """True if the caller provided at least one skip condition.
+
+    With no conditions, @skip's legacy behaviour is to always skip — used as a
+    "temporarily disable this test" marker.
+    """
+    return ((cluster is not None) or macos or asan or msan or redis_less_than
+            or redis_greater_equal or min_shards or (arch is not None)
+            or gc_no_fork or no_json)
+
+
+def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
+                            no_json):
+    """Evaluate the subset of @skip predicates that don't need a live Redis.
+
+    Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
+    need a running env, so they can't decide at module-load time.
+    """
+    if cluster is not None and cluster == CLUSTER:
+        return True
+    if macos and OS == 'macos':
+        return True
+    if arch == platform.machine():
+        return True
+    if asan and SANITIZER == 'address':
+        return True
+    if msan and SANITIZER == 'memory':
+        return True
+    if min_shards and Defaults.num_shards < min_shards:
+        return True
+    if no_json and not REJSON:
+        return True
+    return False
+
+
+def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
+    """Evaluate the @skip predicates that need a live Redis.
+
+    Spawns a transient Env for gc_no_fork; the version helpers maintain their
+    own connection.
+    """
+    if redis_less_than and server_version_is_less_than(redis_less_than):
+        return True
+    if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
+        return True
+    if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
+        return True
+    return False
+
+
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
-    def decorate(f):
+    static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
+                         min_shards=min_shards, arch=arch, no_json=no_json)
+    runtime_kwargs = dict(redis_less_than=redis_less_than,
+                          redis_greater_equal=redis_greater_equal,
+                          gc_no_fork=gc_no_fork)
+    any_condition = _any_skip_condition_set(
+        **static_kwargs, **runtime_kwargs,
+    )
+
+    def decorate(target):
+        if isinstance(target, type):
+            # Class decoration. We must decide whether to skip BEFORE RLTest
+            # provisions a class's @env_spec env — otherwise a cluster-only
+            # test class would spin up a 3-shard env on standalone runs just
+            # to be thrown away. Evaluate the static predicates now; if any
+            # fires, strip the @env_spec marker (so no env is built) and
+            # replace __init__ with one that raises SkipTest the moment
+            # RLTest tries to instantiate the class.
+            if redis_less_than or redis_greater_equal or gc_no_fork:
+                raise TypeError(
+                    "@skip on a class cannot use redis_less_than, "
+                    "redis_greater_equal, or gc_no_fork because those need a "
+                    "live Redis and would defeat the purpose of skipping "
+                    "before env provisioning. Use skipTest() inside a method "
+                    "instead, or apply @skip to individual functions."
+                )
+            # No conditions = legacy "always skip" marker.
+            fires = (not any_condition) or _skip_fires_statically(**static_kwargs)
+            if fires:
+                if hasattr(target, '_rltest_env_spec'):
+                    delattr(target, '_rltest_env_spec')
+                def _skipping_init(self, *args, **kwargs):
+                    raise SkipTest()
+                target.__init__ = _skipping_init
+            return target
+
+        f = target
         def wrapper():
-            if not ((cluster is not None) or macos or asan or msan or redis_less_than or redis_greater_equal or min_shards or no_json):
+            if not any_condition:
                 raise SkipTest()
-            if cluster == CLUSTER:
+            if _skip_fires_statically(**static_kwargs):
                 raise SkipTest()
-            if macos and OS == 'macos':
-                raise SkipTest()
-            if arch == platform.machine():
-                raise SkipTest()
-            if asan and SANITIZER == 'address':
-                raise SkipTest()
-            if msan and SANITIZER == 'memory':
-                raise SkipTest()
-            if redis_less_than and server_version_is_less_than(redis_less_than):
-                raise SkipTest()
-            if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
-                raise SkipTest()
-            if min_shards and Defaults.num_shards < min_shards:
-                raise SkipTest()
-            if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
-                raise SkipTest()
-            if no_json and not REJSON:
+            if _skip_fires_at_runtime(**runtime_kwargs):
                 raise SkipTest()
             if len(inspect.signature(f).parameters) > 0:
-                env = Env()
+                # Honor a declared @env_spec when constructing the env so the
+                # spec stays load-bearing even when @skip is stacked on top.
+                spec = getattr(f, '_rltest_env_spec', {})
+                env = Env(**spec)
                 return f(env)
             else:
                 return f()
+        # Propagate identifying metadata + the env_spec marker. Deliberately
+        # NOT functools.wraps: that would set wrapper.__wrapped__ = f, which
+        # exposes f's signature to inspect.signature(follow_wrapped=True) and
+        # could trick callers into passing an env arg to this zero-arg
+        # wrapper. We only need __name__/__qualname__ for debugging and
+        # _rltest_env_spec so RLTest's loader can read the declared spec off
+        # the wrapper.
+        wrapper.__name__ = f.__name__
+        wrapper.__qualname__ = f.__qualname__
+        wrapper.__doc__ = f.__doc__
+        spec = getattr(f, '_rltest_env_spec', None)
+        if spec is not None:
+            wrapper._rltest_env_spec = spec
         return wrapper
     return decorate
 
@@ -915,54 +1003,40 @@ def access_nested_list(lst, index):
         result = result[entry]
     return result
 
-def downloadFile(env, file_name, depth=0, max_retries=3):
-    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
-    path_dir = os.path.dirname(path)
-    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
-    if not os.path.exists(path):
-        env.debugPrint(f"downloading {file_name}", force=True)
-        try:
-            subprocess.run(
-                [
-                "wget",
-                "--no-check-certificate",
-                "--tries", str(max_retries + 1),  # wget tries
-                "--waitretry", "2",  # wait 2 seconds between retries
-                "--retry-connrefused",  # retry on connection refused
-                BASE_RDBS_URL + file_name,
-                "-O",
-                path,
-                "-v"  # verbose to get better error info
-            ], check=True, capture_output=True, text=True)
-
-        except subprocess.CalledProcessError as e:
-            env.debugPrint(f"Failed to download {file_name} after {max_retries + 1} attempts. "
-                           f"Return code: {e.returncode}, stdout: {e.stdout}, stderr: {e.stderr}", force=True)
-
-            # Clean up partial download
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-                    env.debugPrint(f"Removed partially downloaded file {path}", force=True)
-            except OSError:
-                env.debugPrint(f"Failed to remove {path}", force=True)
-                pass
-            return False
-    if not os.path.exists(path):
+def getRDBFile(env, file_name, depth=0):
+    # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
+    # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
+    # target file already exists with non-zero size we skip re-extracting.
+    src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
+    dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    if os.path.exists(dst) and os.path.getsize(dst) > 0:
+        return True
+    if not os.path.exists(src):
         env.assertTrue(
             False,
-            message=f"{path} does not exist after download",
+            message=f"bundled RDB fixture {src} is missing",
+            depth=depth + 1,
+        )
+        return False
+    import zipfile
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        with zipfile.ZipFile(src, 'r') as z:
+            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+    except (zipfile.BadZipFile, KeyError, OSError) as e:
+        env.assertTrue(
+            False,
+            message=f"failed to extract bundled RDB fixture {src}: {e}",
             depth=depth + 1,
         )
         return False
     return True
 
-def downloadFiles(env, rdbs=None, depth=0):
+def getRDBFiles(env, rdbs=None, depth=0):
     if rdbs is None:
         return False
-
     for f in rdbs:
-        if not downloadFile(env, f, depth=depth + 1):
+        if not getRDBFile(env, f, depth=depth + 1):
             return False
     return True
 
@@ -1071,23 +1145,93 @@ def resetCoordReduceDebug(env):
     except Exception:
         pass  # Ignore error if coordinator is not paused
 
-# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
-def setPauseBeforeStoreResults(env, enabled):
-    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'true' if enabled else 'false').ok()
+# AggregateResults loop pause helpers (only available when built with ENABLE_ASSERT).
+# These drive the AggregateResultsDebugCtx in src/debug_commands.{h,c} which the
+# AggregateResults loop in aggregate_exec_common.c consults after each extracted
+# result, busy-spinning until the test calls setAggregateResultsResume.
+# `target` may be an Env (uses .expect().ok() / .cmd()) or a raw connection
+# (uses .execute_command()), so per-shard tests can drive the same hooks on
+# a specific shard's process.
+def _qc_set(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'expect'):
+        target.expect(*cmd).ok()
+    else:
+        target.execute_command(*cmd)
 
-def setPauseAfterStoreResults(env, enabled):
-    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults."""
-    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'true' if enabled else 'false').ok()
+def _qc_get(target, *args):
+    cmd = (debug_cmd(), 'QUERY_CONTROLLER') + args
+    if hasattr(target, 'cmd'):
+        return target.cmd(*cmd)
+    return target.execute_command(*cmd)
+
+def setPauseAfterAggregateResult(target, N):
+    """Pause the AggregateResults loop after the Nth result is extracted.
+
+    N == 0 disables the pause; N > 0 pauses after the Nth result (1-based).
+    Resets the internal results counter so successive tests start from zero.
+    """
+    _qc_set(target, 'SET_PAUSE_AFTER_AGGREGATE_RESULT', N)
+
+def getIsAggregateResultsPaused(target):
+    """Check if the AggregateResults loop is currently paused."""
+    return _qc_get(target, 'GET_IS_AGGREGATE_RESULTS_PAUSED')
+
+def setAggregateResultsResume(target):
+    """Resume the AggregateResults loop from a pause."""
+    _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
+
+def getAggregateResultsCount(target):
+    """Get the number of results extracted so far by the AggregateResults loop."""
+    return _qc_get(target, 'GET_AGGREGATE_RESULTS_COUNT')
+
+def resetAggregateResultsDebug(target):
+    """Reset the AggregateResults debug context (clear pause point and resume).
+
+    Mirrors resetCoordReduceDebug: tolerates the "not paused" state so cleanup
+    is safe to call regardless of the loop's current state. The pause loop in
+    debugCheckAndPauseAfterAggregateResult self-releases when AREQ_TimedOut is
+    observed, so by the time tests reach cleanup the loop may already be
+    unpaused -- in that case SET_AGGREGATE_RESULTS_RESUME would error, which
+    must not be surfaced as a test failure.
+    """
+    setPauseAfterAggregateResult(target, 0)
+    if getIsAggregateResultsPaused(target) == 1:
+        _qc_set(target, 'SET_AGGREGATE_RESULTS_RESUME')
+
+# Store Results Pause helpers (only available when built with ENABLE_ASSERT)
+def setPauseBeforeStoreResults(env, enabled, internal):
+    """Enable/disable pausing before AREQ_StoreResults/HREQ_StoreResults.
+
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
+
+def setPauseAfterStoreResults(env, enabled, internal):
+    """Enable/disable pausing after AREQ_StoreResults/HREQ_StoreResults.
+
+    internal: True restricts the pause to internal (coordinator-dispatched)
+    requests; False restricts it to non-internal (user-facing) requests.
+    """
+    scope = 'INTERNAL_ONLY' if internal else 'NON_INTERNAL_ONLY'
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS',
+               'true' if enabled else 'false', scope).ok()
 
 def getIsStoreResultsPaused(env):
     """Check if the query is currently paused during store results."""
     return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_IS_STORE_RESULTS_PAUSED')
 
 def resetStoreResultsDebug(env):
-    """Reset the store results debug context (disable pauses and resume)."""
-    setPauseBeforeStoreResults(env, False)
-    setPauseAfterStoreResults(env, False)
+    """Reset the store results debug context (disable pauses and resume).
+
+    Disabling does not depend on the scope (the C-level enable flags gate the
+    pause), so the raw FT.DEBUG commands are sent here without a scope token.
+    """
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_STORE_RESULTS', 'false').ok()
+    env.expect(debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_STORE_RESULTS', 'false').ok()
     try:
         env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'SET_STORE_RESULTS_RESUME')
     except Exception:
@@ -1165,6 +1309,37 @@ class vecsimMockTimeoutContext:
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
+
+def _normalize_cluster_shards(reply):
+    """Coerce a CLUSTER SHARDS reply (RESP2 nested arrays or RESP3 maps) into a
+    list of {'slots': [s1,e1,...], 'nodes': [{'id','role',...}]} dicts."""
+    shards = []
+    for sh in reply:
+        d = sh if isinstance(sh, dict) else {sh[i]: sh[i + 1] for i in range(0, len(sh), 2)}
+        nodes = [n if isinstance(n, dict) else {n[i]: n[i + 1] for i in range(0, len(n), 2)}
+                 for n in d['nodes']]
+        shards.append({'slots': list(d['slots']), 'nodes': nodes})
+    return shards
+
+def distinct_shard_tags(conn):
+    """Yield hash tags that each land on a different shard, verified live via
+    CLUSTER SHARDS + CLUSTER KEYSLOT. One tag per shard, deterministic order."""
+    shards = _normalize_cluster_shards(conn.execute_command('CLUSTER', 'SHARDS'))
+    def owner(slot):
+        for sh in shards:
+            r = sh['slots']
+            if any(a <= slot <= b for a, b in zip(r[::2], r[1::2])):
+                return next(n['id'] for n in sh['nodes'] if n['role'] in ('master', 'primary'))
+        raise AssertionError(f'no shard owns slot {slot}')
+    seen = set()
+    for n in itertools.count():
+        tag = str(n)
+        sid = owner(int(conn.execute_command('CLUSTER', 'KEYSLOT', tag)))
+        if sid not in seen:
+            seen.add(sid)
+            yield tag
+            if len(seen) == len(shards):
+                return
 
 def waitForIndexFinishScan(env, idx = 'idx'):
     # Wait for the index to finish scan
@@ -1443,3 +1618,45 @@ def get_shards_profile(env, res):
     return res['Profile']['Shards']
   else:
     return [to_dict(p) for p in res[-1][1]]
+
+
+# --- Coordinator / cluster timeout test helpers (shared across timeout test files) ---
+ON_TIMEOUT_CONFIG = 'search-on-timeout'
+
+
+def pid_cmd(conn):
+    """Get the process ID of a Redis connection."""
+    return conn.execute_command('info', 'server')['process_id']
+
+
+def non_coord_shard_conns(env):
+    """Return shard connections whose process id differs from the coordinator's."""
+    coord_pid = pid_cmd(env.con)
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        conn = env.getConnection(shardId)
+        if pid_cmd(conn) != coord_pid:
+            conns.append(conn)
+    return conns
+
+
+def split_shards_pick_one_paused(env):
+    """Pick one non-coordinator shard to designate as paused and split the rest.
+
+    Returns ``(all_shard_conns, paused_conn, paused_pid, responsive_conns)``.
+    Asserts that at least one non-coordinator shard exists.
+    """
+    all_shard_conns = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+    non_coord_conns = non_coord_shard_conns(env)
+    env.assertGreater(len(non_coord_conns), 0,
+                      message="Test requires at least one non-coordinator shard")
+    paused_conn = non_coord_conns[0]
+    paused_pid = pid_cmd(paused_conn)
+    responsive_conns = [c for c in all_shard_conns if pid_cmd(c) != paused_pid]
+    return all_shard_conns, paused_conn, paused_pid, responsive_conns
+
+
+def assert_timeout_warning(env, res, message=''):
+    warnings = res.get('warning', res.get('warnings', []))
+    env.assertTrue(warnings, message=message + " expected timeout warning")
+    env.assertContains('Timeout', warnings[0], message=message + " expected timeout warning")

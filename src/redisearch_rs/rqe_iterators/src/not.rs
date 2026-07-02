@@ -9,50 +9,59 @@
 
 //! Supporting types for [`Not`].
 
-use std::time::Duration;
-
-use ffi::{RS_FIELDMASK_ALL, t_docId};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    maybe_empty::MaybeEmpty, utils::TimeoutContext,
+    maybe_empty::MaybeEmpty,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::TimeoutContext,
 };
 
 use index_spec::IndexSpecReadGuard;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that negates the results of its child iterator.
 ///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
 /// present in the child iterator.
-pub struct Not<'index, I> {
+///
+/// # Type parameters
+///
+/// * `'index` - The lifetime of the index being iterated over.
+/// * `I` - The child iterator type whose results are negated.
+/// * `TC` - The [`TimeoutContext`] implementation. The variant is chosen at
+///   construction time and monomorphized into the hot path.
+pub struct Not<'index, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     /// Set to `true` in case the NOT Iterator
     /// detected using the [`TimeoutContext`] a timeout,
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RSIndexResult<'index>,
-    /// Tracks the execution deadline for this iterator.
+    /// Tracks the execution deadline for this iterator. Pass
+    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// entirely; monomorphization collapses the no-op context to dead code.
     ///
-    /// Uses an amortized check to minimize overhead in hot paths. The timeout
-    /// is absolute for the iterator's lifetime and does not reset upon rewinding.
-    timeout_ctx: Option<TimeoutContext>,
+    /// The timeout is absolute for the iterator's lifetime and does not
+    /// reset upon rewinding.
+    timeout_ctx: TC,
 }
 
-impl<'index, I> Not<'index, I>
+impl<'index, I, TC> Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
-    pub fn new(
-        child: I,
-        max_doc_id: t_docId,
-        weight: f64,
-        timeout: Duration,
-        skip_timeout_checks: bool,
-    ) -> Self {
+    /// Build a new [`Not`] iterator.
+    ///
+    /// `timeout_ctx` is the [`TimeoutContext`] implementation to use. Pass
+    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// entirely on this iterator's hot path.
+    pub fn new(child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {
             child: MaybeEmpty::new(child),
             max_doc_id,
@@ -61,15 +70,7 @@ where
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
-            // The `limit` of 5_000 determines the granularity of the timeout check.
-            // Each time [`TimeoutContext::check_timeout`] is called (during `read` / `skip_to`),
-            // the internal counter goes up. When it reaches this `limit` of 5_000 it will
-            // reset that counter and do the actual (OS) expensive timeout check.
-            timeout_ctx: if skip_timeout_checks {
-                None
-            } else {
-                Some(TimeoutContext::new(timeout, 5_000, false))
-            },
+            timeout_ctx,
         }
     }
 
@@ -77,13 +78,9 @@ where
     /// we also mark this iterator as EOF.
     ///
     /// Returns error [`RQEIteratorError::TimedOut`] if the deadline has been reached or exceeded.
-    ///
-    /// In case no timeout is enforced it will just return `Ok(())`.
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        let Some(result) = self.timeout_ctx.as_mut().map(|ctx| ctx.check_timeout()) else {
-            return Ok(());
-        };
+        let result = self.timeout_ctx.check_timeout();
         if matches!(result, Err(RQEIteratorError::TimedOut)) {
             // NOTE: this is not done for optimized version of NOT iterator in C
             self.forced_eof = true;
@@ -92,13 +89,9 @@ where
     }
 
     /// Wrapper around [`TimeoutContext::reset_counter`] to reset the timeout counter.
-    ///
-    /// Does nothing when no timeout is enforced.
     #[inline(always)]
-    const fn reset_timeout(&mut self) {
-        if let Some(ctx) = self.timeout_ctx.as_mut() {
-            ctx.reset_counter();
-        }
+    fn reset_timeout(&mut self) {
+        self.timeout_ctx.reset_counter();
     }
 
     /// Get a shared reference to the _child_ iterator
@@ -108,9 +101,10 @@ where
     }
 }
 
-impl<'index, I> RQEIterator<'index> for Not<'index, I>
+impl<'index, I, TC> RQEIterator<'index> for Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
+    TC: TimeoutContext,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -152,7 +146,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
@@ -218,7 +212,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -266,23 +260,11 @@ where
     }
 }
 
-/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
-pub trait NotIterator<'index>: RQEIterator<'index> {
-    // Those methods are used by profile.c to wrap the child iterator.
-    // They can be removed once this code is ported to Rust.
-    /// Get a shared reference to the child iterator, or `None` if unset.
-    fn child(&self) -> Option<&dyn RQEIterator<'index>>;
-}
-
-impl<'index> NotIterator<'index> for Not<'index, Box<dyn RQEIterator<'index> + 'index>> {
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        self.child
-            .as_ref()
-            .map(|c| &**c as &dyn RQEIterator<'index>)
-    }
-}
-
-impl<'index> crate::interop::ProfileChildren<'index> for Not<'index, crate::c2rust::CRQEIterator> {
+impl<'index, TC> crate::interop::ProfileChildren<'index>
+    for Not<'index, crate::c2rust::CRQEIterator, TC>
+where
+    TC: TimeoutContext + 'index,
+{
     fn profile_children(self) -> Self {
         Not {
             child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
@@ -291,5 +273,15 @@ impl<'index> crate::interop::ProfileChildren<'index> for Not<'index, crate::c2ru
             result: self.result,
             timeout_ctx: self.timeout_ctx,
         }
+    }
+}
+
+impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+    TC: TimeoutContext,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        ctx.print_single_child(c"NOT", self.child(), map);
     }
 }

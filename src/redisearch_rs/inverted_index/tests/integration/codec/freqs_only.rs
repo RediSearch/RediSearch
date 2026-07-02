@@ -9,7 +9,8 @@
 
 use std::io::Cursor;
 
-use inverted_index::{Decoder, Encoder, RSIndexResult, freqs_only::FreqsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, freqs_only::FreqsOnly};
 
 /// Helper to encode a sequence of (delta, freq) records using FreqsOnly.
 fn encode_freqs_only(records: &[(u32, u32)]) -> Vec<u8> {

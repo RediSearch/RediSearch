@@ -36,6 +36,10 @@ target_compile_options(benchmark_main PRIVATE
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
 foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
   get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
-  add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
+  add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../llapi_test_helpers.cpp ../iterator_util.cpp)
   target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
+
+# Standalone micro-benchmarks (no iterator/index_utils dependency).
+add_executable(benchmark_unicode_tolower benchmark_unicode_tolower.cpp)
+target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::benchmark)

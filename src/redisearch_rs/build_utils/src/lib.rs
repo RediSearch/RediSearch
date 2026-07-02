@@ -16,27 +16,34 @@ use std::{
 };
 
 /// Return the root folder of the repository.
-pub fn repository_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let mut path = std::env::current_dir()?;
-    // Jujutsu (`jj`) doesn't colocate with `git` when using `jj workspace add`,
-    // so looking for `.git` won't be enough.
-    while !(path.join(".git").exists() || path.join(".jj").exists()) {
-        path = path
-            .parent()
-            .ok_or("Could not find git root")?
-            .to_path_buf();
-    }
-    Ok(path)
+///
+/// `build_utils` lives at `src/redisearch_rs/build_utils`, so its Cargo manifest
+/// directory is a stable anchor even when source archives omit VCS metadata.
+pub fn repository_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Keep this lexical rather than canonicalizing it. Callers only join paths
+    // below this root, and `canonicalize` requires `realpath`, which Miri does
+    // not support with filesystem isolation enabled.
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
 }
 
 fn rerun_if_changes(dir: &Path, extensions: &[&str]) -> std::io::Result<()> {
+    // Don't descend into Cargo's target directory. Cargo marks it with a
+    // `CACHEDIR.TAG` file, so detect it that way regardless of where
+    // `CARGO_TARGET_DIR` points (e.g. the CMake build sets it to
+    // `src/redisearch_rs/target`, which sits under the `src` include root
+    // scanned by `ffi/build.rs`). Otherwise the sweep would reach a build
+    // script's own `OUT_DIR` and emit `rerun-if-changed` for the headers that
+    // script just staged there, forcing a rebuild on every invocation.
+    if dir.join("CACHEDIR.TAG").exists() {
+        return Ok(());
+    }
     for entry in read_dir(dir)? {
         let Ok(entry) = entry else {
             continue;
         };
         let path = entry.path();
         if path.is_dir() {
-            return rerun_if_changes(&path, extensions);
+            rerun_if_changes(&path, extensions)?;
         } else if let Some(extension) = path.extension().and_then(|ext| ext.to_str())
             && extensions.contains(&extension)
         {
@@ -61,14 +68,15 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
+    let bin_root = bin_root();
     force_link_time_symbol_resolution();
-    link_redisearch_all();
-    link_mkl();
+    link_redisearch_all(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
 
 /// Require all symbols to be resolved at link time.
-fn force_link_time_symbol_resolution() {
+pub fn force_link_time_symbol_resolution() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
     if target_os == "macos" {
         println!("cargo::rustc-link-arg=-Wl,-undefined,error");
@@ -82,7 +90,13 @@ fn force_link_time_symbol_resolution() {
 /// When the top-level build coordinator sets `BINDIR`, that value is used
 /// directly. Otherwise we fall back to the conventional release layout
 /// derived from the git root.
+///
+/// The chosen directory is baked into the `-L` link-search flags this crate
+/// emits, so the `rerun-if-env-changed` below re-evaluates it whenever
+/// `BINDIR` changes — otherwise Cargo replays a stale cached `-L` (e.g. a
+/// release path captured during a `BINDIR`-less run) into a later build.
 fn bin_root() -> PathBuf {
+    println!("cargo::rerun-if-env-changed=BINDIR");
     if let Ok(bin_root) = std::env::var("BINDIR") {
         // The directory changes depending on a variety of factors: target architecture, target OS,
         // optimization level, coverage, etc.
@@ -106,7 +120,8 @@ fn bin_root() -> PathBuf {
     }
 }
 
-/// Link `libredisearch_all.a` using the `-bundle` modifier.
+/// Link `libredisearch_all.a` using the `-bundle` modifier, returning an error if the
+/// library is not found.
 ///
 /// The `-bundle` modifier prevents the (very large) C archive from being
 /// embedded into every Rust rlib in the dependency tree. Instead, the linker
@@ -119,16 +134,20 @@ fn bin_root() -> PathBuf {
 ///    errors in unrelated workspace members.
 /// 2. Archive member counts exceeding `u16::MAX` in rustc's
 ///    `ar_archive_writer` when MKL or other large archives are involved.
-fn link_redisearch_all() {
-    let bin_root = bin_root();
+///
+/// Callers that need soft-fail behaviour (e.g. lint-only runs where the
+/// library has not been built) can inspect the returned `Err` and emit a
+/// `cargo::warning` instead of panicking.
+pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let lib_dir = bin_root.join("src");
     let lib = lib_dir.join("libredisearch_all.a");
     if std::fs::exists(&lib).unwrap_or(false) {
         println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
         println!("cargo::rerun-if-changed={}", lib.display());
         println!("cargo::rustc-link-search=native={}", lib_dir.display());
+        Ok(lib)
     } else {
-        panic!("Static library not found: {}", lib.display());
+        Err(format!("Static library not found: {}", lib.display()).into())
     }
 }
 
@@ -137,8 +156,11 @@ fn link_redisearch_all() {
 /// MKL is excluded from `libredisearch_all.a` because its ~42K object files
 /// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
 /// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
-fn link_mkl() {
-    let svs_lib_dir = bin_root().join("_deps/svs-src/lib");
+///
+/// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
+/// Its location varies across build configurations, so callers are responsible
+/// for supplying the correct path.
+pub fn link_mkl(svs_lib_dir: &Path) {
     let mkl = svs_lib_dir.join("libmkl_static_library.a");
     if std::fs::exists(&mkl).unwrap_or(false) {
         println!("cargo::rerun-if-changed={}", mkl.display());
@@ -231,4 +253,39 @@ pub fn generate_c_bindings(
         .write_to_file(out_dir.join("bindings.rs"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repository_root;
+    use std::path::PathBuf;
+
+    #[test]
+    fn repository_root_resolves_to_redisearch_source_root() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = repository_root()?;
+
+        assert_eq!(
+            root,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+        );
+
+        // Miri runs with filesystem isolation enabled, so metadata checks such
+        // as `is_file` are unavailable there. The path construction above is
+        // still covered by Miri; the source-root marker checks run in normal
+        // test execution.
+        #[cfg(not(miri))]
+        {
+            assert!(root.join("CMakeLists.txt").is_file());
+            assert!(
+                root.join("src")
+                    .join("redisearch_rs")
+                    .join("Cargo.toml")
+                    .is_file()
+            );
+            assert!(root.join("src").join("version.h").is_file());
+        }
+
+        Ok(())
+    }
 }

@@ -12,20 +12,22 @@
 
 pub mod fork_gc;
 
-use std::ffi::{c_char, c_void};
+use std::ffi::c_char;
 
 use ffi::{
     DocTable_Exists, IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric, IndexFlags_Index_StoreTermOffsets,
-    IndexFlags_Index_WideSchema, RedisSearchCtx, t_docId, t_fieldMask,
+    IndexFlags_Index_WideSchema, RedisSearchCtx,
 };
+use rqe_core::{DocId, FieldMask};
 
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
+use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader, FilterMaskReader,
-    FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _, NumericFilter,
-    RSIndexResult, ReadFilter,
+    AddRecordOutcome, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
+    FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _,
+    NumericFilter, ReadFilter,
     debug::{BlockSummary, Summary},
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -34,40 +36,12 @@ use inverted_index::{
     freqs_offsets::FreqsOffsets,
     freqs_only::FreqsOnly,
     full::{Full, FullWide},
+    ii_dispatch,
     numeric::{Numeric, NumericFloatCompression},
     offsets_only::OffsetsOnly,
     raw_doc_ids_only::RawDocIdsOnly,
 };
 use serde::{Deserialize, Serialize};
-
-/// Get the total number of index blocks allocated across all inverted index instances.
-#[unsafe(no_mangle)]
-pub extern "C" fn TotalIIBlocks() -> usize {
-    IndexBlock::total_blocks()
-}
-
-// Macro to make calling the methods on the inner index easier
-macro_rules! ii_dispatch {
-    ($self:expr, $method:ident $(, $args:expr)*) => {
-        match $self {
-            InvertedIndex::Full(ii) => ii.$method($($args),*),
-            InvertedIndex::FullWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFields(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsFieldsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOnlyWide(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::FieldsOffsetsWide(ii) => ii.$method($($args),*),
-            InvertedIndex::OffsetsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::FreqsOffsets(ii) => ii.$method($($args),*),
-            InvertedIndex::DocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::RawDocIdsOnly(ii) => ii.$method($($args),*),
-            InvertedIndex::Numeric(ii) => ii.$method($($args),*),
-            InvertedIndex::NumericFloatCompression(ii) => ii.$method($($args),*),
-        }
-    };
-}
 
 /// The mask of flags that determine the index storage type. This includes all flags that affect
 /// the storage format of the index.
@@ -223,19 +197,18 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
     ii_dispatch!(ii, memory_usage)
 }
 
-/// Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
-/// with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
-/// index grew by.
+/// Write a new numeric entry to the inverted index. This is only valid for numeric indexes
+/// created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting the memory
+/// growth and the number of new index blocks created.
 ///
 /// # Safety
-/// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
-    doc_id: t_docId,
+    doc_id: DocId,
     value: f64,
-) -> usize {
+) -> AddRecordOutcome {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
@@ -245,18 +218,17 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii_dispatch!(ii, add_record, &record).unwrap()
 }
 
-/// Write a new entry to the inverted index. The function returns the number of bytes the memory
-/// usage of the index grew by.
+/// Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting the
+/// memory growth and the number of new index blocks created.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 /// - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
     record: *const RSIndexResult,
-) -> usize {
+) -> AddRecordOutcome {
     debug_assert!(!ii.is_null(), "ii must not be null");
     debug_assert!(!record.is_null(), "record must not be null");
 
@@ -381,7 +353,7 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> t_fieldMask {
+pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> FieldMask {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -463,7 +435,7 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
 /// The following invariant must be upheld when calling this function:
 /// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> t_docId {
+pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId {
     debug_assert!(!ii.is_null(), "ii must not be null");
 
     // SAFETY: The caller must ensure that `ii` is a valid pointer to an `InvertedIndex`
@@ -503,17 +475,6 @@ pub unsafe extern "C" fn InvertedIndex_GcMarkerInc(ii: *mut InvertedIndex) {
     ii_dispatch!(ii, gc_marker_inc);
 }
 
-/// Setting to pass to the GC scan function
-#[repr(C)]
-pub struct IndexRepairParams {
-    /// Callback to call for each entry that is still valid
-    pub repair_callback:
-        Option<extern "C" fn(res: *const RSIndexResult, ib: *const IndexBlock, *mut c_void)>,
-
-    /// Argument to pass to the repair callback
-    pub repair_arg: *mut c_void,
-}
-
 /// Scan the inverted index for garbage and write the GC delta to the provided writer. The function
 /// returns true if the scan was successful and false otherwise.
 ///
@@ -524,7 +485,6 @@ pub struct IndexRepairParams {
 /// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
 /// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
 /// - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
-/// - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
 /// - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
 ///   `IndexSpec` instance.
 #[unsafe(no_mangle)]
@@ -533,7 +493,6 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     sctx: *mut RedisSearchCtx,
     idx: *mut InvertedIndex,
     cb: *mut InvertedIndexGCCallback,
-    params: *mut IndexRepairParams,
 ) -> bool {
     debug_assert!(!sctx.is_null(), "sctx must not be null");
     debug_assert!(!idx.is_null(), "idx must not be null");
@@ -553,21 +512,10 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
     let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
 
-    let repair = if params.is_null() {
-        None
-    } else {
-        // SAFETY: The caller must ensure `params` is a valid pointer to a `IndexRepairParams` and
-        // we just checked it is not NULL
-        let params = unsafe { &*params };
-        params
-            .repair_callback
-            .map(|cb| move |res: &RSIndexResult, ib: &IndexBlock| cb(res, ib, params.repair_arg))
-    };
-
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };
 
-    let Ok(deltas) = ii_dispatch!(ii, scan_gc, doc_exists, repair) else {
+    let Ok(deltas) = ii.scan_gc(doc_exists) else {
         return false;
     };
 
@@ -589,7 +537,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 }
 
 /// Read a GC delta from the provided reader. The returned pointer must be freed using
-/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+/// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
 ///
 /// # Safety
 ///
@@ -629,7 +577,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 }
 
 /// Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
-/// information about the applied delta.
+/// information about the applied delta — in particular, `apply_info.block_count_delta` carries
+/// the signed change in block count, which callers maintaining per-spec totals should add to
+/// their counter.
 ///
 /// This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
 /// used or freed after calling this function.
@@ -642,7 +592,7 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 ///   [`InvertedIndex_GcDelta_Read`].
 /// - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InvertedIndex_ApplyGcDelta(
+pub unsafe extern "C" fn InvertedIndex_ApplyGCDelta(
     ii: *mut InvertedIndex,
     deltas: *mut GcScanDelta,
     apply_info: *mut GcApplyInfo,
@@ -687,7 +637,7 @@ pub unsafe extern "C" fn GcScanDelta_LastBlockIdx(gc_scan_delta: *const GcScanDe
 /// The following invariant must be upheld when calling this function:
 /// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
+pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> DocId {
     debug_assert!(!ib.is_null(), "ib must not be null");
 
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
@@ -703,7 +653,7 @@ pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> t_docId {
 /// The following invariant must be upheld when calling this function:
 /// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> t_docId {
+pub unsafe extern "C" fn IndexBlock_LastId(ib: *const IndexBlock) -> DocId {
     debug_assert!(!ib.is_null(), "ib must not be null");
 
     // SAFETY: The caller must ensure that `ib` is a valid pointer to an `IndexBlock`
@@ -748,55 +698,29 @@ pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char
 /// based on the index type and filter provided when creating the reader. This allows us to have a
 /// single interface for all index reader types while still being able to optimize the storage
 /// and performance for each index reader type.
-pub enum IndexReader<'index_and_filter> {
-    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, Full>>),
-    FullWide(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FullWide>>),
-    FreqsFields(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFields>>),
-    FreqsFieldsWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FreqsFieldsWide>>,
-    ),
-    FreqsOnly(inverted_index::IndexReaderCore<'index_and_filter, FreqsOnly>),
-    FieldsOnly(FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnly>>),
-    FieldsOnlyWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOnlyWide>>,
-    ),
-    FieldsOffsets(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsets>>,
-    ),
-    FieldsOffsetsWide(
-        FilterMaskReader<inverted_index::IndexReaderCore<'index_and_filter, FieldsOffsetsWide>>,
-    ),
-    OffsetsOnly(inverted_index::IndexReaderCore<'index_and_filter, OffsetsOnly>),
-    FreqsOffsets(inverted_index::IndexReaderCore<'index_and_filter, FreqsOffsets>),
-    DocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, DocIdsOnly>),
-    RawDocIdsOnly(inverted_index::IndexReaderCore<'index_and_filter, RawDocIdsOnly>),
-    Numeric(inverted_index::IndexReaderCore<'index_and_filter, Numeric>),
-    NumericFiltered(
-        FilterNumericReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
-    ),
-    NumericGeoFiltered(
-        FilterGeoReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, Numeric>,
-        >,
-    ),
-    NumericFloatCompression(
-        inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-    ),
+pub enum IndexReader<'index> {
+    Full(FilterMaskReader<inverted_index::IndexReaderCore<'index, Full>>),
+    FullWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FullWide>>),
+    FreqsFields(FilterMaskReader<inverted_index::IndexReaderCore<'index, FreqsFields>>),
+    FreqsFieldsWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FreqsFieldsWide>>),
+    FreqsOnly(inverted_index::IndexReaderCore<'index, FreqsOnly>),
+    FieldsOnly(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOnly>>),
+    FieldsOnlyWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOnlyWide>>),
+    FieldsOffsets(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOffsets>>),
+    FieldsOffsetsWide(FilterMaskReader<inverted_index::IndexReaderCore<'index, FieldsOffsetsWide>>),
+    OffsetsOnly(inverted_index::IndexReaderCore<'index, OffsetsOnly>),
+    FreqsOffsets(inverted_index::IndexReaderCore<'index, FreqsOffsets>),
+    DocIdsOnly(inverted_index::IndexReaderCore<'index, DocIdsOnly>),
+    RawDocIdsOnly(inverted_index::IndexReaderCore<'index, RawDocIdsOnly>),
+    Numeric(inverted_index::IndexReaderCore<'index, Numeric>),
+    NumericFiltered(FilterNumericReader<inverted_index::IndexReaderCore<'index, Numeric>>),
+    NumericGeoFiltered(FilterGeoReader<inverted_index::IndexReaderCore<'index, Numeric>>),
+    NumericFloatCompression(inverted_index::IndexReaderCore<'index, NumericFloatCompression>),
     NumericFilteredFloatCompression(
-        FilterNumericReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-        >,
+        FilterNumericReader<inverted_index::IndexReaderCore<'index, NumericFloatCompression>>,
     ),
     NumericGeoFilteredFloatCompression(
-        FilterGeoReader<
-            'index_and_filter,
-            inverted_index::IndexReaderCore<'index_and_filter, NumericFloatCompression>,
-        >,
+        FilterGeoReader<inverted_index::IndexReaderCore<'index, NumericFloatCompression>>,
     ),
 }
 
@@ -827,7 +751,7 @@ macro_rules! ir_dispatch {
     };
 }
 
-impl<'index_and_filter> IndexReader<'index_and_filter> {
+impl<'index> IndexReader<'index> {
     /// Get the flags associated with this index reader.
     pub fn flags(&self) -> IndexFlags {
         ir_dispatch!(self, flags)
@@ -835,7 +759,7 @@ impl<'index_and_filter> IndexReader<'index_and_filter> {
 
     /// Swap the inverted index of the reader with the given inverted index. This is only used
     /// by some C tests to trigger revalidation on the reader.
-    pub const fn swap_index(&mut self, ii: &'index_and_filter InvertedIndex) {
+    pub const fn swap_index(&mut self, ii: &'index InvertedIndex) {
         match (self, ii) {
             (IndexReader::Full(ir), InvertedIndex::Full(ii)) => ir.swap_index(&mut ii.inner()),
             (IndexReader::FullWide(ir), InvertedIndex::FullWide(ii)) => {
@@ -957,10 +881,10 @@ pub unsafe extern "C" fn NewIndexReader(
         (InvertedIndex::RawDocIdsOnly(ii), _) => IndexReader::RawDocIdsOnly(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::None) => IndexReader::Numeric(ii.reader()),
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) if filter.is_numeric_filter() => {
-            IndexReader::NumericFiltered(FilterNumericReader::new(filter, ii.reader()))
+            IndexReader::NumericFiltered(FilterNumericReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::Numeric(ii), ReadFilter::Numeric(filter)) => {
-            IndexReader::NumericGeoFiltered(FilterGeoReader::new(filter, ii.reader()))
+            IndexReader::NumericGeoFiltered(FilterGeoReader::new(*filter, ii.reader()))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::None) => {
             IndexReader::NumericFloatCompression(ii.reader())
@@ -969,13 +893,13 @@ pub unsafe extern "C" fn NewIndexReader(
             if filter.is_numeric_filter() =>
         {
             IndexReader::NumericFilteredFloatCompression(FilterNumericReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }
         (InvertedIndex::NumericFloatCompression(ii), ReadFilter::Numeric(filter)) => {
             IndexReader::NumericGeoFilteredFloatCompression(FilterGeoReader::new(
-                filter,
+                *filter,
                 ii.reader(),
             ))
         }
@@ -1113,9 +1037,9 @@ pub unsafe extern "C" fn IndexReader_IsIndex(
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Next<'index_and_filter>(
-    ir: *mut IndexReader<'index_and_filter>,
-    res: *mut RSIndexResult<'index_and_filter>,
+pub unsafe extern "C" fn IndexReader_Next<'index>(
+    ir: *mut IndexReader<'index>,
+    res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");
@@ -1139,7 +1063,7 @@ pub unsafe extern "C" fn IndexReader_Next<'index_and_filter>(
 /// The following invariant must be upheld when calling this function:
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docId) -> bool {
+pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: DocId) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
 
     // SAFETY: The caller must ensure that `ir` is a valid pointer to an `IndexReader`
@@ -1159,10 +1083,10 @@ pub unsafe extern "C" fn IndexReader_SkipTo(ir: *mut IndexReader, doc_id: t_docI
 /// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
 /// - `res` must be a valid pointer to an `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexReader_Seek<'index_and_filter>(
-    ir: *mut IndexReader<'index_and_filter>,
-    doc_id: t_docId,
-    res: *mut RSIndexResult<'index_and_filter>,
+pub unsafe extern "C" fn IndexReader_Seek<'index>(
+    ir: *mut IndexReader<'index>,
+    doc_id: DocId,
+    res: *mut RSIndexResult<'index>,
 ) -> bool {
     debug_assert!(!ir.is_null(), "ir must not be null");
     debug_assert!(!res.is_null(), "res must not be null");

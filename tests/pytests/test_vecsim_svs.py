@@ -8,7 +8,6 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
-    skip_until,
     assertInfoField,
     index_info,
     to_dict,
@@ -60,45 +59,33 @@ def test_small_window_size():
     conn = getConnectionByEnv(env)
 
     dim = 2
-    # The vectors will be moved from the flat buffer to svs after 1024 * 10 vectors.
-    svs_transfer_th = 1024 * 10
+    # The threshold is per shard in cluster mode, so add a small margin for
+    # non-compressed SVS to train on every shard.
+    no_compression_training_th = int(DEFAULT_BLOCK_SIZE * 1.1 * env.shardsCount)
+    compression_training_th = DEFAULT_BLOCK_SIZE * 10
     keep_count = 10
-    num_vectors = svs_transfer_th
     field_name = 'v_SVS_VAMANA'
     for data_type in VECSIM_SVS_DATA_TYPES:
         query_vec = create_random_np_array_typed(dim, data_type)
         for compression in [[], ["COMPRESSION", "LVQ8"]]:
+            num_vectors = compression_training_th if compression else no_compression_training_th
             params = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', "CONSTRUCTION_WINDOW_SIZE", 10, *compression]
             conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', field_name, 'VECTOR', 'SVS-VAMANA', len(params), *params)
 
             # Add enough vector to trigger transfer to svs
-            vectors = []
             for i in range(num_vectors):
                 vector = create_random_np_array_typed(dim, data_type)
-                vectors.append(vector)
                 conn.execute_command('HSET', f'doc_{i}', field_name, vector.tobytes())
 
-            # Create unique filename for this iteration
-            compression_str = "no_compression" if not compression else "_".join(compression)
-            filename = f"vectors_{data_type}_{compression_str}.txt"
-            with open(filename, 'w') as f:
-                f.write(f"Data Type: {data_type}, Compression: {compression}, Dim: {dim}, Count: {num_vectors}\n")
-                f.write(str([vector.tolist() for vector in vectors]))
-            # try:
-            #     conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            # except Exception as e:
-            #     env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
             # delete most
             for i in range(num_vectors - keep_count):
                 conn.execute_command('DEL', f'doc_{i}')
 
             # run topk for remaining
             # Before fixing MOD-10771, search crashed
-            try:
-                conn.execute_command('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]', 'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1, f'__{field_name}_score')
-            except Exception as e:
-                env.assertTrue(False, message=f"compression: {compression} data_type: {data_type}. Search failed with exception: {e}")
-                return
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN {keep_count} @{field_name} $vec_param]',
+                       'PARAMS', 2, 'vec_param', query_vec.tobytes(), 'RETURN', 1,
+                       f'__{field_name}_score').noError()
             conn.execute_command('FLUSHALL')
 
 def test_rdb_load_trained_svs_vamana():
@@ -272,15 +259,140 @@ def test_memory_info():
 
         env.execute_command('FLUSHALL')
 
+@skip(cluster=True)
+def test_svs_threadpool_lazy_init():
+    """Verify the shared SVS thread pool is not allocated until an SVS index is created.
+
+    With lazy init (VectorSimilarity #971), VecSim_UpdateThreadPoolSize (called at
+    module init via workersThreadPool_CreatePool, and on every CONFIG SET WORKERS)
+    only records the requested size — OS worker threads are spawned on the first
+    SVS index attach.
+
+    Observed via the top-level SHARED_MEMORY field in FT.DEBUG VECSIM_INFO, which
+    mirrors VecSim_GetSharedMemory(). That value is sourced exclusively from the
+    shared SVS thread pool and (VectorSimilarity #979) reports 0 until the first SVS
+    index attaches — so a server with no SVS index reports exactly 0.
+    """
+    workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
+
+    # A non-SVS (HNSW) index exercises FT.DEBUG VECSIM_INFO without involving SVS
+    # at all. No SVS index has attached, so the shared pool reports no memory:
+    # VecSim_GetSharedMemory() is gated on the pool's has_attached_index_ flag and
+    # returns exactly 0 until the first SVS index attaches (VectorSimilarity #979),
+    # even though VecSim_UpdateThreadPoolSize already recorded the requested size at
+    # module init.
+    create_vector_index(env, dim=4, alg='HNSW')
+    hnsw_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('SHARED_MEMORY' in hnsw_info,
+                   message=f"SHARED_MEMORY field must be present in VECSIM_INFO: {hnsw_info}")
+    hnsw_baseline = int(hnsw_info['SHARED_MEMORY'])
+    env.assertEqual(hnsw_baseline, 0,
+                    message=f"SHARED_MEMORY must be 0 before any SVS index attaches — "
+                            f"nonzero suggests SVS thread slots were allocated despite "
+                            f"no SVS index: got {hnsw_baseline}, info={hnsw_info}")
+    env.execute_command('FT.DROPINDEX', DEFAULT_INDEX_NAME)
+
+    # Creating the first SVS index triggers the lazy thread spawn at the size most
+    # recently recorded by VecSim_UpdateThreadPoolSize, growing SHARED_MEMORY by
+    # the per-slot allocation tracked by the pool (workers - 1 ThreadSlots plus
+    # the slots_ vector capacity).
+    create_vector_index(env, dim=4, alg='SVS-VAMANA')
+    svs_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertTrue('SHARED_MEMORY' in svs_info,
+                   message=f"SHARED_MEMORY field must be present in VECSIM_INFO: {svs_info}")
+    svs_pool_mem = int(svs_info['SHARED_MEMORY'])
+    env.assertGreater(svs_pool_mem, hnsw_baseline,
+                      message=f"SHARED_MEMORY should grow above the pre-attach baseline "
+                              f"({hnsw_baseline}) after first SVS index creation with "
+                              f"WORKERS={workers}: got {svs_pool_mem}, info={svs_info}")
+
+
+@skip(cluster=True)
+def test_svs_shared_threadpool_memory_info():
+    """Verify shared SVS thread pool memory accounting:
+      * FT.DEBUG VECSIM_INFO exposes it as the top-level SHARED_MEMORY field
+        (appended once by the VecSim C API wrapper, not inside the nested
+        FRONTEND_INDEX/BACKEND_INDEX sections).
+      * FT.INFO vector_index_sz_mb folds it in once per call (per-spec scope).
+      * INFO MODULES search_used_memory_vector_index folds it in once per call
+        (process-wide scope).
+      * For a single SVS index, both FT.INFO and INFO MODULES report the same
+        bytes — vector field memory + pool memory.
+      * Pool memory is added once per call regardless of the number of vector
+        fields in the spec or specs in the process — no double-counting.
+
+    All observations are validated before and after growing the worker pool, which
+    physically resizes the shared SVS pool.
+    """
+    # Use 2+ initial workers so the first SVS index allocates at least one worker
+    # slot (with lazy init, pool size 1 = zero worker slots = zero pool-tracked
+    # bytes, which would make the 'pool memory > 0' assertion below vacuous).
+    initial_workers = 2
+    grown_workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    dim = 2
+    shared_mem_field = 'SHARED_MEMORY'
+
+    # The shared SVS pool spawns OS threads lazily on the first SVS index creation
+    # (VectorSimilarity #971), using the size most recently passed to
+    # VecSim_UpdateThreadPoolSize (set at module init by
+    # workersThreadPool_CreatePool), so the field is present in the debug info
+    # once any SVS index exists.
+    create_vector_index(env, dim, alg='SVS-VAMANA')
+
+    def measure():
+        # SHARED_MEMORY is appended once at the top level by the VecSim C API
+        # wrapper, not inside the nested BACKEND_INDEX/FRONTEND_INDEX sections.
+        debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertTrue(shared_mem_field in debug_info,
+                       message=f"VECSIM_INFO missing top-level '{shared_mem_field}': {debug_info}")
+        info_modules = env.cmd('INFO', 'MODULES')
+        return {
+            'debug_svs_pool_mem': int(debug_info[shared_mem_field]),
+            'debug_per_index_mem': int(debug_info['MEMORY']),
+            'info_modules_vec_mem': int(info_modules['search_used_memory_vector_index']),
+            'ft_info_vec_bytes': int(float(index_info(env, DEFAULT_INDEX_NAME)['vector_index_sz_mb']) * 0x100000),
+        }
+
+    def assert_invariants(label, m):
+        # FT.INFO and INFO MODULES report the same total for a single SVS field:
+        # per-index memory + pool memory, both folded once.
+        expected = m['debug_per_index_mem'] + m['debug_svs_pool_mem']
+        env.assertEqual(m['ft_info_vec_bytes'], expected,
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should equal per-index + pool: {m}")
+        env.assertEqual(m['info_modules_vec_mem'], expected,
+                        message=f"[{label}] INFO MODULES search_used_memory_vector_index should equal per-index + pool: {m}")
+        env.assertEqual(m['ft_info_vec_bytes'], m['info_modules_vec_mem'],
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should match INFO MODULES "
+                                f"search_used_memory_vector_index: {m}")
+
+    # ---- Initial state ----
+    before = measure()
+    env.assertGreater(before['debug_svs_pool_mem'], 0, message="shared pool memory should be > 0 after pool initialization")
+    assert_invariants('before resize', before)
+
+    # ---- Grow the worker pool ----
+    # CONFIG SET WORKERS triggers VecSim_UpdateThreadPoolSize, which physically
+    # resizes the shared SVS pool (synchronous when no jobs are pending).
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', grown_workers)
+
+    after = measure()
+    env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                      message=f"SHARED_MEMORY should grow when workers go from "
+                              f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    assert_invariants('after resize', after)
+
+    # Both FT.INFO and INFO MODULES vector memory grow by exactly the pool growth
+    # (per-index memory is unchanged by the pool resize).
+    pool_growth = after['debug_svs_pool_mem'] - before['debug_svs_pool_mem']
+    env.assertEqual(after['ft_info_vec_bytes'] - before['ft_info_vec_bytes'], pool_growth,
+                    message=f"FT.INFO vector_index_sz_mb growth should match pool growth: before={before}, after={after}")
+    env.assertEqual(after['info_modules_vec_mem'] - before['info_modules_vec_mem'], pool_growth,
+                    message=f"INFO MODULES search_used_memory_vector_index growth should match pool growth: before={before}, after={after}")
+
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
-# (compression_type, data_type, metric, workers) tuples that are flaky on the
-# coverage (Coordinator-only) job and are temporarily skipped via skip_until.
-# Only applied when running under coverage; see MOD-15569 / MOD-15570.
-QUERIES_SANITY_SKIP_UNTIL = {
-    ('LVQ8', 'FLOAT16', 'IP', 0): ('2026-06-12', 'Flaky test under coverage, see MOD-15570'),
-    ('LVQ8', 'FLOAT16', 'IP', 4): ('2026-06-12', 'Flaky test under coverage, see MOD-15569'),
-} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
@@ -292,10 +404,10 @@ for workers in [0, 4]:
             for metric in metrics:
                 test_name = f"test_queries_sanity_{compression_type}_{data_type}_{metric}" + name_suffix
                 test_func = func_gen(test_name, compression_type, data_type, metric, workers)
-                skip_spec = QUERIES_SANITY_SKIP_UNTIL.get((compression_type, data_type, metric, workers))
-                if skip_spec is not None:
-                    skip_date, skip_reason = skip_spec
-                    test_func = skip_until(skip_date, reason=skip_reason)(test_func)
+                # The broad SVS compression/datatype/metric matrix is covered in standalone.
+                # In cluster mode, the same training work is multiplied across shards and can
+                # exceed the coverage job budget without adding meaningful distributed coverage.
+                test_func = skip(cluster=True)(test_func)
                 globals()[test_name] = test_func
 
 '''

@@ -9,14 +9,17 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RS_FIELDMASK_ALL, RedisSearchCtx, t_docId};
-use inverted_index::{RSIndexResult, RSOffsetSlice, TermReader, block_max_score::BlockScorer};
+use ffi::RedisSearchCtx;
+use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
+use inverted_index::{TermReader, block_max_score::BlockScorer};
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     expiration_checker::ExpirationChecker,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use super::core::InvIndIterator;
@@ -175,7 +178,7 @@ where
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.it.skip_to(doc_id)
     }
@@ -191,7 +194,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.it.last_doc_id()
     }
 
@@ -228,5 +231,20 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, R, E> ProfilePrint for Term<'index, R, E>
+where
+    R: inverted_index::TermReader<'index>,
+    E: crate::expiration_checker::ExpirationChecker,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        map.kv_simple_string(c"Type", c"TEXT");
+        if let Some(term_bytes) = self.it.query_term_bytes() {
+            map.kv_string_buffer(c"Term", term_bytes);
+        }
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
     }
 }

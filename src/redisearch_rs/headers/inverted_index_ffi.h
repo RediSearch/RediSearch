@@ -7,16 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "redisearch_types.h"
 #include "config.h"
 #include "search_ctx.h"
 #include "spec.h"
 #include "inverted_index.h"
-
-/**
- * Setting to pass to the GC scan function
- */
-typedef struct IndexRepairParams IndexRepairParams;
+#include "rqe_core.h"
 
 /**
  * An opaque inverted index reader structure. The actual implementation is determined at runtime
@@ -69,6 +64,14 @@ typedef struct II_GCCallback {
 } II_GCCallback;
 
 /**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
+
+/**
  * The mask of flags that determine the index storage type. This includes all flags that affect
  * the storage format of the index.
  */
@@ -77,11 +80,6 @@ typedef struct II_GCCallback {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Get the total number of index blocks allocated across all inverted index instances.
- */
-size_t TotalIIBlocks(void);
 
 /**
  * Create a new inverted index instance based on the provided flags and options. `raw_doc_encoding`
@@ -129,26 +127,24 @@ void InvertedIndex_Free(struct InvertedIndex *ii);
 size_t InvertedIndex_MemUsage(const struct InvertedIndex *ii);
 
 /**
- * Write a new numeric entry to the inverted index. This is only valid for numeric indexes created
- * with the `StoreNumeric` flag. The function returns the number of bytes the memory usage of the
- * index grew by.
+ * Write a new numeric entry to the inverted index. This is only valid for numeric indexes
+ * created with the `StoreNumeric` flag. Returns an [`AddRecordOutcome`] reporting the memory
+ * growth and the number of new index blocks created.
  *
  * # Safety
- * The following invariant must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  */
-size_t InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
+struct AddRecordOutcome InvertedIndex_WriteNumericEntry(struct InvertedIndex *ii, t_docId doc_id, double value);
 
 /**
- * Write a new entry to the inverted index. The function returns the number of bytes the memory
- * usage of the index grew by.
+ * Write a new entry to the inverted index. Returns an [`AddRecordOutcome`] reporting the
+ * memory growth and the number of new index blocks created.
  *
  * # Safety
- * The following invariants must be upheld when calling this function:
  * - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
  * - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
  */
-size_t InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const struct RSIndexResult *record);
+struct AddRecordOutcome InvertedIndex_WriteEntryGeneric(struct InvertedIndex *ii, const RSIndexResult *record);
 
 /**
  * Return the number of blocks in the inverted index.
@@ -281,15 +277,14 @@ void InvertedIndex_GcMarkerInc(struct InvertedIndex *ii);
  * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
  * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
  * - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
- * - `params` must be a valid, NULLable, pointer to an `IndexRepairParams` instance.
  * - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
  *   `IndexSpec` instance.
  */
-bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb, struct IndexRepairParams *params);
+bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
  * Read a GC delta from the provided reader. The returned pointer must be freed using
- * [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGcDelta`].
+ * [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
  *
  * # Safety
  *
@@ -311,7 +306,9 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
 
 /**
  * Apply a GC delta to the inverted index. The output parameter `apply_info` will be set to
- * information about the applied delta.
+ * information about the applied delta — in particular, `apply_info.block_count_delta` carries
+ * the signed change in block count, which callers maintaining per-spec totals should add to
+ * their counter.
  *
  * This will take ownership of the `deltas` pointer and free it. Therefore, it should not be
  * used or freed after calling this function.
@@ -324,7 +321,7 @@ void InvertedIndex_GcDelta_Free(struct InvertedIndexGcDelta *deltas);
  *   [`InvertedIndex_GcDelta_Read`].
  * - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
  */
-void InvertedIndex_ApplyGcDelta(struct InvertedIndex *ii, struct InvertedIndexGcDelta *deltas, struct II_GCScanStats *apply_info);
+void InvertedIndex_ApplyGCDelta(struct InvertedIndex *ii, struct InvertedIndexGcDelta *deltas, struct II_GCScanStats *apply_info);
 
 /**
  * Get the index of the last block in the GC delta.
@@ -443,7 +440,7 @@ bool IndexReader_IsIndex(const struct IndexReader *ir, const struct InvertedInde
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Next(struct IndexReader *ir, struct RSIndexResult *res);
+bool IndexReader_Next(struct IndexReader *ir, RSIndexResult *res);
 
 /**
  * Skip the internal block of the inverted index reader to the block that may contain the given
@@ -470,7 +467,7 @@ bool IndexReader_SkipTo(struct IndexReader *ir, t_docId doc_id);
  * - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
  * - `res` must be a valid pointer to an `RSIndexResult` instance.
  */
-bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, struct RSIndexResult *res);
+bool IndexReader_Seek(struct IndexReader *ir, t_docId doc_id, RSIndexResult *res);
 
 /**
  * Check if the index reader can return multiple entries for the same document ID.

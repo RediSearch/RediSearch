@@ -134,22 +134,45 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
 }
 
 /* Index a vector of pre-processed tags for a docId.
- * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
- * Returns true on success, false on failure (disk mode only).
- * @param ctx RedisModuleCtx pointer */
-bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
+ *
+ * In disk mode the writes are staged onto `batch` (phase 1); the matching
+ * in-memory updates run in `TagIndex_Commit` after the batch commits.
+ * Returns false if disk staging rejected the input.
+ *
+ * In memory mode `batch` is ignored and all writes happen inline. Always
+ * returns true.
+ *
+ * @param ctx   RedisModuleCtx pointer (required by BigModule APIs in disk mode)
+ * @param batch Open per-document write batch (disk mode only; pass NULL for memory mode) */
+bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
+                    const char **values, size_t n, t_docId docId, IndexStats *stats);
+
+/* Apply the in-memory tag-trie updates for a vector of tag tokens. Infallible.
+ *
+ * Disk mode: runs after a successful `TagIndex_Index` staging + batch commit;
+ * inserts NULL sentinels into `idx->values` (postings live on disk).
+ *
+ * Memory mode: called from `TagIndex_Index` after the per-tag inverted-index
+ * postings have already been written, so the trie insert is skipped (existing
+ * `InvertedIndex*` values are preserved).
+ *
+ * Both modes populate `idx->suffix` and bump `stats->numRecords`. */
+void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
- * Returns NULL if there is no such tag in the index */
+ * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
+ * NULL and populates `status` (when non-null) with the cause. */
 QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, const char *value, size_t len,
-                                   double weight, t_fieldIndex fieldIndex);
+                                   double weight, t_fieldIndex fieldIndex, QueryError *status);
 
 /* Get iterator from TrieMap iterator value
  * In disk mode: ptr is ignored, calls disk API with tag string
- * In memory mode: ptr is InvertedIndex*, uses it directly */
+ * In memory mode: ptr is InvertedIndex*, uses it directly
+ * On a disk-index creation failure, returns NULL and populates `status` (when non-null). */
 QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
                                                     const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex);
+                                                    double weight, t_fieldIndex fieldIndex,
+                                                    QueryError *status);
 
 /* Open the tag index, returning NULL if it doesn't exist.
  * @param spec Field spec for the tag field

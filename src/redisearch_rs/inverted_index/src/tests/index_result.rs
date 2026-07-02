@@ -7,12 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{RSAggregateResult, RSResultData, RSResultKind, RSTermRecord};
+use index_result::{RSAggregateResult, RSResultData, RSResultKind, RSTermRecord};
 use pretty_assertions::assert_eq;
 
 #[test]
 fn synced_discriminants() {
-    let tests = [
+    let tests: [(RSResultData, RSResultKind); 7] = [
         (
             RSResultData::Union(RSAggregateResult::borrowed_with_capacity(0)),
             RSResultKind::Union,

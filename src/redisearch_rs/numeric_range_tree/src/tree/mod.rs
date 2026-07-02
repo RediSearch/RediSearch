@@ -28,7 +28,7 @@ pub(crate) use util::CheckedCount;
 
 pub use gc::{CompactIfSparseResult, NodeGcDelta, SingleNodeGcResult};
 
-use ffi::t_docId;
+use rqe_core::DocId;
 
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
@@ -61,6 +61,11 @@ pub struct AddResult {
     /// The net change in the number of leaf nodes.
     /// Splitting a leaf adds one new leaf. Trimming decreases this.
     pub num_leaves_delta: i32,
+    /// The net change in the number of inverted-index blocks across all leaves touched by
+    /// this add. Block growth (writes spilling into a new block, new leaves created by a
+    /// split) contributes positively; range removals during rebalancing (`remove_range`,
+    /// rotations dropping an internal node's retained range) contribute negatively.
+    pub block_count_delta: i32,
 }
 
 /// Result of trimming empty leaves from the tree.
@@ -82,6 +87,9 @@ pub struct TrimEmptyLeavesResult {
     pub num_ranges_delta: i32,
     /// The net change in the number of leaf nodes.
     pub num_leaves_delta: i32,
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
+    pub block_count_delta: i32,
 }
 
 /// Aggregate statistics for a [`NumericRangeTree`].
@@ -143,7 +151,7 @@ pub struct NumericRangeTree {
     /// Aggregate statistics for the tree.
     stats: TreeStats,
     /// The last document ID added to the tree.
-    last_doc_id: t_docId,
+    last_doc_id: DocId,
     /// Revision ID, incremented when the tree structure changes (splits/rotations).
     ///
     /// When `revision_id != 0`, it indicates the tree nodes have changed and
@@ -258,7 +266,7 @@ impl NumericRangeTree {
     }
 
     /// Get the last document ID added to the tree.
-    pub const fn last_doc_id(&self) -> t_docId {
+    pub const fn last_doc_id(&self) -> DocId {
         self.last_doc_id
     }
 

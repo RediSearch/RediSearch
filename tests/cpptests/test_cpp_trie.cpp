@@ -9,8 +9,8 @@
 
 
 #include "gtest/gtest.h"
+#include "trie/trie_node.h"
 #include "trie/trie.h"
-#include "trie/trie_type.h"
 #include "redismock/redismock.h"
 
 #include <set>
@@ -40,7 +40,7 @@ static void *triePayload(Trie *t, const char *s, size_t len, bool exact) {
   rune *runes = runeBufFill(s, len, &buf, &len);
   TrieNode *node = Trie_GetNode(t, runes, len, exact, NULL);
   runeBufFree(&buf);
-  return (node && node->payload) ? node->payload->data : nullptr;
+  return TrieNode_GetPayloadData(node);
 }
 
 static int rangeFunc(const rune *u16, size_t nrune, void *ctx, void *payload, size_t numDocsInTerm) {
@@ -158,6 +158,38 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   // No min, but has a max
   ret = trieIterRange(t, NULL, "5");
   ASSERT_EQ(445, ret.size());
+
+  TrieType_Free(t);
+}
+
+// Regression test for `rangeIterate` double-emission when the boundary value
+// is a proper prefix of a child's collapsed label. The fixture uses textual
+// terms (rather than testBasicRange's numeric ones) so that root children
+// like "ban" have multi-character labels — only those expose the bug, because
+// `rsb_gt`/`rsb_lt` treat e.g. "b" < "ban" and thus include the boundary
+// child in the for-loop alongside the dedicated boundary recursion above it.
+// `rangeFunc`'s `assert(e->end() == e->find(xs))` aborts on any duplicate
+// emission, so a clean run is the regression signal.
+TEST_F(TrieTest, testRangeBoundaryPrefix) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  for (const char *term : {"apple", "banana", "band", "bandana", "cherry", "date"}) {
+    ASSERT_TRUE(trieInsert(t, term));
+  }
+
+  // Min-only: [b, +inf). "b" is a proper prefix of the collapsed "ban" label.
+  // Pre-fix: ban-subtree fires once via the boundary recursion and again
+  // via the for-loop (`rsb_gt("b")` returns the same index as `beginEqIdx`).
+  auto retMin = trieIterRange(t, "b", NULL);
+  ElemSet expectedMin{"banana", "band", "bandana", "cherry", "date"};
+  EXPECT_EQ(expectedMin, retMin);
+
+  // Max-only: (-inf, banb). "ban" is a proper prefix of "banb", so
+  // `rsb_lt("banb")` includes the "ban" subtree alongside the boundary
+  // recursion. After the fix only entries strictly less than "banb" surface
+  // ("band"/"bandana" are lex-greater than "banb").
+  auto retMax = trieIterRange(t, NULL, "banb");
+  ElemSet expectedMax{"apple", "banana"};
+  EXPECT_EQ(expectedMax, retMax);
 
   TrieType_Free(t);
 }
@@ -291,7 +323,7 @@ TEST_F(TrieTest, testLexOrder) {
   trieInsert(t, "bar");
   trieInsert(t, "help");
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "bar");
   checkNext(iter, "foo");
   checkNext(iter, "helen");
@@ -304,7 +336,7 @@ TEST_F(TrieTest, testLexOrder) {
   Trie_Delete(t, "hello", 5);
   Trie_Delete(t, "world", 5);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -339,7 +371,7 @@ TEST_F(TrieTest, testScoreOrder) {
   trieInsertByScore(t, "help", 3);
   trieInsertByScore(t, "helen", 5);
 
-  TrieIterator *iter = Trie_Iterate(t, "", 0, 0, 1);
+  TrieIterator *iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "hello");
@@ -352,7 +384,7 @@ TEST_F(TrieTest, testScoreOrder) {
   Trie_Delete(t, "world", 5);
   Trie_Delete(t, "bar", 3);
 
-  iter = Trie_Iterate(t, "", 0, 0, 1);
+  iter = Trie_IterateAll(t);
   checkNext(iter, "foo");
   checkNext(iter, "helen");
   checkNext(iter, "help");
@@ -382,8 +414,8 @@ static bool compareTrieContents(Trie *original, Trie *loaded) {
   }
 
   // Compare all entries using iterators
-  TrieIterator *origIter = Trie_Iterate(original, "", 0, 0, 1);
-  TrieIterator *loadedIter = Trie_Iterate(loaded, "", 0, 0, 1);
+  TrieIterator *origIter = Trie_IterateAll(original);
+  TrieIterator *loadedIter = Trie_IterateAll(loaded);
 
   std::unique_ptr<TrieIterator, std::function<void(TrieIterator *)>> origIterPtr(origIter, [](TrieIterator *iter) {
     TrieIterator_Free(iter);
@@ -539,7 +571,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB (with payloads)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, true, true, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -605,7 +637,7 @@ TEST_F(TrieTest, testRdbSaveLoadPayloadsNotSerialized) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false)
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -666,7 +698,7 @@ TEST_F(TrieTest, testRdbSaveLoadWithoutPayloads) {
   io->read_pos = 0;
 
   // Load the trie from RDB WITHOUT payloads (loadPayloads = false) and numDocs (loadNumDocs = false) to match the save operation
-  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false);
+  Trie *loadedTrie = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Score);
   std::unique_ptr<Trie, std::function<void(Trie *)>> loadedTriePtr(loadedTrie, [](Trie *trie) {
     TrieType_Free(trie);
   });
@@ -797,8 +829,9 @@ TEST_F(TrieTest, testRdbSaveLoadLexSortedTrie) {
   // Compare the original and loaded tries
   EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(loadedTrie));
 
-  // Note: The loaded trie will have Trie_Sort_Score (default from TrieType_GenericLoad)
-  // but all the entries should still be present, even though the sorting mode changed
+  // Note: TrieType_RdbLoad (the registered TrieType callback) always reconstructs
+  // with Trie_Sort_Score because the only producer of the registered type is FT.SUGADD.
+  // All entries should still be present, even though the sorting mode changed.
 
   // Verify all entries are present in the loaded trie
   EXPECT_TRUE(trieContains(loadedTrie, "test"));
@@ -836,7 +869,51 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   if (node == NULL) {
     return 0;
   }
-  return node->numDocs;
+  return TrieNode_NumDocs(node);
+}
+
+// Regression: TrieType_GenericLoad must preserve sort mode across reload,
+// or Trie_IterateRange's binary search breaks on Lex-sourced tries.
+TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
+  Trie *original = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalPtr(
+      original, [](Trie *t) { TrieType_Free(t); });
+
+  // Single-char top-level entries so they become direct children of root.
+  // Scores scrambled so score-descending order != lex-ascending order.
+  struct E { const char *term; float score; };
+  E entries[] = {
+      {"a", 5},  {"b", 11}, {"c", 2},  {"d", 8},  {"e", 13},
+      {"f", 1},  {"g", 7},  {"h", 4},  {"i", 10}, {"j", 6},
+      {"k", 12}, {"l", 3},  {"m", 9},
+  };
+  for (auto &e : entries) {
+    ASSERT_TRUE(Trie_InsertStringBuffer(original, e.term, 1, e.score, 1, NULL, 0));
+  }
+  ASSERT_EQ(13, Trie_Size(original));
+
+  // Ground truth: lex range [d, j) on the original Lex trie.
+  ElemSet expected = trieIterRange(original, "d", "j");
+  ASSERT_EQ((ElemSet{"d", "e", "f", "g", "h", "i"}), expected);
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *p) { RMCK_FreeRdbIO(p); });
+  ASSERT_TRUE(io != nullptr);
+
+  // Round-trip via the generic loader (same path as disk-spec / legacy RDB load).
+  TrieType_GenericSave(io, original, false, false);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+  io->read_pos = 0;
+  Trie *loaded = (Trie *)TrieType_GenericLoad(io, false, false, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> loadedPtr(
+      loaded, [](Trie *t) { TrieType_Free(t); });
+  ASSERT_TRUE(loaded != nullptr);
+  ASSERT_EQ(Trie_Size(original), Trie_Size(loaded));
+
+  // Same range query on the same data must produce the same result set.
+  ElemSet actual = trieIterRange(loaded, "d", "j");
+  EXPECT_EQ(expected, actual);
 }
 
 TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
@@ -937,4 +1014,36 @@ TEST_F(TrieTest, testRdbSaveLoadWithNumDocs) {
   }
   EXPECT_EQ(6, count);
   TrieIterator_Free(it);
+}
+
+// Regression: Trie_CollectFuzzy(trim=1) used to mutate ret->top before reading the
+// tail entries it was about to free. Vector_Get then returned 0 without
+// touching the out pointer, so TrieSearchResult_Free(h) ran on stack garbage
+// and the allocator aborted. This test forces the trim drop branch (one entry
+// whose score dominates the rest by > SCORE_TRIM_FACTOR) and asserts both
+// non-abort and the surviving count.
+TEST_F(TrieTest, testSearchTrimDropsTail) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  trieInsertByScore(t, "ha", 100.0f);
+  trieInsertByScore(t, "hb", 1.0f);
+  trieInsertByScore(t, "hc", 1.0f);
+  trieInsertByScore(t, "hd", 1.0f);
+  trieInsertByScore(t, "he", 1.0f);
+
+  // num=10, maxDist=0, mode=TRIE_MATCH_PREFIX, trim=1, optimize=0
+  Vector *res = Trie_CollectFuzzy(t, "h", 1, 10, 0, TRIE_MATCH_PREFIX, 1, 0);
+  ASSERT_TRUE(res != NULL);
+
+  // Only the dominant entry should survive the trim: 1.0 < 100.0 / 10.0.
+  ASSERT_EQ(1, Vector_Size(res));
+
+  TrieSearchResult *e;
+  ASSERT_EQ(1, Vector_Get(res, 0, &e));
+  ASSERT_EQ(2, e->len);
+  ASSERT_EQ(0, memcmp(e->str, "ha", 2));
+  TrieSearchResult_Free(e);
+  Vector_Free(res);
+
+  TrieType_Free(t);
 }

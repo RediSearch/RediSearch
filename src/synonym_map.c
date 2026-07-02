@@ -9,10 +9,11 @@
 #include "spec.h"
 #include "synonym_map.h"
 #include "rmalloc.h"
-#include "util/fnv.h"
+#include "fnv_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "rdb.h"
 #include "util/likely.h"
+#include <inttypes.h>
 
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
@@ -88,7 +89,7 @@ TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
   if (unlikely(ids_len > MAX_SYNONYM_GROUP_IDS)) {
     RedisModule_LogIOError(
         rdb, "warning",
-        "RDB Load: Synonym group IDs (%llu) exceeds maximum allowed (%d)",
+        "RDB Load: Synonym group IDs (%" PRIu64 ") exceeds maximum allowed (%d)",
         ids_len, MAX_SYNONYM_GROUP_IDS);
     goto cleanup;
   }
@@ -97,7 +98,7 @@ TermData* TermData_RdbLoad(RedisModuleIO* rdb, int encver) {
     char* groupId = NULL;
     if (encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID) {
       uint64_t id = LoadUnsigned_IOError(rdb, goto cleanup);
-      rm_asprintf(&groupId, "%ld", id);
+      rm_asprintf(&groupId, "%" PRIu64, id);
     } else {
       groupId = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
     }
@@ -168,43 +169,79 @@ SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const cha
 SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId) {
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
 
-  SynonymMapResult ret = SYNONYM_MAP_OK;
+  if (size == 0) {
+    return SYNONYM_MAP_OK;
+  }
+
+  // Lowercase every input synonym up front. We will validate against the
+  // limits before mutating the dictionary, so a failure leaves the map
+  // unchanged.
+  char** lowered = rm_malloc(sizeof(char*) * size);
   for (size_t i = 0; i < size; i++) {
-    // Check if we've reached the maximum number of terms
-    if (unlikely(dictSize(smap->h_table) >= MAX_SYNONYM_TERMS)) {
-      ret = SYNONYM_MAP_ERR_MAX_TERMS;
-      break;
-    }
-
-    char *lowerSynonym = rm_strdup(synonyms[i]);
-    size_t len = strlen(lowerSynonym);
-    char *dst = unicode_tolower(lowerSynonym, &len);
+    char* s = rm_strdup(synonyms[i]);
+    size_t len = strlen(s);
+    char* dst = unicode_tolower(s, &len);
     if (dst) {
-        rm_free(lowerSynonym);
-        lowerSynonym = dst;
+      rm_free(s);
+      s = dst;
     } else {
-      // No memory allocation, just ensure null termination
-      lowerSynonym[len] = '\0';
+      s[len] = '\0';
     }
+    lowered[i] = s;
+  }
 
-    TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
+  SynonymMapResult ret = SYNONYM_MAP_OK;
+
+  // Validation pass. Track distinct new terms via a temporary dict so we
+  // don't over-count duplicates within the input batch.
+  dict* pending_new = dictCreate(&dictTypeHeapStrings, NULL);
+  for (size_t i = 0; i < size; i++) {
+    TermData* termData = dictFetchValue(smap->h_table, lowered[i]);
     if (termData) {
-      // if term exists in dictionary, we should release the lower cased string
-      rm_free(lowerSynonym);
-    } else {
-      termData = TermData_New(lowerSynonym); //strtolower
-      dictAdd(smap->h_table, lowerSynonym, termData);
-    }
-    ret = TermData_AddId(termData, groupId);
-    if (ret != SYNONYM_MAP_OK) {
-      break;
+      // Existing term gains one group id iff it doesn't already have it.
+      if (!TermData_IdExists(termData, groupId) &&
+          array_len(termData->groupIds) >= MAX_SYNONYM_GROUP_IDS) {
+        ret = SYNONYM_MAP_ERR_MAX_GROUP_IDS;
+        break;
+      }
+    } else if (dictFind(pending_new, lowered[i]) == NULL) {
+      dictAdd(pending_new, lowered[i], NULL);
     }
   }
+  if (ret == SYNONYM_MAP_OK &&
+      unlikely(dictSize(smap->h_table) + dictSize(pending_new) > MAX_SYNONYM_TERMS)) {
+    ret = SYNONYM_MAP_ERR_MAX_TERMS;
+  }
+  dictRelease(pending_new);
+
+  if (ret != SYNONYM_MAP_OK) {
+    for (size_t i = 0; i < size; i++) {
+      rm_free(lowered[i]);
+    }
+    rm_free(lowered);
+    return ret;
+  }
+
+  // Apply pass. Validation guarantees TermData_AddId cannot fail here.
+  for (size_t i = 0; i < size; i++) {
+    TermData* termData = dictFetchValue(smap->h_table, lowered[i]);
+    if (termData) {
+      rm_free(lowered[i]);
+    } else {
+      termData = TermData_New(lowered[i]);
+      dictAdd(smap->h_table, lowered[i], termData);
+    }
+    SynonymMapResult r = TermData_AddId(termData, groupId);
+    RS_LOG_ASSERT(r == SYNONYM_MAP_OK,
+                  "SynonymMap_Update: TermData_AddId failed after validation");
+  }
+  rm_free(lowered);
+
   if (smap->read_only_copy) {
     SynonymMap_Free(smap->read_only_copy);
     smap->read_only_copy = NULL;
   }
-  return ret;
+  return SYNONYM_MAP_OK;
 }
 
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len) {

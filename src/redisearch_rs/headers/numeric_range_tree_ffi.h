@@ -10,6 +10,7 @@
 #include "redisearch.h"
 #include "redismodule.h"
 #include "numeric_range_tree.h"
+#include "rqe_core.h"
 
 /**
  * Status of a [`NumericRangeTree_ApplyGcEntry`] call.
@@ -196,6 +197,20 @@ const struct NumericRange *NumericRangeNode_GetRange(const struct NumericRangeNo
 void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
 /**
+ * Get the estimated cardinality (number of distinct values) for a range.
+ *
+ * This uses HyperLogLog estimation and may have some error margin.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `range` must point to a valid [`NumericRange`] obtained from
+ *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
+ * - The tree from which this range came must still be valid.
+ */
+size_t NumericRange_GetCardinality(const struct NumericRange *range);
+
+/**
  * Conditionally trim empty leaves and compact the node slab.
  *
  * Checks if the number of empty leaves exceeds half the total number of
@@ -209,20 +224,6 @@ void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRang
  * - No iterators should be active on this tree while calling this function.
  */
 struct CompactIfSparseResult NumericRangeTree_CompactIfSparse(struct NumericRangeTree *t);
-
-/**
- * Get the estimated cardinality (number of distinct values) for a range.
- *
- * This uses HyperLogLog estimation and may have some error margin.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `range` must point to a valid [`NumericRange`] obtained from
- *   [`crate::node::NumericRangeNode_GetRange`] and cannot be NULL.
- * - The tree from which this range came must still be valid.
- */
-size_t NumericRange_GetCardinality(const struct NumericRange *range);
 
 /**
  * Get the minimum value in a range.

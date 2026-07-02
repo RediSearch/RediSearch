@@ -9,8 +9,8 @@
 
 //! Heap variant of the union iterator with O(log n) min-finding.
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::utils::DocIdMinHeap;
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -126,7 +126,7 @@ where
     }
 
     /// Advances children at the heap root whose `last_doc_id` equals `current_id`.
-    fn advance_matching_children(&mut self, current_id: t_docId) -> Result<(), RQEIteratorError> {
+    fn advance_matching_children(&mut self, current_id: DocId) -> Result<(), RQEIteratorError> {
         if self.heap.is_empty() {
             return Ok(());
         }
@@ -154,7 +154,7 @@ where
     ///
     /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
     /// (heap property guarantees all descendants are also `>= doc_id`).
-    fn build_aggregate_result(&mut self, min_id: t_docId) {
+    fn build_aggregate_result(&mut self, min_id: DocId) {
         self.result.reset_aggregate();
         self.result.doc_id = min_id;
 
@@ -230,7 +230,7 @@ where
     /// In `QUICK_EXIT` mode, returns the child index on an exact match,
     /// leaving remaining lagging children for the next call.
     /// Returns `usize::MAX` if no exact match was found.
-    fn advance_lagging_children(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
+    fn advance_lagging_children(&mut self, doc_id: DocId) -> Result<usize, RQEIteratorError> {
         if self.heap.is_empty() {
             return Ok(usize::MAX);
         }
@@ -268,7 +268,7 @@ where
     /// On the first call (heap empty), initializes the heap by skipping every
     /// child to the target. Otherwise delegates to [`Self::advance_lagging_children`].
     /// Returns a child index on early match, or `usize::MAX` if none.
-    fn advance_to(&mut self, doc_id: t_docId) -> Result<usize, RQEIteratorError> {
+    fn advance_to(&mut self, doc_id: DocId) -> Result<usize, RQEIteratorError> {
         if self.heap.is_empty() && self.last_doc_id() == 0 {
             for (idx, child) in self.children.iter_mut().enumerate() {
                 if child.at_eof() {
@@ -362,7 +362,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.is_eof {
             return Ok(None);
@@ -410,7 +410,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 

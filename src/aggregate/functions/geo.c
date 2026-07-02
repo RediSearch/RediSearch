@@ -10,7 +10,7 @@
 #include "function.h"
 #include "value_ffi.h"
 #include "aggregate/expr/expression.h"
-#include "rs_geo.h"
+#include "geo_ffi.h"
 
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {
@@ -20,12 +20,10 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
   if (RSValue_IsString(val)) {
     size_t len;
     const char *p = RSValue_StringPtrLen(val, &len);
-    rv = parseGeo(p, len, &geo[0], &geo[1], status);
+    rv = parseGeo((const uint8_t *)p, len, &geo[0], &geo[1], status);
   } else if (RSValue_IsNumber(val)) {
     double dbl = RSValue_Number_Get(val);
-    if (decodeGeo(dbl, geo) == 0) {
-      rv = REDISMODULE_ERR;
-    }
+    decodeGeo(dbl, geo);
   } else {
     rv = REDISEARCH_ERR;
   }

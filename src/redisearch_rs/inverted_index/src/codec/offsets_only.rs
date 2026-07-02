@@ -9,13 +9,14 @@
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
-use ffi::t_docId;
 use qint::{qint_decode, qint_encode};
+use rqe_core::DocId;
 
 use crate::{
-    Decoder, Encoder, RSIndexResult, TermDecoder,
+    Decoder, Encoder, TermDecoder,
     full::{decode_term_record_offsets, offsets},
 };
+use index_result::RSIndexResult;
 
 /// Encode and decode the offsets of a term record.
 ///
@@ -52,7 +53,7 @@ impl Decoder for OffsetsOnly {
     #[inline(always)]
     fn decode<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        base: t_docId,
+        base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
         let (decoded_values, _bytes_consumed) = qint_decode::<2, _>(cursor)?;
@@ -67,8 +68,8 @@ impl Decoder for OffsetsOnly {
 
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
-        mut base: t_docId,
-        target: t_docId,
+        mut base: DocId,
+        target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<bool> {
         let offsets_sz = loop {
@@ -80,7 +81,7 @@ impl Decoder for OffsetsOnly {
                 Err(error) => return Err(error),
             };
 
-            base += delta as t_docId;
+            base += delta as DocId;
 
             if base >= target {
                 break offsets_sz;

@@ -47,8 +47,6 @@ def test_invalid_field_type(env):
         .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
-        .error().contains('NUMERIC fields are not supported in Flex indexes')
 
 
 @skip(cluster=True)
@@ -375,7 +373,7 @@ def test_flex_blocks_dict_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_disk_hnsw_rerank_requires_true_value(env):
+def test_flex_disk_hnsw_rerank_value(env):
     env.expect(
         'FT.CREATE', 'idx_ok', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'v', 'VECTOR', 'HNSW', '14',
@@ -386,6 +384,18 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'EF_CONSTRUCTION', '200',
         'EF_RUNTIME', '10',
         'RERANK', 'TRUE',
+    ).ok()
+
+    env.expect(
+        'FT.CREATE', 'idx_ok_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'FALSE',
     ).ok()
 
     env.expect(
@@ -412,7 +422,7 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
     ).error().contains('RERANK requires an argument')
 
     env.expect(
-        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'FT.CREATE', 'idx_bad_value', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
         'v', 'VECTOR', 'HNSW', '14',
         'TYPE', 'FLOAT32',
         'DIM', '2',
@@ -420,8 +430,8 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'M', '16',
         'EF_CONSTRUCTION', '200',
         'EF_RUNTIME', '10',
-        'RERANK', 'FALSE',
-    ).error().contains('Syntax error: RERANK only supports TRUE currently')
+        'RERANK', 'MAYBE',
+    ).error().contains('Syntax error: RERANK value must be TRUE or FALSE')
 
     env.expect(
         'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
@@ -435,6 +445,132 @@ def test_flex_disk_hnsw_rerank_requires_true_value(env):
         'RERANK', 'TRUE',
         'RERANK', 'TRUE',
     ).error().contains('Duplicate RERANK parameter')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_float16(env):
+    # MOD-15148: disk HNSW vector indexes accept FLOAT16 in addition to FLOAT32,
+    # while every other element type is still rejected. Creation only.
+    env.expect(
+        'FT.CREATE', 'idx_fp16', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT16',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # FLOAT32 remains accepted (no regression).
+    env.expect(
+        'FT.CREATE', 'idx_fp32', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # Unsupported element types are still rejected on disk.
+    for vec_type in ('FLOAT64', 'BFLOAT16', 'INT8', 'UINT8'):
+        env.expect(
+            'FT.CREATE', f'idx_{vec_type.lower()}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', vec_type,
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK', 'TRUE',
+        ).error().contains('Disk index does not support')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(False)
+def test_ram_hnsw_rerank_rejected(env):
+    # In RAM mode RERANK is a disk-only option and must be rejected outright,
+    # including the otherwise-valid RERANK TRUE form (MOD-16015). The disk guard
+    # is the first check in the RERANK branch, so it short-circuits before the
+    # duplicate / missing-arg / value checks and never reads what follows the
+    # keyword. We therefore reject every RERANK form identically:
+    #   - RERANK TRUE: the form the bug silently accepted.
+    #   - RERANK FALSE: a valid value that is still disk-only in RAM mode.
+    #   - RERANK with no value: the guard fires before the missing-arg check.
+    #   - duplicate RERANK: pins the guard's precedence over the other RERANK
+    #     checks, so reordering them would surface as a regression here.
+    err = 'RERANK is only supported for disk-based vector indexes'
+
+    env.expect(
+        'FT.CREATE', 'idx_true', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_false', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '8',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'FALSE',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_no_value', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '7',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK',
+    ).error().contains(err)
+
+    env.expect(
+        'FT.CREATE', 'idx_dup', 'ON', 'HASH', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '10',
+        'TYPE', 'FLOAT32',
+        'DIM', '2',
+        'DISTANCE_METRIC', 'L2',
+        'RERANK', 'TRUE',
+        'RERANK', 'TRUE',
+    ).error().contains(err)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
+    # _SIMULATE_IN_FLEX validates syntax but does not persist the rerank value
+    # (it is discarded in parseVectorField when sp->diskSpec is NULL), and the
+    # RDB save/load gate is on SearchDisk_IsEnabled() so no byte is written
+    # either. The value-preservation check therefore lives in C/Enterprise CI
+    # where isFlex is true; here we only confirm the dump/reload path stays
+    # error-free across both rerank settings.
+    for idx, rerank_value in [('idx_rerank_true', 'TRUE'), ('idx_rerank_false', 'FALSE')]:
+        env.expect(
+            'FT.CREATE', idx, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', 'FLOAT32',
+            'DIM', '2',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '100',
+            'EF_RUNTIME', '10',
+            'RERANK', rerank_value,
+        ).ok()
+
+    env.dumpAndReload()
+
+    for idx in ('idx_rerank_true', 'idx_rerank_false'):
+        env.expect('FT.INFO', idx).noError()
 
 
 @skip(cluster=True)
@@ -658,6 +794,56 @@ def test_flex_blocks_summarize_argument(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_flex_blocks_dialect_4(env):
+    """Test that DIALECT 4 is blocked in Redis Flex while dialects 1-3 work.
+
+    DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE) by default, which
+    relies on RAM-only structures (DocTable / NumericRangeTree) that disk specs
+    do not populate, so it is unsupported on disk (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    # Dialects 1-3 still return the document on a disk index.
+    for dialect in (1, 2, 3):
+        env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', str(dialect)) \
+            .equal([1, 'doc:1'])
+
+    # DIALECT 4 is rejected.
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'DIALECT', '4') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_withoutcount_argument(env):
+    """Test that WITHOUTCOUNT is blocked in Redis Flex.
+
+    WITHOUTCOUNT explicitly enables the query optimizer (QEXEC_OPTIMIZE), which
+    is unsupported on disk for the same reason as DIALECT 4 (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'WITHOUTCOUNT') \
+        .error().contains('WITHOUTCOUNT is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_configured_default_dialect_4(env):
+    """Test that a configured default of DIALECT 4 is also blocked in Redis Flex.
+
+    When the query omits an explicit DIALECT it inherits search-default-dialect,
+    so a default of 4 must be rejected too (MOD-15997).
+    """
+    _create_flex_search(env)
+
+    env.expect('CONFIG', 'SET', 'search-default-dialect', '4').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT') \
+        .error().contains('DIALECT 4 is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_blocks_sortby_on_non_vector_fields(env):
     """Test that SORTBY on non-vector-score fields is blocked in Redis Flex"""
     _create_flex_search(env)
@@ -796,46 +982,6 @@ def test_flex_blocks_spellcheck_command(env):
     env.expect('FT.SPELLCHECK', 'idx', 'helo') \
         .error().contains('FT.SPELLCHECK is not supported in Redis Flex')
 
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_prefix_query(env):
-    """Test that prefix queries on TEXT fields are blocked in Flex mode"""
-    _create_flex_search(env)
-
-    # Prefix query using `*` suffix
-    env.expect('FT.SEARCH', 'idx', 'hel*', 'NOCONTENT') \
-        .error().contains('Prefix queries are not supported on Flex indexes')
-
-    # Prefix query scoped to a field
-    env.expect('FT.SEARCH', 'idx', '@t:hel*', 'NOCONTENT') \
-        .error().contains('Prefix queries are not supported on Flex indexes')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_wildcard_pattern_query(env):
-    """Test that wildcard-pattern queries on TEXT fields are blocked in Flex mode"""
-    _create_flex_search(env)
-
-    # Wildcard pattern query using w'...' syntax (dialect 2+)
-    env.expect('FT.SEARCH', 'idx', "w'hel*o'", 'NOCONTENT', 'DIALECT', '2') \
-        .error().contains('Wildcard pattern queries are not supported on Flex indexes')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_blocks_fuzzy_query(env):
-    """Test that fuzzy queries on TEXT fields are blocked in Flex mode"""
-    _create_flex_search(env)
-
-    # Single-level fuzzy
-    env.expect('FT.SEARCH', 'idx', '%hello%', 'NOCONTENT') \
-        .error().contains('Fuzzy queries are not supported on Flex indexes')
-
-    # Triple-level fuzzy
-    env.expect('FT.SEARCH', 'idx', '%%%hello%%%', 'NOCONTENT') \
-        .error().contains('Fuzzy queries are not supported on Flex indexes')
 
 def _create_flex_tag(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'tag', 'TAG').ok()

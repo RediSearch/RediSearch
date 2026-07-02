@@ -16,7 +16,7 @@
 //! irrelevant — only their addresses matter.
 
 use ffi::RLookupKey;
-use inverted_index::{MetricEntry, MetricsVec};
+use index_result::{MetricEntry, MetricsVec};
 use std::ptr;
 
 /// Builds a zero-initialized `RLookupKey` suitable for pointer-identity tests.
@@ -105,7 +105,7 @@ fn entry_with_key_not_equal_to_keyless_entry() {
 
 #[test]
 fn new_vec_is_empty() {
-    let v: MetricsVec<'_> = MetricsVec::new();
+    let v: MetricsVec = MetricsVec::new();
     assert!(v.is_empty());
     assert_eq!(v.len(), 0);
     assert!(v.get(0).is_none());
@@ -114,7 +114,7 @@ fn new_vec_is_empty() {
 
 #[test]
 fn default_matches_new() {
-    let v: MetricsVec<'_> = MetricsVec::default();
+    let v: MetricsVec = MetricsVec::default();
     assert!(v.is_empty());
     assert_eq!(v.len(), 0);
     assert_eq!(v, MetricsVec::new());
@@ -309,7 +309,7 @@ fn as_metrics_slice_matches_entries() {
 
 #[test]
 fn as_metrics_slice_on_empty_vec_has_zero_len() {
-    let v: MetricsVec<'_> = MetricsVec::new();
+    let v: MetricsVec = MetricsVec::new();
     let slice = v.as_metrics_slice();
     // `data` may be a dangling-but-non-null sentinel for an empty ThinVec —
     // we don't constrain its value, only that `len == 0` so consumers cannot

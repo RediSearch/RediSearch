@@ -73,7 +73,7 @@ static void testAverage() {
   printf("Printing local plan\n");
   AGPLN_Dump(plan);
 
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   rc = AREQ_BuildPipeline(r, &status);
@@ -94,7 +94,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -119,7 +119,7 @@ static void testCountDistinct() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
@@ -132,7 +132,7 @@ static void testCountDistinct() {
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
@@ -157,7 +157,7 @@ static void testSplit() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }

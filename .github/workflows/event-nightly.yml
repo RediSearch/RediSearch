@@ -7,8 +7,6 @@ on:
   schedule:
     - cron: "20 20 * * *"
 
-# TODO: Use RedisJSON's `master` branch when testing on nightly
-
 jobs:
   lint:
     permissions:
@@ -30,9 +28,12 @@ jobs:
     with:
       platform: all
       architecture: all
-      redis-ref: 3cd464263b03b425ffae2e23db24df3dc9346871
-      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      # Track unstable so nightly catches upstream Redis breakage; PR/merge
+      # CI uses the latest release.
+      redis-ref: unstable
+      job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
+      rejson-branch: master
 
   micro-benchmarks:
     permissions:
@@ -46,14 +47,40 @@ jobs:
     needs: [lint, test-all-platforms, micro-benchmarks]
     if: failure()
     runs-on: ubuntu-slim
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
+      - name: Checkout repository
+        uses: actions/checkout@v6
         with:
+          # Triage only needs the local workflow/action files. Codex then reads
+          # untrusted CI logs and emits external output, so don't leave a usable
+          # git credential available to later steps.
+          persist-credentials: false
+
+      - name: Collect failure context
+        id: failure-context
+        uses: ./.github/actions/ci-failure-context
+
+      - name: Run Codex triage
+        id: ai_triage
+        uses: ./.github/actions/codex-ci-triage
+        with:
+          openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
+          prompt-file: .github/codex/prompts/nightly-triage.md
+
+      - name: Notify Failure
+        if: always()
+        uses: slackapi/slack-github-action@v3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
+          webhook-type: webhook-trigger
+          errors: true  # fail step on Slack delivery errors; v3 default silently retries
           payload: |
             {
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}"
+              "repository": "${{ github.repository }}",
+              "failed_jobs": ${{ toJson(steps.failure-context.outputs.failed-jobs) }},
+              "ai_triage": ${{ steps.ai_triage.outputs.triage-exists == 'true' && steps.ai_triage.outputs.triage-content-json || '""' }}
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}

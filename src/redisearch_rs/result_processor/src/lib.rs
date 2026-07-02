@@ -18,8 +18,13 @@
 //! the database indexes.
 
 pub mod counter;
-#[cfg(test)]
-mod test_utils;
+/// Test harness (`Chain`, `from_iter`, `ResultRP`) for driving result processors in pure Rust.
+///
+/// Exposed behind the `test-utils` feature so other crates (e.g. `redisearch_disk`) can build
+/// their own result processors against the real [`Context`]/[`Upstream`] machinery in tests,
+/// since [`Context`] has no public constructor. Always available to this crate's own tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 use pin_project::pin_project;
 use search_result::SearchResult;

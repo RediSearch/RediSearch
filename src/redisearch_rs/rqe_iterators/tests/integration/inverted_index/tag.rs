@@ -9,9 +9,11 @@
 
 //! Tests for the tag inverted index iterator.
 
-use ffi::{IndexFlags_Index_DocIdsOnly, RS_FIELDMASK_ALL, t_docId};
-use inverted_index::{RSIndexResult, doc_ids_only::DocIdsOnly};
+use ffi::IndexFlags_Index_DocIdsOnly;
+use index_result::RSIndexResult;
+use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
@@ -22,7 +24,7 @@ struct TagBaseTest {
 }
 
 impl TagBaseTest {
-    fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+    fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
         RSIndexResult::build_term()
             .doc_id(doc_id)
             .field_mask(RS_FIELDMASK_ALL)
@@ -123,7 +125,7 @@ mod not_miri {
     }
 
     impl TagRevalidateTest {
-        fn expected_record(doc_id: t_docId) -> RSIndexResult<'static> {
+        fn expected_record(doc_id: DocId) -> RSIndexResult<'static> {
             RSIndexResult::build_term()
                 .doc_id(doc_id)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -208,7 +210,7 @@ mod not_miri {
         // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
         let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
@@ -261,7 +263,7 @@ mod not_miri {
         let tag_index = test.test.context.tag_index();
         // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
         // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::opaque::TrieMap>() };
+        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
         let old_val = trie.remove(b"test_tag");
         assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
 

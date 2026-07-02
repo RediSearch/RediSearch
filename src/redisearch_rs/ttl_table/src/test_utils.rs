@@ -9,11 +9,9 @@
 
 use std::num::NonZeroUsize;
 
-use ffi::t_docId;
-use libc::timespec;
-use thin_vec::ThinVec;
-
-use crate::FieldExpiration;
+use crate::{FieldExpiration, FieldExpirations};
+use ffi::t_expirationTimePoint as timespec;
+use rqe_core::{DocId, FieldMask};
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -26,8 +24,8 @@ pub const fn ts(sec: i64, nsec: i64) -> timespec {
     }
 }
 
-pub const DOC_ID_1: t_docId = 1;
-pub const DOC_ID_2: t_docId = 4;
+pub const DOC_ID_1: DocId = 1;
+pub const DOC_ID_2: DocId = 4;
 pub const FIELD_INDEX_1: u16 = 3;
 pub const FIELD_INDEX_2: u16 = 5;
 pub const FIELD_INDEX_3: u16 = 6;
@@ -43,12 +41,25 @@ pub const NEVER: timespec = ts(0, 0);
 
 pub const TEST_MAX_SIZE: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
 
-pub const fn empty_fields() -> ThinVec<FieldExpiration> {
-    ThinVec::new()
+pub const fn empty_fields() -> FieldExpirations {
+    FieldExpirations::new()
 }
 
 pub const fn fe(index: u16, point: timespec) -> FieldExpiration {
     FieldExpiration { index, point }
+}
+
+/// Builds a [`FieldExpirations`] from a `[FieldExpiration; N]` literal.
+///
+/// Entries are appended via [`FieldExpirations::push`], so a misordered or
+/// duplicate-index literal panics loudly instead of silently violating the
+/// container's invariant.
+pub fn fes<const N: usize>(arr: [FieldExpiration; N]) -> FieldExpirations {
+    let mut fields = FieldExpirations::new();
+    for fe in arr {
+        fields.push(fe);
+    }
+    fields
 }
 
 /// Identity mapping from bit position → field index (bit `i` ↔ field `i`).
@@ -56,10 +67,14 @@ pub fn identity_ft_id() -> Vec<u16> {
     (0u16..128).collect()
 }
 
-pub fn mask_bit(indexes: &[u16]) -> u32 {
+pub fn mask_bit(indexes: &[u16]) -> FieldMask {
     indexes.iter().map(|index| 1 << index).sum()
 }
 
 pub fn mask_bit_u128(indexes: &[u16]) -> u128 {
     indexes.iter().map(|index| 1 << index).sum()
+}
+
+pub fn mask_bit_u64(indexes: &[u16]) -> u64 {
+    indexes.iter().map(|index| 1u64 << index).sum()
 }

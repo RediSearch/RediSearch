@@ -9,12 +9,11 @@
 
 //! Tests for [`new_not_iterator`].
 
-use std::time::Duration;
-
-use ffi::t_docId;
+use rqe_core::DocId;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, SkipToOutcome, Wildcard,
     not_reducer::{NewNotIterator, new_not_iterator},
+    utils::NoTimeout,
 };
 use rqe_iterators_test_utils::MockContext;
 
@@ -24,15 +23,15 @@ use crate::utils::Mock;
 /// returning the result alongside the context (to keep it alive).
 fn call_new_not_iterator<'a, I>(
     child: I,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     ctx: &'a MockContext,
-) -> NewNotIterator<'a, I>
+) -> NewNotIterator<'a, I, NoTimeout>
 where
     I: RQEIterator<'a> + 'a,
 {
     // SAFETY: `MockContext` guarantees valid FFI structures for the lifetime
-    // of the context.
-    unsafe { new_not_iterator(child, max_doc_id, 1.0, Duration::ZERO, true, ctx.qctx()) }
+    // of the context. `NoTimeout` disables timeout checks at zero runtime cost.
+    unsafe { new_not_iterator(child, max_doc_id, 1.0, NoTimeout, ctx.qctx()) }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +214,7 @@ fn weight_is_propagated() {
     let weight = 0.42;
 
     // SAFETY: MockContext guarantees valid FFI structures.
-    let result = unsafe { new_not_iterator(child, 5, weight, Duration::ZERO, true, ctx.qctx()) };
+    let result = unsafe { new_not_iterator(child, 5, weight, NoTimeout, ctx.qctx()) };
 
     let NewNotIterator::Not(mut it) = result else {
         panic!("Expected Not variant");

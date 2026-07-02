@@ -145,8 +145,9 @@ int applyHybridDebugTimeout(HybridRequest *hreq, const HybridDebugParams *params
     PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(vector_req), AREQ_SearchCtx(vector_req), params->vsim_timeout_count);
   }
 
-  // Apply timeout to tail pipeline
-  if (params->tail_timeout_count > 0 && hreq->tailPipeline) {
+  // Apply timeout to the tail pipeline, but only when it was built: internal shard
+  // commands build only the depletion pipeline, leaving the tail empty (endProc NULL).
+  if (params->tail_timeout_count > 0 && hreq->tailPipeline && hreq->tailPipeline->qctx.endProc) {
     PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx, params->tail_timeout_count);
   }
 
@@ -190,9 +191,7 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
 
   int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
-    if (hybridParams.scoringCtx) {
-      HybridScoringContext_Free(hybridParams.scoringCtx);
-    }
+    HybridPipelineParams_Cleanup(&hybridParams);
     HybridRequest_DecrRef(hreq);
     return NULL;
   }
@@ -205,12 +204,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
 
   // Set request flags from hybridParams
   hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false) != REDISMODULE_OK) {
-    if (hybridParams.scoringCtx) {
-      HybridScoringContext_Free(hybridParams.scoringCtx);
-    }
+  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false, status) != REDISMODULE_OK) {
+    HybridPipelineParams_Cleanup(&hybridParams);
     HybridRequest_DecrRef(hreq);
-    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to build hybrid pipeline");
     return NULL;
   }
 

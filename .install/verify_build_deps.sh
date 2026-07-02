@@ -7,6 +7,22 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+source "$SCRIPT_DIR/version_compare.sh"
+
+should_check_cheadergen() {
+  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
+    0|OFF|off|false|FALSE|False|NO|no)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # ============================================
 # OS Detection
 # ============================================
@@ -50,6 +66,7 @@ declare -A os_package_checkers=(
   ["ubuntu"]="check_package_dpkg"
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
+  ["almalinux"]="check_package_rpm"
   ["amzn2"]="check_package_yum"
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
@@ -134,22 +151,18 @@ get_cmake_version() {
   cmake --version | grep "cmake version" | sed -E 's/.*cmake version ([0-9]+\.[0-9]+).*/\1/'
 }
 
+get_cheadergen_version() {
+  cheadergen --version 2>/dev/null | awk '{print $NF}' || echo "unknown"
+}
+
 # ==== Version Checkers ====
 
 check_min_version() {
-    local actual_version="$1"
-    local min_version="$2"
-
-    # Sort the versions from min to max, expecting the first one to be the minimum
-    [ "$(printf '%s\n' "$min_version" "$actual_version" | sort -V | head -n 1)" = "$min_version" ]
+  version_ge "$1" "$2"
 }
 
 check_max_version() {
-    local actual_version="$1"
-    local max_version="$2"
-
-    # Sort the versions from min to max, expecting the first one to be the actual_version
-    [ "$(printf '%s\n' "$max_version" "$actual_version" | sort -V | head -n 1)" = "$actual_version" ]
+  version_ge "$2" "$1"
 }
 
 # ====  Specialized Checkers ====
@@ -185,6 +198,12 @@ declare -A common_dependencies=(
   ["cmake"]="command"      # Verify using command -v
   ["cargo"]="command"      # Verify using command -v
 )
+
+# cheadergen is only needed when regenerating Rust C headers.
+# REDISEARCH_GENERATE_HEADERS=0 builds from checked-in headers.
+if should_check_cheadergen; then
+  common_dependencies["cheadergen"]="cheadergen"
+fi
 
 # Define OS-specific dependencies
 declare -A ubuntu_dependencies=(
@@ -232,7 +251,7 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
-elif [[ "$OS" == "rocky" ]]; then
+elif [[ "$OS" == "rocky" || "$OS" == "almalinux" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
   done
@@ -312,6 +331,19 @@ for dep in "${!dependencies[@]}"; do
     else
       echo -e "${RED}✗${NC}"
       missing_deps=true
+    fi
+  elif [[ "$verify_method" == "cheadergen" ]]; then
+    if ! check_command "$dep"; then
+      echo -e "${RED}✗${NC}"
+      missing_deps=true
+    else
+      actual_version=$(get_cheadergen_version)
+      if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+        echo -e "${GREEN}✓${NC}"
+      else
+        echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
+        missing_deps=true
+      fi
     fi
   else # no method is defined for this dependency
     echo -e "${YELLOW} (no method defined)${NC}"

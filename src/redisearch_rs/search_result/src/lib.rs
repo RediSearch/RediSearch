@@ -8,17 +8,23 @@
 */
 
 use enumflags2::{BitFlags, bitflags};
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
 use rlookup::RLookupRow;
+use rqe_core::DocId;
 use std::ptr::NonNull;
 
-use document_metadata::DocumentMetadata;
+use document_metadata::{DocumentMetadata, OwnedDocumentMetadata};
 
 #[bitflags]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SearchResultFlag {
-    ExpiredDoc = 1,
+    ExpiredDoc = 1 << 0,
+    /// `_index_result` owns its `RSIndexResult` allocation (created via
+    /// `IndexResult_DeepCopy` or equivalent). When set, `clear()` reconstitutes
+    /// the `Box` and drops it. When unset, `_index_result` is a borrow into an
+    /// iterator-owned slot and must not be freed here.
+    OwnsIndexResult = 1 << 1,
 }
 
 pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
@@ -29,7 +35,7 @@ pub type SearchResultFlags = enumflags2::BitFlags<SearchResultFlag>;
 #[derive(Debug)]
 #[repr(C)]
 pub struct SearchResult<'index> {
-    _doc_id: ffi::t_docId,
+    _doc_id: DocId,
     // not all results have score - TBD
     _score: f64,
 
@@ -44,7 +50,7 @@ pub struct SearchResult<'index> {
     // TODO resolve ownership (this is heap-allocated but owned by this search result??)
     _score_explain: Option<NonNull<ffi::RSScoreExplain>>,
 
-    _document_metadata: Option<DocumentMetadata>,
+    _document_metadata: Option<OwnedDocumentMetadata>,
 
     // index result should cover what you need for highlighting,
     // but we will add a method to duplicate index results to make
@@ -97,6 +103,15 @@ impl<'index> SearchResult<'index> {
             }
         }
 
+        // If we own the index_result, reclaim and drop the Box.
+        if self._flags.contains(SearchResultFlag::OwnsIndexResult)
+            && let Some(ir) = self._index_result.take()
+        {
+            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was populated from a `Box<RSIndexResult>`.
+            // Reconstituting and dropping the box reverses that allocation.
+            // The reference is unaliased because the SearchResult is the unique holder while the flag is set.
+            drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
+        }
         self._index_result = None;
 
         self._flags = SearchResultFlags::empty();
@@ -109,12 +124,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Sets the document ID of this search result.
-    pub const fn doc_id(&self) -> ffi::t_docId {
+    pub const fn doc_id(&self) -> DocId {
         self._doc_id
     }
 
     /// Sets the document ID of this search result.
-    pub const fn set_doc_id(&mut self, doc_id: ffi::t_docId) {
+    pub const fn set_doc_id(&mut self, doc_id: DocId) {
         self._doc_id = doc_id;
     }
 
@@ -160,12 +175,12 @@ impl<'index> SearchResult<'index> {
     }
 
     /// Returns an immutable reference to the [`DocumentMetadata`] associated with this search result.
-    pub fn document_metadata(&self) -> Option<&ffi::RSDocumentMetadata> {
+    pub fn document_metadata(&self) -> Option<&DocumentMetadata> {
         self._document_metadata.as_deref()
     }
 
     /// Sets the [`DocumentMetadata`] associated with this search result.
-    pub fn set_document_metadata(&mut self, document_metadata: Option<DocumentMetadata>) {
+    pub fn set_document_metadata(&mut self, document_metadata: Option<OwnedDocumentMetadata>) {
         self._document_metadata = document_metadata;
     }
 

@@ -67,6 +67,54 @@ def test_MOD_14800_persist_clears_expiration_metadata(env: Env):
     env.expect('HGET', 'doc:1', 't').equal('hello')
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello']])
 
+@skip(cluster=True, redis_less_than='8.0')
+def test_doc_expiration_preserves_field_expiration(env: Env):
+    # Regression: PEXPIRE/PERSIST on an indexed hash that also has HEXPIRE-
+    # managed field TTLs must leave the per-field TTL state intact.
+    #
+    # The keyspace-notification fast path Indexes_UpdateMatchingDocExpiration
+    # only needs to refresh dmd->expirationTimeNs. A previous implementation
+    # delegated through DocTable_UpdateExpiration -> DocTable_UpdateFieldExpiration
+    # with a NULL field array, which silently cleared the spec's TTL-table
+    # entry for the doc and "resurrected" fields that should remain expired.
+    conn = getConnectionByEnv(env)
+    # Pin the field's apparent expiration to the HFE table only; without this
+    # Redis would also remove the field server-side, masking the bug.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT', 'y', 'TEXT').ok()
+    # Both flags must be on: 'documents' so the EXPIRE/PERSIST path enters the
+    # spec at all, 'fields' so the HPEXPIRE below populates the TTL table.
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'documents', 'fields')
+
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'world')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', 'world')
+
+    # Mark doc:1.x as expired via the HFE table. Active expiration is off, so
+    # the field value stays in the hash; only the spec's TTL table filters it.
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.05)
+
+    # Sanity baseline: doc:1 is filtered out of @x queries, @y still hits both.
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # Drive Indexes_UpdateMatchingDocExpiration with a non-zero TTL. With the
+    # bug, this removes doc:1's HFE entry and @x:hello starts matching doc:1.
+    conn.execute_command('PEXPIRE', 'doc:1', '60000')
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # Same fast path, now with ttl == 0. Must also leave HFE state untouched.
+    conn.execute_command('PERSIST', 'doc:1')
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+    # And the unrelated field is unaffected throughout.
+    env.expect('FT.SEARCH', 'idx', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
 both_docs_no_sortby = "both_docs_no_sortby"
@@ -677,11 +725,12 @@ def testKeyPersistWithNonMatchingIndexes(env):
     # the non-matching indexes keep their pre-TTL view.
     conn = _setup_non_matching_indexes(env)
 
-    conn.execute_command('PEXPIRE', 'doc:1', '1')
-    # PERSIST runs synchronously on the main thread before the sleep, so it
-    # clears the DocTable expiration recorded by the PEXPIRE notification.
-    conn.execute_command('PERSIST', 'doc:1')
-    time.sleep(0.015)
+    # Use the same 100 ms / 200 ms timing as test_MOD_14800_persist_clears_expiration_metadata.
+    env.expect('PEXPIRE', 'doc:1', '100').equal(1)
+    env.expect('PERSIST', 'doc:1').equal(1)
+    # Sleep past the original PEXPIRE deadline: if PERSIST had failed to clear
+    # dmd->expirationTimeNs, DocTable_IsDocExpired would now filter doc:1 out.
+    time.sleep(0.2)
 
     # idx_match: PERSIST cleared the DocTable TTL, so DocTable_IsDocExpired
     # returns false and doc:1 is still visible.
@@ -689,6 +738,187 @@ def testKeyPersistWithNonMatchingIndexes(env):
         .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
     _assert_non_matching_indexes_unchanged(env)
+
+
+# Same scenario as testLazyVectorFieldExpiration but without INDEXMISSING, so the
+# HPEXPIRE notification routes through the TTL-table fast path rather than the
+# full reindex fallback. Verifies the fast path keeps KNN results consistent.
+@skip(redis_less_than='8.0')
+def testFastPathVectorFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE idx SCHEMA v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2 t TEXT n NUMERIC').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+    conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
+    conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
+    time.sleep(0.015)
+    env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+
+
+# Same scenario as testLazyGeoshapeFieldExpiration but without INDEXMISSING, so
+# the HPEXPIRE notification routes through the TTL-table fast path rather than
+# the full reindex fallback. Verifies the fast path keeps geoshape results
+# consistent.
+@skip(redis_less_than='8.0')
+def testFastPathGeoshapeFieldExpiration(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+    first = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    second = 'POLYGON((1 1, 1 120, 120 120, 120 1, 1 1))'
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    time.sleep(0.015)
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
+
+
+# Regression for the GEOSHAPE query iterator: read_single() applies the
+# field-expiration predicate (DocTable_CheckFieldExpirationPredicate),
+# but skip_to() historically did not.
+# A bare `@geom:[within ...]` query only ever drives the iterator via Read, so
+# the gap is invisible there. To reach skip_to(), the geoshape must be the
+# NON-leading child of an intersection: an intersection sorts children by
+# estimated result count and leads with the smallest via Read, driving the rest
+# via SkipTo. Here `@txt:hello` matches only 2 docs while the geoshape matches
+# all 12, so the text term leads and the geoshape is skipped to each candidate.
+# doc:1's geom field is expired, so it must be filtered out. Before the fix
+# skip_to() skipped the expiration check and doc:1 leaked into the results.
+@skip(cluster=True, redis_less_than='8.0')
+def testGeoshapeFieldExpirationSkipToPath(env):
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    shape = 'POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))'
+    # doc:1 and doc:2 carry the 'hello' term (2 estimated results) so the text
+    # term leads the intersection; doc:1's geom field is the one that expires.
+    conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', shape)
+    conn.execute_command('HSET', 'doc:2', 'txt', 'hello', 'geom', shape)
+    # Filler docs inflate the geoshape iterator's estimate well above the text
+    # term so the geoshape is the non-leading child driven via SkipTo.
+    for i in range(3, 13):
+        conn.execute_command('HSET', f'doc:{i}', 'txt', 'world', 'geom', shape)
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
+    # The text term 'hello' leads and drives the geoshape via SkipTo. doc:1's
+    # geom field is expired, so only doc:2 must survive the intersection.
+    env.expect('FT.SEARCH', 'idx', '@txt:hello @geom:[within $poly]',
+               'PARAMS', 2, 'poly', query, 'NOCONTENT').equal([1, 'doc:2'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testHashFieldExpirationWithNonMatchingIndexes(env):
+    # Cover Indexes_UpdateMatchingHashFieldExpiration (src/spec.c) when several
+    # indexes coexist but only some are affected by an HPEXPIRE notification.
+    # Three distinct ways an index can fail to match the hash are exercised:
+    #   - idx_other_prefix: PREFIX excludes the doc key entirely, so the spec
+    #                       is not even returned by FindMatchingSchemaRules.
+    #   - idx_other_field:  PREFIX matches but the schema does not reference
+    #                       the expiring field, so the per-field rebuild walks
+    #                       only schema fields with no new TTL and produces an
+    #                       unchanged view.
+    #   - idx_filter_skip:  PREFIX matches but the FILTER excludes the doc, so
+    #                       FindMatchingSchemaRules tags the op as SpecOp_Del.
+    # Only idx_match should reflect the field expiration; the others must keep
+    # serving their pre-expiration view of the data.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx_match', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'x', 'TEXT', 'y', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_prefix', 'ON', 'HASH',
+               'PREFIX', '1', 'other:',
+               'SCHEMA', 'x', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_other_field', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'SCHEMA', 'y', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_filter_skip', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'n', 'NUMERIC').ok()
+
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_match', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_other_prefix', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_other_field', 'fields')
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx_filter_skip', 'fields')
+
+    # n=1 fails the FILTER on idx_filter_skip but the PREFIX still selects
+    # these hashes for the keyspace-notification path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'world', 'n', '1')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', 'world', 'n', '1')
+    # other:1 belongs only to idx_other_prefix.
+    conn.execute_command('HSET', 'other:1', 'x', 'hello')
+
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    # idx_match: doc:1's x is expired, doc:2 still matches; y is untouched.
+    env.expect('FT.SEARCH', 'idx_match', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
+    env.expect('FT.SEARCH', 'idx_match', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # idx_other_field: schema only references 'y', which has no TTL, so the
+    # per-field rebuild yields an unchanged view and doc:1 stays searchable.
+    env.expect('FT.SEARCH', 'idx_other_field', '@y:world', 'NOCONTENT') \
+        .apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+    # idx_other_prefix: doc:1 was never selected by this index's PREFIX.
+    env.expect('FT.SEARCH', 'idx_other_prefix', '@x:hello', 'NOCONTENT') \
+        .equal([1, 'other:1'])
+
+    # idx_filter_skip: the FILTER excludes every doc, so the index stays empty
+    # and the SpecOp_Del branch in the fast path is exercised.
+    env.expect('FT.SEARCH', 'idx_filter_skip', '*', 'NOCONTENT').equal([0])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def testHashFieldExpirationFilterSkipWithIndexMissing(env):
+    # Regression for the HPEXPIRE fast path in Indexes_UpdateMatchingHashFieldExpiration:
+    # when a spec has any INDEXMISSING field, the fast path falls back to
+    # IndexSpec_UpdateDoc(). FindMatchingSchemaRules is invoked with
+    # runFilters=false, so the FILTER must still be honored on the fallback —
+    # otherwise an HPEXPIRE on a hash whose PREFIX matches but whose FILTER
+    # rejects it could incorrectly add the doc to the index.
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '@n == 100',
+               'SCHEMA', 'x', 'TEXT', 'INDEXMISSING', 'n', 'NUMERIC').ok()
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
+
+    # n=1 fails the FILTER, so doc:1 is never indexed. The PREFIX still
+    # selects it for the keyspace-notification fast path.
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'n', '1')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([0])
+
+    # HPEXPIRE on the FILTER-rejected doc must not add it to the index, even
+    # though the spec has an INDEXMISSING field that routes through the
+    # IndexSpec_UpdateDoc fallback.
+    conn.execute_command('HPEXPIRE', 'doc:1', '60000', 'FIELDS', '1', 'x')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([0])
+
+    # Sanity check: a hash that passes the FILTER is indexed normally, and an
+    # HPEXPIRE on its INDEXMISSING field flips it into the ismissing posting.
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'n', '100')
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
+    conn.execute_command('HPEXPIRE', 'doc:2', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.015)
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:2'])
 
 
 @skip(redis_less_than='7.3')

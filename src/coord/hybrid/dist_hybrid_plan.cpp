@@ -10,6 +10,7 @@
 #include "dist_hybrid_plan.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_lookup_context.h"
+#include "concurrent_ctx.h"
 
 
 static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {
@@ -29,7 +30,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
   for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
 
-      AREQ_AddRequestFlags(areq, QEXEC_F_BUILDPIPELINE_NO_ROOT);
+      AREQ_AddRequestFlags(areq, QEXEC_F_IS_COORDINATOR);
 
       int rc = AREQ_BuildPipeline(areq, &req->errors[i]);
       if (rc != REDISMODULE_OK) {
@@ -50,7 +51,8 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req, const Hy
       // The depleter will feed results to the hybrid merger
       RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread);
+      ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread,
+                                                     ConcurrentSearch_GetPool(req->poolId));
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
         pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));
@@ -120,13 +122,10 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     }
 
     RLookup_EnableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
-    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams);
+    rc = HybridRequest_BuildMergePipeline(hreq, scoreKey, hybridParams, status);
     RLookup_DisableOptions(tailLookup, RLOOKUP_OPT_ALLOWUNRESOLVED);
 
     if (rc != REDISMODULE_OK) {
-      // The error is set at the tail, copy it into status
-      QueryError_CloneFrom(&hreq->tailPipelineError, status);
-      QueryError_ClearError(&hreq->tailPipelineError);
       return NULL;
     }
 

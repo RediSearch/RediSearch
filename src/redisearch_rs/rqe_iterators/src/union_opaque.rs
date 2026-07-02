@@ -23,12 +23,14 @@
 
 use std::ffi::c_char;
 
-use ffi::{QueryNodeType, t_docId};
-use inverted_index::RSIndexResult;
+use ffi::QueryNodeType;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, UnionFullFlat,
     UnionFullHeap, UnionQuickFlat, UnionQuickHeap, UnionTrimmed,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 use index_spec::IndexSpecReadGuard;
@@ -161,7 +163,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     #[inline(always)]
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         delegate_variant_ref_mut!(self, skip_to, doc_id)
     }
@@ -185,7 +187,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         delegate_variant_ref!(self, last_doc_id)
     }
 
@@ -201,5 +203,73 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         delegate_variant_ref!(self, intersection_sort_weight, prioritize_union_children)
+    }
+}
+
+impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
+where
+    I: RQEIterator<'index> + ProfilePrint,
+{
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        use std::ffi::CStr;
+
+        let node_type = self.query_node_type;
+        // Union, Geo, and LexRange always print full children even in
+        // limited mode — these types have few enough children that
+        // collapsing them would lose useful information.
+        let print_full = !ctx.limited
+            || matches!(
+                node_type,
+                ffi::QueryNodeType::Union | ffi::QueryNodeType::Geo | ffi::QueryNodeType::LexRange
+            );
+
+        map.kv_simple_string(c"Type", c"UNION");
+
+        let type_str = match node_type {
+            ffi::QueryNodeType::Geo => "GEO",
+            ffi::QueryNodeType::Tag => "TAG",
+            ffi::QueryNodeType::Union => "UNION",
+            ffi::QueryNodeType::Fuzzy => "FUZZY",
+            ffi::QueryNodeType::Prefix => "PREFIX",
+            ffi::QueryNodeType::Numeric => "NUMERIC",
+            ffi::QueryNodeType::LexRange => "LEXRANGE",
+            ffi::QueryNodeType::WildcardQuery => "WILDCARD",
+            _ => unreachable!("Invalid type for union"),
+        };
+
+        let q_str_ptr = self.query_string;
+        if q_str_ptr.is_null() {
+            let value = std::ffi::CString::new(type_str).unwrap();
+            map.kv_simple_string(c"Query type", &value);
+        } else {
+            // SAFETY: q_str_ptr is a valid null-terminated C string (checked
+            // non-null). The pointee is owned by the query AST and outlives
+            // this iterator.
+            let q_str_rust = unsafe { CStr::from_ptr(q_str_ptr) }.to_string_lossy();
+            let formatted = format!("{type_str} - {q_str_rust}");
+            // Use string_buffer (bulk string) instead of simple_string: the
+            // query string may contain \r\n which is invalid in RESP Simple
+            // Strings.
+            map.kv_string_buffer(c"Query type", formatted.as_bytes());
+        }
+
+        ctx.print_optional_counters(map);
+
+        let num_children = self.num_children_total();
+
+        if print_full {
+            let mut arr = map.kv_array(c"Child iterators");
+            for i in 0..num_children {
+                if let Some(child) = self.child_at(i) {
+                    let mut child_map = arr.map();
+                    let mut child_ctx = ctx.child_ctx();
+                    child.print_profile(&mut child_map, &mut child_ctx);
+                }
+            }
+        } else {
+            let msg = format!("The number of iterators in the union is {num_children}");
+            let msg_cstr = std::ffi::CString::new(msg).unwrap();
+            map.kv_simple_string(c"Child iterators", &msg_cstr);
+        }
     }
 }

@@ -65,22 +65,38 @@ typedef struct HybridRequest {
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
 
-    // Array of cursors for reply_callback path (internal hybrid search).
+    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Non-NULL only after the initial cursor pipelines are safe to publish.
     // Protected by cursorMutex to synchronize with timeout callback.
     // Cleanup is handled by:
     // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and frees cursors if they were already created
-    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
+    // - timeout_callback: acquires lock and consumes published cursors, if any
+    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
+
+    // Thread pool ID used for coordinator depletion and tail continuation jobs.
+    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
+    // and scheduleHybridTail.
+    int poolId;
+    // Index of the K value argument in the MRCommand for SHARD_K_RATIO
+    // optimization.
+    // Set during command building, used by command modifier callback. -1 if
+    // not applicable.
+    int kArgIndex;
 } HybridRequest;
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
-bool HybridRequest_TimedOut(HybridRequest *req);
+static inline bool HybridRequest_TimedOut(HybridRequest *req) {
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
+}
+// Sets the hybrid request's timedOut flag and propagates it to every subquery
+// AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
+// blocked in MRChannel_PopWithTimeout exits as soon as the channel is woken.
 void HybridRequest_SetTimedOut(HybridRequest *req);
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback
@@ -109,6 +125,16 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
     }
   }
 }
+
+static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
+  return req->syncCtx.requiresAggregateResultsSync;
+}
+
+bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
+
+void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req);
+
+void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
@@ -203,9 +229,21 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @param req The HybridRequest containing the tail pipeline for merging
  * @param scoreKey The score key to use for writing the final score, could be null - won't write score in this case to the rlookup
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params);
+int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
+
+/**
+ * Free the heap-owned members of a HybridPipelineParams (scoring and EXPLAINSCORE
+ * contexts) and NULL them out, without freeing the params struct itself.
+ *
+ * Safe to call repeatedly and after ownership has been transferred to the merger
+ * (the relevant pointers are NULLed on transfer, so this becomes a no-op). Use it
+ * to release a stack- or caller-owned HybridPipelineParams on an error path before
+ * the merge pipeline is built; freeHybridParams() calls it for heap-allocated params.
+ */
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.
@@ -214,9 +252,10 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
  * @param req The HybridRequest to build the pipeline for
  * @param params Pipeline parameters including aggregation settings and scoring context, this function takes ownership of the scoring context
  * @param depleteInBackground Whether the pipeline should be built for asynchronous depletion
+ * @param status Query error status to report any construction errors
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
-int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground);
+int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
  * Increment the reference count of the HybridRequest.

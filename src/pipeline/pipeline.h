@@ -2,10 +2,29 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include "query_flags.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// Referenced only by pointer here; defined in hybrid/hybrid_search_result.h.
+typedef struct HybridExplainContext HybridExplainContext;
+
+/**
+ * Whether a buffering result processor must preserve each result's
+ * `RSIndexResult` past the point where it is buffered across an iterator
+ * advance, by deep-copying it.
+ *
+ * The index result is only read downstream of the buffering point by the
+ * highlighter (`QEXEC_F_SEND_HIGHLIGHT`) and by the `matched_terms()` aggregate
+ * function, which in turn only sees rich results when scores are requested.
+ * When neither is the case, the borrow can simply be dropped instead of copied.
+ */
+static inline bool QEFlags_RequireIndexResultsDownstream(QEFlags flags) {
+  return (flags & QEXEC_F_SEND_HIGHLIGHT) ||
+         (flags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD));
+}
 
 /**
  * Common parameters shared across different pipeline types in RediSearch.
@@ -32,6 +51,26 @@ typedef struct CommonPipelineParams {
   const char* scoreAlias;
 } CommonPipelineParams;
 
+typedef struct GroupByLimits {
+  /** Effective maximum number of GROUPBY groups this pipeline may materialize. */
+  size_t maxGroups;
+} GroupByLimits;
+
+static inline GroupByLimits GroupByLimits_Default(size_t maxGroups) {
+  GroupByLimits limits = {0};
+  limits.maxGroups = maxGroups;
+  return limits;
+}
+
+static inline GroupByLimits GroupByLimits_ForCoordinator(size_t maxGroups, size_t shardCount) {
+  GroupByLimits limits = GroupByLimits_Default(maxGroups);
+  if (shardCount == 0) {
+    shardCount = 1;
+  }
+  limits.maxGroups *= shardCount;
+  return limits;
+}
+
 /**
  * Parameters specific to result processing and output formatting pipeline construction.
  * This struct extends CommonPipelineParams with additional configuration needed for
@@ -54,12 +93,14 @@ typedef struct AggregationPipelineParams {
    *  over individual step limits when smaller. */
   size_t maxResultsLimit;
 
+  /** GROUPBY materialization limits for this pipeline. */
+  GroupByLimits groupByLimits;
+
   /** Language setting for text highlighting and language-specific processing.
    *  Used by highlighting result processors to apply proper stemming,
    *  tokenization, and markup for the specified language. */
   RSLanguage language;
 } AggregationPipelineParams;
-
 
 /**
  * Parameters specific to the document retrieval and scoring pipeline construction.
@@ -118,6 +159,12 @@ typedef struct HybridPipelineParams {
      *  are combined and scored. The pipeline takes ownership of this pointer and will
      *  free it during cleanup. Can be NULL for default scoring behavior. */
     HybridScoringContext *scoringCtx;
+
+    /** EXPLAINSCORE wrapper context (see HybridExplainContext), built at parse
+     *  time when EXPLAINSCORE is set. Ownership transfers to the hybrid merger in
+     *  HybridRequest_BuildMergePipeline; freed via HybridPipelineParams_Cleanup if
+     *  the merge pipeline is never built. NULL ⇒ no EXPLAINSCORE wrapping. */
+    HybridExplainContext *explainCtx;
 } HybridPipelineParams;
 
 /**

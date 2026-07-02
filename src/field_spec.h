@@ -119,7 +119,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params (diskCtx.storage is non-NULL for disk-based indexes)
+      // Disk index params. diskCtx.indexName is non-NULL exactly when the
+      // field is disk-backed; diskCtx.storage is non-NULL only once the
+      // index spec is open and PopulateVectorDiskParams has run. During
+      // SST replication load, FieldSpec_RdbLoad populates indexName early
+      // (before sp->diskSpec exists) so the disk teardown path is selected
+      // even if the load aborts before storage is bound.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
@@ -151,6 +156,7 @@ typedef struct FieldSpec {
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
 #define FieldSpec_IsPhonetics(fs) ((fs)->options & FieldSpec_Phonetics)
 #define FieldSpec_IsIndexable(fs) (0 == ((fs)->options & FieldSpec_NotIndexable))
+#define FieldSpec_IsIndexableText(fs) (FIELD_IS((fs), INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs))
 #define FieldSpec_HasSuffixTrie(fs) ((fs)->options & FieldSpec_WithSuffixTrie)
 #define FieldSpec_IsUndefinedOrder(fs) ((fs)->options & FieldSpec_UndefinedOrder)
 #define FieldSpec_IndexesEmpty(fs) ((fs)->options & FieldSpec_IndexEmpty)

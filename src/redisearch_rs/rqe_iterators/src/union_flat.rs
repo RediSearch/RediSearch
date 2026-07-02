@@ -9,8 +9,8 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use ffi::t_docId;
-use inverted_index::RSIndexResult;
+use index_result::RSIndexResult;
+use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
@@ -153,9 +153,9 @@ where
     /// Advances all active children whose `last_doc_id` equals `current_id` and finds the
     /// minimum doc_id in a single pass.
     ///
-    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
-    fn advance_and_find_min(&mut self, current_id: t_docId) -> Result<t_docId, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `DocId::MAX` if all are exhausted.
+    fn advance_and_find_min(&mut self, current_id: DocId) -> Result<DocId, RQEIteratorError> {
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
 
         while i < self.num_active {
@@ -198,7 +198,7 @@ where
 
     /// Builds the result from active children whose `last_doc_id` equals `min_id`.
     /// Only used in Full mode - aggregates ALL matching children.
-    fn build_aggregate_result(&mut self, min_id: t_docId) {
+    fn build_aggregate_result(&mut self, min_id: DocId) {
         self.result.reset_aggregate();
         self.result.doc_id = min_id;
 
@@ -220,9 +220,9 @@ where
 
     /// Performs initial read on all children to position them at their first document.
     /// Removes any children that are immediately exhausted (empty iterators).
-    /// Returns the minimum doc_id among active children, or `t_docId::MAX` if all are exhausted.
-    fn initialize_children(&mut self) -> Result<t_docId, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+    /// Returns the minimum doc_id among active children, or `DocId::MAX` if all are exhausted.
+    fn initialize_children(&mut self) -> Result<DocId, RQEIteratorError> {
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
         while i < self.num_active {
             let child = &mut self.children[i];
@@ -259,7 +259,7 @@ where
             self.advance_and_find_min(self.last_doc_id())?
         };
 
-        if min_id == t_docId::MAX {
+        if min_id == DocId::MAX {
             self.is_eof = true;
             return Ok(None);
         }
@@ -285,9 +285,9 @@ where
     /// This avoids a second pass when the target is found (matching C's `UI_Skip_Full_Flat`).
     fn skip_to_full(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let mut min_id: t_docId = t_docId::MAX;
+        let mut min_id: DocId = DocId::MAX;
         let mut i = 0;
 
         // Reset aggregate before potentially adding children during the loop
@@ -334,7 +334,7 @@ where
             i += 1;
         }
 
-        if min_id == t_docId::MAX {
+        if min_id == DocId::MAX {
             self.is_eof = true;
             return Ok(None);
         }
@@ -353,10 +353,10 @@ where
     /// Tracks minimum doc_id among non-matches for NotFound case.
     fn skip_to_quick(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         // Use MAX as sentinel like C uses DOCID_MAX - avoids Option overhead
-        let mut min_id: t_docId = t_docId::MAX;
+        let mut min_id: DocId = DocId::MAX;
         let mut min_child_idx: usize = 0;
         let mut i = 0;
 
@@ -402,7 +402,7 @@ where
         }
 
         // No exact match found - use minimum if available
-        if min_id != t_docId::MAX {
+        if min_id != DocId::MAX {
             self.quick_set_from_child(min_child_idx);
             Ok(Some(SkipToOutcome::NotFound(&mut self.result)))
         } else {
@@ -466,7 +466,7 @@ where
 
     fn skip_to(
         &mut self,
-        doc_id: t_docId,
+        doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         if self.is_eof {
             return Ok(None);
@@ -497,7 +497,7 @@ where
     }
 
     #[inline(always)]
-    fn last_doc_id(&self) -> t_docId {
+    fn last_doc_id(&self) -> DocId {
         self.result.doc_id
     }
 
@@ -555,7 +555,7 @@ where
         // Sync num_active and find minimum doc_id.
         // Use swap_remove_child to move EOF children out of the active region.
         self.num_active = self.children.len();
-        let mut min_doc_id: t_docId = t_docId::MAX;
+        let mut min_doc_id: DocId = DocId::MAX;
         let mut min_child_idx: usize = 0;
         let mut i = 0;
         while i < self.num_active {

@@ -43,13 +43,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
       // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
-      // Skipped for RETURN_STRICT: the cursor survives timeout and a delayed
-      // free_privdata for an earlier Read could otherwise free a cursor that
-      // a later Read has already parked in the same AREQ slot. Trade-off is
-      // a stashed-cursor leak on client disconnect (tracked in MOD-15415).
-      if (ctx->areq->reqConfig.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-        AREQ_CleanUpStoredCursor(ctx->areq);
-      }
+      AREQ_CleanUpStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }
   } else {
@@ -77,10 +71,20 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }
 
-  // Propagate useReplyCallback to the request
+  // Propagate policy-derived flags from the sticky ctx (single source of truth):
+  // useReplyCallback for FAIL/RETURN_STRICT, plus the aggregate-results sync that
+  // RETURN_STRICT needs. Mirrors the callbacks armed at dispatch in module.c.
   if (ctx->type == COMMAND_HYBRID) {
-    ((HybridRequest *)req)->useReplyCallback = ctx->useReplyCallback;
+    HybridRequest *hreq = (HybridRequest *)req;
+    hreq->useReplyCallback = ctx->useReplyCallback;
+    hreq->syncCtx.requiresAggregateResultsSync =
+        (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
+    // Do not derive requiresAggregateResultsSync here: the FT.CURSOR READ path
+    // attaches an existing cursor AREQ (aggregate_exec.c) via a ctx whose
+    // timeoutPolicy is left at the default, so deriving it would clear the flag
+    // the cursor set at WITHCURSOR time. The query exec path sets it explicitly
+    // from the request-captured policy instead.
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
@@ -114,12 +118,8 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx) {
   }
 }
 
-bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
-  return atomic_load_explicit(&ctx->timedOut, memory_order_acquire);
-}
-
 void CoordRequestCtx_SetTimedOut(CoordRequestCtx *ctx) {
-  atomic_store_explicit(&ctx->timedOut, true, memory_order_release);
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
   // Also propagate to the underlying request if set
   if (ctx->type == COMMAND_HYBRID) {
     if (ctx->hreq) HybridRequest_SetTimedOut(ctx->hreq);
@@ -140,6 +140,14 @@ void CoordRequestCtx_SetCursorReadReturnStrict(CoordRequestCtx *ctx, bool value)
 
 bool CoordRequestCtx_IsCursorReadReturnStrict(CoordRequestCtx *ctx) {
   return ctx->isCursorReadReturnStrict;
+}
+
+void CoordRequestCtx_SetTimeoutPolicy(CoordRequestCtx *ctx, RSTimeoutPolicy policy) {
+  ctx->timeoutPolicy = policy;
+}
+
+RSTimeoutPolicy CoordRequestCtx_GetTimeoutPolicy(CoordRequestCtx *ctx) {
+  return ctx->timeoutPolicy;
 }
 
 void CoordRequestCtx_ReplyOrStoreError(CoordRequestCtx *req, RedisModuleCtx *ctx, QueryError *status) {
