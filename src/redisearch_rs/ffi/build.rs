@@ -153,6 +153,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["specDict_g", "specIdDict_g"],
     },
     HeaderAllowlist {
+        path: "src/info/index_error.h",
+        fns: &["IndexError_GlobalCleanup"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/iterators/hybrid_reader.h",
         fns: &[
             "HybridIterator_GetChild",
