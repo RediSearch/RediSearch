@@ -2176,20 +2176,24 @@ dependencies = [
  "index_spec",
  "index_spec_cache",
  "itertools 0.15.0",
+ "lending-iterator",
  "libc",
  "pin-project",
  "pretty_assertions",
  "proptest",
  "query_error",
  "redis-module",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "schema_rule",
+ "serde_json",
  "sorting_vector",
  "strum",
  "thin_vec",
  "thiserror",
+ "tracing",
  "value",
  "workspace_hack",
 ]
@@ -2199,15 +2203,19 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
+ "cheadergen",
+ "document_metadata",
  "ffi",
  "libc",
  "query_error",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
  "search_result",
  "sorting_vector",
+ "tracing",
  "value",
  "value_ffi",
  "workspace_hack",
@@ -3149,9 +3157,9 @@ dependencies = [
 
 [[package]]
 name = "triomphe"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+checksum = "b40688ea6389c8171614b25491f71d4a27946e0c7ce2da1c6de27e25abf1a0ae"
 dependencies = [
  "serde",
  "stable_deref_trait",

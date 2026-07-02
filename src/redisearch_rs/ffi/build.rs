@@ -299,7 +299,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/rlookup_load_document.h",
-        fns: &["loadIndividualKeys", "sdslen_rust"],
+        fns: &["sdslen_rust"],
         types: &[],
         vars: &[],
     },
@@ -319,7 +319,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/search_ctx.h",
         fns: &["NewSearchCtxC", "SearchCtx_Free"],
         types: &[],
-        vars: &[],
+        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
     HeaderAllowlist {
         path: "src/search_disk.h",
