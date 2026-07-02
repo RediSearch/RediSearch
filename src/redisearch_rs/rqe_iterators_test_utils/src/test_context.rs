@@ -1056,6 +1056,18 @@ impl Default for GlobalGuard {
                     // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
                     ffi::StopWordList_FreeGlobals();
                 }
+
+                // NA_rstr (the IndexError default key) is lazily allocated the
+                // first time a spec's IndexError is initialized.
+                //
+                // SAFETY: `IndexError_GlobalCleanup` takes no arguments and
+                // internally null-checks `NA_rstr`, so it is sound to call whether
+                // or not a spec was ever created, and is idempotent. It runs at
+                // process exit, after every `TestContext` has been dropped, so
+                // nothing else references the string.
+                unsafe {
+                    ffi::IndexError_GlobalCleanup();
+                }
             }
 
             unsafe {
