@@ -5,10 +5,29 @@ description: |
 
   Purpose: measure the inverted-index lock-free-read / copy-on-write snapshot
   under concurrent read+write load, comparing master (read lock held for the whole
-  query) against the snapshot branch (lock held only for capture). Writes re-index
-  existing docs (HSET on the doc: prefix) to generate block churn; a low fork-GC
-  interval + clean threshold keep GC active during the run so superseded blocks are
-  reclaimed (and, on the snapshot branch, deep-copied when pinned by a live reader).
+  query) against the snapshot branch (lock held only for capture).
+
+  Design (scan-heavy mixed): reads are FT.AGGREGATE ... GROUPBY 0 REDUCE COUNT 0,
+  not FT.SEARCH. In an OSS cluster the coordinator drives each shard with
+  FT.AGGREGATE ... WITHCURSOR (see src/coord/dist_aggregate.c), so the shard-side
+  iterator holds its inverted-index SNAPSHOT for the whole scan — the window where
+  the COW cost (deep-copy of pinned blocks, ~2x retention) actually materializes; a
+  top-N FT.SEARCH captures and drops its snapshot in milliseconds and never overlaps
+  a GC cycle. COUNT forces a full server-side scan of the `information` posting list
+  yet returns a single row, so throughput is not dominated by reply size. On master
+  (this branch) the read lock is held for the whole scan, so HSET writers block on
+  the reader — the baseline the snapshot branch is compared against.
+
+  Writes (HSET body=information tags=<random>) deliberately target the SAME term the
+  reads scan: `body information` places every hot doc in the `information` inverted
+  index, and the random `tags` value guarantees the document content changes on every
+  write so it is genuinely re-indexed. That churns the exact posting list the reader
+  pinned, so a low fork-GC interval + clean threshold reclaim superseded blocks while
+  a reader holds them (deep-copied on the snapshot branch). A bounded 1M-key hot set
+  keeps the churn focused instead of inflating the corpus. NOTE: writes use synthetic
+  doc:<n> keys (not the loaded doc:<msmarco_docid> keys), which is intentional here —
+  the goal is read/write contention on one II, which memtier's numeric key range
+  cannot express against the corpus's arbitrary string doc IDs.
 
 metadata:
   component: "search"
@@ -54,4 +73,4 @@ dbconfig:
 clientconfig:
   benchmark_type: "mixed"
   tool: memtier_benchmark
-  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 5900000 --command 'HSET __key__ body __data__' --command-ratio 1 --command 'FT.SEARCH ms_marco_idx information --limit 0 10' --command-ratio 1"
+  arguments: "--test-time 180 -c 16 -t 16 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 1000000 --command 'HSET __key__ body information tags __data__' --command-ratio 1 --command 'FT.AGGREGATE ms_marco_idx information GROUPBY 0 REDUCE COUNT 0 AS n' --command-ratio 1"
