@@ -1325,9 +1325,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after iterators are created and snapshot is established.
-  // For disk indexes, the lock is already released at this point.
-  // For RAM indexes, the lock is still held.
+  // Sync point (debug): pause after iterators are created and the snapshot is
+  // established. The lock is already released here for disk indexes and for RAM cursor
+  // queries under _LOCK_FREE_READS (see shouldReleaseSpecAfterSnapshot); otherwise it
+  // is still held.
   SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
 #endif
 
