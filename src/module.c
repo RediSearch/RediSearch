@@ -794,7 +794,7 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 /**
- * FT.SYNUPDATE <index> <group id> [SKIPINITIALSCAN] <term1> <term2> ...
+ * FT.SYNUPDATE <index> <group id> [SKIPINITIALSCAN] term1 [term2 ...]
  *
  * Update an already existing synonym group with the given terms.
  * It can be used only to add new terms to a synonym group.
@@ -802,6 +802,18 @@ int SynAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
  */
 int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) return RedisModule_WrongArity(ctx);
+
+  bool initialScan = true;
+  int offset = 3;
+  int loc = RMUtil_ArgIndex(SPEC_SKIPINITIALSCAN_STR, &argv[3], 1);
+  if (loc == 0) {  // if doesn't exist, `-1` is returned
+    initialScan = false;
+    offset = 4;
+  }
+
+  if (argc - offset < 1) {
+    return RedisModule_WrongArity(ctx);
+  }
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -817,14 +829,6 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   CurrentThread_SetIndexSpec(ref);
-
-  bool initialScan = true;
-  int offset = 3;
-  int loc = RMUtil_ArgIndex(SPEC_SKIPINITIALSCAN_STR, &argv[3], 1);
-  if (loc == 0) {  // if doesn't exist, `-1` is returned
-    initialScan = false;
-    offset = 4;
-  }
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisSearchCtx_LockSpecWrite(&sctx);
