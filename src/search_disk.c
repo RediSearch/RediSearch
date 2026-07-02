@@ -219,9 +219,8 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 
 ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, uint32_t reqflags,
                                                           RLookup *lk, const RLookupKey **keys,
-                                                          size_t nkeys, bool forceLoad,
-                                                          uint32_t *outStateFlags) {
-    return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys, forceLoad,
+                                                          size_t nkeys, uint32_t *outStateFlags) {
+    return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
                                                      outStateFlags);
 }
 

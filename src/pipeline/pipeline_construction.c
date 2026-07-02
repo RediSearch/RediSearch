@@ -523,7 +523,7 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD
       // in outStateFlags itself, mirroring RPLoader_New.
       rp = SearchDisk_NewAsyncLoaderResultProcessor(sctx, params->common.reqflags, lookup, loadkeys,
-                                                    array_len(loadkeys), forceLoad, outStateFlags);
+                                                    array_len(loadkeys), outStateFlags);
       RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New
     } else {
       rp = RPLoader_New(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),

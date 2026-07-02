@@ -253,12 +253,22 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[],
         // RSE: `RedisModuleIO` is referenced by the RDB save/load entry points
         // in `src/search_disk_api.h`.
-        types: &["RedisModuleIO", "RedisModuleString"],
+        types: &[
+            "RedisModuleIO",
+            "RedisModuleString",
+            // RSE: callback typedef used in the `RedisModule_SwapPrefetchKey`
+            // function-pointer signature; bindgen pulls it in transitively but
+            // we allow it explicitly so it is stable across header changes.
+            "RedisModuleSwapPrefetchCB",
+        ],
         vars: &[
             "REDISMODULE_ERR",
             "REDISMODULE_OK",
             "REDISMODULE_POSTPONED_ARRAY_LEN",
             "REDISMODULE_POSTPONED_LEN",
+            // RSE: flag constant for `RedisModule_SwapPrefetchKey` — value 0
+            // means "prefetch for anyone / no restrictions".
+            "REDISMODULE_SWAP_PREFETCH_FLAG_NOONE",
             "RedisModule_Alloc",
             "RedisModule_Free",
             "RedisModule_FreeString",
@@ -285,6 +295,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisModule_ReplyWithSimpleString",
             "RedisModule_ReplyWithStringBuffer",
             "RedisModule_IsKeyInRam",
+            // RSE: used by `redisearch_disk` to schedule async swap-prefetch
+            // for a key before blocking on disk I/O.
+            "RedisModule_SwapPrefetchKey",
             "RedisModule_StringPtrLen",
             "RedisModule_ThreadSafeContextLock",
             "RedisModule_ThreadSafeContextUnlock",
