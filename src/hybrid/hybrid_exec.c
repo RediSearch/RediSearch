@@ -220,13 +220,13 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
   // The tail and every subquery pipeline link the top-level wrapper: sub-AREQs
   // have no wrapper of their own, and the GIL-handshake state (a counter, so
-  // concurrent loaders keep it accurate) lives on the hybrid's RequestSyncCtx.
-  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, hreq->rsc);
+  // concurrent loaders keep it accurate) lives on the hybrid's BlockedRequestCtx.
+  RPSafeLoader_SetSyncCtx(&hreq->tailPipeline->qctx, hreq->brc);
 
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
     if (subquery) {
-      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), hreq->rsc);
+      RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(subquery), hreq->brc);
     }
   }
 }
@@ -234,7 +234,7 @@ void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
 bool HybridRequest_TimeoutPreemptSafeLoaderGIL(HybridRequest *hreq) {
   // The tail and all subquery safe loaders share the top-level wrapper, so a
   // single check covers every pipeline.
-  return RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(hreq->rsc);
+  return BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(hreq->brc);
 }
 
 static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -1162,7 +1162,7 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
         blockClientCtx.timeoutCallback = internal
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
-        hreq->rsc->requiresAggregateResultsSync = true;
+        hreq->brc->requiresAggregateResultsSync = true;
       }
     }
 

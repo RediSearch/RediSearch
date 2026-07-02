@@ -139,7 +139,7 @@ impl<'req> TimeoutContextBlockedClient<'req> {
     ///   since `'req` is otherwise unconstrained by the arguments, it is the
     ///   caller's responsibility to bound it (e.g. by tying the returned
     ///   context to a borrow that the request outlives).
-    /// * The `RequestSyncCtx::timedOut` flag inside the [`AREQ`] must be safe
+    /// * The `RequestSyncState::timedOut` flag inside the [`AREQ`] must be safe
     ///   to read with relaxed semantics from any thread.
     #[inline(always)]
     pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {

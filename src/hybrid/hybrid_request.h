@@ -46,7 +46,7 @@ typedef struct HybridRequest {
     RequestSyncState syncCtx;
 
     // Non-owning back-pointer to the heap wrapper that owns this request.
-    RequestSyncCtx *rsc;
+    BlockedRequestCtx *brc;
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
@@ -124,7 +124,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 }
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->rsc->requiresAggregateResultsSync;
+  return req->brc->requiresAggregateResultsSync;
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
@@ -256,21 +256,21 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
 
 /**
  * Free a HybridRequest and all its associated resources directly.
- * Called by RequestSyncCtx_Free when the wrapper's refcount reaches zero.
+ * Called by BlockedRequestCtx_Free when the wrapper's refcount reaches zero.
  * Do not call directly; use HybridRequest_DecrRef instead.
  */
 void HybridRequest_Free(HybridRequest *req);
 
 /**
- * Increment the reference count of the owning RequestSyncCtx wrapper.
+ * Increment the reference count of the owning BlockedRequestCtx wrapper.
  * @param req the request to increment
  * @return the request (for chaining)
  */
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
 
 /**
- * Decrement the reference count of the owning RequestSyncCtx wrapper.
- * If the reference count reaches 0, RequestSyncCtx_Free is called which
+ * Decrement the reference count of the owning BlockedRequestCtx wrapper.
+ * If the reference count reaches 0, BlockedRequestCtx_Free is called which
  * destroys the wrapper and the owned HybridRequest.
  * @param req the request to decrement
  */

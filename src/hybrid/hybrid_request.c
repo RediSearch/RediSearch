@@ -302,7 +302,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->profileClocks.initClock = now;
 
     // Initialize timeout coordination fields (embedded per-request slot only;
-    // the aggregate-coord fields live on the heap RequestSyncCtx wrapper).
+    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
     RequestSyncState_Init(&hybridReq->syncCtx);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
     hybridReq->storedReplyState.err = QueryError_Default();
@@ -314,8 +314,8 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests);
     // Wrap the top-level hybrid request in its single-owner sync context.
-    // Sets hybridReq->rsc; ownership is released via HybridRequest_DecrRef.
-    RequestSyncCtx_NewHybrid(hybridReq);
+    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
+    BlockedRequestCtx_NewHybrid(hybridReq);
     return hybridReq;
 }
 
@@ -433,17 +433,17 @@ void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  RS_LOG_ASSERT(req->rsc != NULL, "HybridRequest_IncrRef called on unwrapped request");
-  RequestSyncCtx_IncrRef(req->rsc);
+  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_IncrRef called on unwrapped request");
+  BlockedRequestCtx_IncrRef(req->brc);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
   if (!req) return;
-  // Delegate to the wrapper: RequestSyncCtx_DecrRef → 0 → RequestSyncCtx_Free
+  // Delegate to the wrapper: BlockedRequestCtx_DecrRef → 0 → BlockedRequestCtx_Free
   // → HybridRequest_Free.
-  RS_LOG_ASSERT(req->rsc != NULL, "HybridRequest_DecrRef called on unwrapped request");
-  RequestSyncCtx_DecrRef(req->rsc);
+  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_DecrRef called on unwrapped request");
+  BlockedRequestCtx_DecrRef(req->brc);
 }
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
@@ -562,23 +562,23 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->rsc->aggregatingResults, &expected, true,
+  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->rsc->aggregateResultsLock);
-  req->rsc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->rsc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->rsc->aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->rsc->aggregateResultsLock);
-  while (!req->rsc->aggregateResultsDone) {
-    pthread_cond_wait(&req->rsc->aggregateResultsCond, &req->rsc->aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  while (!req->brc->aggregateResultsDone) {
+    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->rsc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 #ifdef __cplusplus

@@ -175,7 +175,7 @@ typedef enum {
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRID } CommandType;
 
 /**
- * Identifies which concrete request type a heap RequestSyncCtx wrapper owns.
+ * Identifies which concrete request type a heap BlockedRequestCtx wrapper owns.
  */
 typedef enum {
   REQUEST_KIND_AREQ,
@@ -184,7 +184,7 @@ typedef enum {
 
 /* Heap-allocated owning wrapper around a top-level request. Defined below the
  * AREQ struct (it references AREQ/HybridRequest only by pointer). */
-typedef struct RequestSyncCtx RequestSyncCtx;
+typedef struct BlockedRequestCtx BlockedRequestCtx;
 
 /**
  * Per-request synchronization slot embedded in every AREQ and HybridRequest.
@@ -192,7 +192,7 @@ typedef struct RequestSyncCtx RequestSyncCtx;
  * draining that specific (sub-)request: the timeout flag and the single-slot
  * abort-wake channel used to unblock a parked MR reader.
  *
- * Top-level result-production coordination lives on the owning RequestSyncCtx
+ * Top-level result-production coordination lives on the owning BlockedRequestCtx
  * wrapper, not here (sub-AREQs never run that handshake).
  */
 typedef struct RequestSyncState {
@@ -317,7 +317,7 @@ typedef struct AREQ {
 
   // Non-owning back-pointer to the heap wrapper that owns this request.
   // Set for the top-level request; NULL for hybrid sub-AREQs.
-  RequestSyncCtx *rsc;
+  BlockedRequestCtx *brc;
 
   // Flag to indicate whether to skip timeout checks using clock checks
   bool skipTimeoutChecks;
@@ -339,7 +339,7 @@ struct HybridRequest;
  * top-level-only result-production coordination state (the TryClaim/Signal/Wait
  * handshake between the background reader and the timeout callback).
  */
-struct RequestSyncCtx {
+struct BlockedRequestCtx {
   RequestKind kind;
   union {
     AREQ *areq;
@@ -374,26 +374,26 @@ struct RequestSyncCtx {
   pthread_cond_t aggregateResultsCond;
 };
 
-/* Allocate a heap RequestSyncCtx that takes ownership of the request,
+/* Allocate a heap BlockedRequestCtx that takes ownership of the request,
  * initializes the result-production coordination state (refcount=1), and
- * wires the non-owning back-pointer (`rsc`) on the owned request. */
-RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq);
-RequestSyncCtx *RequestSyncCtx_NewHybrid(struct HybridRequest *hybrid);
+ * wires the non-owning back-pointer (`brc`) on the owned request. */
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
 
 /* Increment / decrement the wrapper's reference count. DecrRef triggers
- * RequestSyncCtx_Free when the count drops to zero.
+ * BlockedRequestCtx_Free when the count drops to zero.
  * Step 2 will remove the refcount entirely; these functions exist only for
  * the Option A bridge in Step 0. */
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *rsc);
-void RequestSyncCtx_DecrRef(RequestSyncCtx *rsc);
+BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
+void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
 
-/* Free a heap RequestSyncCtx: destroys the coordination state, frees the owned
+/* Free a heap BlockedRequestCtx: destroys the coordination state, frees the owned
  * request (AREQ_Free / HybridRequest_Free), then frees the wrapper itself. */
-void RequestSyncCtx_Free(RequestSyncCtx *rsc);
+void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
 
 /* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
  * (no wrapper involved). AREQ_IncrRef / AREQ_DecrRef delegate to the owning
- * RequestSyncCtx when one is present (req->rsc != NULL); otherwise they call
+ * BlockedRequestCtx when one is present (req->brc != NULL); otherwise they call
  * AREQ_Free directly (for unwrapped transient / sub-AREQs). */
 void AREQ_Free(AREQ *req);
 AREQ *AREQ_IncrRef(AREQ *req);
@@ -650,7 +650,7 @@ bool AREQ_CheckTimedOut(AREQ *areq);
  * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
  * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
-  return req->rsc->requiresAggregateResultsSync;
+  return req->brc->requiresAggregateResultsSync;
 }
 
 /* TryClaim: atomic CAS on `aggregatingResults`; winner runs AggregateResults.
@@ -677,15 +677,15 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req);
  *   true if the worker is parked at the GIL gate, so the callback replies empty
  *   instead of deadlocking. The shared aggregateResultsLock makes EnterGIL and
  *   this check a race-free Dekker handshake. */
-bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync);
-void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync);
-bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync);
+bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync);
+void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync);
+bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
 
 /* Reset the per-cursor-read sync state on a coordinator RETURN_STRICT cursor
  * read so the next chunk starts from a clean slate. Resets:
- *   - rsc->aggregatingResults (CAS claim)
- *   - rsc->aggregateResultsDone (signal latch)
- *   - rsc->safeLoadersHoldingGIL (GIL-handshake latch)
+ *   - brc->aggregatingResults (CAS claim)
+ *   - brc->aggregateResultsDone (signal latch)
+ *   - brc->safeLoadersHoldingGIL (GIL-handshake latch)
  *   - syncCtx.timedOut (timer latch from the previous chunk's timer)
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).

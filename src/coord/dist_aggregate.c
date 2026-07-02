@@ -937,13 +937,13 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
-  RequestSyncCtx_NewAREQ(r);
+  BlockedRequestCtx_NewAREQ(r);
 
   // The global timeout policy may change before this background job is picked up.
   // Use the policy captured from the original request.
   RSTimeoutPolicy requestTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->rsc->requiresAggregateResultsSync = true;
+    r->brc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -1263,7 +1263,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->rsc->requiresAggregateResultsSync = true;
+    r->brc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);

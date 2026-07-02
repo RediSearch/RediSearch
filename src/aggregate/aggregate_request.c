@@ -1100,7 +1100,7 @@ AREQ *AREQ_New(void) {
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
   RequestSyncState_Init(&req->syncCtx);
-  req->rsc = NULL;
+  req->brc = NULL;
   req->storedReplyState.err = QueryError_Default();
   return req;
 }
@@ -1112,99 +1112,99 @@ bool SearchTime_IsTimedOut(void *arg) {
                               memory_order_relaxed);
 }
 
-static RequestSyncCtx *RequestSyncCtx_NewCommon(RequestKind kind) {
-  RequestSyncCtx *rsc = rm_calloc(1, sizeof(RequestSyncCtx));
-  rsc->kind = kind;
-  rsc->refcount = 1;
-  rsc->requiresAggregateResultsSync = false;
-  rsc->aggregatingResults = false;
-  rsc->aggregateResultsClaimLost = false;
-  rsc->aggregateResultsDone = false;
-  rsc->safeLoadersHoldingGIL = 0;
-  pthread_mutex_init(&rsc->aggregateResultsLock, NULL);
-  pthread_cond_init(&rsc->aggregateResultsCond, NULL);
-  return rsc;
+static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
+  BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
+  brc->kind = kind;
+  brc->refcount = 1;
+  brc->requiresAggregateResultsSync = false;
+  brc->aggregatingResults = false;
+  brc->aggregateResultsClaimLost = false;
+  brc->aggregateResultsDone = false;
+  brc->safeLoadersHoldingGIL = 0;
+  pthread_mutex_init(&brc->aggregateResultsLock, NULL);
+  pthread_cond_init(&brc->aggregateResultsCond, NULL);
+  return brc;
 }
 
-RequestSyncCtx *RequestSyncCtx_IncrRef(RequestSyncCtx *rsc) {
-  __atomic_fetch_add((int *)&rsc->refcount, 1, __ATOMIC_RELAXED);
-  return rsc;
+BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc) {
+  __atomic_fetch_add((int *)&brc->refcount, 1, __ATOMIC_RELAXED);
+  return brc;
 }
 
-void RequestSyncCtx_DecrRef(RequestSyncCtx *rsc) {
+void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   // ACQ_REL: release ensures our writes are visible before decrement;
   // acquire ensures we see all prior writes when refcount reaches 0.
-  if (rsc && !__atomic_sub_fetch((int *)&rsc->refcount, 1, __ATOMIC_ACQ_REL)) {
-    RequestSyncCtx_Free(rsc);
+  if (brc && !__atomic_sub_fetch((int *)&brc->refcount, 1, __ATOMIC_ACQ_REL)) {
+    BlockedRequestCtx_Free(brc);
   }
 }
 
-RequestSyncCtx *RequestSyncCtx_NewAREQ(AREQ *areq) {
-  RequestSyncCtx *rsc = RequestSyncCtx_NewCommon(REQUEST_KIND_AREQ);
-  rsc->query.areq = areq;
-  areq->rsc = rsc;
-  return rsc;
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
+  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
+  brc->query.areq = areq;
+  areq->brc = brc;
+  return brc;
 }
 
-RequestSyncCtx *RequestSyncCtx_NewHybrid(struct HybridRequest *hybrid) {
-  RequestSyncCtx *rsc = RequestSyncCtx_NewCommon(REQUEST_KIND_HYBRID);
-  rsc->query.hybrid = hybrid;
-  hybrid->rsc = rsc;
-  return rsc;
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
+  BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
+  brc->query.hybrid = hybrid;
+  hybrid->brc = brc;
+  return brc;
 }
 
-void RequestSyncCtx_Free(RequestSyncCtx *rsc) {
-  if (!rsc) {
+void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
+  if (!brc) {
     return;
   }
-  pthread_mutex_destroy(&rsc->aggregateResultsLock);
-  pthread_cond_destroy(&rsc->aggregateResultsCond);
+  pthread_mutex_destroy(&brc->aggregateResultsLock);
+  pthread_cond_destroy(&brc->aggregateResultsCond);
 
-  if (rsc->kind == REQUEST_KIND_AREQ) {
-    AREQ_Free(rsc->query.areq);
+  if (brc->kind == REQUEST_KIND_AREQ) {
+    AREQ_Free(brc->query.areq);
   } else {
-    HybridRequest_Free(rsc->query.hybrid);
+    HybridRequest_Free(brc->query.hybrid);
   }
-  rm_free(rsc);
+  rm_free(brc);
 }
 
 bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->rsc->aggregatingResults, &expected, true,
+  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->rsc->aggregateResultsLock);
-  req->rsc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->rsc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->rsc->aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
-  pthread_mutex_lock(&req->rsc->aggregateResultsLock);
-  while (!req->rsc->aggregateResultsDone) {
-    pthread_cond_wait(&req->rsc->aggregateResultsCond, &req->rsc->aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  while (!req->brc->aggregateResultsDone) {
+    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->rsc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 /* Read the owned request's timeout flag through the wrapper. The flag lives on
  * the request's embedded RequestSyncState, not on the wrapper itself. */
-static bool RequestSyncCtx_OwnedRequestTimedOut(RequestSyncCtx *rsc) {
-  if (rsc->kind == REQUEST_KIND_AREQ) {
-    return RequestSyncState_GetTimedOut(&rsc->query.areq->syncCtx);
+static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
+  if (brc->kind == REQUEST_KIND_AREQ) {
+    return RequestSyncState_GetTimedOut(&brc->query.areq->syncCtx);
   }
-  return RequestSyncState_GetTimedOut(&rsc->query.hybrid->syncCtx);
+  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncCtx);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
  * serializes the worker's "set holding, then check timedOut" against the main
  * thread's "set timedOut, then check holding", making the two race-free. */
-bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
+bool BlockedRequestCtx_SafeLoaderEnterGIL(BlockedRequestCtx *sync) {
   bool proceed;
   pthread_mutex_lock(&sync->aggregateResultsLock);
-  if (RequestSyncCtx_OwnedRequestTimedOut(sync)) {
+  if (BlockedRequestCtx_OwnedRequestTimedOut(sync)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;
@@ -1216,14 +1216,14 @@ bool RequestSyncCtx_SafeLoaderEnterGIL(RequestSyncCtx *sync) {
   return proceed;
 }
 
-void RequestSyncCtx_SafeLoaderExitGIL(RequestSyncCtx *sync) {
+void BlockedRequestCtx_SafeLoaderExitGIL(BlockedRequestCtx *sync) {
   pthread_mutex_lock(&sync->aggregateResultsLock);
   RS_LOG_ASSERT(sync->safeLoadersHoldingGIL > 0, "SafeLoaderExitGIL without matching EnterGIL");
   sync->safeLoadersHoldingGIL--;
   pthread_mutex_unlock(&sync->aggregateResultsLock);
 }
 
-bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
+bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync) {
   bool holding;
   pthread_mutex_lock(&sync->aggregateResultsLock);
   holding = sync->safeLoadersHoldingGIL > 0;
@@ -1232,12 +1232,12 @@ bool RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(RequestSyncCtx *sync) {
 }
 
 void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->rsc->aggregatingResults, false);
-  req->rsc->aggregateResultsClaimLost = false;
-  pthread_mutex_lock(&req->rsc->aggregateResultsLock);
-  req->rsc->aggregateResultsDone = false;
-  req->rsc->safeLoadersHoldingGIL = 0;
-  pthread_mutex_unlock(&req->rsc->aggregateResultsLock);
+  RS_AtomicBoolStoreRelaxed(&req->brc->aggregatingResults, false);
+  req->brc->aggregateResultsClaimLost = false;
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = false;
+  req->brc->safeLoadersHoldingGIL = 0;
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
   RequestSyncState_ClearTimedOut(&req->syncCtx);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
@@ -1765,16 +1765,16 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 AREQ *AREQ_IncrRef(AREQ *req) {
-  RS_LOG_ASSERT(req->rsc != NULL, "AREQ_IncrRef called on unwrapped (sub-)AREQ");
-  RequestSyncCtx_IncrRef(req->rsc);
+  RS_LOG_ASSERT(req->brc != NULL, "AREQ_IncrRef called on unwrapped (sub-)AREQ");
+  BlockedRequestCtx_IncrRef(req->brc);
   return req;
 }
 
 void AREQ_DecrRef(AREQ *req) {
   if (!req) return;
-  if (req->rsc) {
+  if (req->brc) {
     // Top-level wrapped AREQ: delegate to the wrapper's refcount.
-    RequestSyncCtx_DecrRef(req->rsc);
+    BlockedRequestCtx_DecrRef(req->brc);
   } else {
     // Unwrapped transient / sub-AREQ (e.g. hybrid sub-query): free directly.
     AREQ_Free(req);

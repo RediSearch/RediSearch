@@ -77,7 +77,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
     HybridRequest *hreq = (HybridRequest *)req;
     hreq->useReplyCallback = ctx->useReplyCallback;
-    hreq->rsc->requiresAggregateResultsSync =
+    hreq->brc->requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     // Do not derive requiresAggregateResultsSync here: the FT.CURSOR READ path
