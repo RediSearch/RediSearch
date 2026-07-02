@@ -253,7 +253,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
-      if (SchemaRule_ShouldIndex(sp, keyname, type)) {
+      if (SchemaRule_ShouldIndex(ctx, sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
       IndexSpecRef_Release(curr_run_ref);
@@ -291,6 +291,15 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (scanner->global) {
     RedisModule_Log(ctx, "notice", "Scanning indexes in background");
   } else {
+    // A single-index scan must scan the keyspace of the DB the index is bound
+    // to (sp->dbid), not DB 0 that the detached context defaults to. The global
+    // (legacy-upgrade) rescan keeps DB 0, matching where legacy indexes lived.
+    StrongRef cur = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(cur);
+    if (sp) {
+      RedisModule_SelectDb(ctx, sp->dbid);
+      StrongRef_Release(cur);
+    }
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
   if (globalDebugCtx.debugMode) {
@@ -482,13 +491,23 @@ void Indexes_UpgradeLegacyIndexes() {
     // Init the index error
     sp->stats.indexError = IndexError_Init();
 
-    // put the new index in the global spec dictionaries (by name and by specId)
-    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+    // put the new index in the global spec dictionaries (by (db, name) and by specId).
+    // Legacy upgrades only ever ran on DB 0, so sp->dbid is 0 here.
+    dictAdd(specDict_g, DB_SPEC_KEY(sp->dbid, sp->specName), spec_ref.rm);
     dictAdd(specIdDict_g, (void*)(uintptr_t)sp->specId, spec_ref.rm);
   }
   dictReleaseIterator(iter);
 }
 
+// Global rescan of the whole keyspace into all matching indexes. It runs on a
+// DB-0 detached context (Indexes_ScanAndReindexTask does not SelectDb for the
+// global case), so it only reindexes indexes bound to DB 0. This is sound only
+// because its sole trigger is the legacy-index upgrade after RDB load
+// (Indexes_EndRDBLoadingEvent, gated on hasLegacyIndexes) and legacy indexes
+// only ever existed on DB 0. New (multi-DB) indexes are reindexed on load via
+// the per-key `loaded` keyspace notification, which carries the correct event
+// DB. If a future caller needs a global rescan covering non-zero DBs, the task
+// must iterate DBs and SelectDb per DB.
 void Indexes_ScanAndReindex() {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");

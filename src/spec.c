@@ -314,10 +314,20 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    // The shared RSDummyContext is pinned to DB 0, but the index may live in
+    // another logical DB (sp->dbid) and index lookups are DB-scoped. Drive the
+    // self-call through a private context selected on the index's DB so the drop
+    // resolves the right index (otherwise it fails with "no such index" and leaks
+    // the temporary index and its documents). A private context avoids mutating
+    // the selected DB of the process-global RSDummyContext, which other threads
+    // share for logging and calls.
+    RedisModuleCtx *dropCtx = RedisModule_GetThreadSafeContext(NULL);
+    RedisModule_SelectDb(dropCtx, sp->dbid);
+    RedisModuleCallReply *rep = RedisModule_Call(dropCtx, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
+    RedisModule_FreeThreadSafeContext(dropCtx);
   }
 
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index '%s' by timer: done", name);
@@ -452,6 +462,15 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
+  }
+
+  // Bind the index to the logical DB it is being created on. Keyspace
+  // notifications, FLUSHDB, and document-key access are all routed by this id.
+  // In cluster mode only DB 0 exists, so this is always 0 there.
+  if (SearchDisk_IsEnabled()) {
+    sp->dbid = 0;
+  } else {
+    sp->dbid = RedisModule_GetSelectedDb(ctx);
   }
 
   // Start the garbage collector
@@ -2989,6 +3008,10 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     RedisModule_SaveUnsigned(rdb, 0);
   }
 
+  // Logical DB the index is bound to (INDEX_DB_ID_VERSION+). Loaders on older
+  // encodings default this to 0.
+  RedisModule_SaveSigned(rdb, sp->dbid);
+
   // Disk index
   // Check if we are using SST files with this RDB. If so, we save the disk-related
   // RAM-based data-structures to the RDB. Both save and load paths go through
@@ -3105,6 +3128,23 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(RSDummyContext, "notice", "Loading existing alias failed");
     }
+  }
+
+  // Logical DB the index is bound to. Older RDBs (pre-INDEX_DB_ID_VERSION) do
+  // not carry this field; such indexes always lived on DB 0, so default to 0
+  // (already set by rm_calloc, but make the intent explicit).
+  if (encver >= INDEX_DB_ID_VERSION) {
+    sp->dbid = (int)LoadSigned_IOError(rdb, goto cleanup);
+  } else {
+    sp->dbid = 0;
+  }
+
+  if (isSpecOnDisk(sp) && sp->dbid != 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk index '%s' loaded with non-zero dbid %d; failing load "
+                    "(disk indexes only exist on DB 0)",
+                    IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), sp->dbid);
+    goto cleanup;
   }
 
   // NOTE: duplicate detection (a specDict_g read) and the non-SST on-disk index

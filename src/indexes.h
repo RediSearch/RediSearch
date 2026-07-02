@@ -21,9 +21,24 @@
 extern "C" {
 #endif
 
-// The global index registry, keyed by name and by spec id (defined in indexes.c).
+// The global index registry. specDict_g is keyed by a composite (logical DB,
+// name) so the same index name can exist independently on different DBs;
+// specIdDict_g is keyed by the globally-unique spec id. Both are defined in
+// indexes.c.
 extern dict *specDict_g;
 extern dict *specIdDict_g;  // Maps specId (uint64_t) -> RefManager* (same as specDict_g values)
+
+// Composite key for specDict_g: an index is identified by (logical DB, name).
+// `name` is borrowed when building a lookup/delete key (the dict dups it on add).
+typedef struct {
+  int dbid;
+  const HiddenString *name;
+} DbSpecKey;
+
+// Build a pointer to a transient DbSpecKey for a dictAdd/dictFetchValue/dictDelete
+// call on specDict_g. The compound literal lives for the enclosing block, which
+// covers the dict call (dictAdd dups the key; fetch/delete only read it).
+#define DB_SPEC_KEY(db, nm) (&(DbSpecKey){.dbid = (db), .name = (nm)})
 
 //---------------------------------------------------------------------------------------------
 
@@ -59,13 +74,24 @@ void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive);
  * then runs the per-spec post-load bookkeeping (IndexSpec_OnAcquire). The call
  * does not increase the spec's strong reference counter.
  * @return a borrowed strong reference to the spec, or NULL if it does not exist.
+ *
+ * The lookup is scoped to the logical DB of `ctx` (RedisModule_GetSelectedDb):
+ * an index is only visible from the DB it was created on. Pass NULL to scope to
+ * DB 0 (internal/registry callers that only ever deal with DB 0).
  */
-StrongRef Indexes_LoadIndexSpecUnsafe(const char *name);
+StrongRef Indexes_LoadIndexSpecUnsafe(RedisModuleCtx *ctx, const char *name);
 StrongRef Indexes_LoadIndexSpecUnsafeEx(IndexLoadOptions *options);
 
 // Register the IndexSpecType module type (wires the registry-wide RDB aux
 // callbacks together with the per-spec callbacks defined in spec.c).
 int Indexes_RegisterType(RedisModuleCtx *ctx);
+
+// Create an empty global spec registry dict keyed by the composite (logical DB,
+// name) DbSpecKey. Callers that build a transient stand-in for specDict_g (e.g.
+// the RDB backup/short-read path in rdb.c) MUST use this rather than creating a
+// plain HiddenString-keyed dict, so that DB_SPEC_KEY(...) lookups/inserts hash
+// and compare consistently with the live registry.
+dict *Indexes_CreateSpecDict(void);
 
 void Indexes_Init(RedisModuleCtx *ctx);
 /*
@@ -73,6 +99,14 @@ void Indexes_Init(RedisModuleCtx *ctx);
  * @param deleteDiskData - delete the disk data
 */
 void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData);
+// Free only the indexes bound to logical DB `dbnum` (used by FLUSHDB on a
+// single DB). Indexes on other DBs are left intact.
+void Indexes_FreeByDb(RedisModuleCtx *ctx, int dbnum, bool deleteDiskData);
+// Re-bind indexes after SWAPDB swapped logical DBs db_a and db_b: every index on
+// db_a moves to db_b and vice versa (metadata-only; the indexed data is
+// DB-independent). Any in-flight initial scan on an affected index is cancelled
+// and restarted against the new DB. Must be called with the GIL held.
+void Indexes_SwapDb(RedisModuleCtx *ctx, int db_a, int db_b);
 size_t Indexes_Count();
 void Indexes_Propagate(RedisModuleCtx *ctx);
 
@@ -98,7 +132,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
-void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
+void Indexes_List(RedisModule_Reply* reply, int dbid, bool obfuscate);
 
 // Collect the specs whose schema rules match `key` (of document `type`) into a
 // freshly allocated SpecOpIndexingCtx. `runFilters` controls whether FILTER

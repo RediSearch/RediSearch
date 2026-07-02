@@ -41,6 +41,8 @@ RedisModuleString **hashFields = NULL;
   X(set)                                  \
   X(rename_from)                          \
   X(rename_to)                            \
+  X(move_from)                            \
+  X(move_to)                              \
   X(trimmed)                              \
   X(key_trimmed)                          \
   X(restore)                              \
@@ -197,7 +199,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       // document we must copy it
       if (!IS_SST_RDB_LOADING(ctx)) {
         key = RedisModule_CreateStringFromString(ctx, key);
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields); //TODO: avoid getDocTypeFromString ?
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields); //TODO: avoid getDocTypeFromString ?
         RedisModule_FreeString(ctx, key);
       }
       break;
@@ -232,15 +234,19 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       // the matching DMDs. Disk-backed indexes still take the full reindex
       // path until they grow an equivalent fast path.
       if (SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+        Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       } else {
-        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(key));
+        Indexes_UpdateMatchingDocExpiration(ctx, key, getDocTypeFromString(ctx, key));
       }
       break;
 
     case restore_cmd:
     case copy_to_cmd:
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
+      break;
+    case move_to_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled());
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       break;
 
     // Any RedisJSON write event reindexes the doc. Each command has its own enum
@@ -275,10 +281,13 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // Deletion handled by keyMetaOnUnlink callback
       if (!SearchDisk_IsEnabled()) {
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       }
+      break;
+    case move_from_cmd:
+      RS_ASSERT(!SearchDisk_IsEnabled())
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       break;
 
 /********************************************************
@@ -290,7 +299,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       // matching specs' TTL tables without re-indexing the document. Disk-
       // backed indexes do not support field-TTL metadata and are skipped.
       if (!SearchDisk_IsEnabled()) {
-        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, getDocTypeFromString(key));
+        Indexes_UpdateMatchingHashFieldExpiration(ctx, key, getDocTypeFromString(ctx, key));
       } else {
         static bool hpexpire_warned = false;
         if (!hpexpire_warned && Indexes_Count() > 0) {
@@ -332,7 +341,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
     case expired_cmd:
     case evicted_cmd:
       RS_ASSERT(!SearchDisk_IsEnabled());
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(ctx, key), hashFields);
       break;
   }
 

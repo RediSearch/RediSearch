@@ -1000,7 +1000,7 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc == 4) {
     RedisModule_StringToLongLong(argv[3], &timeout);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1039,7 +1039,7 @@ DEBUG_COMMAND(DiskFlush) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1062,7 +1062,7 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1080,7 +1080,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1101,7 +1101,7 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
@@ -1169,6 +1169,7 @@ DEBUG_COMMAND(ttl) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1200,6 +1201,7 @@ DEBUG_COMMAND(ttlPause) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1237,6 +1239,7 @@ DEBUG_COMMAND(ttlExpire) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1253,6 +1256,7 @@ DEBUG_COMMAND(ttlExpire) {
   lopts.flags &= ~INDEXSPEC_LOAD_NOTIMERUPDATE; // Re-enable timer updates
   // We validated that the index exists and is temporary, so we know that
   // calling this function will set or reset a timer.
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   Indexes_LoadIndexSpecUnsafeEx(&lopts);
   sp->timeout = timeout; // Restore the original timeout
 
@@ -1277,6 +1281,7 @@ DEBUG_COMMAND(setMonitorExpiration) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -2057,6 +2062,7 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
@@ -2186,6 +2192,7 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(ref);
 
@@ -2386,7 +2393,7 @@ DEBUG_COMMAND(ListIndexesSwitch) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_List(&_reply, true);
+  Indexes_List(&_reply, RedisModule_GetSelectedDb(ctx), true);
   return REDISMODULE_OK;
 }
 

@@ -2251,6 +2251,16 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
   return REDISMODULE_OK;
 }
 
+// A cursor id is global across logical DBs, but a user cursor is owned by the
+// DB of the index that created it (Cursor.dbid). Without this guard a client on
+// DB X could READ/DEL/PROFILE a cursor opened on DB Y and drain its results,
+// mixing data across logical DBs. Coordinator-internal cursors carry
+// CURSOR_COORDINATOR_DBID and are only ever reached from a DB-0
+// client, so the same comparison covers them.
+static inline bool cursorMatchesSelectedDb(RedisModuleCtx *ctx, const Cursor *cursor) {
+  return cursor->dbid == RedisModule_GetSelectedDb(ctx);
+}
+
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
@@ -2315,6 +2325,21 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
+    if (reqCtx) {
+      QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
+                                       "Cursor not found, id: %lld", cid);
+      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, &err);
+      return REDISMODULE_OK;
+    }
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+  }
+
+  if (!cursorMatchesSelectedDb(ctx, cursor)) {
+    // Cursor belongs to a different logical DB: return it to the idle list
+    // untouched and report it as not found. A cross-DB mismatch can only
+    // happen on the standalone path (cluster cursors are all on DB 0, so the
+    // coord+FAIL reqCtx branch is never reached here).
+    Cursor_Pause(cursor);
     if (reqCtx) {
       QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_GENERIC,
                                        "Cursor not found, id: %lld", cid);
@@ -2408,6 +2433,13 @@ int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
   }
 
+  if (!cursorMatchesSelectedDb(ctx, cursor)) {
+    // Cursor belongs to a different logical DB; return it to idle and report
+    // it as not found rather than profiling another DB's cursor.
+    Cursor_Pause(cursor);
+    return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+  }
+
   AREQ *req = cursor->execState;
   if (!IsProfile(req)) {
     Cursor_Pause(cursor); // Pause the cursor again since we are not going to use it, but it's still valid.
@@ -2450,7 +2482,9 @@ int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
   }
-  int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
+  // Scope the delete to the client's selected DB: a cursor opened on another
+  // logical DB must not be deletable from here (it reports as non-existent).
+  int rc = Cursors_PurgeForDb(GetGlobalCursor(cid), cid, RedisModule_GetSelectedDb(ctx));
   if (rc != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Cursor does not exist");
   } else {

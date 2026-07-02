@@ -132,7 +132,8 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 
 // DOES NOT INCREMENT REF COUNT
 RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.nameC = indexName};
+  IndexLoadOptions loadOpts = {.nameC = indexName,
+                               .db = RedisModule_GetSelectedDb(ctx)};
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
