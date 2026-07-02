@@ -485,6 +485,26 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
 ];
 
+/// Symbols pulled in transitively by `HEADERS`. We verify each symbol against
+/// the file that declares it, but do not add these headers as extra bindgen
+/// roots; generated rlookup headers are already reached through
+/// `src/rlookup_load_document.h` -> `src/rlookup.h`, and top-level inclusion
+/// parses them twice.
+const TRANSITIVE_SYMBOLS: &[HeaderAllowlist] = &[
+    HeaderAllowlist {
+        path: "src/redisearch_rs/headers/rlookup.h",
+        fns: &[],
+        types: &["RLookup_Opt"],
+        vars: &["RLOOKUP_OPT_ALLLOADED"],
+    },
+    HeaderAllowlist {
+        path: "src/redisearch_rs/headers/rlookup_ffi.h",
+        fns: &["RLookup_EnableOptions"],
+        types: &[],
+        vars: &[],
+    },
+];
+
 /// Generated headers (from `src/redisearch_rs/headers/`) that bindgen is allowed
 /// to consume transitively. Every entry is an explicit decision: each new entry
 /// re-introduces an edge from a bindgen-input C header to cheadergen output,
@@ -630,6 +650,21 @@ fn main() {
         let abs = root.join(entry.path);
         verify_symbols(&abs, entry);
         bindings = bindings.header(abs.display().to_string());
+        println!("cargo:rerun-if-changed={}", abs.display());
+
+        for func in entry.fns {
+            bindings = bindings.allowlist_function(func);
+        }
+        for ty in entry.types {
+            bindings = bindings.allowlist_type(ty);
+        }
+        for var in entry.vars {
+            bindings = bindings.allowlist_var(var);
+        }
+    }
+    for entry in TRANSITIVE_SYMBOLS {
+        let abs = root.join(entry.path);
+        verify_symbols(&abs, entry);
         println!("cargo:rerun-if-changed={}", abs.display());
 
         for func in entry.fns {
