@@ -7,6 +7,8 @@ publish.workspace = true
 
 [lib]
 test = false
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
 
 [features]
 unittest = []
@@ -32,6 +34,12 @@ build_utils.workspace = true
 reducers = { path = ".", features = ["unittest"] }
 redis_mock.workspace = true
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+criterion.workspace = true
+smallvec.workspace = true
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "collect_consider"
+harness = false

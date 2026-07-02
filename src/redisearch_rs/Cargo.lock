@@ -2049,6 +2049,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "bumpalo",
+ "criterion",
  "ffi",
  "indexmap",
  "itertools 0.15.0",
@@ -2059,6 +2060,7 @@ dependencies = [
  "redisearch_rs",
  "reducers",
  "rlookup",
+ "smallvec",
  "tracing",
  "tracing_assert",
  "value",
