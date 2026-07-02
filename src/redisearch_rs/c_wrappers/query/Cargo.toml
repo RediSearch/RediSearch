@@ -22,6 +22,7 @@ query_node_type.workspace = true
 rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
+search_disk.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

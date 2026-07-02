@@ -261,9 +261,8 @@ impl<Data> TrieMap<Data> {
         IntoValues::new(self.root)
     }
 
-    /// Iterate over the values stored in this trie, in lexicographical key order.
+    /// Iterate over the values of the entries that start with the given prefix, in lexicographical key order.
     ///
-    /// It will only yield the values associated with keys that start with the given prefix.
     /// It won't yield the corresponding keys.
     pub fn prefixed_values(&self, prefix: &[u8]) -> Values<'_, Data> {
         match self.find_root_for_prefix(prefix) {

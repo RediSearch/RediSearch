@@ -7,16 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Unit tests for the bounded COLLECT storage families ([`ArrayStorage`] and
-//! [`HeapStorage`]) selected by [`Storage`].
+//! Unit tests for the bounded COLLECT storage families ([`UnrankedStorage`] and
+//! [`RankedStorage`], each with a `Plain` / `Distinct` variant) selected by
+//! [`Storage`].
 
 extern crate redisearch_rs;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use reducers::collect::heap::HeapEntry;
-use reducers::collect::storage::{ArrayStorage, DEFAULT_LIMIT, HeapStorage, ProjectedRow, Storage};
+use reducers::collect::storage::{
+    DEFAULT_LIMIT, ProjectedRow, RankedStorage, Storage, UnrankedStorage,
+};
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::SharedValue;
 
@@ -67,27 +69,31 @@ fn drained_nums(key: &RLookupKey<'_>, drained: &[ProjectedRow]) -> Vec<f64> {
         .collect()
 }
 
-/// Unwrap the array family from a [`Storage`] built with `sortby = false`.
-fn as_array(storage: &mut Storage<()>) -> &mut ArrayStorage {
+/// Unwrap the unranked family from a [`Storage`] built with `sortby = false`.
+/// The `Plain` / `Distinct` variant is chosen by the `distinct` flag in
+/// [`Storage::new`]; the methods dispatch on it internally.
+fn as_unranked(storage: &mut Storage<()>) -> &mut UnrankedStorage {
     match storage {
-        Storage::Array(a) => a,
-        Storage::Heap(_) => panic!("expected ArrayStorage"),
+        Storage::Unranked(u) => u,
+        _ => panic!("expected UnrankedStorage"),
     }
 }
 
-/// Unwrap the heap family from a [`Storage`] built with `sortby = true`.
-fn as_heap(storage: &mut Storage<()>) -> &mut HeapStorage<()> {
+/// Unwrap the ranked family from a [`Storage`] built with `sortby = true`.
+/// The `Plain` / `Distinct` variant is chosen by the `distinct` flag in
+/// [`Storage::new`]; the methods dispatch on it internally.
+fn as_ranked(storage: &mut Storage<()>) -> &mut RankedStorage<()> {
     match storage {
-        Storage::Heap(h) => h,
-        Storage::Array(_) => panic!("expected HeapStorage"),
+        Storage::Ranked(r) => r,
+        _ => panic!("expected RankedStorage"),
     }
 }
 
 #[test]
 fn array_push_caps_at_cap_in_insertion_order() {
     let key = make_key();
-    let mut s = Storage::new(false, Some((0, 3)), 0);
-    let a = as_array(&mut s);
+    let mut s = Storage::new(false, false, Some((0, 3)), 0);
+    let a = as_unranked(&mut s);
     for i in 0..5 {
         a.push(|| projected(&key, i as f64));
     }
@@ -100,8 +106,8 @@ fn array_push_caps_at_cap_in_insertion_order() {
 fn array_push_drops_excess_without_calling_project() {
     let key = make_key();
     let mut counter = 0;
-    let mut s = Storage::new(false, Some((0, 2)), 0);
-    let a = as_array(&mut s);
+    let mut s = Storage::new(false, false, Some((0, 2)), 0);
+    let a = as_unranked(&mut s);
     for v in [1.0_f64, 2.0, 3.0, 4.0] {
         a.push(counting_project(&mut counter, &key, v));
     }
@@ -114,12 +120,12 @@ fn array_push_drops_excess_without_calling_project() {
 #[test]
 fn heap_consider_keeps_top_k_under_asc() {
     let key = make_key();
-    let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
+    let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().collect();
     // ASC: smallest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
 }
@@ -127,12 +133,12 @@ fn heap_consider_keeps_top_k_under_asc() {
 #[test]
 fn heap_consider_keeps_top_k_under_desc() {
     let key = make_key();
-    let mut s = Storage::new(true, Some((0, 3)), SORT_DESC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((0, 3)), SORT_DESC);
+    let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().collect();
     // DESC: largest is best; heap drains best→worst.
     assert_eq!(drained_nums(&key, &drained), vec![5.0, 4.0, 3.0]);
 }
@@ -141,8 +147,8 @@ fn heap_consider_keeps_top_k_under_desc() {
 fn heap_consider_skips_project_for_doomed_candidates() {
     let key = make_key();
     let mut counter = 0;
-    let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((0, 2)), SORT_ASC);
+    let h = as_ranked(&mut s);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
         h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
@@ -162,8 +168,8 @@ fn heap_consider_skips_project_for_doomed_candidates() {
 fn heap_consider_invokes_project_on_eviction() {
     let key = make_key();
     let mut counter = 0;
-    let mut s = Storage::new(true, Some((0, 2)), SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((0, 2)), SORT_ASC);
+    let h = as_ranked(&mut s);
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
@@ -175,8 +181,8 @@ fn heap_consider_invokes_project_on_eviction() {
 #[test]
 fn drain_array_applies_skip_take() {
     let key = make_key();
-    let mut s = Storage::new(false, Some((1, 2)), 0);
-    let a = as_array(&mut s);
+    let mut s = Storage::new(false, false, Some((1, 2)), 0);
+    let a = as_unranked(&mut s);
     for i in 0..5 {
         a.push(|| projected(&key, i as f64));
     }
@@ -187,43 +193,26 @@ fn drain_array_applies_skip_take() {
 #[test]
 fn drain_heap_applies_skip_take_after_best_first_order() {
     let key = make_key();
-    let mut s = Storage::new(true, Some((1, 2)), SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((1, 2)), SORT_ASC);
+    let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().collect();
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }
 
 #[test]
 fn heap_uses_default_limit_when_no_explicit_limit() {
     let key = make_key();
-    let mut s = Storage::new(true, None, SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, None, SORT_ASC);
+    let h = as_ranked(&mut s);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
         h.consider(sort_vals(i as f64), (), || projected(&key, i as f64));
     }
-    let drained: Vec<_> = h.drain().map(HeapEntry::into_projected).collect();
+    let drained: Vec<_> = h.drain().collect();
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
-}
-
-#[test]
-fn storage_drain_heap_yields_rows_best_first() {
-    // The `Storage::drain` convenience discards each entry's ranking key and
-    // yields values best→worst, which is all the client-facing local reducer
-    // needs.
-    let key = make_key();
-    let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
-    {
-        let h = as_heap(&mut s);
-        for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-            h.consider(sort_vals(i), (), || projected(&key, i));
-        }
-    }
-    let drained: Vec<_> = s.drain().collect();
-    assert_eq!(drained_nums(&key, &drained), vec![0.0, 1.0, 2.0]);
 }
 
 // ===== ProjectedRow `Hash` / `Eq` =====
@@ -361,20 +350,19 @@ fn projected_row_mixed_value_types() {
 }
 
 #[test]
-fn heap_drain_entries_expose_sort_vals_in_best_first_order() {
-    // The heap-family drain keeps each value's ranking key so the remote reducer
-    // can re-attach the deferred SORTBY columns (see `HeapEntry::into_parts`).
+fn heap_drain_with_sort_vals_exposes_snapshot_in_best_first_order() {
+    // `drain_with_sort_vals` pairs each row with its sort-key snapshot so the
+    // remote reducer can re-attach the deferred SORTBY columns.
     let key = make_key();
-    let mut s = Storage::new(true, Some((0, 3)), SORT_ASC);
-    let h = as_heap(&mut s);
+    let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
+    let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
         h.consider(sort_vals(i), (), || projected(&key, i));
     }
     let snapshots: Vec<f64> = h
-        .drain()
-        .map(|entry| {
-            let (ranking_key, _value) = entry.into_parts();
-            ranking_key.sort_vals()[0]
+        .drain_with_sort_vals()
+        .map(|(_row, sort_vals)| {
+            sort_vals[0]
                 .as_ref()
                 .and_then(|v| v.as_num())
                 .expect("sort snapshot present")
@@ -382,4 +370,108 @@ fn heap_drain_entries_expose_sort_vals_in_best_first_order() {
         .collect();
     // Best→worst under ASC = smallest sort values first.
     assert_eq!(snapshots, vec![0.0, 1.0, 2.0]);
+}
+
+// ===== DISTINCT storage families =====
+//
+// These exercise the dedup *mechanism*. Identity is the field-aware
+// `ProjectedRow` `Hash`/`Eq` (its projected values), so rows with equal values
+// collapse and rows with differing values stay distinct.
+
+#[test]
+fn distinct_array_keeps_first_arrival_per_identity() {
+    let key = make_key();
+    let mut s = Storage::new(false, true, Some((0, 10)), 0);
+    let d = as_unranked(&mut s);
+    // Values 1 and 2 each arrive twice; only the first arrival of each survives,
+    // in arrival order.
+    for v in [1.0_f64, 2.0, 1.0, 3.0, 2.0] {
+        d.push(|| projected(&key, v));
+    }
+    let drained: Vec<_> = d.drain().collect();
+    assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn distinct_array_caps_distinct_count() {
+    let key = make_key();
+    let mut s = Storage::new(false, true, Some((0, 2)), 0);
+    let d = as_unranked(&mut s);
+    for v in [1.0_f64, 2.0, 3.0, 4.0] {
+        d.push(|| projected(&key, v));
+    }
+    // Cap of 2 distinct rows: the first two distinct arrivals survive.
+    let drained: Vec<_> = d.drain().collect();
+    assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
+}
+
+#[test]
+fn distinct_array_applies_skip_take() {
+    let key = make_key();
+    let mut s = Storage::new(false, true, Some((1, 2)), 0);
+    let d = as_unranked(&mut s);
+    for v in [1.0_f64, 2.0, 3.0, 1.0] {
+        d.push(|| projected(&key, v));
+    }
+    // Distinct arrivals = [1, 2, 3]; offset 1, count 2 → [2, 3].
+    let drained: Vec<_> = d.drain().collect();
+    assert_eq!(drained_nums(&key, &drained), vec![2.0, 3.0]);
+}
+
+#[test]
+fn distinct_heap_dedups_keeping_best_ranked() {
+    let key = make_key();
+    // Sort by a separate ranking value while deduping on the projected `v`.
+    let mut s = Storage::new(true, true, Some((0, 10)), SORT_DESC);
+    let d = as_ranked(&mut s);
+    // Two rows with v=1 (ranks 1 and 5) and two with v=2 (ranks 2 and 4). Under
+    // DESC the best (largest) rank per identity wins: v=1 keeps rank 5, v=2 keeps
+    // rank 4.
+    let inserts = [(1.0_f64, 1.0_f64), (2.0, 2.0), (1.0, 5.0), (2.0, 4.0)];
+    for (v, rank) in inserts {
+        d.consider(sort_vals(rank), (), || projected(&key, v));
+    }
+    let drained: Vec<_> = d.drain().collect();
+    // Two distinct identities survive; drained best→worst by the kept rank
+    // (v=1 @5 then v=2 @4).
+    assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
+}
+
+#[test]
+fn distinct_heap_stays_bounded_on_insert() {
+    let key = make_key();
+    let cap = 3;
+    let mut s = Storage::new(true, true, Some((0, cap as u64)), SORT_DESC);
+    let d = as_ranked(&mut s);
+    // Feed many distinct identities; the queue must keep only the top `cap` by
+    // rank (DESC ⇒ largest), bounded on insert rather than at drain.
+    for v in 0..20_u32 {
+        let v = v as f64;
+        d.consider(sort_vals(v), (), || projected(&key, v));
+    }
+    let drained: Vec<_> = d.drain().collect();
+    assert_eq!(drained.len(), cap);
+    // Top-3 under DESC = [19, 18, 17] best→worst.
+    assert_eq!(drained_nums(&key, &drained), vec![19.0, 18.0, 17.0]);
+}
+
+#[test]
+fn distinct_heap_duplicates_do_not_consume_capacity() {
+    let key = make_key();
+    let mut s = Storage::new(true, true, Some((0, 2)), SORT_DESC);
+    let d = as_ranked(&mut s);
+    // Only two distinct identities (v=1, v=2), each offered several times. The
+    // cap of 2 must not evict either identity despite the repeated inserts.
+    for (v, rank) in [
+        (1.0_f64, 1.0_f64),
+        (2.0, 2.0),
+        (1.0, 3.0),
+        (2.0, 4.0),
+        (1.0, 9.0),
+    ] {
+        d.consider(sort_vals(rank), (), || projected(&key, v));
+    }
+    let drained: Vec<_> = d.drain().collect();
+    // Both identities survive; v=1 kept rank 9, v=2 kept rank 4 → DESC order.
+    assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
 }

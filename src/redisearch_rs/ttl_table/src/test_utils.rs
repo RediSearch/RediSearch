@@ -11,7 +11,7 @@ use std::num::NonZeroUsize;
 
 use crate::{FieldExpiration, FieldExpirations};
 use ffi::t_expirationTimePoint as timespec;
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldMask};
 
 pub const fn ts(sec: i64, nsec: i64) -> timespec {
     // `libc::time_t` is deprecated on musl (musl 1.2 changed it to 64-bit,
@@ -67,7 +67,7 @@ pub fn identity_ft_id() -> Vec<u16> {
     (0u16..128).collect()
 }
 
-pub fn mask_bit(indexes: &[u16]) -> u32 {
+pub fn mask_bit(indexes: &[u16]) -> FieldMask {
     indexes.iter().map(|index| 1 << index).sum()
 }
 

@@ -181,7 +181,7 @@ pub unsafe extern "C" fn TimeToLiveTable_GetFieldExpirations<'a>(
 ///  - `table` must point to a valid, initialized [`TimeToLiveTable`].
 ///  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
+pub unsafe extern "C" fn TimeToLiveTable_FieldSatisfiesPredicate(
     table: *const TimeToLiveTable,
     doc_id: DocId,
     field_index: u16,
@@ -197,10 +197,15 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
     let inner = unsafe { &*table };
     // SAFETY: caller guarantees pointer validity.
     let ep = unsafe { &*expiration_point };
-    inner.verify_doc_and_field(doc_id, field_index, predicate, ep)
+    inner.field_satisfies_predicate(doc_id, field_index, predicate, ep)
 }
 
-/// 32-bit field-mask expiration check.
+/// Field-mask expiration check.
+///
+/// `field_mask` is always passed as a wide [`FieldMask`]. When `wide` is
+/// `false` (narrow schema, at most 32 fields) only the low 32 bits are
+/// meaningful and the faster `u32` bit-walk is used; when `wide` is `true`
+/// the full [`FieldMask`] width is walked.
 ///
 /// `ft_id_to_field_index` must point to at least
 /// `highest_set_bit(field_mask) + 1` valid `u16` entries.
@@ -221,46 +226,14 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndField(
 ///  - `expiration_point` must be a valid `*const t_expirationTimePoint`.
 ///  - `ft_id_to_field_index` must satisfy the bound above.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndFieldMask(
-    table: *const TimeToLiveTable,
-    doc_id: DocId,
-    field_mask: u32,
-    predicate: FieldExpirationPredicate,
-    expiration_point: *const t_expirationTimePoint,
-    ft_id_to_field_index: *const u16,
-) -> bool {
-    debug_assert!(!table.is_null(), "table cannot be NULL");
-    debug_assert!(
-        !expiration_point.is_null(),
-        "expiration_point cannot be NULL"
-    );
-    // SAFETY: caller guarantees pointer validity.
-    let inner = unsafe { &*table };
-    // SAFETY: caller guarantees pointer validity.
-    let ep = unsafe { &*expiration_point };
-    let len = highest_bit_plus_one(field_mask);
-    // SAFETY: caller upholds `build_ft_slice`'s contract (length covers the
-    // highest set bit of the mask).
-    let ft = unsafe { build_ft_slice(ft_id_to_field_index, len) };
-    inner.verify_doc_and_field_mask(doc_id, field_mask, predicate, ep, ft)
-}
-
-/// Wide field-mask version of [`TimeToLiveTable_VerifyDocAndFieldMask`].
-///
-/// # Returns
-/// Same semantics as [`TimeToLiveTable_VerifyDocAndFieldMask`] — see that
-/// function for the predicate / no-entry cases.
-///
-/// # Safety
-/// Same contract as [`TimeToLiveTable_VerifyDocAndFieldMask`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndWideFieldMask(
+pub unsafe extern "C" fn TimeToLiveTable_FieldMaskSatisfiesPredicate(
     table: *const TimeToLiveTable,
     doc_id: DocId,
     field_mask: FieldMask,
     predicate: FieldExpirationPredicate,
     expiration_point: *const t_expirationTimePoint,
     ft_id_to_field_index: *const u16,
+    wide: bool,
 ) -> bool {
     debug_assert!(!table.is_null(), "table cannot be NULL");
     debug_assert!(
@@ -271,12 +244,15 @@ pub unsafe extern "C" fn TimeToLiveTable_VerifyDocAndWideFieldMask(
     let inner = unsafe { &*table };
     // SAFETY: caller guarantees pointer validity.
     let ep = unsafe { &*expiration_point };
-
-    let len = highest_bit_plus_one_wide(field_mask);
+    let len = if wide {
+        highest_bit_plus_one_wide(field_mask)
+    } else {
+        highest_bit_plus_one(field_mask as u32)
+    };
     // SAFETY: caller upholds `build_ft_slice`'s contract (length covers the
     // highest set bit of the mask).
     let ft = unsafe { build_ft_slice(ft_id_to_field_index, len) };
-    inner.verify_doc_and_wide_field_mask(doc_id, field_mask, predicate, ep, ft)
+    inner.field_mask_satisfies_predicate(doc_id, field_mask, predicate, ep, ft, wide)
 }
 
 /// Test-only: number of buckets currently allocated.
@@ -356,27 +332,6 @@ pub unsafe extern "C" fn FieldExpirations_Len(v: *const FieldExpirations) -> usi
     v.len()
 }
 
-/// Borrow the contents of `*v` as a [`FieldExpirationSlice`].
-///
-/// The returned pointer aliases storage owned by `*v`.
-///
-/// # Safety
-///  - `v` must be non-null.
-///  - `*v` must be either an initialized [`FieldExpirations`] (returned by a
-///    constructor in this module).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn FieldExpirations_AsSlice<'a>(
-    v: *const FieldExpirations,
-) -> FieldExpirationSlice<'a> {
-    debug_assert!(!v.is_null(), "v cannot be NULL");
-
-    // SAFETY: not uninitialized, so `*v` is a properly constructed
-    // `FieldExpirations` per the caller's contract.
-    let v = unsafe { &*v };
-
-    FieldExpirationSlice::from_fields(v)
-}
-
 /// Drop the [`FieldExpirations`] at `*v` and leave it in an empty,
 /// reusable state.
 ///
@@ -407,6 +362,12 @@ pub unsafe extern "C" fn FieldExpirations_Free(v: *mut FieldExpirations) {
     // empty wrapper that doesn't allocate) and drops the old value,
     // releasing its `ThinVec` heap allocation.
     let _ = std::mem::take(v);
+}
+
+/// Return empty FieldExpirationSlice
+#[unsafe(no_mangle)]
+pub const extern "C" fn FieldExpirationsSlice_Empty() -> FieldExpirationSlice<'static> {
+    FieldExpirationSlice::EMPTY
 }
 
 #[inline]

@@ -23,7 +23,7 @@ COPY . .
 
 WORKDIR /project/.install
 # Install base dependencies, Rust toolchain, and optionally LLVM for sanitizer builds.
-RUN bash retry.sh bash -l -eo pipefail install_script.sh && \
+RUN SKIP_BOOST=1 bash retry.sh bash -l -eo pipefail install_script.sh && \
     if [ "$SAN" = "address" ]; then bash retry.sh bash -l -eo pipefail install_llvm.sh; fi
 # Mount the GitHub token as a build secret so cargo-binstall benefits from
 # higher GitHub API rate limits when fetching prebuilt release artifacts.
