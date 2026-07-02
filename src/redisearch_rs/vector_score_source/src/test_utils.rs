@@ -21,7 +21,7 @@ use ffi::{
     VecSimIndex_New, VecSimMetric, VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2,
     VecSimParams, VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
-use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, IdList, RQEIterator};
+use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 
 use crate::VectorScoreSource;
 
@@ -144,7 +144,7 @@ pub unsafe fn make_source(
     ef: usize,
     k: usize,
     child_est: usize,
-) -> VectorScoreSource<'static> {
+) -> VectorScoreSource<'static, NoOpChecker> {
     // SAFETY: forwarded to `make_source_with_mode`, same contract.
     unsafe { make_source_with_mode(index, query, ef, VecSearchMode_EMPTY_MODE, k, child_est) }
 }
@@ -164,20 +164,10 @@ pub unsafe fn make_source_with_mode(
     search_mode: VecSearchMode,
     k: usize,
     child_est: usize,
-) -> VectorScoreSource<'static> {
+) -> VectorScoreSource<'static, NoOpChecker> {
     // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
     // `# Safety` 1 and 2.
-    unsafe {
-        make_source_inner(
-            index,
-            query,
-            ef,
-            search_mode,
-            k,
-            child_est,
-            None::<FieldExpirationChecker>,
-        )
-    }
+    unsafe { make_source_inner(index, query, ef, search_mode, k, child_est, NoOpChecker) }
 }
 
 /// [`make_source`] with an optional field-`expiration` filter, consulted at
@@ -195,7 +185,7 @@ pub unsafe fn make_source_with_expiration<E: ExpirationChecker>(
     ef: usize,
     k: usize,
     child_est: usize,
-    expiration: Option<E>,
+    expiration: E,
 ) -> VectorScoreSource<'static, E> {
     // SAFETY: forwarded to `make_source_inner`; caller upholds this fn's
     // `# Safety` 1 and 2.
@@ -227,7 +217,7 @@ unsafe fn make_source_inner<E: ExpirationChecker>(
     search_mode: VecSearchMode,
     k: usize,
     child_est: usize,
-    expiration: Option<E>,
+    expiration: E,
 ) -> VectorScoreSource<'static, E> {
     // SAFETY: zeroed is a valid bit pattern for this config; we then set only
     // the fields VecSim reads.
