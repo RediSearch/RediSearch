@@ -41,6 +41,28 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Collect GC delta data for every entry in the spec's `missingFieldDict` and
+ * send it to the parent process over the pipe.
+ *
+ * Iterates the `missingFieldDict`, and for each entry with a non-null
+ * `InvertedIndex` calls `scan_gc` which sends the field name header
+ * followed by the serialised GC delta. Sends a terminator once all
+ * entries are processed.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
  * Collect GC delta data for the spec's `existingDocs` inverted index and
  * send it to the parent process over the pipe.
  *

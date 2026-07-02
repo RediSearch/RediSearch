@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
 inverted_index.workspace = true

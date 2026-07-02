@@ -570,6 +570,9 @@ RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpe
  */
 void IndexSpec_MakeKeyless(IndexSpec *sp);
 
+/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+extern dictType missingFieldDictType;
+
 /**
  * Exposing all the fields of the index to INFO command.
  * @param ctx - the redis module info context
