@@ -560,7 +560,6 @@ static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, req->reqConfig.timeoutPolicy, IsProfile(req))) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
-    recordAREQTimeoutStage(req, true);
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -629,7 +628,6 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
                       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
   if (has_timedout) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-    recordAREQTimeoutStage(req, false);
     ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
@@ -812,7 +810,6 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-    recordAREQTimeoutStage(req, false);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
@@ -1086,7 +1083,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-      recordAREQTimeoutStage(req, false);
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
     }
@@ -1148,7 +1144,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
     if (QueryError_GetCode(err) == QUERY_ERROR_CODE_TIMED_OUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
-      recordAREQTimeoutStage(req, false);
       ProfileWarnings_Add(&AREQ_ProfilePrinterCtx(req)->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
     }
 
@@ -1674,10 +1669,9 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // No-op for shapes that already accumulated their rows in state.results.
   drainPartialResultsAfterTimeout(req);
 
-  // Reply-phase timeout: pipeline finished (stored rc EOF/OK) but the client timed
-  // out before unblock; serialization skips it, so record here (gate avoids double).
-  if (req->storedReplyState.rc != RS_RESULT_TIMEDOUT) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
+  if (req->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
     recordAREQTimeoutStage(req, /*isError=*/false);
   }
 
@@ -1844,10 +1838,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
 
   if (req->storedReplyState.hasStoredResults) {
     drainPartialResultsAfterTimeout(req);
-    // Reply-phase timeout: read finished (rc EOF/OK) but client timed out before
-    // unblock; serialization skips it, so record here (gate avoids double-count).
-    if (req->storedReplyState.rc != RS_RESULT_TIMEDOUT) {
-      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
+    // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+    // real timeout; a completed read (rc EOF) is a no-op race, so record nothing.
+    if (req->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
       recordAREQTimeoutStage(req, /*isError=*/false);
     }
     AREQ_ReplyWithStoredResults(ctx, req);

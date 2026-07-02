@@ -813,6 +813,11 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // No-op for already-complete runs.
   drainPartialResultsAfterTimeout(req);
 
+  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
+  if (req->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
+    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
+  }
   AREQ_ReplyWithStoredResults(ctx, req);
 
   return REDISMODULE_OK;
@@ -918,6 +923,11 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
     drainPartialResultsAfterTimeout(req);
+    // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+    // real timeout; a completed read (rc EOF) is a no-op race, so record nothing.
+    if (req->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
+      CoordRequestCtx_RecordTimeoutStage(reqCtx, /*isError=*/false);
+    }
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable

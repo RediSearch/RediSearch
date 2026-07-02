@@ -285,7 +285,6 @@ static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *
     return true;
   } else if (ShouldReplyWithTimeoutError(rc, hreq->reqConfig.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    recordHREQTimeoutStage(hreq, /*isError=*/true, COORD_ERR_WARN);
     ReplyWithTimeoutError(reply);
     return true;
   }
@@ -328,7 +327,6 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   }
   if (QueryError_GetCode(qctx->err) == QUERY_ERROR_CODE_TIMED_OUT) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-    recordHREQTimeoutStage(hreq, /*isError=*/false, COORD_ERR_WARN);
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
   }
   // The cap flag is mirrored on both subqueries by parseHybridCommand; checking

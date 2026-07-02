@@ -1252,6 +1252,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
   // tail already accumulated into `storedReplyState.results` before the deadline.
+  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
+  if (hreq->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
+    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
+  }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
