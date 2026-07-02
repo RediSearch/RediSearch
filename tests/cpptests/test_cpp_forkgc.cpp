@@ -335,10 +335,13 @@ TEST_F(FGCTestTag, testRemoveAllBlocksWhileUpdateLast) {
   ASSERT_EQ(1, sctx.spec->stats.scoring.numDocuments);
   // But the last block deletion was skipped.
   ASSERT_EQ(2, sctx.spec->stats.numRecords);
-  // 24 bytes is the base size of the InvertedIndex struct, plus 24 bytes for the
-  // Arc<ThinVec> heap allocation (Arc refcount header + ThinVec stack representation);
-  // 8 is the header of the block vector.
-  ASSERT_EQ(lastBlockMemory + 24 + 24 + 8, sctx.spec->stats.invertedSize);
+  // 48 bytes is the base size of the InvertedIndex struct (now including the
+  // `pending: Vec<Arc<IndexBlock>>` triple-pointer field), and 24 bytes is the
+  // Arc<ThinVec> heap allocation for the empty `sealed` region (Arc refcount
+  // header + ThinVec stack representation). The single remaining block in
+  // `pending` is already covered by `lastBlockMemory` via PER_NEW_BLOCK_BYTES
+  // (Arc header + IndexBlock inline + one pending Vec slot).
+  ASSERT_EQ(lastBlockMemory + 48 + 24, sctx.spec->stats.invertedSize);
   ASSERT_EQ(1, totalSpecBlocks() - startValue);
 }
 

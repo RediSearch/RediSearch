@@ -30,8 +30,13 @@ type NotOptimizedFfi<'index> =
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///
-/// The `NotOptimized` variant inlines a `WildcardIterator` to avoid heap
-/// allocation. Both variants are long-lived (query lifetime).
+/// The `NotOptimized` variant is intentionally large because it inlines a
+/// `WildcardIterator` to avoid heap allocation. Both variants are
+/// long-lived (query lifetime), and the size difference is acceptable.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "both variants are query-lifetime; boxing would add a needless allocation"
+)]
 enum NotIteratorEnum<'index> {
     Not(NotFfi<'index>),
     NotOptimized(NotOptimizedFfi<'index>),

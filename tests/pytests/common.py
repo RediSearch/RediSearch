@@ -937,12 +937,13 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            # Empty Rust InvertedIndex on step-a:
-            #   24 = sizeof(InvertedIndex) on the stack — Arc<ThinVec> pointer +
-            #        small fields (n_unique_docs, flags, gc_marker), padded.
+            # Empty Rust InvertedIndex on step-b:
+            #   48 = sizeof(InvertedIndex) on the stack — Arc<ThinVec> sealed pointer
+            #        + Vec<Arc<IndexBlock>> pending triple (ptr/len/cap) + small
+            #        fields (n_unique_docs, flags, gc_marker, unique_id).
             #   24 = Arc<ThinVec> heap allocation for the empty `sealed` blocks
             #        (Arc refcount header 16 + inline ThinVec stack representation 8).
-            inverted_index_size = 24 + 24
+            inverted_index_size = 48 + 24
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue

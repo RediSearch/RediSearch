@@ -16,12 +16,19 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * A point-in-time view of an inverted index's block storage.
+ * An owned, point-in-time snapshot of an [`InvertedIndex`](super::core::InvertedIndex).
  *
- * Owns an [`Arc`] clone of the underlying `ThinVec` taken at snapshot time, so the
- * returned blocks stay valid even after the writer mutates the live index. Follow-up
- * PRs split the storage into `sealed`/`pending`/`in_progress` regions; the public
- * API stays the same.
+ * Combines:
+ * - An [`Arc`] clone of the index's `sealed` blocks (data shared via refcount).
+ * - A shallow clone of `pending`: the [`Vec`] of [`Arc<IndexBlock>`] pointer slots is
+ *   copied, but the block data behind each `Arc` is shared.
+ * - A captured `tail_num_entries`: the value of the tail block's `num_entries` at
+ *   snapshot time, used to bound iteration on the tail block against any concurrent
+ *   writer-side in-place append.
+ *
+ * All three are captured together while the caller holds the spec read lock, so no
+ * concurrent writer/GC can split the snapshot across an inconsistent moment. After the
+ * lock is released the snapshot is fully owned and can be walked without coordination.
  */
 typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
 
@@ -112,20 +119,6 @@ typedef struct IIBlockSummary {
 } IIBlockSummary;
 
 /**
- * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
- */
-typedef struct AddRecordOutcome {
-  /**
-   * Number of bytes the inverted index's memory usage grew by.
-   */
-  uint32_t mem_growth;
-  /**
-   * Number of new index blocks this write created.
-   */
-  uint32_t blocks_added;
-} AddRecordOutcome;
-
-/**
  * Filter to apply when reading from an index. Entries which don't match the filter will not be
  * returned by the reader.
  */
@@ -162,6 +155,20 @@ typedef union IndexDecoderCtx {
     const struct NumericFilter *numeric;
   };
 } IndexDecoderCtx;
+
+/**
+ * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+ */
+typedef struct AddRecordOutcome {
+  /**
+   * Number of bytes the inverted index's memory usage grew by.
+   */
+  uint32_t mem_growth;
+  /**
+   * Number of new index blocks this write created.
+   */
+  uint32_t blocks_added;
+} AddRecordOutcome;
 
 /**
  * Information about the result of applying a garbage collection scan to the index

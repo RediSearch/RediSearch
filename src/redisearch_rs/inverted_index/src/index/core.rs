@@ -31,19 +31,32 @@ use rqe_core::DocId;
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
 ///
-/// The block list is owned by an [`Arc`] so readers can take a cheap refcount clone
-/// via [`Self::snapshot`] and walk a stable view independent of subsequent writes.
-/// Writers go through `Arc::make_mut`, which triggers a copy-on-write of the
-/// `ThinVec` only when readers still hold an outstanding snapshot. Follow-up PRs
-/// will split this into `sealed`/`pending`/`in_progress` regions to avoid that COW
-/// cost on the hot path.
+/// Block storage is split across two regions:
+/// - [`Self::sealed`] — compacted blocks owned via [`Arc`]; only GC writes here. Readers'
+///   snapshots share the same allocation via refcount clone.
+/// - [`Self::pending`] — a small staging area for actively-written and recently-rolled-over
+///   blocks. Each block is wrapped in its own [`Arc`] so the snapshot's shallow [`Vec`] clone
+///   shares the underlying block data via refcount. The tail of `pending` is the
+///   currently-being-written block; the writer mutates it via [`Arc::make_mut`] — cheap
+///   when no reader is pinning the snapshot (refcount = 1) and amortizes to one block
+///   clone per outstanding snapshot.
+///
+/// Both regions are protected by the spec write lock (C side) plus `&mut self` (Rust side)
+/// for mutations. Readers take a snapshot under the spec read lock — see [`Self::snapshot`].
+/// A follow-up PR introduces an `in_progress: Option<IndexBlock>` region to eliminate the
+/// `Arc::make_mut` allocation entirely on the hot write path.
 #[derive(Debug)]
 pub struct InvertedIndex<E> {
-    /// The blocks of the index, owned via [`Arc`] for cheap snapshotting. Each block
-    /// contains a set of entries for a specific range of document IDs; blocks are
-    /// ordered by document ID. Writers use `Arc::make_mut` to obtain `&mut ThinVec`
-    /// (copy-on-write when a snapshot is alive).
-    pub(crate) blocks: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+    /// Compacted, immutable blocks. GC's `apply_gc` replaces this [`Arc`] under
+    /// `&mut self`; readers' snapshots share the same allocation via refcount clone.
+    pub(crate) sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+
+    /// Recently-added blocks, in insertion order. The last entry is the
+    /// currently-being-written block; writes mutate it via [`Arc::make_mut`]. Earlier
+    /// entries are full and waiting for GC to compact them into [`Self::sealed`].
+    /// Snapshots `.clone()` this Vec (a shallow copy of the pointer slots — the blocks
+    /// behind each `Arc` are shared via refcount).
+    pub(crate) pending: Vec<Arc<IndexBlock>>,
 
     /// Number of unique documents in the index. This is not the total number of entries, but rather the
     /// number of unique documents that have been indexed.
@@ -161,15 +174,24 @@ impl Clone for IndexBlock {
 
 /// Two pointer-sized atomics — the strong/weak refcount header that prefixes the
 /// `T` inside every `Arc<T>` heap allocation. Used by [`InvertedIndex::memory_usage`]
-/// to account for the `Arc<ThinVec<IndexBlock>>` wrapper.
+/// and [`InvertedIndex::add_record`] (mem_growth accounting) to account for each
+/// `Arc<...>` wrapper.
 pub(crate) const ARC_HEADER_BYTES: usize = std::mem::size_of::<usize>() * 2;
+
+/// Memory cost of pushing one new block onto `pending`, beyond the buffer growth from
+/// later encodes: the fresh `Arc<IndexBlock>` heap allocation (refcount header + the
+/// inline `IndexBlock` stack) plus one new pointer slot in the `pending` Vec. Used by
+/// [`InvertedIndex::add_record`] for `mem_growth` reporting.
+pub(crate) const PER_NEW_BLOCK_BYTES: usize =
+    IndexBlock::STACK_SIZE + ARC_HEADER_BYTES + std::mem::size_of::<Arc<IndexBlock>>();
 
 impl<E: Encoder> InvertedIndex<E> {
     /// Create a new inverted index with the given encoder. The encoder is used to write new
     /// entries to the index.
     pub fn new(flags: IndexFlags) -> Self {
         Self {
-            blocks: Arc::new(ThinVec::new()),
+            sealed: Arc::new(ThinVec::new()),
+            pending: Vec::new(),
             n_unique_docs: 0,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -197,8 +219,20 @@ impl<E: Encoder> InvertedIndex<E> {
 
         let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
 
+        // All seeded blocks land in `pending`. Tests that exercise the writer path
+        // (which mutates the tail of `pending`) get a fresh in-place tail this way;
+        // GC tests that need a populated `sealed` set it up separately.
+        // `Vec::with_capacity` pins the heap allocation at exactly `blocks.len()` —
+        // `collect()` would route through `Vec::extend`'s growth strategy and over-
+        // allocate (minimum 4 slots), inflating tests that pin `memory_usage`.
+        let mut pending: Vec<Arc<IndexBlock>> = Vec::with_capacity(blocks.len());
+        for b in blocks {
+            pending.push(Arc::new(b));
+        }
+
         Self {
-            blocks: Arc::new(blocks),
+            sealed: Arc::new(ThinVec::new()),
+            pending,
             n_unique_docs,
             flags,
             gc_marker: AtomicU32::new(0),
@@ -208,16 +242,39 @@ impl<E: Encoder> InvertedIndex<E> {
     }
 
     /// The memory size of the index in bytes.
+    ///
+    /// Counts every heap allocation reachable from `self`: the [`Arc<ThinVec>`] for
+    /// `sealed` (refcount header + ThinVec stack + heap if any + each block's buffer),
+    /// the heap of `pending: Vec<Arc<IndexBlock>>` plus each `Arc<IndexBlock>`'s
+    /// allocation (refcount header + the inline `IndexBlock` + its buffer).
     pub fn memory_usage(&self) -> usize {
-        let blocks_heap = self.blocks.mem_usage();
-        let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
-        // The Arc's heap allocation: refcount header + the inlined ThinVec stack
-        // representation. The `ThinVec` itself moves from `InvertedIndex`'s stack
-        // (in PR4) to the Arc's heap allocation here.
-        let arc_heap = ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
+        // `size_of::<Self>` covers the direct fields: the `Arc<ThinVec>` pointer, the
+        // `Vec<Arc<IndexBlock>>` triple (ptr/len/cap), the atomics and PhantomData.
+        // Heap-allocated portions are added below.
         let stack = std::mem::size_of::<Self>();
 
-        blocks_heap + blocks_buffers + arc_heap + stack
+        // `sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>` — the Arc's heap allocation
+        // is the refcount header plus the inlined ThinVec stack representation.
+        let sealed_arc =
+            ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
+        let sealed_thinvec_heap = self.sealed.mem_usage();
+        let sealed_buffers: usize = self.sealed.iter().map(|b| b.buffer.capacity()).sum();
+
+        // `pending: Vec<Arc<IndexBlock>>` — only the Vec heap and each `Arc<IndexBlock>`
+        // allocation are heap; the Vec stack triple is in `stack` above.
+        let pending_vec_heap = self.pending.capacity() * std::mem::size_of::<Arc<IndexBlock>>();
+        let pending_blocks: usize = self
+            .pending
+            .iter()
+            .map(|arc_b| ARC_HEADER_BYTES + IndexBlock::STACK_SIZE + arc_b.buffer.capacity())
+            .sum();
+
+        stack
+            + sealed_arc
+            + sealed_thinvec_heap
+            + sealed_buffers
+            + pending_vec_heap
+            + pending_blocks
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -228,6 +285,20 @@ impl<E: Encoder> InvertedIndex<E> {
     ///
     /// It is expected that the document ID of the record is greater than or equal to the last
     /// document ID in the index.
+    ///
+    /// The write mutates the tail of `pending` in place via [`Arc::make_mut`]: when no reader
+    /// holds an outstanding snapshot (refcount = 1) this is just a `&mut` deref — no buffer
+    /// clone, no `Arc` allocation. When a snapshot is alive (refcount > 1) the tail block is
+    /// deep-cloned first so the reader's view stays intact, then we mutate the clone. Roll-over
+    /// (block-full or delta-too-big) pushes a fresh `Arc<IndexBlock>` onto `pending`.
+    ///
+    /// # Safety
+    ///
+    /// `&mut self` guarantees no concurrent writer in Rust; the spec write lock at the FFI
+    /// boundary guarantees no concurrent reader/GC. If a future story lifts the spec lock,
+    /// the writer's interplay with snapshot construction must be revisited: snapshots eagerly
+    /// `Arc::clone` the tail under the spec read lock, which bumps refcount before any
+    /// `Arc::make_mut` here can see refcount = 1.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
         let doc_id = record.doc_id;
 
@@ -245,51 +316,82 @@ impl<E: Encoder> InvertedIndex<E> {
             (_, false) => false,
         };
 
-        let blocks_before = self.blocks.len();
+        let mut mem_growth: usize = 0;
+        let mut blocks_added: u32 = 0;
 
-        // We take ownership of the block since we are going to keep using self. So we can't have a
-        // mutable reference to the block we are working with at the same time.
-        let mut block = self.take_block(doc_id, same_doc);
-        let mut mem_growth = 0;
+        // Ensure `pending` has a tail block we can write to. We need a fresh block if:
+        // - `pending` is empty (first write, or post-GC empty state), or
+        // - the tail is full (and we're not appending another entry for the same doc).
+        let need_fresh = match self.pending.last() {
+            None => true,
+            Some(arc) => !same_doc && arc.num_entries >= E::RECOMMENDED_BLOCK_ENTRIES,
+        };
+        if need_fresh {
+            mem_growth += self.push_fresh_block(doc_id);
+            blocks_added += 1;
+        }
 
-        let delta_base = E::delta_base(&block);
-        debug_assert!(
-            doc_id >= delta_base,
-            "documents should be encoded in the order of their IDs"
-        );
-        let delta = doc_id.wrapping_sub(delta_base);
+        // Capture the live tail's buffer capacity BEFORE `Arc::make_mut`. If a reader
+        // snapshot pins the current tail (refcount > 1), `make_mut` deep-clones it and
+        // the clone starts with `capacity == len` — measuring the post-`make_mut`
+        // capacity would diff against the clone's smaller starting capacity and
+        // overcount growth on the COW path. See [`Vec::clone`] for the capacity
+        // contract on the cloned buffer.
+        let buf_cap_before = self
+            .pending
+            .last()
+            .expect("just ensured non-empty")
+            .buffer
+            .capacity();
 
-        let delta = match E::Delta::from_u64(delta) {
-            Some(delta) => delta,
-            None => {
-                // The delta is too large for this encoder. We need to create a new block.
-                // Since the new block is empty, we'll start with `delta` equal to 0.
-                let new_block = IndexBlock::new(doc_id);
+        // First encode attempt: mutate the current tail in place via `Arc::make_mut`. If the
+        // delta is too large for the encoder, we leave the tail untouched and push another
+        // fresh block below.
+        let delta_too_big = {
+            let working_block =
+                Arc::make_mut(self.pending.last_mut().expect("just ensured non-empty"));
+            let delta_base = E::delta_base(working_block);
+            debug_assert!(
+                doc_id >= delta_base,
+                "documents should be encoded in the order of their IDs"
+            );
+            let delta = doc_id.wrapping_sub(delta_base);
+            match E::Delta::from_u64(delta) {
+                Some(d) => {
+                    E::encode(working_block.writer(), d, record)?;
+                    // We don't use the bytes-written reported by the encoder for memory
+                    // growth: the buffer may have had spare capacity. Diff against the
+                    // live tail's capacity captured above. `saturating_sub` handles the
+                    // rare COW case where the clone's post-write capacity ends up below
+                    // the original (live index shrunk; we'd want a signed delta to
+                    // reflect that, but `mem_growth` is unsigned — clamp at 0 instead).
+                    mem_growth += working_block
+                        .buffer
+                        .capacity()
+                        .saturating_sub(buf_cap_before);
 
-                // We won't use the block so make sure to put it back
-                mem_growth += self.add_block(block);
-                block = new_block;
-
-                E::Delta::zero()
+                    debug_assert!(working_block.num_entries.saturating_add(1) < u16::MAX);
+                    working_block.num_entries += 1;
+                    working_block.last_doc_id = doc_id;
+                    false
+                }
+                None => true,
             }
         };
 
-        let buf_cap = block.buffer.capacity();
-        let writer = block.writer();
-        let _bytes_written = E::encode(writer, delta, record)?;
-
-        // We don't use `_bytes_written` returned by the encoder to determine by how much memory
-        // grew because the buffer might have had enough capacity for the bytes in the encoding.
-        // Instead we took the capacity of the buffer before the write and now check by how much it
-        // has increased (if any).
-        let buf_growth = block.buffer.capacity() - buf_cap;
-
-        debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
-        block.num_entries += 1;
-        block.last_doc_id = doc_id;
-
-        // We took ownership of the block so put it back
-        mem_growth += self.add_block(block);
+        if delta_too_big {
+            // The delta from this block's `delta_base` to `doc_id` doesn't fit the encoder.
+            // Roll over to a fresh block (primed with `doc_id`) and encode `delta = 0` there.
+            mem_growth += self.push_fresh_block(doc_id);
+            blocks_added += 1;
+            let working_block =
+                Arc::make_mut(self.pending.last_mut().expect("just pushed a block"));
+            let buf_cap = working_block.buffer.capacity();
+            E::encode(working_block.writer(), E::Delta::zero(), record)?;
+            mem_growth += working_block.buffer.capacity() - buf_cap;
+            working_block.num_entries += 1;
+            working_block.last_doc_id = doc_id;
+        }
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -297,81 +399,53 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
-        let total_mem_growth = buf_growth + mem_growth;
-        // A single add_record can grow memory by at most one block-buffer doubling plus the
-        // overhead of inserting one new block into the `blocks` ThinVec — comfortably below 4 GiB.
+        // A single add_record can grow memory by at most two block-buffer doublings plus the
+        // overhead of inserting one or two new blocks — comfortably below 4 GiB.
         debug_assert!(
-            total_mem_growth <= u32::MAX as usize,
-            "AddRecordOutcome::mem_growth overflowed u32 ({total_mem_growth} bytes in one add)"
+            mem_growth <= u32::MAX as usize,
+            "AddRecordOutcome::mem_growth overflowed u32 ({mem_growth} bytes in one add)"
         );
         Ok(AddRecordOutcome {
-            mem_growth: total_mem_growth as u32,
-            blocks_added: (self.blocks.len() - blocks_before) as u32,
+            mem_growth: mem_growth as u32,
+            blocks_added,
         })
+    }
+
+    /// Push a freshly-allocated `Arc<IndexBlock>` primed at `doc_id` onto `pending`.
+    /// Returns [`PER_NEW_BLOCK_BYTES`]: the Arc allocation (refcount header + the
+    /// inline `IndexBlock`) plus one new pointer slot in the pending Vec.
+    ///
+    /// The Vec is grown by exactly one slot via [`Vec::reserve_exact`] when full,
+    /// matching the previous ThinVec strategy: each new block costs a predictable
+    /// `PER_NEW_BLOCK_BYTES` bytes. The standard `Vec::push` doubling would charge a
+    /// variable amount per push and inflate idle memory for indexes with few blocks
+    /// (common for rare-term text indexes).
+    fn push_fresh_block(&mut self, doc_id: DocId) -> usize {
+        if self.pending.len() == self.pending.capacity() {
+            self.pending.reserve_exact(1);
+        }
+        self.pending.push(Arc::new(IndexBlock::new(doc_id)));
+        PER_NEW_BLOCK_BYTES
     }
 
     /// Returns the last document ID in the index, if any.
     pub fn last_doc_id(&self) -> Option<DocId> {
-        self.blocks.last().map(|b| b.last_doc_id)
+        // The actively-written tail is the last entry of `pending`. If `pending` is empty
+        // (fresh index or freshly-compacted-empty), fall back to the tail of `sealed`.
+        self.pending
+            .last()
+            .map(|arc| arc.last_doc_id)
+            .or_else(|| self.sealed.last().map(|b| b.last_doc_id))
     }
 
     /// Returns the number of entries in the tail block, if any. Used by the reader's
     /// revalidation path to detect in-place tail appends that the `gc_marker` doesn't
     /// signal.
     pub fn tail_num_entries(&self) -> Option<u16> {
-        self.blocks.last().map(|b| b.num_entries())
-    }
-
-    /// Take a block that can be written to.
-    ///
-    /// `Arc::make_mut` triggers a `ThinVec` clone if a reader holds an outstanding
-    /// snapshot. Follow-up PRs add `pending`/`in_progress` regions so this path
-    /// stops touching `sealed`/snapshotted data on every write.
-    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> IndexBlock {
-        let blocks = Arc::make_mut(&mut self.blocks);
-        if blocks.is_empty()
-            || (
-                // If the block is full
-                !same_doc
-                    && blocks
-                        .last()
-                        .expect("we just confirmed there are blocks")
-                        .num_entries
-                        >= E::RECOMMENDED_BLOCK_ENTRIES
-            )
-        {
-            IndexBlock::new(doc_id)
-        } else {
-            blocks
-                .pop()
-                .expect("to get the last block since we know there is one")
-        }
-    }
-
-    /// Add a block back to the index. This allows us to control the growth strategy used by the
-    /// `blocks` vector.
-    ///
-    /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
-    fn add_block(&mut self, block: IndexBlock) -> usize {
-        let blocks = Arc::make_mut(&mut self.blocks);
-        let had_allocated = blocks.has_allocated();
-        let mem_growth = if blocks.len() == blocks.capacity() {
-            blocks.reserve_exact(1);
-
-            if had_allocated {
-                IndexBlock::STACK_SIZE
-            } else {
-                // Nothing is allocated until the first block is added.
-                // When that happens, the heap allocation has to grow by the size of the block
-                // as well as the size of the thin vector head (i.e. length and capacity).
-                blocks.mem_usage()
-            }
-        } else {
-            0
-        };
-
-        blocks.push(block);
-        mem_growth
+        self.pending
+            .last()
+            .map(|arc| arc.num_entries)
+            .or_else(|| self.sealed.last().map(|b| b.num_entries))
     }
 
     /// Returns the number of unique documents in the index.
@@ -391,7 +465,7 @@ impl<E: Encoder> InvertedIndex<E> {
             number_of_entries: self.n_unique_docs as usize,
             last_doc_id: self.last_doc_id().unwrap_or(0),
             flags: self.flags as _,
-            number_of_blocks: self.blocks.len(),
+            number_of_blocks: self.number_of_blocks(),
             block_efficiency: 0.0,
             has_efficiency: false,
         }
@@ -399,8 +473,10 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Return basic information about the blocks in this inverted index.
     pub fn blocks_summary(&self) -> Vec<BlockSummary> {
-        self.blocks
-            .iter()
+        let snap = self.snapshot();
+        let total = snap.block_count();
+        (0..total)
+            .filter_map(|i| snap.block_ref(i))
             .map(|b| BlockSummary {
                 first_doc_id: b.first_doc_id,
                 last_doc_id: b.last_doc_id,
@@ -411,19 +487,32 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// Returns the number of blocks in this index.
     pub fn number_of_blocks(&self) -> usize {
-        self.blocks.len()
+        self.sealed.len() + self.pending.len()
     }
 
-    /// Take an owned [`InvertedIndexSnapshot`] of this index's block storage.
-    /// Refcount-clones the underlying `Arc<ThinVec<IndexBlock>>` — O(1), no copy
-    /// of the block contents.
+    /// Take an owned [`InvertedIndexSnapshot`] of the current block storage. Combines
+    /// a refcount clone of `sealed` and a shallow Vec clone of `pending` (the Arcs share
+    /// underlying block data). Captures the tail block's `num_entries` before cloning so
+    /// iterators on the tail can bound themselves against the writer racing ahead — see
+    /// [`InvertedIndexSnapshot`] for the full ordering contract.
     pub fn snapshot(&self) -> InvertedIndexSnapshot {
-        InvertedIndexSnapshot::new(Arc::clone(&self.blocks))
+        let tail_num_entries = self.tail_num_entries().unwrap_or(0);
+        InvertedIndexSnapshot::new(
+            Arc::clone(&self.sealed),
+            self.pending.clone(),
+            tail_num_entries,
+        )
     }
 
-    /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
+    /// Get a reference to the block at the given logical index, if it exists. The index
+    /// is flat across `sealed` then `pending`. Only used by some C tests; production
+    /// code should go through [`Self::snapshot`].
     pub fn block_ref(&self, index: usize) -> Option<&IndexBlock> {
-        self.blocks.get(index)
+        if let Some(b) = self.sealed.get(index) {
+            return Some(b);
+        }
+        let idx = index.checked_sub(self.sealed.len())?;
+        self.pending.get(idx).map(|arc| &**arc)
     }
 
     /// Get the current GC marker of this index. This is only used by the some C tests.
@@ -441,5 +530,35 @@ impl<E: Encoder> InvertedIndex<E> {
     /// revalidation.
     pub const fn unique_id(&self) -> IndexUniqueId {
         self.unique_id
+    }
+
+    /// Return a snapshot of all blocks as an owned `Vec<IndexBlock>`. Used by tests that
+    /// want to inspect or compare the full block list across both regions; production
+    /// code should call [`Self::snapshot`] and walk the returned [`InvertedIndexSnapshot`]
+    /// instead.
+    #[cfg(test)]
+    pub(crate) fn blocks_snapshot(&self) -> Vec<IndexBlock> {
+        let snap = self.snapshot();
+        let total = snap.block_count();
+        (0..total)
+            .filter_map(|i| snap.block_ref(i).cloned())
+            .collect()
+    }
+
+    /// Consume the index and return all its blocks as a flat `Vec<IndexBlock>`. Useful when
+    /// the caller built a small throwaway index (e.g. [`IndexBlock::repair`]) and needs to
+    /// extract its blocks into an owned form. Tries to avoid cloning by [`Arc::try_unwrap`]
+    /// — since the consumer owns the index, the Arcs are usually unique.
+    pub(crate) fn into_blocks_owned(self) -> Vec<IndexBlock> {
+        let sealed = match Arc::try_unwrap(self.sealed) {
+            Ok(tv) => tv,
+            Err(arc) => (*arc).clone(),
+        };
+        let mut out: Vec<IndexBlock> = Vec::with_capacity(sealed.len() + self.pending.len());
+        out.extend(sealed);
+        for arc_block in self.pending {
+            out.push(Arc::try_unwrap(arc_block).unwrap_or_else(|arc| (*arc).clone()));
+        }
+        out
     }
 }

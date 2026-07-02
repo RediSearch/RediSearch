@@ -17,6 +17,7 @@ mod gc;
 mod index;
 mod index_result;
 mod reader;
+mod snapshot;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {

@@ -125,23 +125,26 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries spread across the numeric range tree. After the
-    # Arc<ThinVec> sealed-region change every inverted index carries the Arc
-    # refcount header on top of the previous 380 bytes.
-    expected_info['inverted_sz_mb'] = 428 / (1024 * 1024)
+    # idx1 contains 24 entries, expected size of inverted index = 508
+    # (Rust numeric range tree implementation; pending-region accounting adds an
+    # Arc<IndexBlock> header per block on top of the prior 380-byte total.)
+    expected_info['inverted_sz_mb'] = 508 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
-    # idx2: one GEO field, 3 entries × 8 bytes encoded into the tail block.
-    expected_info['inverted_sz_mb'] = 138 / (1024 * 1024)
+    # idx2: one GEO field, 3 entries × 8 bytes encoded in a single pending block.
+    # The pending region wraps each block in Arc<IndexBlock> (+16 bytes refcount
+    # header) on top of the previous 114 bytes.
+    expected_info['inverted_sz_mb'] = 178 / (1024 * 1024)
     compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
 
-    # idx3: one GEO field, 5 entries × 8 bytes encoded into the tail block.
-    expected_info['inverted_sz_mb'] = 159 / (1024 * 1024)
+    # idx3: one GEO field, 5 entries × 8 bytes encoded in a single pending block,
+    # same +Arc<IndexBlock> header overhead as idx2 on top of the previous 135.
+    expected_info['inverted_sz_mb'] = 199 / (1024 * 1024)
     compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
 
     # idx4 contains two GEO fields, the expected size of inverted index is
-    # equivalent to the sum of the size of idx2 and idx3 = 138 + 159 = 297
-    expected_info['inverted_sz_mb'] = 297 / (1024 * 1024)
+    # equivalent to the sum of the size of idx2 and idx3 = 178 + 199 = 377
+    expected_info['inverted_sz_mb'] = 377 / (1024 * 1024)
     compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
 
     # Geo range and Not
