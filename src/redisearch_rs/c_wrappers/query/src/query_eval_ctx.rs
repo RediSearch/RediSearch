@@ -13,7 +13,13 @@ use std::ptr::NonNull;
 
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
-use rqe_iterators::IteratorsConfig;
+use rqe_core::DocId;
+use rqe_iterators::{
+    IteratorsConfig,
+    not_reducer::TIMEOUT_CHECK_GRANULARITY,
+    utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
+};
+use search_disk::SearchDiskHandle;
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
@@ -31,7 +37,7 @@ use rqe_iterators::IteratorsConfig;
 ///   token iterator created during evaluation.
 /// - `numTokens` — incremented when term-expansion nodes (prefix, fuzzy, …)
 ///   produce additional iterators beyond those counted by the parser.
-/// - `notSubtree` — temporarily set to `true` while evaluating the child of
+/// - `inNotSubTree` — temporarily set to `true` while evaluating the child of
 ///   a `NOT` node so that descendant `UNION` nodes know they can exit early
 ///   on the first match. Restored to its previous value afterwards.
 pub struct QueryEvalContext(NonNull<ffi::QueryEvalCtx>);
@@ -46,6 +52,14 @@ impl QueryEvalContext {
     /// 2. All pointer fields within the [`ffi::QueryEvalCtx`] (`sctx`, `opts`,
     ///    `status`, `metricRequestsP`, `docTable`, `config`) and the nested
     ///    `sctx.spec` pointer must themselves be valid, non-null pointers.
+    ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
+    ///    when non-null it must point to a valid
+    ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
+    ///    `bcTimeoutAreq` may be null; when non-null it must point to a valid
+    ///    [`AREQ`](ffi::AREQ) that stays valid not just for the lifetime of the returned
+    ///    context, but for the lifetime of every timeout context and iterator
+    ///    derived from it (e.g. via
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -88,6 +102,19 @@ impl QueryEvalContext {
     pub const fn opts(&self) -> &ffi::RSSearchOptions {
         // SAFETY: invariant (2) of `new`.
         unsafe { &*self.as_ref().opts }
+    }
+
+    /// The query-wide default slop (max term distance) for phrase matching.
+    ///
+    /// A node may override this; a value of `-1` means no phrase constraint.
+    pub const fn slop(&self) -> i32 {
+        self.opts().slop
+    }
+
+    /// Whether the query-wide `INORDER` flag (`Search_InOrder`) is set, forcing
+    /// phrase terms to match in order regardless of per-node options.
+    pub const fn search_in_order(&self) -> bool {
+        self.opts().flags & ffi::RSSearchFlags_Search_InOrder != 0
     }
 
     /// The [`query_error::QueryError`] accumulator for reporting evaluation
@@ -141,6 +168,21 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().docTable }
     }
 
+    /// The highest document ID currently assigned in the index.
+    ///
+    /// In search-on-disk mode (`spec.diskSpec` non-null) the value comes from
+    /// the disk index; otherwise it is read from the in-memory
+    /// [`DocTable`](ffi::DocTable).
+    pub fn max_doc_id(&self) -> DocId {
+        // SAFETY: per invariant (1)/(2) of `new`, `spec.diskSpec` is either null
+        // or a valid `RedisSearchDiskIndexSpec`.
+        let disk = unsafe { SearchDiskHandle::new(self.spec().diskSpec) };
+        match disk {
+            Some(disk) => disk.max_doc_id(),
+            None => self.doc_table().maxDocId,
+        }
+    }
+
     /// Request-type flags ([`QEFlags`] bitmask).
     pub fn req_flags(&self) -> QEFlags {
         QEFlags::from_bits(self.as_ref().reqFlags).expect("invalid QEFlags")
@@ -160,15 +202,46 @@ impl QueryEvalContext {
     /// When `true`, `UNION` nodes may exit early on the first matching child
     /// because the NOT semantics only need to know *whether* a match exists,
     /// not its score.
-    pub const fn not_subtree(&self) -> bool {
-        self.as_ref().notSubtree
+    pub const fn in_not_sub_tree(&self) -> bool {
+        self.as_ref().inNotSubTree
     }
 
-    /// Set the `notSubtree` flag, returning the previous value.
-    pub const fn set_not_subtree(&mut self, value: bool) -> bool {
+    /// Set the `inNotSubTree` flag, returning the previous value.
+    pub const fn set_in_not_sub_tree(&mut self, value: bool) -> bool {
         let inner = self.as_mut();
-        let prev = inner.notSubtree;
-        inner.notSubtree = value;
+        let prev = inner.inNotSubTree;
+        inner.inNotSubTree = value;
         prev
+    }
+
+    /// Build the [`AnyTimeoutContext`] a query iterator should use for this
+    /// evaluation.
+    ///
+    /// When a Blocked Client Timeout request is wired into the context
+    /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
+    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
+    /// checks are skipped or no deadline is set) is derived from `sctx.time`.
+    ///
+    /// The returned [`AnyTimeoutContext`] borrows `self`: its `'_` lifetime ties
+    /// it (and any iterator built from it) to this wrapper, so it cannot outlive
+    /// the context.
+    ///
+    /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
+    pub fn build_timeout_context(&self) -> AnyTimeoutContext<'_> {
+        match NonNull::new(self.as_ref().bcTimeoutAreq) {
+            Some(areq) => {
+                // SAFETY: invariant (2) of `new` guarantees a non-null
+                // `bcTimeoutAreq` points to a valid `AREQ` that outlives every
+                // iterator built from this context. The returned context borrows
+                // `self`, so its lifetime cannot exceed that of `self` (and hence
+                // of the `AREQ`), satisfying the `TimeoutContextBlockedClient::new`
+                // contract that `'req` not outlive the request.
+                let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
+                AnyTimeoutContext::BlockedClient(timeout)
+            }
+            // No Blocked Client Timeout source: derive the Clock Based Timeout
+            // (or `NoTimeout`) from `sctx.time`.
+            None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
+        }
     }
 }

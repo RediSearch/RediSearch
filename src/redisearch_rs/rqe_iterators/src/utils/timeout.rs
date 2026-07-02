@@ -8,6 +8,7 @@
 */
 
 use std::{
+    marker::PhantomData,
     ptr::NonNull,
     time::{Duration, Instant},
 };
@@ -116,28 +117,40 @@ impl TimeoutContext for TimeoutContextClock {
 /// the cost of a relaxed atomic load through the named extern is already
 /// in the same order of magnitude as a counter bump, and avoiding the
 /// counter keeps the hot path branch-free.
-pub struct TimeoutContextBlockedClient {
+///
+/// The `'req` lifetime tracks the borrow of the [`AREQ`] this context probes,
+/// so the type system prevents the context (and any iterator holding it) from
+/// outliving the request.
+pub struct TimeoutContextBlockedClient<'req> {
     /// [`AREQ`] pointer forwarded verbatim to [`AREQ_CheckTimedOut`].
     areq: NonNull<AREQ>,
+    /// Ties the context to the borrow of the [`AREQ`] it points at.
+    _areq: PhantomData<&'req AREQ>,
 }
 
-impl TimeoutContextBlockedClient {
+impl<'req> TimeoutContextBlockedClient<'req> {
     /// Build a new context wrapping `areq`.
     ///
     /// # Safety
     ///
     /// * `areq` must point to a valid [`AREQ`] (as defined in
-    ///   `src/aggregate/aggregate.h`).
-    /// * The pointee must outlive every iterator that holds this context.
+    ///   `src/aggregate/aggregate.h`) for the whole of `'req`.
+    /// * The caller must pick `'req` so that it does not outlive the [`AREQ`];
+    ///   since `'req` is otherwise unconstrained by the arguments, it is the
+    ///   caller's responsibility to bound it (e.g. by tying the returned
+    ///   context to a borrow that the request outlives).
     /// * The `RequestSyncCtx::timedOut` flag inside the [`AREQ`] must be safe
     ///   to read with relaxed semantics from any thread.
     #[inline(always)]
     pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {
-        Self { areq }
+        Self {
+            areq,
+            _areq: PhantomData,
+        }
     }
 }
 
-impl TimeoutContext for TimeoutContextBlockedClient {
+impl TimeoutContext for TimeoutContextBlockedClient<'_> {
     /// Probe the AREQ timed-out flag via [`AREQ_CheckTimedOut`] and translate
     /// its `bool` reply into the iterator-level [`Result`].
     #[inline(always)]
@@ -178,16 +191,20 @@ impl TimeoutContext for NoTimeout {
 /// well-predicted branch on top of the inner variant's own work.
 ///
 /// [`check_timeout`]: TimeoutContext::check_timeout
-pub enum AnyTimeoutContext {
+///
+/// The `'req` lifetime is carried by the [`BlockedClient`](Self::BlockedClient)
+/// variant (the other two borrow nothing) and ties the context to the [`AREQ`]
+/// it probes, so it cannot outlive the request.
+pub enum AnyTimeoutContext<'req> {
     /// No timeout source: every probe is a no-op.
     NoTimeout(NoTimeout),
     /// Clock Based Timeout: amortized clock check.
     Clock(TimeoutContextClock),
     /// Blocked Client Timeout: relaxed atomic load against the AREQ flag.
-    BlockedClient(TimeoutContextBlockedClient),
+    BlockedClient(TimeoutContextBlockedClient<'req>),
 }
 
-impl AnyTimeoutContext {
+impl<'req> AnyTimeoutContext<'req> {
     /// Builds the timeout context from a search context's time settings.
     ///
     /// `skipTimeoutChecks` (or the absence of a deadline) opts out of timeout
@@ -207,7 +224,7 @@ impl AnyTimeoutContext {
     }
 }
 
-impl TimeoutContext for AnyTimeoutContext {
+impl TimeoutContext for AnyTimeoutContext<'_> {
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
         match self {

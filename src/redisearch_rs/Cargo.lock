@@ -1635,6 +1635,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "priority-queue"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93980406f12d9f8140ed5abe7155acb10bb1e69ea55c88960b9c2f117445ef96"
+dependencies = [
+ "equivalent",
+ "indexmap",
+ "serde",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1696,6 +1707,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "search_disk",
  "workspace_hack",
 ]
 
@@ -2039,8 +2051,10 @@ dependencies = [
  "build_utils",
  "bumpalo",
  "ffi",
+ "indexmap",
  "itertools 0.15.0",
  "min-max-heap",
+ "priority-queue",
  "query_error",
  "redis_mock",
  "redisearch_rs",
@@ -2516,6 +2530,15 @@ dependencies = [
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "search_disk"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "rqe_core",
  "workspace_hack",
 ]
 
@@ -3355,6 +3378,20 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "vector_score_source"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "rqe_core",
+ "rqe_iterators",
+ "top_k",
+ "tracing",
+ "vecsim",
  "workspace_hack",
 ]
 

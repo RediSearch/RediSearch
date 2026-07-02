@@ -8,10 +8,14 @@
 */
 #include "rtree.hpp"
 #include "search_ctx.h"
+#include "iterators_ffi.h"  // NewGeometryQueryIterator
+#include "rmalloc.h"        // rm_malloc
 
 #include <string>     // std::string, std::char_traits
 #include <sstream>    // std::stringstream
+#include <memory>     // std::unique_ptr
 #include <algorithm>  // ranges::for_each, views::transform
+#include <ranges>     // ranges::subrange, views::transform
 #include <exception>  // std::exception
 #include <execution>  // std::unseq
 #include <numeric>    // std::transform_reduce
@@ -301,17 +305,43 @@ template <typename cs>
 auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> QueryIterator* {
   try {
-    using alloc_type = Allocator::TrackingAllocator<CPPQueryIterator>;
-    auto alloc = alloc_type{allocated_};
     const auto query_geom = from_wkt<cs>(wkt);
     const auto qbegin = query_begin(query_type, query_geom);
     const auto results =
         std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
-    const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when skipTimeoutChecks is set
-    const uint32_t timeoutCounter = (sctx && sctx->time.skipTimeoutChecks) ? REDISEARCH_UNINITIALIZED : 0;
-    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_, timeoutCounter);
-    return qi->base();
+
+    // Collect the matching document IDs into a single Redis-allocated array and
+    // hand it to the Rust GeoShape iterator, which takes ownership (freeing it
+    // with RedisModule_Free), sorts it, and reports its size to `allocated_`.
+    //
+    // Traverse the rtree query exactly once: each step evaluates the (expensive)
+    // geometry predicate, so a sizing pass would double that cost. We grow a
+    // Redis-allocated buffer geometrically as matches arrive; the only
+    // reallocations are cheap t_docId memmoves, never predicate re-evaluations.
+    // A final shrink makes the allocation exact, so it matches the size reported
+    // to `allocated_` and leaves no untracked slack. rm_malloc/rm_realloc keep
+    // the buffer inside module memory accounting; the iterator tracks its size
+    // in `allocated_`.
+    std::size_t num = 0;
+    std::size_t cap = 0;
+    const auto rm_deleter = [](t_docId* p) noexcept { rm_free(p); };
+    std::unique_ptr<t_docId[], decltype(rm_deleter)> ids{nullptr, rm_deleter};
+    for (const t_docId id : results) {
+      if (num == cap) {
+        cap = cap ? cap * 2 : 16;
+        // rm_realloc frees the old block, so release it from the guard first and
+        // re-seat the guard on the new block before any further work can throw.
+        ids.reset(static_cast<t_docId*>(rm_realloc(ids.release(), cap * sizeof(t_docId))));
+      }
+      ids[num++] = id;
+    }
+    if (num != cap) {
+      // Shrink the over-allocated buffer to the exact size. Reached only when
+      // num > 0 (an empty result keeps cap == 0), so num * sizeof(t_docId) is
+      // never zero here.
+      ids.reset(static_cast<t_docId*>(rm_realloc(ids.release(), num * sizeof(t_docId))));
+    }
+    return NewGeometryQueryIterator(sctx, filterCtx, ids.release(), num, &allocated_);
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));

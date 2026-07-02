@@ -81,7 +81,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
         fns: &[],
-        types: &["ThrottleCB", "VecSimIndexBasicInfo", "VecSimParamsDisk"],
+        types: &[
+            "ThrottleCB",
+            "VecSimIndexBasicInfo",
+            "VecSimParamsDisk",
+            "VecSimQueryParams",
+        ],
         vars: &[],
     },
     HeaderAllowlist {
@@ -138,14 +143,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        // Benchmark-only GeoShape iterator constructor, used by
-        // `rqe_iterators_bencher` to compare against the Rust implementation.
-        path: "src/geometry/geometry_api.h",
-        fns: &["NewGeometryQueryIterator_Bench"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -165,7 +162,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
         ],
-        types: &[],
+        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
+        // deadline) handed to VecSim. Exposed via this already-included header
+        // rather than a dedicated `timeout.h` bindgen root.
+        types: &["TimeoutCtx", "timespec"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -321,6 +321,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
+        types: &[],
+        vars: &[],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -345,6 +351,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
         ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_options.h",
+        fns: &[],
+        types: &["RSSearchFlags"],
         vars: &[],
     },
     HeaderAllowlist {
