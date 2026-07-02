@@ -355,6 +355,49 @@ fn batches_multiple_batches() {
     assert_eq!(doc_ids, vec![3, 4, 1]);
 }
 
+/// Build a no-child Batches iterator, exercising the heap-driven top-k path a
+/// numeric `SORTBY` with no query filter uses.
+fn batches_no_child(
+    batches: Vec<Vec<(DocId, f64)>>,
+    k: usize,
+) -> TopKIterator<'static, MockScoreSource, Box<dyn RQEIterator<'static>>> {
+    let source = MockScoreSource::new(batches, vec![], |_, _| BatchStrategy::Continue);
+    TopKIterator::new_with_mode(
+        source,
+        None,
+        NonZeroUsize::new(k).unwrap(),
+        asc,
+        TopKMode::Batches,
+    )
+}
+
+#[test]
+fn batches_no_child_keeps_top_k() {
+    // The heap must retain the three lowest by score and yield them best-first,
+    // not stream all five in doc-id order.
+    let mut it = batches_no_child(
+        vec![vec![(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]],
+        3,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 4, 5]);
+}
+
+#[test]
+fn batches_no_child_fewer_than_k_yields_all() {
+    let mut it = batches_no_child(vec![vec![(1, 3.0), (2, 1.0)]], 5);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 1]);
+}
+
+#[test]
+fn batches_no_child_spans_multiple_batches() {
+    // Top-k selection must consider every batch, not just the first.
+    let mut it = batches_no_child(vec![vec![(1, 9.0), (2, 1.0)], vec![(3, 2.0), (4, 8.0)]], 2);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 3]);
+}
+
 #[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
