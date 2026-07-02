@@ -13,7 +13,7 @@ mod query_eval_ctx;
 mod query_node_ref;
 
 pub use query_eval_ctx::QueryEvalContext;
-pub use query_node_ref::{QueryNode, QueryNodeRef, WildcardMode};
+pub use query_node_ref::{QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode};
 
 /// Test-only mocks for the query wrapper types, shared with the `query_eval`
 /// crate's evaluation-dispatcher tests.

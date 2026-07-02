@@ -199,6 +199,26 @@ fn range() {
     );
 }
 
+/// MOD-15897: an excluded empty lower bound must still skip the empty key,
+/// instead of being collapsed to "no lower bound" by `RangeIter::new`.
+#[test]
+fn excluded_empty_lower_bound_skips_empty_key() {
+    let mut trie = TrieMap::new();
+    trie.insert(b"", 0);
+
+    let got = in_range(
+        &trie,
+        RangeFilter {
+            min: Some(RangeBoundary::excluded(b"")),
+            max: Some(RangeBoundary::included(b"z")),
+        },
+    );
+    assert!(
+        got.is_empty(),
+        "excluded empty min leaked the empty key: {got:?}"
+    );
+}
+
 mod property_based {
     #![cfg(not(miri))]
 

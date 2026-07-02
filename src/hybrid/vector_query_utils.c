@@ -28,5 +28,9 @@ void ParsedVectorData_Free(ParsedVectorData *pvd) {
     rm_free(pvd->vectorScoreFieldAlias);
   }
 
+  if (pvd->explainRangeEpsilon) {
+    rm_free(pvd->explainRangeEpsilon);
+  }
+
   rm_free(pvd);
 }

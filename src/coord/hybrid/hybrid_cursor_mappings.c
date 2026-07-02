@@ -249,16 +249,14 @@ void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateDat
 // and timeout policies. Returns false on a fatal error (first one wins).
 static bool resolveCursorMappingErrors(arrayof(QueryError) errors, QueryError *status,
                                        RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy,
-                                       bool *maxPrefixSearch, bool *maxPrefixVsim) {
+                                       bool *maxPrefixSearch, bool *maxPrefixVsim,
+                                       bool *shardTimedOutWarning) {
     for (size_t i = 0; i < array_len(errors); i++) {
         QueryErrorCode code = QueryError_GetCode(&errors[i]);
         if (code == QUERY_ERROR_CODE_OUT_OF_MEMORY && oomPolicy == OomPolicy_Return) {
             QueryError_SetQueryOOMWarning(status);
         } else if (code == QUERY_ERROR_CODE_TIMED_OUT && timeoutPolicy != TimeoutPolicy_Fail) {
-            // RETURN / RETURN-STRICT policy: acknowledge the shard timeout but don't set
-            // it on qctx->err. The timeout propagates through cursor reads (RPNet detects
-            // it from the depleter's last_rc), and replyWarningsWithSuffixes emits the
-            // properly-suffixed warning (e.g. "(SEARCH)" / "(VSIM)").
+            *shardTimedOutWarning = true;
             // Note: the _FT.DEBUG FT.HYBRID path rejects RETURN-STRICT in
             // parseHybridDebugParams, so only RETURN reaches here in debug mode.
         } else if (code == QUERY_ERROR_CODE_TIMED_OUT) {
@@ -284,10 +282,16 @@ static bool resolveCursorMappingErrors(arrayof(QueryError) errors, QueryError *s
     return true;
 }
 
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef, StrongRef vsimMappingsRef, HybridKnnContext *knnCtx, QueryError *status, const RSOomPolicy oomPolicy, const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim, const struct timespec *deadline, RequestSyncCtx *syncCtx) {
+bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsRef,
+                                 StrongRef vsimMappingsRef, HybridKnnContext *knnCtx,
+                                 QueryError *status, const RSOomPolicy oomPolicy,
+                                 const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
+                                 bool *maxPrefixVsim, bool *shardTimedOutWarning,
+                                 const struct timespec *deadline, RequestSyncCtx *syncCtx) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
+    *shardTimedOutWarning = false;
 
     // Heap-allocated because the iterator runs asynchronously; freed by
     // freeCursorMappingCtx (the iterator's destructor).
@@ -342,7 +346,8 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     RS_ASSERT(array_len(searchMappings->mappings) == array_len(vsimMappings->mappings));
 
     bool success = resolveCursorMappingErrors(ctx->errors, status, oomPolicy, timeoutPolicy,
-                                              maxPrefixSearch, maxPrefixVsim);
+                                              maxPrefixSearch, maxPrefixVsim,
+                                              shardTimedOutWarning);
     MRIterator_Release(it);
 
     return success;
