@@ -974,9 +974,22 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 // spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
 // that window) - so serializing it would produce a doc id followed by a nil field-array
 // (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them. [MOD-16507]
+// with Redis locked throughout and never sees them.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
+}
+
+// Drop a row a loader could not emit (its document was deleted, re-indexed, or expired
+// between matching and load). Count it against the reported total (which is
+// totalResults - skippedResults; see QueryProcessingCtx::skippedResults for why we bump
+// a separate counter rather than decrementing totalResults) and release the
+// partially-loaded row, leaving an empty slot. SearchResult_Clear also nulls the
+// document metadata, so the safe loader's yield phase treats the emptied slot as a
+// tombstone and rpSafeLoaderFree can destroy it safely; the plain loader reuses the
+// slot for the next upstream row.
+static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
+  base->parent->skippedResults++;
+  SearchResult_Clear(r);
 }
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
@@ -987,10 +1000,9 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
     if (loaderResultIsEmittable(r)) {
       return RS_RESULT_OK;
     }
-    // Deleted/expired/failed-to-open between matching and load: drop rather than
-    // emit a nil field-array, counting it as skipped so the total stays accurate. [MOD-16507]
-    base->parent->skippedResults++;
-    SearchResult_Clear(r);
+    // Deleted/expired/failed-to-open between matching and load: drop it rather than
+    // emit a nil field-array. The emptied slot is reused for the next upstream row.
+    loaderDropResult(base, r);
   }
   return rc;
 }
@@ -1177,18 +1189,11 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   while ((curr_res = GetNextResult(self))) {
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
-      // The document was deleted/re-indexed between buffering and load (the safe
-      // loader released the read lock to take the GIL). Drop it:
-      //  - count it as skipped (the reported total is totalResults - skippedResults).
-      //    We bump a separate counter instead of decrementing totalResults so the
-      //    live match count stays stable for the length prediction, and so a
-      //    post-header re-accumulation can't resurrect a shipped decrement; and
-      //  - reset the slot to an empty tombstone. The yield phase then skips it with
-      //    no per-slot cleanup, and rpSafeLoaderFree can destroy the emptied slot
-      //    safely whether or not it was reached.
-      self->base_loader.base.parent->skippedResults++;
-      SearchResult_Destroy(curr_res);
-      *curr_res = SearchResult_New();
+      // The document was deleted/re-indexed between buffering and load (the safe loader
+      // released the read lock to take the GIL). Drop it: loaderDropResult counts it as
+      // skipped and empties the slot into a tombstone (Clear nulls the metadata), which
+      // the yield phase skips and rpSafeLoaderFree can destroy safely.
+      loaderDropResult(&self->base_loader.base, curr_res);
     }
   }
 
@@ -2488,7 +2493,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   // Update total results to reflect the number of unique documents we'll yield
   rp->parent->totalResults = dictSize(self->hybridResults);
   // Merged-doc count excludes upstream loader drops; clear the skip correction
-  // (same invariant as the grouper). [MOD-16507]
+  // (same invariant as the grouper).
   rp->parent->skippedResults = 0;
 
   // Switch to yield phase
