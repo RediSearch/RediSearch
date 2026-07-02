@@ -9,7 +9,7 @@
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::IndexReader;
+use inverted_index::{IndexReader, block_max_score::BlockScorer};
 use rqe_core::DocId;
 
 use crate::{
@@ -324,6 +324,31 @@ where
         };
 
         Ok(res)
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.at_eos {
+            return Ok(None);
+        }
+
+        // Check if current block's max score is below threshold
+        // If so, skip to the next promising block
+        if self.reader.current_block_max_score(scorer) < min_score
+            && !self
+                .reader
+                .advance_to_next_promising_block(min_score, scorer)
+        {
+            self.at_eos = true;
+            return Ok(None);
+        }
+
+        // Now read using the normal read implementation
+        // Note: We use the read_impl function pointer to handle expiration/multi-value logic
+        (self.read_impl)(self)
     }
 
     #[inline(always)]

@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 use ffi::RedisSearchCtx;
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::TermReader;
+use inverted_index::{TermReader, block_max_score::BlockScorer};
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
@@ -213,6 +213,15 @@ where
         }
 
         self.it.revalidate(spec)
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 
     #[inline(always)]
