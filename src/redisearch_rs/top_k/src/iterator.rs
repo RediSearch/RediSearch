@@ -632,16 +632,25 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
                     .then(|| child.current().map(|r| capture_child_record(r)))
                     .flatten();
                 heap.push_with_record(batch_doc, batch_score, record);
-                // Advance the batch first; only read the child when another
-                // batch doc remains. Reading the child past an exhausted batch
-                // is needless work that inflates its profile counters and could
-                // turn a completed batch into a spurious TimedOut.
-                let Some((d, s)) = batch.next() else { break };
-                batch_doc = d;
-                batch_score = s;
-                match child.read()?.map(|r| r.doc_id) {
-                    Some(doc_id) => child_doc = doc_id,
-                    None => break,
+                // Advance both iterators once per match, then stop if either is
+                // exhausted — keeping the child's profiled read count in step
+                // with the C hybrid reader.
+                //
+                // TODO: skip this child read when the batch is already exhausted.
+                // It is redundant work (no batch doc remains to match) and
+                // re-reading a completed batch's child can surface a spurious
+                // TimedOut. Deferred because it lowers the child's profiled read
+                // count, so it must land together with updated FT.PROFILE
+                // expectations (see tests/pytests/test_profile.py).
+                let child_next = child.read()?.map(|r| r.doc_id);
+                let batch_next = batch.next();
+                match (batch_next, child_next) {
+                    (Some((d, s)), Some(doc_id)) => {
+                        batch_doc = d;
+                        batch_score = s;
+                        child_doc = doc_id;
+                    }
+                    _ => break,
                 }
             }
             Ordering::Less => {
