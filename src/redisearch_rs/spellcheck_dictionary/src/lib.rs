@@ -9,7 +9,7 @@
 
 use std::fmt::{self, Debug};
 
-use string_utils::{unicode_tolower, unicode_tolower_capped};
+use string_utils::{unicode_tolower_capped, unicode_tolower_cow};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -88,7 +88,7 @@ impl SpellCheckDictionary {
         };
         self.trie
             .iter()
-            .any(|(key, _)| unicode_tolower(&key) == needle)
+            .any(|(key, _)| *unicode_tolower_cow(&key) == *needle)
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
@@ -100,7 +100,7 @@ impl SpellCheckDictionary {
         let needle = unicode_tolower_capped(term, TRIE_MAX_PREFIX);
         needle.into_iter().flat_map(move |needle| {
             self.trie.iter().filter_map(move |(key, _)| {
-                let dist = strsim::levenshtein(&unicode_tolower(&key), &needle) as u32;
+                let dist = strsim::levenshtein(&unicode_tolower_cow(&key), &needle) as u32;
                 (dist <= max_dist).then_some(key)
             })
         })
@@ -112,6 +112,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use std::collections::BTreeSet;
+    use string_utils::unicode_tolower;
 
     #[rstest]
     #[case(&["Hello"], "Hello", true)]
