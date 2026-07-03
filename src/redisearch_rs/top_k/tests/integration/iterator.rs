@@ -55,6 +55,12 @@ impl ScoreSource for TimingOutSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }
@@ -482,6 +488,12 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
+        }
+
         fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
@@ -697,6 +709,11 @@ fn adhoc_timeout_propagated() {
         {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
+        }
         fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
@@ -820,4 +837,116 @@ fn batches_preserves_child_scoring_fields() {
         "child's scoring fields (freq, field_mask) were dropped — \
           got {emitted:?}; the BM25-becomes-0 bug from MOD-8142"
     );
+}
+
+/// The dual of [`batches_preserves_child_scoring_fields`]: when the pipeline can
+/// trim deep results, the child's scoring subtree is never captured, so each
+/// match yields the source's metric-only result (default freq/field_mask) rather
+/// than the child's rich record.
+#[test]
+fn batches_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Same doc ids and best-first order as the rich path, but the child's
+    // freq/field_mask are absent — the yielded record is the source's
+    // metric-only result.
+    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+}
+
+/// Adhoc-BF counterpart of [`batches_trim_deep_results_yields_metric_only`]:
+/// the child-driven scan also skips capturing the rich record when results are
+/// trimmed.
+#[test]
+fn adhoc_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![], vec![(1, 0.9), (2, 0.5)], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(Box::new(child) as Box<dyn RQEIterator<'_> + '_>),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+}
+
+/// Trimming skips the child's scoring subtree but must still carry its yielded
+/// metrics (e.g. `AS`-yielded vector distances), which are explicit output/sort
+/// fields rather than part of the rich subtree.
+#[test]
+fn batches_trim_deep_results_preserves_child_metrics() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    // Child result with rich scoring fields *and* a yielded metric.
+    let mut child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    child_result.metrics_mut().push_without_key(42.0);
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        let metric = r.metrics_ref().get(0).map(|m| m.value());
+        emitted.push((r.doc_id, r.freq, r.field_mask, metric));
+    }
+
+    // Rich subtree is trimmed (freq/field_mask are the source's defaults), but
+    // the child's yielded metric rides along on every result.
+    assert_eq!(emitted, vec![(2, 0, 0, Some(42.0)), (1, 0, 0, Some(42.0))]);
 }

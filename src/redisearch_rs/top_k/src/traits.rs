@@ -230,9 +230,7 @@ pub trait ScoreSource {
     /// [`TopKIterator`]: crate::TopKIterator
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
-        Self: 'r,
-    {
-    }
+        Self: 'r;
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.
