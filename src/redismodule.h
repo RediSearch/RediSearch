@@ -1205,6 +1205,7 @@ typedef enum RedisModuleAsyncScanDoneReason {
     REDISMODULE_ASYNCSCAN_DONE_ABORTED       = 2,
     REDISMODULE_ASYNCSCAN_DONE_DATASET_RESET = 3,
     REDISMODULE_ASYNCSCAN_DONE_OUT_OF_MEMORY = 4,
+    REDISMODULE_ASYNCSCAN_DONE_IO_ERROR      = 5,
 } RedisModuleAsyncScanDoneReason;
 
 /* Result of RedisModule_AsyncScanAbort. */
@@ -1595,8 +1596,8 @@ REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cur
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreateWithName)(const char *name) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, void *privdata) REDISMODULE_ATTR;
-REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, size_t batch_size_hint, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, size_t batch_size_hint) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleAsyncScanAbortResult (*RedisModule_AsyncScanAbort)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetModuleOptionsAll)(void) REDISMODULE_ATTR;

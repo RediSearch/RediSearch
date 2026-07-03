@@ -42,6 +42,12 @@ extern DebugCTX globalDebugCtx;
 // that the worker is not spinning hot on the GIL while it waits.
 #define ASYNC_SCAN_BUSY_BACKOFF_US 1000
 
+// Per-batch work hint passed to AsyncScan Start / NextBatch, sizing the hash range each
+// batch sweeps. We pass an explicit value rather than 0 (which would defer to the engine's
+// module-async-scan-default-batch-size config, currently 128). It is a hint, not a delivery
+// cap — the engine may deliver more or fewer keys per batch.
+#define ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT 100
+
 // Per-cursor driver state, shared between the reindexPool worker (which owns the
 // cursor lifecycle) and the callbacks (which run on the main thread under the GIL).
 // done_cb signals the condvar the worker waits on; the engine provides no waiter.
@@ -327,7 +333,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanStartWithRetry(
     }
     rc = RedisModule_AsyncScanStart(ctx, cursor, filter_ptr,
                                     REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE, NULL,
-                                    Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB, driver);
+                                    Indexes_AsyncScanKeyCB, Indexes_AsyncScanDoneCB,
+                                    ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT, driver);
     RedisModule_ThreadSafeContextUnlock(ctx);
     if (rc != REDISMODULE_ASYNCSCAN_BUSY) {
       goto out;
@@ -470,7 +477,8 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   }
 #endif
 
-  RedisModuleAsyncScanResult rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
+  RedisModuleAsyncScanResult rc =
+      RedisModule_AsyncScanNextBatch(ctx, cursor, ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT);
   RedisModule_ThreadSafeContextUnlock(ctx);
   return rc;
 }
@@ -534,7 +542,7 @@ void Indexes_AsyncScanAndReindexTask(IndexesScanner *scanner) {
                       scanner->spec_name_for_logs);
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
       RedisModule_ThreadSafeContextLock(ctx);
-      rc = RedisModule_AsyncScanNextBatch(ctx, cursor);
+      rc = RedisModule_AsyncScanNextBatch(ctx, cursor, ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT);
       RedisModule_ThreadSafeContextUnlock(ctx);
       break;
 
