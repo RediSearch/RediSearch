@@ -257,7 +257,12 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
     RedisModule_CloseKey(k);
   }
 
-  jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  if (openKey) {
+    //TODO: Analyze if we do not need to close key and we can always use this path
+    jsonRoot = japi->isJSON(openKey) ? (RedisJSON)RedisModule_ModuleTypeGetValue(openKey) : NULL;
+  } else {
+    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+  }
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;

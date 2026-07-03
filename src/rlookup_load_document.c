@@ -170,12 +170,19 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   // here because the only caller that passes openKey (the AsyncScan key_cb) has already
   // confirmed the key exists and is a hash.
   //
-  // Hashes only: getKeyCommonHash drives a RedisModuleKey, whereas getKeyCommonJSON drives a
-  // RedisJSON handle (opened by name via the RedisJSON API) that this RedisModuleKey cannot
-  // stand in for. A borrowed key is the caller's, so it must not be closed at `done:`.
-  const bool borrowedKey = (type == DocumentType_Hash && options->openKey);
+  // For a HASH, getKeyCommonHash drives a RedisModuleKey, so we seed the borrowed handle directly.
+  // For JSON, getKeyCommonJSON drives a RedisJSON root (normally opened by name via the RedisJSON
+  // API). During an AsyncScan callback the scanned key is delivered pinned via `openKey` and is NOT
+  // addressable by name, so a by-name open returns NULL. Seed the RedisJSON root straight off the
+  // pinned handle instead
+  const bool borrowedKey = options->openKey && (type == DocumentType_Hash || type == DocumentType_Json);
   if (borrowedKey) {
-    key = options->openKey;
+    if (type == DocumentType_Json) {
+      key = (japi && japi->isJSON(options->openKey)) ? RedisModule_ModuleTypeGetValue(options->openKey)
+                                                     : NULL;
+    } else {
+      key = options->openKey;
+    }
   }
   GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
                                                     (GetKeyFunc)getKeyCommonJSON;
