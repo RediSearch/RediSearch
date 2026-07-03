@@ -14,7 +14,7 @@
 //!
 //! Terms are stored verbatim. [`SpellCheckDictionary::contains`] and
 //! [`SpellCheckDictionary::fuzzy_matches`] are case-insensitive — the query
-//! and each candidate are lowercased via [`unicode_tolower`] before comparison
+//! and each candidate are lowercased via [`unicode_tolower_cow`] before comparison
 //! — but [`SpellCheckDictionary::remove`] matches verbatim and is therefore
 //! case-sensitive.
 //!
