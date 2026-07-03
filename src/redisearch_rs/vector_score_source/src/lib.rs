@@ -36,7 +36,11 @@ pub use source::VectorScoreSource;
 
 use std::{cmp::Ordering, ffi::CStr, num::NonZeroUsize};
 
-use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
+use ffi::{
+    VecSearchMode, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
+    VecSearchMode_HYBRID_BATCHES_TO_ADHOC_BF, VecSearchMode_STANDARD_KNN,
+    VecSimSearchMode_ToString,
+};
 use redis_reply::MapBuilder;
 use rqe_iterators::profile_print::ProfilePrintCtx;
 use rqe_iterators::{ExpirationChecker, FieldExpirationChecker, RQEIterator};
@@ -59,6 +63,20 @@ pub type VectorTopKIterator<'index, E = FieldExpirationChecker, I = CRQEIterator
 /// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
 fn asc_cmp(a: f64, b: f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+}
+
+/// Map a [`TopKMode`] and its mid-run switch count to the [`VecSearchMode`]
+/// that names it in profile output.
+///
+/// [`TopKMode::AdhocBF`] covers both a pure ad-hoc run and a batches run that
+/// switched to ad-hoc; `switches > 0` distinguishes the latter.
+fn top_k_mode_to_vecsim(mode: TopKMode, switches: usize) -> VecSearchMode {
+    match mode {
+        TopKMode::Unfiltered => VecSearchMode_STANDARD_KNN,
+        TopKMode::Batches | TopKMode::ForcedBatches => VecSearchMode_HYBRID_BATCHES,
+        TopKMode::AdhocBF if switches > 0 => VecSearchMode_HYBRID_BATCHES_TO_ADHOC_BF,
+        TopKMode::AdhocBF => VecSearchMode_HYBRID_ADHOC_BF,
+    }
 }
 
 /// Construct a pure KNN [`VectorTopKIterator`] (no filter child).
@@ -132,12 +150,10 @@ impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {
         map.kv_simple_string(c"Type", c"VECTOR");
         ctx.print_optional_counters(map);
 
-        let mode_cstr: &CStr = match mode {
-            TopKMode::Unfiltered => c"STANDARD_KNN",
-            TopKMode::Batches | TopKMode::ForcedBatches => c"HYBRID_BATCHES",
-            TopKMode::AdhocBF if switches > 0 => c"HYBRID_BATCHES_TO_ADHOC_BF",
-            TopKMode::AdhocBF => c"HYBRID_ADHOC_BF",
-        };
+        let mode_enum = top_k_mode_to_vecsim(mode, switches);
+        // SAFETY: `mode_enum` is one of the four VecSearchMode values above, each
+        // of which VecSimSearchMode_ToString maps to a non-null static C string.
+        let mode_cstr: &CStr = unsafe { CStr::from_ptr(VecSimSearchMode_ToString(mode_enum)) };
         map.kv_simple_string(c"Vector search mode", mode_cstr);
 
         let is_batch_mode = matches!(mode, TopKMode::Batches | TopKMode::ForcedBatches)
