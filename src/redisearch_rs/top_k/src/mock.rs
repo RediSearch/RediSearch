@@ -205,6 +205,12 @@ impl ScoreSource for MockScoreSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         (self.batch_strategy)(heap_count, k)
     }
@@ -240,11 +246,5 @@ impl ScoreSource for MockScoreSource {
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
         rqe_iterator_type::IteratorType::Mock
-    }
-
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
-    where
-        Self: 'r,
-    {
     }
 }
