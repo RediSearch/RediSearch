@@ -161,6 +161,20 @@ impl TopKHeap {
         self.inner.pop().map(|e| e.result)
     }
 
+    /// Replaces the heap's contents with `results`, heapifying instead of n insertions.
+    ///
+    /// The caller must guarantee `results` holds at most `capacity` elements;
+    /// unlike [`push`](Self::push) this performs no eviction, so any excess
+    /// would silently exceed capacity.
+    pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = ScoredResult>) {
+        let compare = self.compare;
+        self.inner = results
+            .into_iter()
+            .map(|result| HeapEntry { result, compare })
+            .collect();
+        debug_assert!(self.inner.len() <= self.capacity);
+    }
+
     /// Drains all elements in unspecified order, leaving the heap empty but reusable.
     ///
     /// Unlike [`drain_sorted`](Self::drain_sorted) this borrows the heap, so the
