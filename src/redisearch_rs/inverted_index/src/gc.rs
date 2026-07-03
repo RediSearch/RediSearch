@@ -9,9 +9,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, mem::MaybeUninit, sync::Arc};
 
-use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, empty_sealed};
+use crate::{DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, empty_sealed};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -299,9 +299,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         } = delta;
 
         // Snapshot total memory before the structural rebuild so we can attribute the
-        // container-level deltas (pending Vec heap freed, sealed ThinVec rebuilt, Arc
-        // wrappers dropped) to `bytes_freed`/`bytes_allocated`. Without this the per-
-        // block accounting below misses the overhead between block storage regions.
+        // container-level deltas (pending Vec heap freed, sealed `Arc<[IndexBlock]>`
+        // reallocated, Arc wrappers dropped) to `bytes_freed`/`bytes_allocated`. Without
+        // this the per-block accounting below misses the overhead between block regions.
         let mem_before = self.memory_usage();
 
         let mut info = GcApplyInfo {
@@ -351,13 +351,12 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        // Count survivors up front so the new `sealed` ThinVec is allocated to fit
-        // exactly (no slack) and built straight into the `Arc` — no intermediate `Vec`,
-        // no final block-buffer copy. `deltas` is sorted ascending and every remaining
-        // entry targets a live block (the one possibly-stale trailing delta was dropped
-        // by the last-block-changed check above); a Delete removes one block and a
-        // Replace swaps one block for its shrunk replacements. The `< blocks_before`
-        // guard ignores any delta that would land past the current tail (never applied).
+        // Count survivors up front so the new `sealed` region is allocated to fit exactly
+        // (no slack). `deltas` is sorted ascending and every remaining entry targets a
+        // live block (the one possibly-stale trailing delta was dropped by the
+        // last-block-changed check above); a Delete removes one block and a Replace swaps
+        // one block for its shrunk replacements. The `< blocks_before` guard ignores any
+        // delta that would land past the current tail (never applied).
         let mut n_survivors: usize = blocks_before;
         for d in &deltas {
             if d.index >= blocks_before {
@@ -369,25 +368,37 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
         }
 
-        // Build the compacted region straight into the `sealed` ThinVec, sized to fit
-        // exactly. Blocks flow in logical sealed → pending → in_progress order; a delta
-        // at logical index N is matched against the Nth block consumed. `trailing` holds
-        // the most recent survivor — the next survivor displaces it into `sealed`, so
-        // whatever remains after the pass is the tail block and becomes `in_progress`.
-        // A block is only *materialized* (moved or cloned) when it survives — a Delete
-        // reads only its entry-count / size for accounting, so a deleted block that a
-        // snapshot pins is never cloned.
-        let mut new_sealed: ThinVec<IndexBlock, BlockCapacity> =
-            ThinVec::with_capacity(n_survivors.saturating_sub(1));
+        // Build the compacted `sealed` region in a *single* allocation. `Arc::new_uninit_slice`
+        // lays out the refcount header immediately followed by the `[IndexBlock]` slice, and
+        // survivors are written straight into it — no intermediate `Vec`/`ThinVec` and no
+        // second buffer copy that `Arc::new(vec)` would incur. Blocks flow in logical
+        // sealed → pending order; a delta at logical index N is matched against the Nth
+        // block consumed. `trailing` holds the most recent survivor — the next survivor
+        // displaces it into `sealed`, so whatever remains after the pass is the tail block
+        // and becomes the sole `pending` entry. A block is only *materialized* (moved or
+        // cloned) when it survives — a Delete reads only its entry-count / size for
+        // accounting, so a deleted block that a snapshot pins is never cloned.
+        //
+        // Exactly `n_survivors - 1` blocks go to `sealed` (the trailing survivor becomes
+        // `pending`), so allocate that many uninitialized slots and fill `0..write_idx`.
+        let sealed_len = n_survivors.saturating_sub(1);
+        let mut new_sealed: Arc<[MaybeUninit<IndexBlock>]> = Arc::new_uninit_slice(sealed_len);
+        // Uniquely owned right after allocation — no snapshot can share it yet — so
+        // `get_mut` is guaranteed `Some`; hold the slot slice for the fill below.
+        let sealed_slots =
+            Arc::get_mut(&mut new_sealed).expect("freshly allocated Arc is uniquely owned");
+        let mut write_idx: usize = 0;
         let mut trailing: Option<IndexBlock> = None;
         let mut deltas_iter = deltas.into_iter().peekable();
         let mut block_index: usize = 0;
 
-        // Add a survivor to the compacted region via the trailing slot.
+        // Add a survivor to the compacted region via the trailing slot: the displaced
+        // previous survivor is written into the next uninitialized `sealed` slot.
         macro_rules! keep_survivor {
             ($block:expr) => {{
                 if let Some(prev) = trailing.replace($block) {
-                    new_sealed.push(prev);
+                    sealed_slots[write_idx].write(prev);
+                    write_idx += 1;
                 }
             }};
         }
@@ -439,23 +450,29 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         }
 
         // `sealed`: when no reader snapshot pins the region (the common case) move each
-        // block out by value — no buffer copy. When a live snapshot still shares it we
-        // must deep-copy the survivors it holds (copy-on-write); a deleted block is only
-        // read for accounting, never cloned.
-        let old_sealed = std::mem::replace(&mut self.sealed, empty_sealed());
-        match Arc::try_unwrap(old_sealed) {
-            Ok(sealed_vec) => {
-                for b in sealed_vec.into_iter() {
+        // block out by value via a placeholder swap — no buffer copy. When a live
+        // snapshot still shares it we must deep-copy the survivors it holds
+        // (copy-on-write); a deleted block is only read for accounting, never cloned.
+        // (`Arc<[IndexBlock]>` can't be `try_unwrap`'d — the slice is unsized — so take
+        // ownership per block instead: `get_mut` proves uniqueness, then swap each block
+        // out for a trivial empty placeholder.)
+        let mut old_sealed = std::mem::replace(&mut self.sealed, empty_sealed());
+        match Arc::get_mut(&mut old_sealed) {
+            Some(blocks) => {
+                for slot in blocks.iter_mut() {
+                    // Move the block out; the emptied placeholder is dropped with
+                    // `old_sealed` at end of scope (trivial — its buffer is empty).
+                    let b = std::mem::replace(slot, IndexBlock::new(0));
                     let (ne, mu) = (b.num_entries as usize, b.mem_usage());
                     apply_delta_or_keep!(ne, mu, { keep_survivor!(b) });
                 }
             }
-            Err(shared) => {
+            None => {
                 // A live snapshot pins the whole region, so every block must be
                 // deep-copied out (the reader keeps reading the originals). Clone up
                 // front — matching the pre-existing behavior — then apply deltas to the
                 // owned copy.
-                for b in shared.iter() {
+                for b in old_sealed.iter() {
                     COW_CLONED_BLOCKS.fetch_add(1, Ordering::Relaxed);
                     COW_CLONED_BYTES.fetch_add(b.mem_usage() as u64, Ordering::Relaxed);
                     let owned = b.clone();
@@ -464,6 +481,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 }
             }
         }
+        drop(old_sealed);
         // `pending`: each block is its own `Arc`. Only survivors are materialized via
         // `unwrap_or_cow` (move when unique, clone when a snapshot pins that block); a
         // deleted pending block is read through the `Arc` and dropped without cloning.
@@ -484,19 +502,27 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // Whatever remains in `trailing` is the compacted tail → it becomes the sole
         // `pending` entry (the writable tail again); everything before it is `sealed`.
         debug_assert_eq!(
-            new_sealed.len() + usize::from(trailing.is_some()),
+            write_idx, sealed_len,
+            "must have filled exactly the pre-counted sealed slots"
+        );
+        debug_assert_eq!(
+            write_idx + usize::from(trailing.is_some()),
             n_survivors,
             "survivor pre-count must match the blocks actually kept"
         );
 
-        let blocks_after = new_sealed.len() + usize::from(trailing.is_some());
+        let blocks_after = write_idx + usize::from(trailing.is_some());
 
-        // Point at the shared empty region rather than allocating an Arc for an empty
-        // ThinVec when GC compacted everything into the tail (or away entirely).
-        self.sealed = if new_sealed.is_empty() {
+        // Point at the shared empty region rather than keeping a zero-length `Arc`
+        // allocation when GC compacted everything into the tail (or away entirely).
+        self.sealed = if sealed_len == 0 {
             empty_sealed()
         } else {
-            Arc::new(new_sealed)
+            // SAFETY: the fill loop wrote exactly `sealed_len` blocks into slots
+            // `0..sealed_len` (asserted by `write_idx == sealed_len` above), so every
+            // element of the slice is initialized. `new_sealed` is still uniquely owned
+            // (no snapshot taken since allocation), so promoting it is sound.
+            unsafe { new_sealed.assume_init() }
         };
         // Rebuild `pending` (drained via `std::mem::take` above) with just the compacted
         // tail, so writes resume appending to it copy-on-write.
@@ -509,9 +535,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         // Reconcile the per-block accounting with the actual memory delta. The
         // compaction frees the old pending Vec heap, drops Arc<IndexBlock> wrappers
-        // for both deleted *and* surviving blocks, and rebuilds the sealed ThinVec —
-        // none of which is captured by per-block bytes_freed/bytes_allocated. Charge
-        // the residual to whichever side moved.
+        // for both deleted *and* surviving blocks, and reallocates the sealed
+        // `Arc<[IndexBlock]>` — none of which is captured by per-block
+        // bytes_freed/bytes_allocated. Charge the residual to whichever side moved.
         let mem_after = self.memory_usage();
         let net_delta = mem_after as i64 - mem_before as i64;
         let block_level_delta = info.bytes_allocated as i64 - info.bytes_freed as i64;

@@ -27,15 +27,14 @@ use thin_vec::ThinVec;
 
 /// Shared, immutable empty `sealed` region. Every index with nothing sealed yet — the
 /// common case for small / single-block terms — points its `sealed` `Arc` here instead of
-/// allocating its own refcount box, saving ~24 bytes per index across the many inverted
-/// indexes a keyspace holds. `sealed` is only ever replaced wholesale (never mutated in
-/// place), so sharing one empty instance is safe; GC/`add_record` swap in a fresh `Arc`
-/// the moment they actually seal a block.
-static EMPTY_SEALED: LazyLock<Arc<ThinVec<IndexBlock, BlockCapacity>>> =
-    LazyLock::new(|| Arc::new(ThinVec::new()));
+/// allocating its own refcount box, saving a per-index heap allocation across the many
+/// inverted indexes a keyspace holds. `sealed` is only ever replaced wholesale (never
+/// mutated in place), so sharing one empty instance is safe; GC/`add_record` swap in a
+/// fresh `Arc` the moment they actually seal a block.
+static EMPTY_SEALED: LazyLock<Arc<[IndexBlock]>> = LazyLock::new(|| Arc::from([]));
 
 /// An `Arc::clone` of the shared empty `sealed` region — see [`EMPTY_SEALED`].
-pub(crate) fn empty_sealed() -> Arc<ThinVec<IndexBlock, BlockCapacity>> {
+pub(crate) fn empty_sealed() -> Arc<[IndexBlock]> {
     Arc::clone(&EMPTY_SEALED)
 }
 
@@ -43,7 +42,8 @@ pub(crate) fn empty_sealed() -> Arc<ThinVec<IndexBlock, BlockCapacity>> {
 /// used to efficiently search for documents that contain specific terms.
 ///
 /// Block storage is split across two direct fields:
-/// - [`Self::sealed`] — compacted blocks owned via [`Arc`]; only GC writes here.
+/// - [`Self::sealed`] — compacted blocks owned via a single [`Arc<[IndexBlock]>`]; only
+///   GC writes here.
 /// - [`Self::pending`] — full blocks plus the currently-written tail (the last slot),
 ///   each wrapped in an [`Arc`] so the snapshot's shallow Vec clone shares the underlying
 ///   data with the index. Writes go to the tail copy-on-write (see [`Self::add_record`]).
@@ -53,9 +53,11 @@ pub(crate) fn empty_sealed() -> Arc<ThinVec<IndexBlock, BlockCapacity>> {
 /// [`Self::snapshot`].
 #[derive(Debug)]
 pub struct InvertedIndex<E> {
-    /// Compacted, immutable blocks. GC's `apply_gc` replaces this [`Arc`] under
+    /// Compacted, immutable blocks stored inline in a single `Arc` allocation
+    /// ([`Arc<[IndexBlock]>`] — refcount header immediately followed by the block slice,
+    /// no separate backing buffer). GC's `apply_gc` replaces this [`Arc`] under
     /// `&mut self`; readers' snapshots share the same allocation via refcount clone.
-    pub(crate) sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+    pub(crate) sealed: Arc<[IndexBlock]>,
 
     /// Full blocks plus the currently-written tail block, in insertion order. The **last**
     /// slot is the writable tail: `add_record` appends into it (copy-on-write when a
@@ -236,22 +238,21 @@ impl<E: Encoder> InvertedIndex<E> {
 
     /// The memory size of the index in bytes.
     ///
-    /// Counts every heap allocation reachable from `self`: the [`Arc<ThinVec>`] for
-    /// `sealed` (header + ThinVec stack + heap if it has one), the heap of the directly-
-    /// owned `pending: Vec<Arc<IndexBlock>>` plus each `Arc<IndexBlock>`'s allocation,
-    /// and every block's `buffer` capacity. `in_progress` is owned directly on the
-    /// struct, so its `IndexBlock` is already in `size_of::<Self>()`; only the
-    /// heap-allocated `buffer` capacity is added below.
+    /// Counts every heap allocation reachable from `self`: the single [`Arc<[IndexBlock]>`]
+    /// allocation for `sealed` (refcount header + the inline block slice), the heap of the
+    /// directly-owned `pending: Vec<Arc<IndexBlock>>` plus each `Arc<IndexBlock>`'s
+    /// allocation, and every block's `buffer` capacity. The fat-pointer length of `sealed`
+    /// and the `pending` pointer are part of `size_of::<Self>()`.
     pub fn memory_usage(&self) -> usize {
-        // `size_of::<Self>` covers the direct fields: the `Arc<ThinVec>` pointer, the
-        // `ThinVec<Arc<IndexBlock>>` pointer, the counters/flags, unique_id and
-        // PhantomData. Heap-allocated portions are added below.
+        // `size_of::<Self>` covers the direct fields: the `Arc<[IndexBlock]>` fat pointer
+        // (data ptr + len), the `ThinVec<Arc<IndexBlock>>` pointer, the counters/flags,
+        // unique_id and PhantomData. Heap-allocated portions are added below.
         let stack = std::mem::size_of::<Self>();
 
-        // `sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>`.
-        let sealed_arc =
-            ARC_HEADER_BYTES + std::mem::size_of::<ThinVec<IndexBlock, BlockCapacity>>();
-        let sealed_thinvec_heap = self.sealed.mem_usage();
+        // `sealed: Arc<[IndexBlock]>` — one allocation holding the refcount header
+        // immediately followed by the `[IndexBlock]` slice (no separate ThinVec buffer or
+        // header). The empty shared singleton has `len == 0`, so this is just the header.
+        let sealed_arc = ARC_HEADER_BYTES + self.sealed.len() * IndexBlock::STACK_SIZE;
         let sealed_buffers: usize = self.sealed.iter().map(|b| b.buffer.capacity()).sum();
 
         // `pending: ThinVec<Arc<IndexBlock>, BlockCapacity>` — direct field. `mem_usage()`
@@ -264,12 +265,7 @@ impl<E: Encoder> InvertedIndex<E> {
             .map(|arc_b| ARC_HEADER_BYTES + IndexBlock::STACK_SIZE + arc_b.buffer.capacity())
             .sum();
 
-        stack
-            + sealed_arc
-            + sealed_thinvec_heap
-            + sealed_buffers
-            + pending_vec_heap
-            + pending_blocks
+        stack + sealed_arc + sealed_buffers + pending_vec_heap + pending_blocks
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -505,12 +501,12 @@ impl<E: Encoder> InvertedIndex<E> {
     /// extract its blocks into an owned form. Tries to avoid cloning by `Arc::try_unwrap` —
     /// since the consumer owns the index, the Arcs are usually unique.
     pub(crate) fn into_blocks_owned(self) -> Vec<IndexBlock> {
-        let sealed = match Arc::try_unwrap(self.sealed) {
-            Ok(tv) => tv,
-            Err(arc) => (*arc).clone(),
-        };
-        let mut out: Vec<IndexBlock> = Vec::with_capacity(sealed.len() + self.pending.len());
-        out.extend(sealed);
+        let mut out: Vec<IndexBlock> = Vec::with_capacity(self.sealed.len() + self.pending.len());
+        // `sealed: Arc<[IndexBlock]>` — you can't move blocks out of a shared slice, so
+        // clone each. In practice `sealed` is empty here (the only caller builds a
+        // throwaway index via `add_record`, whose blocks all live in `pending`), so this
+        // clones nothing.
+        out.extend(self.sealed.iter().cloned());
         for arc_block in self.pending {
             out.push(Arc::try_unwrap(arc_block).unwrap_or_else(|arc| (*arc).clone()));
         }

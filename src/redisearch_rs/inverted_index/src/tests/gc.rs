@@ -398,7 +398,7 @@ fn ii_apply_gc() {
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     // PRE-GC layout:
-    //   - Empty `InvertedIndex` overhead: 56 bytes (32 stack + 24 sealed Arc overhead).
+    //   - Empty `InvertedIndex` overhead: 56 bytes (40 stack + 16 empty sealed Arc header).
     //   - `from_blocks` puts all 4 blocks into `pending` (ThinVec: 8-byte header +
     //     capacity 4 → 40 bytes); the last one is the writable tail.
     //   - Per pending block: ARC_HEADER (16) + STACK_SIZE (48) + buffer.cap.
@@ -459,18 +459,19 @@ fn ii_apply_gc() {
 
     let apply_info = ii.apply_gc(delta);
 
-    // POST-GC layout:
-    //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
+    // POST-GC layout (sealed is a single `Arc<[IndexBlock]>` allocation):
+    //   - 3 sealed blocks live inline in one Arc allocation — the refcount header (16)
+    //     immediately followed by 3 in-line IndexBlocks (no ThinVec header or separate
+    //     backing buffer; the slice length rides in the fat pointer on the stack):
     //       Replace_block_for_1 (cap=8),
-    //       survivor_of_block_2 (cap=8, preserved by Arc::try_unwrap — the survivor's
-    //       Arc is uniquely owned at compaction time, so its original buffer Vec is
-    //       moved out without cloning),
+    //       survivor_of_block_2 (cap=8, moved out of its uniquely-owned sealed slot
+    //       without cloning its buffer),
     //       Replace_block_for_3a (cap=8).
     //   - 1 pending tail block, Arc-wrapped: Replace_block_for_3b (cap=8).
     assert_eq!(
         ii.memory_usage(),
-        56 // empty InvertedIndex overhead
-        + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
+        40 // InvertedIndex stack (size_of::<Self>, incl. sealed fat-pointer length)
+        + 16 // sealed Arc refcount header
         + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
         + 8 + 8 + 8 // sealed buffer capacities
         + 40 // pending ThinVec heap (8-byte header + cap=4) for the single tail block
@@ -511,10 +512,12 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // Per-block frees (184) plus the container-level overhead released during
-            // compaction (Arc<IndexBlock> wrappers, ThinVec rebuild) — reconciled to match
-            // the memory_usage() delta. Less than pre-fold: the surviving tail keeps a
-            // pending ThinVec, so that heap is not freed.
-            bytes_freed: 224,
+            // compaction (Arc<IndexBlock> wrappers, sealed region reallocated as a single
+            // `Arc<[IndexBlock]>`) — reconciled to match the memory_usage() delta. 8 bytes
+            // more than the ThinVec-backed sealed: the compacted region no longer carries a
+            // ThinVec header. Still less than pre-fold: the surviving tail keeps a pending
+            // ThinVec, so that heap is not freed.
+            bytes_freed: 232,
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
