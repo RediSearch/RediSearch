@@ -1,5 +1,6 @@
 [profile.default]
 slow-timeout = { period = "2s", terminate-after = 8 }
+leak-timeout = "500ms"
 fail-fast = false
 
 [profile.default-miri]

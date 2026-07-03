@@ -24,9 +24,9 @@ use rqe_iterators::{
     },
 };
 
-type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
+type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext<'index>>;
 type NotOptimizedFfi<'index> =
-    NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator, AnyTimeoutContext>;
+    NotOptimized<'index, NewWildcardIterator<'index>, CRQEIterator, AnyTimeoutContext<'index>>;
 
 /// Enum holding both NOT iterator variants with concrete [`CRQEIterator`] child.
 ///
@@ -170,11 +170,11 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
 /// 3 and 4 of [`NewNotIterator()`]). When `bc_timeout_areq` is non-null, it
 /// must uphold the [`TimeoutContextBlockedClient::new`] safety contract for
 /// the lifetime of the returned context.
-unsafe fn build_timeout_context(
+unsafe fn build_timeout_context<'req>(
     timeout: timespec,
     bc_timeout_areq: *mut AREQ,
     q: NonNull<ffi::QueryEvalCtx>,
-) -> AnyTimeoutContext {
+) -> AnyTimeoutContext<'req> {
     match NonNull::new(bc_timeout_areq) {
         Some(areq) => {
             // SAFETY: caller guarantees `areq` upholds the

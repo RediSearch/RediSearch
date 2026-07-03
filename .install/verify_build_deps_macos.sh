@@ -26,10 +26,9 @@ should_check_cheadergen() {
 # Dependencies
 # ============================================
 # Define dependencies and their corresponding check methods
-mac_os_deps=("make" "uv" "python3" "cmake" "cargo" "clang" "openssl" "brew")
+mac_os_deps=("make" "python3" "cmake" "cargo" "clang" "openssl" "brew")
 mac_os_deps_types=(
     "check_command" # Check for "make"
-    "check_command" # Check for "uv"
     "check_command" # Check for "python3"
     "check_command" # Check for "cmake"
     "check_command" # Check for "cargo"

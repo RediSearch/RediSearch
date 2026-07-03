@@ -11,7 +11,8 @@
 #include "allocator/allocator.hpp"
 #include "allocator/stateful_allocator.hpp"
 #include "allocator/tracking_allocator.hpp"
-#include "query_iterator.hpp"
+#include "../iterators/iterator_api.h"  // QueryIterator
+#include "field.h"                      // FieldFilterContext
 #include "geometry_types.h"
 
 #include <vector>                                  // std::vector

@@ -26,38 +26,251 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RLookupKey RLookupKey;
 
 /**
+ * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
+ * pointer is a live `&'a [u8]`.
+ */
+typedef struct RSOffsetVector RSOffsetSlice;
+
+#ifndef RAWMETRICSSLICE_ACTIVE_DEFINED
+#define RAWMETRICSSLICE_ACTIVE_DEFINED
+/**
+ * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
+ *
+ * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
+ * from C. The pointed-to data is valid as long as the originating
+ * [`MetricsVec`] is not mutated or dropped.
+ */
+typedef struct RawMetricsSlice_Active {
+  /**
+   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
+   * when `len == 0`.
+   */
+  const struct RawMetricEntry_Active *data;
+  /**
+   * Number of entries.
+   */
+  size_t len;
+} RawMetricsSlice_Active;
+#endif /* RAWMETRICSSLICE_ACTIVE_DEFINED */
+
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u16;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+#ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+#define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 {
+  struct Header_u64 *ptr;
+} ThinVec_RawMetricEntry_Active__u64;
+#endif /* THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED */
+
+#ifndef RAWMETRICSVEC_ACTIVE_DEFINED
+#define RAWMETRICSVEC_ACTIVE_DEFINED
+/**
+ * A dynamically-sized collection of [`MetricEntry`] values.
+ *
+ * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
+ * the allocation header. `MetricsVec::new()` does not allocate.
+ *
+ * `repr(transparent)` over `ThinVec` means this type is pointer-sized
+ * and can be embedded directly in `repr(C)` structs.
+ */
+typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
+#endif /* RAWMETRICSVEC_ACTIVE_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawMetricsVec`].
+ */
+typedef RawMetricsVec_Active MetricsVec;
+
+#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
+  struct Header_u16 *ptr;
+} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
+#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawMetricsSlice`].
+ */
+typedef struct RawMetricsSlice_Active MetricsSlice;
+
+#ifndef SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
+#define SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which constructors and methods are available:
+ *
+ * - [`Active<'a>`]: built from a reference via
+ *   [`SharedPtr::<Active>::from_ref`], with safe access via
+ *   [`SharedPtr::get`].
+ * - [`Suspended`]: built from a raw [`NonNull<T>`] via
+ *   [`SharedPtr::<Suspended>::from_non_null`]; inert (no safe access).
+ *   Upgrade to [`Active`] with the unsafe
+ *   [`SharedPtr::<Suspended>::into_active`] once validity is
+ *   re-established.
+ *
+ * `SharedPtr` only ever exposes shared (immutable) access to its
+ * referent; there is no mutable counterpart.
+ *
+ * `#[repr(transparent)]` ensures `SharedPtr<Rf, T>` has the same layout
+ * as `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<SharedPtr<Rf, T>>` pointer-sized as well.
+ */
+typedef RLookupKey *SharedPtr_Active__RLookupKey;
+#endif /* SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED */
+
+#ifndef RAWMETRICENTRY_ACTIVE_DEFINED
+#define RAWMETRICENTRY_ACTIVE_DEFINED
+/**
+ * A single metric: a borrowed key and a numeric value.
+ *
+ * The `R: Ref` parameter controls how the key reference is stored:
+ * in [`Active<'a>`] mode it is a valid `&'a RLookupKey`, in
+ * [`ref_mode::Suspended`] mode it is an inert raw pointer.
+ *
+ * `key` is `Option<SharedPtr<R, RLookupKey>>` so "no key" is encoded as
+ * `None`. `SharedPtr` wraps `NonNull` so the niche optimization keeps the C
+ * ABI as a nullable `RLookupKey *`.
+ */
+typedef struct RawMetricEntry_Active {
+  /**
+   * Borrowed reference to the lookup key that identifies this metric,
+   * or `None` when the metric has no associated key.
+   */
+  SharedPtr_Active__RLookupKey key;
+  /**
+   * The metric value (e.g. vector distance, score).
+   */
+  double value;
+} RawMetricEntry_Active;
+#endif /* RAWMETRICENTRY_ACTIVE_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawMetricEntry`].
+ */
+typedef struct RawMetricEntry_Active MetricEntry;
+
+#ifndef SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED
+#define SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which constructors and methods are available:
+ *
+ * - [`Active<'a>`]: built from a reference via
+ *   [`SharedPtr::<Active>::from_ref`], with safe access via
+ *   [`SharedPtr::get`].
+ * - [`Suspended`]: built from a raw [`NonNull<T>`] via
+ *   [`SharedPtr::<Suspended>::from_non_null`]; inert (no safe access).
+ *   Upgrade to [`Active`] with the unsafe
+ *   [`SharedPtr::<Suspended>::into_active`] once validity is
+ *   re-established.
+ *
+ * `SharedPtr` only ever exposes shared (immutable) access to its
+ * referent; there is no mutable counterpart.
+ *
+ * `#[repr(transparent)]` ensures `SharedPtr<Rf, T>` has the same layout
+ * as `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<SharedPtr<Rf, T>>` pointer-sized as well.
+ */
+typedef struct RSQueryTerm *SharedPtr_Active__RSQueryTerm;
+#endif /* SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED */
+
+#ifndef SHAREDPTR_ACTIVE__U8_DEFINED
+#define SHAREDPTR_ACTIVE__U8_DEFINED
+/**
+ * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
+ *
+ * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
+ * which constructors and methods are available:
+ *
+ * - [`Active<'a>`]: built from a reference via
+ *   [`SharedPtr::<Active>::from_ref`], with safe access via
+ *   [`SharedPtr::get`].
+ * - [`Suspended`]: built from a raw [`NonNull<T>`] via
+ *   [`SharedPtr::<Suspended>::from_non_null`]; inert (no safe access).
+ *   Upgrade to [`Active`] with the unsafe
+ *   [`SharedPtr::<Suspended>::into_active`] once validity is
+ *   re-established.
+ *
+ * `SharedPtr` only ever exposes shared (immutable) access to its
+ * referent; there is no mutable counterpart.
+ *
+ * `#[repr(transparent)]` ensures `SharedPtr<Rf, T>` has the same layout
+ * as `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
+ * between `Active` and `Suspended` instantiations of containing
+ * `#[repr(C)]` structs. The `NonNull<T>` niche makes
+ * `Option<SharedPtr<Rf, T>>` pointer-sized as well.
+ */
+typedef uint8_t *SharedPtr_Active__u8;
+#endif /* SHAREDPTR_ACTIVE__U8_DEFINED */
+
+#ifndef RSOFFSETVECTOR_DEFINED
+#define RSOFFSETVECTOR_DEFINED
+/**
  * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
  * iterating over it with RSIndexResult_IterateOffsets.
  *
  * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
  * Use [`RSOffsetVector`] for owned offset data.
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (the data
+ * pointer is a valid `&'index [u8]`) and [`ref_mode::Suspended`] mode (the
+ * data pointer may be stale).
+ *
+ * `data` is `Option<SharedPtr<R, u8>>` so the empty slice can be represented
+ * with a null pointer. Thanks to `NonNull`'s niche, the in-memory layout
+ * is still a bare `*const u8` followed by a `u32`.
  */
 typedef struct RSOffsetVector {
   /**
-   * Pointer to the borrowed offset data.
+   * Pointer to the borrowed offset data, or `None` for the empty slice.
    */
-  const uint8_t *data;
+  SharedPtr_Active__u8 data;
   uint32_t len;
 } RSOffsetVector;
+#endif /* RSOFFSETVECTOR_DEFINED */
 
+#ifndef RAWTERMRECORD_ACTIVE_DEFINED
+#define RAWTERMRECORD_ACTIVE_DEFINED
 /**
  * Represents a single record of a document inside a term in the inverted index
  */
-enum RSTermRecord_Tag
+enum RawTermRecord_Active_Tag
 #ifdef __cplusplus
   : uint8_t
 #endif // __cplusplus
  {
-  RSTermRecord_Borrowed,
-  RSTermRecord_Owned,
-  RSTermRecord_FullyOwned,
+  RawTermRecord_Active_Borrowed,
+  RawTermRecord_Active_Owned,
+  RawTermRecord_Active_FullyOwned,
 };
 #ifndef __cplusplus
-typedef uint8_t RSTermRecord_Tag;
+typedef uint8_t RawTermRecord_Active_Tag;
 #endif // __cplusplus
 
-typedef struct RSTermRecord_Borrowed_Body {
-  RSTermRecord_Tag tag;
+typedef struct RawTermRecord_Active_Borrowed_Body {
+  RawTermRecord_Active_Tag tag;
   /**
    * The term that brought up this record.
    *
@@ -71,30 +284,32 @@ typedef struct RSTermRecord_Borrowed_Body {
   /**
    * The encoded offsets in which the term appeared in the document
    *
-   * A decoder can choose to borrow this data from the index block, hence the `'index` lifetime.
+   * A decoder can choose to borrow this data from the index block, hence the `R`
+   * parameter (which carries the index lifetime in [`Active`] mode).
    */
   struct RSOffsetVector offsets;
-} RSTermRecord_Borrowed_Body;
+} RawTermRecord_Active_Borrowed_Body;
 
-typedef struct RSTermRecord_Owned_Body {
-  RSTermRecord_Tag tag;
+typedef struct RawTermRecord_Active_Owned_Body {
+  RawTermRecord_Active_Tag tag;
   /**
    * The term that brought up this record.
    *
-   * It borrows the term from another record.
-   * The name of the variant, `Owned`, refers to the `offsets` field.
+   * It borrows the term from another record. `None` encodes "no
+   * term"; thanks to `NonNull`'s niche, `Option<SharedPtr<R, RSQueryTerm>>`
+   * has the same C ABI as a nullable `*const RSQueryTerm`.
    */
-  const struct RSQueryTerm *term;
+  SharedPtr_Active__RSQueryTerm term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
    * The owned version owns a copy of the offsets data, which is freed on drop.
    */
   RSOffsetVector offsets;
-} RSTermRecord_Owned_Body;
+} RawTermRecord_Active_Owned_Body;
 
-typedef struct RSTermRecord_FullyOwned_Body {
-  RSTermRecord_Tag tag;
+typedef struct RawTermRecord_Active_FullyOwned_Body {
+  RawTermRecord_Active_Tag tag;
   /**
    * The term that brought up this record.
    *
@@ -111,111 +326,42 @@ typedef struct RSTermRecord_FullyOwned_Body {
    * (e.g. reading from a disk page that may be evicted).
    */
   RSOffsetVector offsets;
-} RSTermRecord_FullyOwned_Body;
+} RawTermRecord_Active_FullyOwned_Body;
 
-typedef union RSTermRecord {
-  RSTermRecord_Tag tag;
-  struct RSTermRecord_Borrowed_Body borrowed;
-  struct RSTermRecord_Owned_Body owned;
-  struct RSTermRecord_FullyOwned_Body fullyowned;
-} RSTermRecord;
-
-/**
- * A single metric: a borrowed key and a numeric value.
- */
-typedef struct MetricEntry {
-  /**
-   * Borrowed reference to the lookup key that identifies this metric.
-   * `None` when the metric has no associated key.
-   */
-  const RLookupKey *key;
-  /**
-   * The metric value (e.g. vector distance, score).
-   */
-  double value;
-} MetricEntry;
+typedef union RawTermRecord_Active {
+  RawTermRecord_Active_Tag tag;
+  struct RawTermRecord_Active_Borrowed_Body borrowed;
+  struct RawTermRecord_Active_Owned_Body owned;
+  struct RawTermRecord_Active_FullyOwned_Body fullyowned;
+} RawTermRecord_Active;
+#endif /* RAWTERMRECORD_ACTIVE_DEFINED */
 
 /**
- * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
- *
- * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
- * from C. The pointed-to data is valid as long as the originating
- * [`MetricsVec`] is not mutated or dropped.
+ * The [`Active`] instantiation of [`RawTermRecord`].
  */
-typedef struct MetricsSlice {
-  /**
-   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
-   * when `len == 0`.
-   */
-  const struct MetricEntry *data;
-  /**
-   * Number of entries.
-   */
-  size_t len;
-} MetricsSlice;
+typedef union RawTermRecord_Active RSTermRecord;
 
-#ifndef THINVEC_BOX_RSINDEXRESULT__U16_DEFINED
-#define THINVEC_BOX_RSINDEXRESULT__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_Box_RSIndexResult__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RSIndexResult__u16;
-#endif /* THINVEC_BOX_RSINDEXRESULT__U16_DEFINED */
-
-#ifndef THINVEC_METRICENTRY__U64_DEFINED
-#define THINVEC_METRICENTRY__U64_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_MetricEntry__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_MetricEntry__u64;
-#endif /* THINVEC_METRICENTRY__U64_DEFINED */
-
-/**
- * A dynamically-sized collection of [`MetricEntry`] values.
- *
- * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
- * the allocation header. `MetricsVec::new()` does not allocate.
- *
- * `repr(transparent)` over `ThinVec` means this type is pointer-sized
- * and can be embedded directly in `repr(C)` structs.
- */
-typedef struct ThinVec_MetricEntry__u64 MetricsVec;
-
-#ifndef THINVEC_RSINDEXRESULT__U16_DEFINED
-#define THINVEC_RSINDEXRESULT__U16_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_RSIndexResult__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_RSIndexResult__u16;
-#endif /* THINVEC_RSINDEXRESULT__U16_DEFINED */
-
-#ifndef SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED
-#define SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED
+#ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 /**
  * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
  *
  * This is useful when you know the vector will never exceed 65,535 elements
  * and want to minimize header overhead (4 bytes instead of 16).
  */
-typedef struct ThinVec_Box_RSIndexResult__u16 SmallThinVec_Box_RSIndexResult;
-#endif /* SMALLTHINVEC_BOX_RSINDEXRESULT_DEFINED */
+typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
+#endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
 
-#ifndef SMALLTHINVEC_RSINDEXRESULT_DEFINED
-#define SMALLTHINVEC_RSINDEXRESULT_DEFINED
+#ifndef SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#define SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
 /**
  * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
  *
  * This is useful when you know the vector will never exceed 65,535 elements
  * and want to minimize header overhead (4 bytes instead of 16).
  */
-typedef struct ThinVec_RSIndexResult__u16 SmallThinVec_RSIndexResult;
-#endif /* SMALLTHINVEC_RSINDEXRESULT_DEFINED */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 SmallThinVec_SharedPtr_Active__RawIndexResult_Active;
+#endif /* SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
 
 #ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
 #define BITFLAGS_RSRESULTKIND__U8_DEFINED
@@ -337,6 +483,8 @@ typedef uint8_t BitFlags_RSResultKind__u8;
 
 typedef BitFlags_RSResultKind__u8 RSResultKindMask;
 
+#ifndef RAWAGGREGATERESULT_ACTIVE_DEFINED
+#define RAWAGGREGATERESULT_ACTIVE_DEFINED
 /**
  * Represents an aggregate array of values in an index record.
  *
@@ -345,122 +493,141 @@ typedef BitFlags_RSResultKind__u8 RSResultKindMask;
  * the `ThinVec` which needs to exist in Rust's memory space to ensure its memory is
  * managed correctly.
  */
-enum RSAggregateResult_Tag
+enum RawAggregateResult_Active_Tag
 #ifdef __cplusplus
   : uint8_t
 #endif // __cplusplus
  {
-  RSAggregateResult_Borrowed,
-  RSAggregateResult_Owned,
+  RawAggregateResult_Active_Borrowed,
+  RawAggregateResult_Active_Owned,
 };
 #ifndef __cplusplus
-typedef uint8_t RSAggregateResult_Tag;
+typedef uint8_t RawAggregateResult_Active_Tag;
 #endif // __cplusplus
 
-typedef struct RSAggregateResult_Borrowed_Body {
-  RSAggregateResult_Tag tag;
+typedef struct RawAggregateResult_Active_Borrowed_Body {
+  RawAggregateResult_Active_Tag tag;
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
-   * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
-   * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
+   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so
+   * it needs to have a known size. The std `Vec` won't have this since it is not
+   * `#[repr(C)]`, so we use our own `ThinVec` type which is `#[repr(C)]` and has a known
+   * size instead.
    *
-   * This requires `'index` on the reference because adding a new lifetime will cause the
-   * type to be `ThinVec<&'refs RSIndexResult<'index, 'refs>>` which will require
-   * `'index: 'refs` else it would mean the `'index` can be cleaned up while some reference
-   * will still try to access it (ie a dangling pointer). Now the decoders will never return
-   * any aggregate results so `'refs == 'static` when decoding. Because of the requirement
-   * above, this means `'index: 'static` which is just incorrect since the index data will
-   * never be `'static` when decoding.
+   * Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
+   * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
+   * an inert raw pointer that survives lock release/reacquire cycles.
    */
-  SmallThinVec_RSIndexResult records;
+  SmallThinVec_SharedPtr_Active__RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
   RSResultKindMask kind_mask;
-} RSAggregateResult_Borrowed_Body;
+} RawAggregateResult_Active_Borrowed_Body;
 
-typedef struct RSAggregateResult_Owned_Body {
-  RSAggregateResult_Tag tag;
+typedef struct RawAggregateResult_Active_Owned_Body {
+  RawAggregateResult_Active_Tag tag;
   /**
    * The records making up this aggregate result
    *
-   * The `RSAggregateResult` is part of a union in [`super::result_data::RSResultData`], so it needs to have a
+   * The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so it needs to have a
    * known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
    * own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
    */
-  SmallThinVec_Box_RSIndexResult records;
+  SmallThinVec_Box_RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
   RSResultKindMask kind_mask;
-} RSAggregateResult_Owned_Body;
+} RawAggregateResult_Active_Owned_Body;
 
-typedef union RSAggregateResult {
-  RSAggregateResult_Tag tag;
-  struct RSAggregateResult_Borrowed_Body borrowed;
-  struct RSAggregateResult_Owned_Body owned;
-} RSAggregateResult;
+typedef union RawAggregateResult_Active {
+  RawAggregateResult_Active_Tag tag;
+  struct RawAggregateResult_Active_Borrowed_Body borrowed;
+  struct RawAggregateResult_Active_Owned_Body owned;
+} RawAggregateResult_Active;
+#endif /* RAWAGGREGATERESULT_ACTIVE_DEFINED */
 
+#ifndef RAWRESULTDATA_ACTIVE_DEFINED
+#define RAWRESULTDATA_ACTIVE_DEFINED
 /**
  * Holds the actual data of an ['IndexResult']
  *
  * These enum values should stay in sync with [`RSResultKind`], so that the C union generated matches
  * the bitflags on [`super::kind::RSResultKindMask`]
  *
- * The `'index` lifetime is linked to the `IndexBlock` (in the `inverted_index` crate) when
- * decoding borrows from the block.
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (data references are valid for
+ * `'index`) and [`ref_mode::Suspended`] mode (data references are inert raw pointers).
  */
-enum RSResultData_Tag
+enum RawResultData_Active_Tag
 #ifdef __cplusplus
   : uint8_t
 #endif // __cplusplus
  {
-  RSResultData_Union = 1,
-  RSResultData_Intersection = 2,
-  RSResultData_Term = 4,
-  RSResultData_Virtual = 8,
-  RSResultData_Numeric = 16,
-  RSResultData_Metric = 32,
-  RSResultData_HybridMetric = 64,
+  RawResultData_Active_Union = 1,
+  RawResultData_Active_Intersection = 2,
+  RawResultData_Active_Term = 4,
+  RawResultData_Active_Virtual = 8,
+  RawResultData_Active_Numeric = 16,
+  RawResultData_Active_Metric = 32,
+  RawResultData_Active_HybridMetric = 64,
 };
 #ifndef __cplusplus
-typedef uint8_t RSResultData_Tag;
+typedef uint8_t RawResultData_Active_Tag;
 #endif // __cplusplus
 
-typedef union RSResultData {
-  RSResultData_Tag tag;
+typedef union RawResultData_Active {
+  RawResultData_Active_Tag tag;
   struct {
-    RSResultData_Tag union__tag;
-    union RSAggregateResult union_;
+    RawResultData_Active_Tag union__tag;
+    union RawAggregateResult_Active union_;
   };
   struct {
-    RSResultData_Tag intersection_tag;
-    union RSAggregateResult intersection;
+    RawResultData_Active_Tag intersection_tag;
+    union RawAggregateResult_Active intersection;
   };
   struct {
-    RSResultData_Tag term_tag;
-    union RSTermRecord term;
+    RawResultData_Active_Tag term_tag;
+    union RawTermRecord_Active term;
   };
   struct {
-    RSResultData_Tag numeric_tag;
+    RawResultData_Active_Tag numeric_tag;
     double numeric;
   };
   struct {
-    RSResultData_Tag metric_tag;
+    RawResultData_Active_Tag metric_tag;
     double metric;
   };
   struct {
-    RSResultData_Tag hybridmetric_tag;
-    union RSAggregateResult hybridmetric;
+    RawResultData_Active_Tag hybridmetric_tag;
+    union RawAggregateResult_Active hybridmetric;
   };
-} RSResultData;
+} RawResultData_Active;
+#endif /* RAWRESULTDATA_ACTIVE_DEFINED */
 
 /**
- * The result of an inverted index
+ * The [`Active`] instantiation of [`RawResultData`].
  */
-typedef struct RSIndexResult {
+typedef union RawResultData_Active RSResultData;
+
+/**
+ * The [`Active`] instantiation of [`RawAggregateResult`].
+ */
+typedef union RawAggregateResult_Active RSAggregateResult;
+
+#ifndef RAWINDEXRESULT_ACTIVE_DEFINED
+#define RAWINDEXRESULT_ACTIVE_DEFINED
+/**
+ * The result of an inverted index
+ *
+ * The `R: Ref` parameter selects between [`Active<'index>`] mode (the
+ * data references inside this result are valid for `'index` and the
+ * inverted index read lock is held) and [`ref_mode::Suspended`] mode
+ * (the data references are inert raw pointers that survive lock
+ * release/reacquire cycles).
+ */
+typedef struct RawIndexResult_Active {
   /**
    * The document ID of the result
    */
@@ -480,16 +647,43 @@ typedef struct RSIndexResult {
   /**
    * The actual data of the result
    */
-  union RSResultData data;
+  union RawResultData_Active data;
   /**
    * Holds an array of metrics yielded by the different iterators in the AST.
    *
    * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
    * allocation when empty.
    */
-  MetricsVec metrics;
+  RawMetricsVec_Active metrics;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
   double weight;
-} RSIndexResult;
+} RawIndexResult_Active;
+#endif /* RAWINDEXRESULT_ACTIVE_DEFINED */
+
+/**
+ * The [`Active`] instantiation of [`RawIndexResult`].
+ *
+ * This is the only mode that crosses the C boundary today; the suspended
+ * counterpart is forthcoming.
+ */
+typedef struct RawIndexResult_Active RSIndexResult;
+/* Backward-compatible aliases for the variant tag enumerators. cheadergen
+ * mangles them with the underlying generic+instantiation name; the C codebase
+ * uses the unsuffixed forms. */
+#define RSResultData_Union        RawResultData_Active_Union
+#define RSResultData_Intersection RawResultData_Active_Intersection
+#define RSResultData_Term         RawResultData_Active_Term
+#define RSResultData_Virtual      RawResultData_Active_Virtual
+#define RSResultData_Numeric      RawResultData_Active_Numeric
+#define RSResultData_Metric       RawResultData_Active_Metric
+#define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+
+#define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
+#define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
+
+#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned      RawTermRecord_Active_Owned
+#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+

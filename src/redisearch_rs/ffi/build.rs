@@ -81,7 +81,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
         fns: &[],
-        types: &["ThrottleCB", "VecSimIndexBasicInfo", "VecSimParamsDisk"],
+        types: &[
+            "ThrottleCB",
+            "VecSimIndexBasicInfo",
+            "VecSimParamsDisk",
+            "VecSimQueryParams",
+        ],
         vars: &[],
     },
     HeaderAllowlist {
@@ -138,14 +143,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        // Benchmark-only GeoShape iterator constructor, used by
-        // `rqe_iterators_bencher` to compare against the Rust implementation.
-        path: "src/geometry/geometry_api.h",
-        fns: &["NewGeometryQueryIterator_Bench"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -165,7 +162,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
         ],
-        types: &[],
+        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
+        // deadline) handed to VecSim. Exposed via this already-included header
+        // rather than a dedicated `timeout.h` bindgen root.
+        types: &["TimeoutCtx", "timespec"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -321,6 +321,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
+        types: &[],
+        vars: &[],
+    },
     // RSE: the entire disk API struct family lives in this header and is
     // consumed by `redisearch_disk` to bridge from C into the Rust storage
     // layer. None of these symbols are referenced by RediSearch itself.
@@ -348,6 +354,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/search_options.h",
+        fns: &[],
+        types: &["RSSearchFlags"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
@@ -368,6 +380,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["StopWordList_FreeGlobals"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/suffix.h",
+        fns: &[],
+        types: &[],
+        vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
@@ -392,21 +410,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[],
         types: &[],
         vars: &["TRIE_INITIAL_STRING_LEN", "TRIE_MAX_PREFIX"],
-    },
-    HeaderAllowlist {
-        path: "src/ttl_table/ttl_table.h",
-        fns: &[
-            "TimeToLiveTable_Add",
-            "TimeToLiveTable_VerifyDocAndField",
-            "TimeToLiveTable_VerifyDocAndFieldMask",
-            "TimeToLiveTable_VerifyDocAndWideFieldMask",
-            "TimeToLiveTable_VerifyInit",
-            // Used by bench.
-            "TimeToLiveTable_Destroy",
-            "TimeToLiveTable_IsEmpty",
-        ],
-        types: &[],
-        vars: &[],
     },
     HeaderAllowlist {
         path: "src/util/arr/arr.h",
@@ -461,7 +464,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // (src/redisearch.h) — the full enum definition is required.
     "document_rs.h",
     // `FieldExpirationPredicate` is taken by value in TTL table function
-    // signatures (src/ttl_table/ttl_table.h).
+    // signatures (src/ttl_table.h).
     "field.h",
     // `RSOffsetVector` is embedded by value in `RSByteOffsets`
     // (src/byte_offsets.h) — the struct body is required.

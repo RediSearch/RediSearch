@@ -122,7 +122,7 @@ arrayof(int*) asm_sanitizer_allocs;
 
 redisearch_thpool_t *depleterPool = NULL;
 
-static int DIST_THREADPOOL = -1;
+int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
@@ -719,7 +719,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp);
+    SearchDisk_CloseIndexOnMainThread(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 

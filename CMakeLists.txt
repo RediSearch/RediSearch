@@ -256,10 +256,12 @@ if(HAS_WERROR_IMPLICIT_FUNCTION_DECLARATION)
     add_compile_options($<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
 endif()
 
+# NOTE: GIT_VERSPEC and GIT_SHA are intentionally NOT defined globally. They
+# change on every commit, so a global -D...  would be part of every C/C++
+# compile command and bust the sccache key for the whole tree on every push.
+# They are scoped to the only two TUs that read them in src/CMakeLists.txt.
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
-    "GIT_VERSPEC=\"${GIT_VERSPEC}\""
-    "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
@@ -328,7 +330,6 @@ include_directories(
     ${root}/deps
     ${root}/deps/VectorSimilarity/src
     ${root}/deps/rmalloc
-    ${root}/src/ttl_table
     ${BOOST_DIR}
     ${root})
 

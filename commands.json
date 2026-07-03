@@ -1606,6 +1606,12 @@
                             "type": "integer"
                           }
                         ]
+                      },
+                      {
+                        "name": "distinct",
+                        "type": "pure-token",
+                        "token": "DISTINCT",
+                        "optional": true
                       }
                     ]
                   }
@@ -2524,6 +2530,12 @@
         ]
       },
       {
+        "name": "explainscore",
+        "type": "pure-token",
+        "token": "EXPLAINSCORE",
+        "optional": true
+      },
+      {
         "name": "params",
         "type": "block",
         "optional": true,
@@ -2808,6 +2820,12 @@
                             "type": "integer"
                           }
                         ]
+                      },
+                      {
+                        "name": "distinct",
+                        "type": "pure-token",
+                        "token": "DISTINCT",
+                        "optional": true
                       }
                     ]
                   }

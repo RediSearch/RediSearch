@@ -210,8 +210,10 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
-      SearchDisk_UnregisterIndex(ctx, spec);
+      // Main-thread teardown must always precede close (which may run on a
+      // background thread when Indexes_RemoveSpecFromGlobals triggers the
+      // StrongRef destructor).
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
@@ -783,7 +785,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     //   2. The Redis hash — owned by the main thread and not guarded by
     //      the spec lock at all; the spec rwlock protects index state,
     //      not the Redis keyspace.
-    arrayof(FieldExpiration) sorted = NULL;
+    FieldExpirations sorted = FieldExpirations_Empty();
     if (hashHasAnyFieldExpire) {
       for (size_t ii = 0; ii < spec->numFields; ++ii) {
         Document_LoadHashFieldExpiration(k, &spec->fields[ii], ii, &sorted);
@@ -795,17 +797,16 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
-      // Hands ownership of `sorted` to the doc table (or frees it if empty).
-      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd, sorted);
-      sorted = NULL;
+      DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd,
+                                     DocTable_TakeFieldExpirations(&sorted));
       DMD_Return(cdmd);
     }
 
     RedisSearchCtx_UnlockSpec(&sctx);
 
-    // Doc not in this index (filter failed or never indexed): free the array
-    // we built speculatively. `array_free` is NULL-safe.
-    array_free(sorted);
+    // Doc not in this index (filter failed or never indexed): free the list
+    // we built speculatively. FieldExpirations_Free handles the empty sentinel.
+    FieldExpirations_Free(&sorted);
   }
 
   RedisModule_CloseKey(k);
@@ -986,14 +987,14 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (!spec) continue;
-    // Unregister here (not in the destructor) because the destructor may run
-    // on a background thread when the last StrongRef drops, and unregister
-    // needs the main-thread RedisModuleCtx. Must precede the close that
-    // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
-    // idempotent, so it safely handles specs aborted before LOADING_ENDED
-    // registered them.
+    // Run the main-thread teardown here (not in the destructor) because the
+    // destructor may run on a background thread when the last StrongRef drops,
+    // and the teardown needs the main-thread RedisModuleCtx. Must precede the
+    // close that IndexSpec_FreeUnlinkedData performs.
+    // SearchDisk_CloseIndexOnMainThread is idempotent, so it safely handles
+    // specs aborted before LOADING_ENDED finalised them.
     if (spec->diskSpec) {
-      SearchDisk_UnregisterIndex(ctx, spec);
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.
