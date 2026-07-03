@@ -681,11 +681,13 @@ def TimedOutWarningtestCoord(env):
   env.assertEqual(coord_profile['Warning'], ['Timeout limit was reached'])
   env.assertEqual(len(shards_profile), env.shardsCount)
 
-@skip(asan=True, msan=True, cluster=False)
+# TODO: Flaky test. Enable macos once MOD-15550 is fixed
+@skip(asan=True, msan=True, cluster=False, macos=True)
 def testTimedOutWarningCoordResp3():
   TimedOutWarningtestCoord(Env(protocol=3))
 
-@skip(asan=True, msan=True, cluster=False)
+# TODO: Flaky test. Enable macos once MOD-15550 is fixed
+@skip(asan=True, msan=True, cluster=False, macos=True)
 def testTimedOutWarningCoordResp2():
   TimedOutWarningtestCoord(Env(protocol=2))
 
