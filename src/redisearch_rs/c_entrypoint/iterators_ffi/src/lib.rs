@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod deferred;
 pub mod empty;
 pub mod geo_shape;
 pub mod id_list;

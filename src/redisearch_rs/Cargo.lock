@@ -1153,6 +1153,7 @@ dependencies = [
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "field",
  "index_result",
@@ -2748,6 +2749,7 @@ name = "string_utils"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "criterion",
  "ffi",
  "proptest",
  "redis_mock",

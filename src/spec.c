@@ -1716,7 +1716,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    SearchDisk_RegisterIndex(ctx, spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1752,7 +1751,7 @@ failure:  // Result-like contract: on failure the error is set in `status`, the
           // INVALID_STRONG_REF is returned. On success a valid spec is returned.
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, spec);
+    SearchDisk_CloseIndexOnMainThread(ctx, spec);
   }
   IndexSpec_Unlink(spec_ref, false);
   return INVALID_STRONG_REF;
@@ -2860,7 +2859,7 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
     if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec);
+    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
   }
 }
 
@@ -2932,7 +2931,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
   // in the first document insertion
   IndexSpec_EnsureTagDiskIndexes(sp);
-  SearchDisk_RegisterIndex(ctx, sp);
 
   return true;
 }
@@ -3134,8 +3132,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
 cleanup:
   if (sp && sp->diskSpec) {
-    // Idempotent — no-op if registration never happened on this path.
-    SearchDisk_UnregisterIndex(ctx, sp);
+    // Idempotent — no-op if the open never registered on this path.
+    SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
@@ -3157,7 +3155,6 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     }
     IndexSpec_PopulateVectorDiskParams(sp);
     IndexSpec_EnsureTagDiskIndexes(sp);
-    SearchDisk_RegisterIndex(ctx, sp);
   }
   return REDISMODULE_OK;
 }

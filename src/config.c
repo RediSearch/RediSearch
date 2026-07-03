@@ -193,6 +193,12 @@ static long long get_uint_numeric_config(const char *name, void *privdata) {
   return (long long)(*(unsigned int *)privdata);
 }
 
+// Signed-int getter, for fields that use a negative sentinel (e.g. -1 = "unlimited").
+static long long get_int_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return (long long)(*(int *)privdata);
+}
+
 // Custom setter for _MIN_TRIM_DELAY with validation
 static int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
@@ -240,6 +246,28 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
   *(uint8_t *)privdata = (uint8_t) val;
   if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
     SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
+  return REDISMODULE_OK;
+}
+
+static int set_search_disk_max_open_files_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  // -1 means unlimited. A positive cap becomes the disk backend's open-file cache size,
+  // which is (cap - 10) after reserving ~10 descriptors for non-data files; caps of 0..10
+  // would underflow that to an effectively unbounded cache and silently disable the limit,
+  // so require -1 or >= DISK_MAX_OPEN_FILES_MIN. Validated here (rather than via the config
+  // min bound) because -1 must stay valid while 0..10 must not.
+  if (val != -1 && val < DISK_MAX_OPEN_FILES_MIN) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-disk-max-open-files must be -1 (unlimited) or >= %d", DISK_MAX_OPEN_FILES_MIN);
+    return REDISMODULE_ERR;
+  }
+  *(int *)privdata = (int)val;
+  // Reapply the new cap to every live disk database (mirrors buffer-percentage).
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val);
   }
   return REDISMODULE_OK;
 }
@@ -2578,6 +2606,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-max-open-files", DEFAULT_DISK_MAX_OPEN_FILES,
+      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
+      (void *)&(RSGlobalConfig.diskMaxOpenFiles)
     )
   )
 

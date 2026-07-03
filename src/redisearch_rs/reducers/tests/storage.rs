@@ -36,6 +36,12 @@ fn sort_vals(v: f64) -> Box<[Option<SharedValue>]> {
     vec![Some(SharedValue::new_num(v))].into_boxed_slice()
 }
 
+/// Adapt an owned snapshot into the borrowed, cloneable iterator `consider`
+/// takes; production passes borrows straight from the row / shard payload.
+fn refs(vals: &[Option<SharedValue>]) -> impl Iterator<Item = Option<&SharedValue>> + Clone {
+    vals.iter().map(Option::as_ref)
+}
+
 /// A one-field [`ProjectedRow`] tagged with `v`, as a reducer's `project`
 /// closure would produce.
 fn projected(key: &RLookupKey<'_>, v: f64) -> ProjectedRow {
@@ -123,7 +129,7 @@ fn heap_consider_keeps_top_k_under_asc() {
     let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
     let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || projected(&key, i));
+        h.consider(refs(&sort_vals(i)), (), || projected(&key, i));
     }
     let drained: Vec<_> = h.drain().collect();
     // ASC: smallest is best; heap drains best→worst.
@@ -136,7 +142,7 @@ fn heap_consider_keeps_top_k_under_desc() {
     let mut s = Storage::new(true, false, Some((0, 3)), SORT_DESC);
     let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || projected(&key, i));
+        h.consider(refs(&sort_vals(i)), (), || projected(&key, i));
     }
     let drained: Vec<_> = h.drain().collect();
     // DESC: largest is best; heap drains best→worst.
@@ -151,16 +157,25 @@ fn heap_consider_skips_project_for_doomed_candidates() {
     let h = as_ranked(&mut s);
     // Fill with the two best candidates first.
     for v in [0.0_f64, 1.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(
+            refs(&sort_vals(v)),
+            (),
+            counting_project(&mut counter, &key, v),
+        );
     }
-    // Each subsequent candidate is worse than the worst survivor (1.0)
-    // under ASC, so `project` must not run.
+    // Each subsequent candidate is worse than the worst survivor (1.0) under
+    // ASC. `project` and the sort-value snapshot are co-gated on winning the
+    // borrow comparison, so neither must run for a doomed candidate.
     for v in [2.0_f64, 3.0, 4.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(
+            refs(&sort_vals(v)),
+            (),
+            counting_project(&mut counter, &key, v),
+        );
     }
     assert_eq!(
         counter, 2,
-        "`project` must not run for candidates worse than the heap's worst"
+        "`project` (and the snapshot clone) must not run for candidates worse than the worst"
     );
 }
 
@@ -173,7 +188,11 @@ fn heap_consider_invokes_project_on_eviction() {
     // Each insert is strictly better than the current worst, so every
     // candidate must be projected.
     for v in [5.0_f64, 3.0, 1.0] {
-        h.consider(sort_vals(v), (), counting_project(&mut counter, &key, v));
+        h.consider(
+            refs(&sort_vals(v)),
+            (),
+            counting_project(&mut counter, &key, v),
+        );
     }
     assert_eq!(counter, 3);
 }
@@ -196,7 +215,7 @@ fn drain_heap_applies_skip_take_after_best_first_order() {
     let mut s = Storage::new(true, false, Some((1, 2)), SORT_ASC);
     let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || projected(&key, i));
+        h.consider(refs(&sort_vals(i)), (), || projected(&key, i));
     }
     // Top-3 under ASC = [0, 1, 2] best→worst; offset 1, count 2 → [1, 2].
     let drained: Vec<_> = h.drain().collect();
@@ -209,7 +228,7 @@ fn heap_uses_default_limit_when_no_explicit_limit() {
     let mut s = Storage::new(true, false, None, SORT_ASC);
     let h = as_ranked(&mut s);
     for i in 0..(DEFAULT_LIMIT as usize + 5) {
-        h.consider(sort_vals(i as f64), (), || projected(&key, i as f64));
+        h.consider(refs(&sort_vals(i as f64)), (), || projected(&key, i as f64));
     }
     let drained: Vec<_> = h.drain().collect();
     assert_eq!(drained.len(), DEFAULT_LIMIT as usize);
@@ -357,7 +376,7 @@ fn heap_drain_with_sort_vals_exposes_snapshot_in_best_first_order() {
     let mut s = Storage::new(true, false, Some((0, 3)), SORT_ASC);
     let h = as_ranked(&mut s);
     for i in [4.0_f64, 1.0, 5.0, 2.0, 0.0, 3.0] {
-        h.consider(sort_vals(i), (), || projected(&key, i));
+        h.consider(refs(&sort_vals(i)), (), || projected(&key, i));
     }
     let snapshots: Vec<f64> = h
         .drain_with_sort_vals()
@@ -429,7 +448,7 @@ fn distinct_heap_dedups_keeping_best_ranked() {
     // rank 4.
     let inserts = [(1.0_f64, 1.0_f64), (2.0, 2.0), (1.0, 5.0), (2.0, 4.0)];
     for (v, rank) in inserts {
-        d.consider(sort_vals(rank), (), || projected(&key, v));
+        d.consider(refs(&sort_vals(rank)), (), || projected(&key, v));
     }
     let drained: Vec<_> = d.drain().collect();
     // Two distinct identities survive; drained best→worst by the kept rank
@@ -447,7 +466,7 @@ fn distinct_heap_stays_bounded_on_insert() {
     // rank (DESC ⇒ largest), bounded on insert rather than at drain.
     for v in 0..20_u32 {
         let v = v as f64;
-        d.consider(sort_vals(v), (), || projected(&key, v));
+        d.consider(refs(&sort_vals(v)), (), || projected(&key, v));
     }
     let drained: Vec<_> = d.drain().collect();
     assert_eq!(drained.len(), cap);
@@ -469,7 +488,7 @@ fn distinct_heap_duplicates_do_not_consume_capacity() {
         (2.0, 4.0),
         (1.0, 9.0),
     ] {
-        d.consider(sort_vals(rank), (), || projected(&key, v));
+        d.consider(refs(&sort_vals(rank)), (), || projected(&key, v));
     }
     let drained: Vec<_> = d.drain().collect();
     // Both identities survive; v=1 kept rank 9, v=2 kept rank 4 → DESC order.

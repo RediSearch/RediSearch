@@ -43,6 +43,10 @@ on:
         type: string
         default: x86_64
         description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
+      base_branch:
+        type: string
+        default: ""
+        description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
 
 jobs:
   benchmark-steps:
@@ -215,10 +219,18 @@ jobs:
         # block instead of an empty table, and the cross-arch section
         # auto-suppresses. The last-to-finish upsert wins -- same behavior
         # as today, but with the richer multi-arch body.
+        #
+        # The baseline branch is decided by the caller (benchmark-trigger.yml):
+        # normally the PR base branch, or master when the 'bench:vs-master'
+        # label is set. This is for stacked PRs: when a PR is based on another
+        # PR's branch, the default base-branch comparison only shows the delta
+        # of this PR on top of its parent. Baselining against master instead
+        # shows the cumulative performance impact of the whole stack. Fall back
+        # to the PR base branch when no baseline is passed (e.g. workflow_dispatch).
         run: redisbench-admin compare
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
-              --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --baseline-branch ${{ inputs.base_branch || github.event.pull_request.base.ref }}
               --architectures x86_64,aarch64
               --auto-approve
               --pull-request ${{ github.event.number }}

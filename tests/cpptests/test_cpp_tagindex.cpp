@@ -18,7 +18,7 @@
 class TagIndexTest : public ::testing::Test {};
 
 TEST_F(TagIndexTest, testCreate) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   ASSERT_FALSE(idx == NULL);
   // ASSERT_STRING_EQ(idx->)
   const size_t N = 100000;
@@ -36,7 +36,7 @@ TEST_F(TagIndexTest, testCreate) {
     ASSERT_EQ(sz, stats.invertedSize);
   }
 
-  ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
+  ASSERT_EQ(v.size(), TagIndex_NUniqueValues(idx));
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
@@ -84,7 +84,7 @@ TEST_F(TagIndexTest, testCreate) {
 }
 
 TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex(NULL, 0);
+  TagIndex *idx = NewTagIndex(NULL, 0, false);
   ASSERT_FALSE(idx == NULL);
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;

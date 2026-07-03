@@ -252,30 +252,52 @@ impl<D: Ord> RankedStorage<D> {
     }
 
     /// `doc_id` breaks ties when sort keys compare equal (see [`RankingKey`]).
-    pub fn consider(
+    /// `sort_vals` must be cheap to clone: it is cloned once per candidate to
+    /// rank it by borrow before any value is materialised.
+    pub fn consider<'a>(
         &mut self,
-        sort_vals: Box<[Option<SharedValue>]>,
+        sort_vals: impl Iterator<Item = Option<&'a SharedValue>> + Clone,
         doc_id: D,
         project: impl FnOnce() -> ProjectedRow,
     ) {
         let max_size = self.max_size();
         // `LIMIT count` is parse-validated `>= 1`, so `offset + count` never reaches zero here.
         debug_assert!(max_size > 0, "ranked storage built with a zero cap");
-        let cand_key = RankingKey::new(sort_vals, self.sort_asc_map(), doc_id);
+        let sort_asc_map = self.sort_asc_map();
         match self {
             Self::Plain { heap, .. } => {
                 if heap.len() < max_size {
+                    let cand_key = RankingKey::new(
+                        sort_vals.map(|v| v.cloned()).collect(),
+                        sort_asc_map,
+                        doc_id,
+                    );
                     heap.push(RankedEntry::new(cand_key, project()));
                 } else {
                     // `peek_min` is the worst survivor (best = max, see
                     // `super::ranking`); a full heap with `max_size > 0` is non-empty.
                     let worst = heap.peek_min().expect("heap at cap is non-empty");
-                    if cand_key > *worst.key() {
+                    // Rank by borrow before cloning: a loser — the steady state for
+                    // a large stream with small K — pays only the comparison, no
+                    // snapshot allocation or `Arc` traffic.
+                    if worst.key().ranks_below(sort_vals.clone(), &doc_id) {
+                        let cand_key = RankingKey::new(
+                            sort_vals.map(|v| v.cloned()).collect(),
+                            sort_asc_map,
+                            doc_id,
+                        );
                         heap.push_pop_min(RankedEntry::new(cand_key, project()));
                     }
                 }
             }
             Self::Distinct { pq, .. } => {
+                // The queue is keyed on the projected row, so both the key and the
+                // row are always materialised — nothing to defer here.
+                let cand_key = RankingKey::new(
+                    sort_vals.map(|v| v.cloned()).collect(),
+                    sort_asc_map,
+                    doc_id,
+                );
                 let row = project();
                 // Priority is `Reverse<RankingKey>`, so `push_decrease` keeps the
                 // better (higher) `RankingKey` per identity, and the queue's max —

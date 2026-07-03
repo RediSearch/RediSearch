@@ -382,6 +382,8 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
             IteratorType::IdListUnsorted => 1.0,
             IteratorType::MetricSortedById => 1.0,
             IteratorType::MetricSortedByScore => 1.0,
+            IteratorType::MetricLazySortedById => 1.0,
+            IteratorType::MetricLazySortedByScore => 1.0,
             IteratorType::Profile => 1.0,
             IteratorType::Optimus => 1.0,
             IteratorType::GeoShape => 1.0,

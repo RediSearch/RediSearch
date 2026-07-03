@@ -795,12 +795,12 @@ DEBUG_COMMAND(DumpTagIndex) {
   }
 
   // Debug dump not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (tagIndex->diskSpec) {
+  if (TagIndex_HasDiskSpec(tagIndex)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "DUMP_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
-  iter = TrieMap_Iterate(tagIndex->values);
+  iter = TagIndex_IterateValues(tagIndex);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
   while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
@@ -870,7 +870,9 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
       goto end;
     }
-    if (!idx->suffix) {
+
+    TrieMapIterator *it = TagIndex_IterateSuffix(idx);
+    if (!it) {
       RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
       goto end;
     }
@@ -878,7 +880,6 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    TrieMapIterator *it = TrieMap_Iterate(idx->suffix);
     char *str;
     tm_len_t len;
     void *value;
@@ -1417,14 +1418,14 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   // Debug info not supported for disk-mode tag indexes (TrieMap contains NULL sentinels)
-  if (idx->diskSpec) {
+  if (TagIndex_HasDiskSpec(idx)) {
     RedisModule_ReplyWithError(sctx->redisCtx, "INFO_TAGIDX not supported for disk-mode indexes");
     goto end;
   }
 
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithLiteral(ctx, "num_values");
-  RedisModule_ReplyWithLongLong(ctx, TrieMap_NUniqueKeys(idx->values));
+  RedisModule_ReplyWithLongLong(ctx, TagIndex_NUniqueValues(idx));
   nelem += 2;
 
   if (options.dumpIdEntries) {
@@ -1436,7 +1437,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   limit = options.limit ? options.limit : 0;
-  iter = TrieMap_Iterate(idx->values);
+  iter = TagIndex_IterateValues(idx);
 
   nelem += 2;
   RedisModule_ReplyWithLiteral(ctx, "values");

@@ -275,12 +275,7 @@ impl RemoteCollectCtx {
         match &mut self.storage {
             Storage::Unranked(unranked) => unranked.push(project),
             Storage::Ranked(ranked) => {
-                let sort_vals = r
-                    .fields
-                    .sort_keys()
-                    .iter()
-                    .map(|key| row.get(key).cloned())
-                    .collect();
+                let sort_vals = r.fields.sort_keys().iter().map(|key| row.get(key));
                 ranked.consider(sort_vals, doc_id, project);
             }
         }
