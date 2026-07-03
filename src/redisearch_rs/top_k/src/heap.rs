@@ -58,6 +58,15 @@ struct HeapEntry<'index> {
     compare: fn(f64, f64) -> Ordering,
 }
 
+impl<'index> From<HeapEntry<'index>> for HeapResult<'index> {
+    fn from(entry: HeapEntry<'index>) -> Self {
+        HeapResult {
+            scored: entry.result,
+            record: entry.record,
+        }
+    }
+}
+
 impl PartialEq for HeapEntry<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
@@ -218,10 +227,7 @@ impl<'index> TopKHeap<'index> {
     /// Unlike [`drain_sorted`](Self::drain_sorted) this borrows the heap, so the
     /// caller can rescore the drained entries and push them back.
     pub fn drain_unsorted(&mut self) -> impl Iterator<Item = HeapResult<'index>> + use<'index, '_> {
-        self.inner.drain().map(|e| HeapResult {
-            scored: e.result,
-            record: e.record,
-        })
+        self.inner.drain().map(HeapResult::from)
     }
 
     /// Drains all elements and returns them sorted best-first.
@@ -233,10 +239,7 @@ impl<'index> TopKHeap<'index> {
         self.inner
             .into_sorted_vec()
             .into_iter()
-            .map(|e| HeapResult {
-                scored: e.result,
-                record: e.record,
-            })
+            .map(HeapResult::from)
             .collect()
     }
 }
