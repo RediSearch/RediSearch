@@ -191,10 +191,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_IsBatchMode",
             "RS_VecSimCheckTimeout",
         ],
-        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
-        // deadline) handed to VecSim. Exposed via this already-included header
-        // rather than a dedicated `timeout.h` bindgen root.
-        types: &["TimeoutCtx", "timespec"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -514,9 +511,31 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
+        path: "src/vector_index.h",
+        fns: &["VecSimSearchMode_ToString"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
         fns: &["Wildcard_RemoveEscape"],
         types: &[],
+        vars: &[],
+    },
+    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
+    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &["TimeoutCtx", "timespec"],
+        vars: &[],
+    },
+    // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
+    // chosen for `vector_top_k` hybrid iteration.
+    HeaderAllowlist {
+        path: "src/vector_index.h",
+        fns: &["VecSimSearchMode_ToString"],
+        types: &["VecSimSearchMode"],
         vars: &[],
     },
 ];
