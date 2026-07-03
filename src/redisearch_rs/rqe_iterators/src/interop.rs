@@ -400,3 +400,19 @@ unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index>
     let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
     wrapper.inner.print_profile(map, ctx);
 }
+
+/// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.
+///
+/// This is an escape hatch for clearing or overriding vtable entries that
+/// `boxed_new` / `boxed_new_compound` set unconditionally. The closure receives
+/// a mutable reference to the [`QueryIterator`] header and may set any field.
+///
+/// # Safety
+///
+/// 1. `ptr` is a valid, non-null `*mut QueryIterator` produced by a
+///    [`RQEIteratorWrapper`] constructor in this module.
+/// 2. No other alias to `ptr` is live for the duration of `f`.
+pub unsafe fn patch_vtable(ptr: *mut QueryIterator, f: impl FnOnce(&mut QueryIterator)) {
+    // SAFETY: upheld by the caller
+    unsafe { f(&mut *ptr) }
+}
