@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Invariant tests for the directly-owned `sealed`, `pending`, `in_progress` fields on
-//! `InvertedIndex`. After GC, `sealed` is populated with compacted survivors; otherwise
-//! writes only touch `pending` (on roll-over) and `in_progress` (in-place). These tests
-//! check the layout stays internally consistent across every mutation path.
+//! Invariant tests for the directly-owned `sealed` and `pending` fields on
+//! `InvertedIndex`. After GC, `sealed` is populated with compacted survivors; writes only
+//! ever touch `pending` — appending into its last slot (the writable tail), copy-on-write
+//! when a snapshot shares it, and pushing a fresh tail on roll-over. These tests check the
+//! layout stays internally consistent across every mutation path.
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
@@ -20,18 +21,16 @@ use crate::{Encoder, IndexBlock, InvertedIndex};
 
 use super::Dummy;
 
-/// Assert that the three regions are internally consistent:
-/// - All blocks in `sealed`, `pending`, and `in_progress` have non-overlapping ranges and
-///   are strictly ordered by doc id across the three regions (sealed → pending →
-///   in_progress).
-/// - `number_of_blocks()` equals `sealed.len() + pending.len() + in_progress.is_some() as
-///   usize`.
+/// Assert that the two regions are internally consistent:
+/// - All blocks in `sealed` and `pending` have non-overlapping ranges and are strictly
+///   ordered by doc id across the two regions (sealed → pending, tail = last `pending`).
+/// - `number_of_blocks()` equals `sealed.len() + pending.len()`.
 fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
-    let expected_total = ii.sealed.len() + ii.pending.len() + usize::from(ii.in_progress.is_some());
+    let expected_total = ii.sealed.len() + ii.pending.len();
     assert_eq!(
         ii.number_of_blocks(),
         expected_total,
-        "block count must match sealed+pending+in_progress"
+        "block count must match sealed+pending"
     );
 
     // Within each region, blocks are strictly ordered by doc id.
@@ -48,26 +47,11 @@ fn assert_state_invariants<E: Encoder>(ii: &InvertedIndex<E>) {
         );
     }
 
-    // Across regions, the trailing block of each region precedes the leading block of the
-    // next.
+    // Across regions, the trailing sealed block precedes the leading pending block.
     if let (Some(last_sealed), Some(first_pending)) = (ii.sealed.last(), ii.pending.first()) {
         assert!(
             last_sealed.last_doc_id < first_pending.first_doc_id,
             "pending must come after sealed"
-        );
-    }
-    if let (Some(last_pending), Some(ip)) = (ii.pending.last(), ii.in_progress.as_ref()) {
-        assert!(
-            last_pending.last_doc_id < ip.first_doc_id,
-            "in_progress must come after all pending blocks"
-        );
-    }
-    if ii.pending.is_empty()
-        && let (Some(last_sealed), Some(ip)) = (ii.sealed.last(), ii.in_progress.as_ref())
-    {
-        assert!(
-            last_sealed.last_doc_id < ip.first_doc_id,
-            "in_progress must come after sealed when pending is empty"
         );
     }
 }
@@ -78,28 +62,27 @@ fn empty_index_has_empty_state() {
 
     assert!(ii.sealed.is_empty());
     assert!(ii.pending.is_empty());
-    assert!(ii.in_progress.is_none());
     assert_eq!(ii.number_of_blocks(), 0);
 }
 
 #[test]
-fn first_record_promotes_in_progress() {
+fn first_record_creates_tail_in_pending() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     let record = RSIndexResult::build_virt().doc_id(10).build();
     ii.add_record(&record).unwrap();
 
     assert!(ii.sealed.is_empty());
-    assert!(ii.pending.is_empty());
-    let ip = ii.in_progress.as_ref().expect("must have in_progress");
-    assert_eq!(ip.first_doc_id, 10);
-    assert_eq!(ip.last_doc_id, 10);
-    assert_eq!(ip.num_entries, 1);
+    assert_eq!(ii.pending.len(), 1, "first record creates the tail block");
+    let tail = &ii.pending[0];
+    assert_eq!(tail.first_doc_id, 10);
+    assert_eq!(tail.last_doc_id, 10);
+    assert_eq!(tail.num_entries, 1);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn appending_to_same_block_only_updates_in_progress() {
+fn appending_to_same_block_only_updates_tail() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     for id in 10..15 {
@@ -107,16 +90,16 @@ fn appending_to_same_block_only_updates_in_progress() {
             .unwrap();
     }
 
-    assert!(ii.pending.is_empty(), "no block rolled over");
-    let ip = ii.in_progress.as_ref().unwrap();
-    assert_eq!(ip.first_doc_id, 10);
-    assert_eq!(ip.last_doc_id, 14);
-    assert_eq!(ip.num_entries, 5);
+    assert_eq!(ii.pending.len(), 1, "no block rolled over");
+    let tail = &ii.pending[0];
+    assert_eq!(tail.first_doc_id, 10);
+    assert_eq!(tail.last_doc_id, 14);
+    assert_eq!(tail.num_entries, 5);
     assert_state_invariants(&ii);
 }
 
 #[test]
-fn block_fill_moves_previous_in_progress_into_pending() {
+fn block_fill_pushes_new_tail() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
     // Dummy::RECOMMENDED_BLOCK_ENTRIES is the default 100. Write enough records to
@@ -133,13 +116,14 @@ fn block_fill_moves_previous_in_progress_into_pending() {
         "should have rolled to a second block"
     );
 
-    assert_eq!(ii.pending.len(), 1, "first block is now pending");
+    // Both blocks live in `pending`; the last is the fresh tail.
+    assert_eq!(ii.pending.len(), 2);
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[0].num_entries as u64, entries_per_block);
 
-    let ip = ii.in_progress.as_ref().unwrap();
-    assert_eq!(ip.num_entries, 1);
-    assert_eq!(ip.first_doc_id, entries_per_block + 1);
+    let tail = &ii.pending[1];
+    assert_eq!(tail.num_entries, 1);
+    assert_eq!(tail.first_doc_id, entries_per_block + 1);
     assert_state_invariants(&ii);
 }
 
@@ -157,12 +141,12 @@ fn pending_grows_monotonically_across_multiple_rollovers() {
 
     assert_eq!(ii.number_of_blocks(), 3);
 
-    assert_eq!(ii.pending.len(), 2);
+    assert_eq!(ii.pending.len(), 3);
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[1].first_doc_id, entries_per_block + 1);
-    let ip = ii.in_progress.as_ref().unwrap();
-    assert_eq!(ip.first_doc_id, 2 * entries_per_block + 1);
-    assert_eq!(ip.num_entries, 5);
+    let tail = &ii.pending[2];
+    assert_eq!(tail.first_doc_id, 2 * entries_per_block + 1);
+    assert_eq!(tail.num_entries, 5);
     assert_state_invariants(&ii);
 }
 
@@ -172,29 +156,26 @@ fn snapshot_taken_before_write_is_not_mutated_by_later_writes() {
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
         .unwrap();
 
-    // Take a snapshot before the next write.
+    // Take a snapshot before the next write. It shares the tail block via `Arc`.
     let before = ii.snapshot();
-    let before_ip = before
-        .in_progress()
-        .expect("first add already happened")
-        .clone();
-    assert_eq!(before_ip.num_entries, 1);
+    let before_tail = before.tail().expect("first add already happened").clone();
+    assert_eq!(before_tail.num_entries, 1);
 
     ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
         .unwrap();
 
-    // The snapshot's owned `IndexBlock` must remain unchanged — readers holding it
-    // shouldn't see a torn write.
+    // The snapshot's block must remain unchanged — the second write copies-on-write
+    // (the tail `Arc` was shared), so readers holding it don't see a torn write.
     assert_eq!(
-        before_ip.num_entries, 1,
+        before_tail.num_entries, 1,
         "snapshot taken before the second write is immutable"
     );
-    assert_eq!(before_ip.last_doc_id, 1);
+    assert_eq!(before_tail.last_doc_id, 1);
 
     // The live index reflects the new write.
-    let after_ip = ii.in_progress.as_ref().unwrap();
-    assert_eq!(after_ip.num_entries, 2);
-    assert_eq!(after_ip.last_doc_id, 2);
+    let after_tail = ii.pending.last().unwrap();
+    assert_eq!(after_tail.num_entries, 2);
+    assert_eq!(after_tail.last_doc_id, 2);
 }
 
 #[test]
@@ -226,12 +207,13 @@ fn from_blocks_initializes_state_to_match() {
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    assert_eq!(ii.pending.len(), 1);
+    // Every block goes into `pending`; the last is the writable tail.
+    assert_eq!(ii.pending.len(), 2);
     assert_eq!(ii.pending[0].first_doc_id, 1);
     assert_eq!(ii.pending[0].num_entries, 5);
-    let ip = ii.in_progress.as_ref().unwrap();
-    assert_eq!(ip.first_doc_id, 11);
-    assert_eq!(ip.num_entries, 3);
+    let tail = &ii.pending[1];
+    assert_eq!(tail.first_doc_id, 11);
+    assert_eq!(tail.num_entries, 3);
     assert_state_invariants(&ii);
 }
 
@@ -287,6 +269,7 @@ fn reader_uses_snapshot_block_layout() {
 #[test]
 fn find_block_for_doc_id_spans_regions() {
     // Build a 3-block index by hand and exercise `find_block_for_doc_id` on its snapshot.
+    // All three blocks live in `pending` (the last is the tail).
     use thin_vec::ThinVec;
 
     let mut p0 = IndexBlock::new(1);
@@ -295,14 +278,14 @@ fn find_block_for_doc_id_spans_regions() {
     let mut p1 = IndexBlock::new(11);
     p1.last_doc_id = 20;
     p1.num_entries = 5;
-    let mut ip = IndexBlock::new(21);
-    ip.last_doc_id = 25;
-    ip.num_entries = 3;
+    let mut tail = IndexBlock::new(21);
+    tail.last_doc_id = 25;
+    tail.num_entries = 3;
 
     let mut blocks: ThinVec<IndexBlock, crate::BlockCapacity> = ThinVec::new();
     blocks.push(p0);
     blocks.push(p1);
-    blocks.push(ip);
+    blocks.push(tail);
 
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let snap = ii.snapshot();
@@ -325,25 +308,24 @@ fn find_block_for_doc_id_spans_regions() {
 #[test]
 fn apply_gc_compacts_survivors_into_sealed() {
     // After `apply_gc`, surviving completed blocks are moved into the contiguous `sealed`
-    // ThinVec. `pending` resets to empty; the trailing survivor becomes the new
-    // `in_progress`. The next write will roll back through the pending → sealed flow.
+    // ThinVec, and the trailing survivor becomes the sole `pending` entry (the writable
+    // tail again). The next writes append to that tail copy-on-write.
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, RepairType};
 
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
-    // Roll three blocks: two full (→ pending) + one partial (→ in_progress).
+    // Roll three blocks: two full + one partial. All live in `pending`.
     let total = entries_per_block * 2 + 5;
     for id in 1..=total {
         ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
             .unwrap();
     }
     assert!(ii.sealed.is_empty(), "sealed empty pre-GC");
-    assert_eq!(ii.pending.len(), 2);
-    assert!(ii.in_progress.is_some());
+    assert_eq!(ii.pending.len(), 3);
 
     // Synthetic delta: delete block 0. This forces apply to rebuild layout and verifies
-    // it flips from "pending+in_progress" to "sealed+in_progress".
+    // it flips from "all-pending" to "sealed + a single pending tail".
     let last_block_num_entries = ii.snapshot().last_block().unwrap().num_entries;
     let delta = GcScanDelta {
         last_block_idx: ii.number_of_blocks() - 1,
@@ -358,21 +340,19 @@ fn apply_gc_compacts_survivors_into_sealed() {
 
     ii.apply_gc(delta);
 
-    // Block 0 deleted → 2 survivors. Trailing one (was in_progress) becomes new
-    // in_progress; the other (was pending) goes to sealed.
+    // Block 0 deleted → 2 survivors. Trailing one becomes the new pending tail; the other
+    // goes to sealed.
     assert_eq!(
         ii.sealed.len(),
         1,
         "the surviving completed block landed in sealed"
     );
-    assert!(ii.pending.is_empty(), "pending reset to empty after GC");
-    assert!(ii.in_progress.is_some(), "in_progress preserved");
+    assert_eq!(ii.pending.len(), 1, "the compacted tail is the sole pending block");
 
-    // The sealed block is the survivor from old pending (originally pending[1] after
-    // pending[0] was deleted).
+    // The sealed block is the survivor from old pending[1] (after pending[0] was deleted).
     assert_eq!(ii.sealed[0].first_doc_id, entries_per_block + 1);
     assert_eq!(
-        ii.in_progress.as_ref().unwrap().first_doc_id,
+        ii.pending.last().unwrap().first_doc_id,
         2 * entries_per_block + 1
     );
 
@@ -391,7 +371,7 @@ fn apply_gc_cow_clones_only_pinned_blocks() {
     use std::sync::atomic::Ordering;
 
     let entries_per_block = Dummy::RECOMMENDED_BLOCK_ENTRIES as u64;
-    let total = entries_per_block * 2 + 5; // two full (→ pending) + one partial (→ in_progress)
+    let total = entries_per_block * 2 + 5; // two full + one partial, all in pending
 
     // Build a fresh 3-block index and a delta that deletes block 0.
     let build = || {
@@ -424,18 +404,18 @@ fn apply_gc_cow_clones_only_pinned_blocks() {
         "no snapshot held → GC must not deep-clone any block"
     );
 
-    // Case B: a snapshot pins the blocks → the surviving pending block is deep-cloned.
+    // Case B: a snapshot pins the blocks → both surviving pending blocks are deep-cloned.
+    // With the folded layout the tail is an `Arc` shared with the snapshot too (not a
+    // separate deep copy), so both survivors — old pending[1] and the tail — are COW'd.
     let (mut ii, delta) = build();
     let snap = ii.snapshot();
     let blocks_before = COW_CLONED_BLOCKS.load(Ordering::Relaxed);
     let bytes_before = COW_CLONED_BYTES.load(Ordering::Relaxed);
     ii.apply_gc(delta);
-    // Survivors are old pending[1] (a pinned Arc → cloned) and the old in_progress (re-Arc'd
-    // fresh inside apply_gc, unique → moved). So exactly one block is COW-cloned.
     assert_eq!(
         COW_CLONED_BLOCKS.load(Ordering::Relaxed) - blocks_before,
-        1,
-        "a held snapshot must force exactly the pinned survivor block to be cloned"
+        2,
+        "a held snapshot must force both pinned survivor blocks (incl. the tail) to be cloned"
     );
     assert!(
         COW_CLONED_BYTES.load(Ordering::Relaxed) - bytes_before > 0,
@@ -446,10 +426,10 @@ fn apply_gc_cow_clones_only_pinned_blocks() {
 
 #[test]
 fn apply_gc_moves_unpinned_sealed_and_cows_pinned_sealed() {
-    // After a first GC, survivors live in `sealed`. A second GC must MOVE those sealed
-    // blocks (no copy) when no snapshot pins them, and only deep-copy them (bumping the
-    // COW counters) when a snapshot is held across the GC. Guards the
-    // try_unwrap-when-unique optimization in `apply_gc`. Relies on nextest's
+    // After a first GC, survivors live in `sealed` (plus a single pending tail). A second
+    // GC must MOVE the sealed blocks (no copy) when no snapshot pins them, and only
+    // deep-copy them (bumping the COW counters) when a snapshot is held across the GC.
+    // Guards the try_unwrap-when-unique optimization in `apply_gc`. Relies on nextest's
     // process-per-test isolation for the global counters.
     use crate::GcScanDelta;
     use crate::gc::{BlockGcScanResult, COW_CLONED_BLOCKS, RepairType};
@@ -460,7 +440,7 @@ fn apply_gc_moves_unpinned_sealed_and_cows_pinned_sealed() {
     // Build a fresh index and run one GC (delete block 0) to populate `sealed`.
     let build_with_populated_sealed = || {
         let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-        let total = entries_per_block * 4 + 5; // 4 full (→ pending) + 1 partial (→ in_progress)
+        let total = entries_per_block * 4 + 5; // 4 full + 1 partial, all in pending
         for id in 1..=total {
             ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
                 .unwrap();
@@ -503,7 +483,8 @@ fn apply_gc_moves_unpinned_sealed_and_cows_pinned_sealed() {
         "unpinned sealed must be moved, not cloned"
     );
 
-    // Case B: a snapshot pins sealed → every sealed block is COW-cloned.
+    // Case B: a snapshot pins sealed *and* the pending tail → every sealed block is
+    // COW-cloned (the whole `sealed` Arc is shared) plus the pinned tail.
     let mut ii = build_with_populated_sealed();
     let n_sealed = ii.sealed.len() as u64;
     let delta = gc2_delta(&ii);
@@ -512,8 +493,8 @@ fn apply_gc_moves_unpinned_sealed_and_cows_pinned_sealed() {
     ii.apply_gc(delta);
     assert_eq!(
         COW_CLONED_BLOCKS.load(Ordering::Relaxed) - before,
-        n_sealed,
-        "a held snapshot must force every sealed block to be cloned"
+        n_sealed + 1,
+        "a held snapshot must force every sealed block plus the pinned tail to be cloned"
     );
     drop(snap);
 }

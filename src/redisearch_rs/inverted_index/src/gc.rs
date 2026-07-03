@@ -284,9 +284,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     }
 
     /// Apply the deltas of a garbage collection scan to the index. Mutates the direct
-    /// `sealed` / `pending` / `in_progress` fields in place: survivors are compacted
-    /// into a freshly-rebuilt `sealed`, `pending` is drained to empty, and the trailing
-    /// survivor becomes the new `in_progress`.
+    /// `sealed` / `pending` fields in place: survivors are compacted into a freshly-rebuilt
+    /// `sealed`, and the trailing survivor becomes the sole `pending` entry (the writable
+    /// tail again).
     ///
     /// Runs under `&mut self` plus the spec write lock (C side), so no concurrent
     /// writer or reader can race. Outstanding snapshots are unaffected — they hold
@@ -314,27 +314,17 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
         let n_sealed = self.sealed.len();
         let n_pending = self.pending.len();
-        let n_in_progress = usize::from(self.in_progress.is_some());
-        let blocks_before = n_sealed + n_pending + n_in_progress;
+        let blocks_before = n_sealed + n_pending;
 
         // Check if the block the scan recorded as the tail has changed since. The flat
-        // logical layout is sealed → pending → in_progress; a block at logical index N
-        // at scan time stays at N at apply time (blocks are append-only), but its
-        // backing region can shift: an `in_progress` block can roll into `pending` with
-        // additional entries before apply runs.
-        let in_progress_idx = n_sealed + n_pending;
-        let last_block_changed = if last_block_idx == in_progress_idx {
-            self.in_progress
-                .as_ref()
-                .is_some_and(|b| b.num_entries != last_block_num_entries)
-        } else if last_block_idx < n_sealed {
+        // logical layout is sealed → pending (the writable tail is the last `pending`
+        // slot); a block at logical index N at scan time stays at N at apply time (blocks
+        // are append-only), but the tail may have gained entries before apply runs.
+        let last_block_changed = if last_block_idx < n_sealed {
             self.sealed
                 .get(last_block_idx)
                 .is_some_and(|b| b.num_entries != last_block_num_entries)
-        } else if last_block_idx < in_progress_idx {
-            // Now in pending. Could have been pending at scan time (immutable, will
-            // match) or have been in_progress and rolled over since (may have gained
-            // entries before the roll). Compare num_entries either way.
+        } else if last_block_idx < blocks_before {
             let pending_idx = last_block_idx - n_sealed;
             self.pending
                 .get(pending_idx)
@@ -481,11 +471,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             let (ne, mu) = (arc.num_entries as usize, arc.mem_usage());
             apply_delta_or_keep!(ne, mu, { keep_survivor!(unwrap_or_cow(arc)) });
         }
-        // `in_progress`: owned directly on `self`, so a survivor always moves by value.
-        if let Some(ip) = self.in_progress.take() {
-            let (ne, mu) = (ip.num_entries as usize, ip.mem_usage());
-            apply_delta_or_keep!(ne, mu, { keep_survivor!(ip) });
-        }
+        // No separate `in_progress` region any more — the tail was the last `pending`
+        // block, already consumed by the loop above.
 
         // Every logical block was visited exactly once. (Also reads `block_index`, whose
         // final bump inside the shared macro is otherwise dead on the last block.)
@@ -494,25 +481,29 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             "apply_gc must visit exactly blocks_before blocks"
         );
 
-        // Whatever remains in `trailing` is the tail block → new `in_progress`.
-        let new_in_progress = trailing;
+        // Whatever remains in `trailing` is the compacted tail → it becomes the sole
+        // `pending` entry (the writable tail again); everything before it is `sealed`.
         debug_assert_eq!(
-            new_sealed.len() + usize::from(new_in_progress.is_some()),
+            new_sealed.len() + usize::from(trailing.is_some()),
             n_survivors,
             "survivor pre-count must match the blocks actually kept"
         );
 
-        let blocks_after = new_sealed.len() + usize::from(new_in_progress.is_some());
+        let blocks_after = new_sealed.len() + usize::from(trailing.is_some());
 
         // Point at the shared empty region rather than allocating an Arc for an empty
-        // ThinVec when GC compacted everything away (or into in_progress).
+        // ThinVec when GC compacted everything into the tail (or away entirely).
         self.sealed = if new_sealed.is_empty() {
             empty_sealed()
         } else {
             Arc::new(new_sealed)
         };
-        // pending was drained via std::mem::take above; leave it empty.
-        self.in_progress = new_in_progress;
+        // Rebuild `pending` (drained via `std::mem::take` above) with just the compacted
+        // tail, so writes resume appending to it copy-on-write.
+        self.pending = ThinVec::new();
+        if let Some(tail) = trailing {
+            self.pending.push(Arc::new(tail));
+        }
 
         info.block_count_delta = blocks_after as i64 - blocks_before as i64;
 
@@ -530,8 +521,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         } else if residual < 0 {
             info.bytes_freed += (-residual) as usize;
         }
-
-        self.gc_marker_inc();
 
         info
     }

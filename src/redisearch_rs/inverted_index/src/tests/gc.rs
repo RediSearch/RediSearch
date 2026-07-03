@@ -398,18 +398,15 @@ fn ii_apply_gc() {
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     // PRE-GC layout:
-    //   - Empty `InvertedIndex` overhead: 104 bytes (80 stack incl. inlined
-    //     Option<IndexBlock> + 24 sealed Arc overhead).
-    //   - `from_blocks` puts the first 3 blocks into `pending` (ThinVec: 8-byte header +
-    //     capacity 4 → 40 bytes) and the last block into `in_progress`.
+    //   - Empty `InvertedIndex` overhead: 56 bytes (32 stack + 24 sealed Arc overhead).
+    //   - `from_blocks` puts all 4 blocks into `pending` (ThinVec: 8-byte header +
+    //     capacity 4 → 40 bytes); the last one is the writable tail.
     //   - Per pending block: ARC_HEADER (16) + STACK_SIZE (48) + buffer.cap.
-    //   - in_progress is owned directly on the struct (no extra Arc), already counted
-    //     in the 80-byte stack; only its buffer.cap adds heap bytes.
     assert_eq!(
         ii.memory_usage(),
-        104 // empty InvertedIndex overhead
+        56 // empty InvertedIndex overhead
         + 40 // pending ThinVec heap (8-byte header + cap=4)
-        + (16 + IndexBlock::STACK_SIZE) * 3 // ARC_HEADER + STACK_SIZE for each pending block
+        + (16 + IndexBlock::STACK_SIZE) * 4 // ARC_HEADER + STACK_SIZE for each of the 4 pending blocks
         + 8 + 16 + 8 + 16 // buffer capacities of the 4 blocks
     );
 
@@ -460,11 +457,7 @@ fn ii_apply_gc() {
         deltas: gc_result,
     };
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(delta);
-
-    assert_eq!(ii.gc_marker(), 1);
 
     // POST-GC layout:
     //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
@@ -473,16 +466,15 @@ fn ii_apply_gc() {
     //       Arc is uniquely owned at compaction time, so its original buffer Vec is
     //       moved out without cloning),
     //       Replace_block_for_3a (cap=8).
-    //   - 1 in_progress block, owned directly on the struct: Replace_block_for_3b
-    //     (cap=8). Its IndexBlock stack bytes are in the 104-byte overhead already.
-    //   - pending is empty (drained, no heap allocation).
+    //   - 1 pending tail block, Arc-wrapped: Replace_block_for_3b (cap=8).
     assert_eq!(
         ii.memory_usage(),
-        104 // empty InvertedIndex overhead
+        56 // empty InvertedIndex overhead
         + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
         + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
         + 8 + 8 + 8 // sealed buffer capacities
-        + 8 // in_progress buffer capacity (block itself is in the 104 overhead)
+        + 40 // pending ThinVec heap (8-byte header + cap=4) for the single tail block
+        + (16 + IndexBlock::STACK_SIZE + 8) // pending tail: ARC_HEADER + STACK_SIZE + buffer cap 8
     );
 
     assert_eq!(ii.unique_docs(), 4);
@@ -519,10 +511,10 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // Per-block frees (184) plus the container-level overhead released during
-            // compaction (Arc<IndexBlock> wrappers around pending blocks, pending ThinVec
-            // heap incl. its header, ThinVec rebuild) — reconciled to match memory_usage()
-            // delta.
-            bytes_freed: 264,
+            // compaction (Arc<IndexBlock> wrappers, ThinVec rebuild) — reconciled to match
+            // the memory_usage() delta. Less than pre-fold: the surviving tail keeps a
+            // pending ThinVec, so that heap is not freed.
+            bytes_freed: 224,
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
@@ -553,14 +545,13 @@ fn ii_apply_gc_last_block_updated() {
 
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
-    // PRE-GC layout: 1 pending block + 1 in_progress. See `ii_apply_gc` for the
-    // breakdown — in_progress is owned directly on the struct (already in the 104
-    // overhead), so only its buffer.cap is added.
+    // PRE-GC layout: 2 pending blocks (the last is the writable tail). See `ii_apply_gc`
+    // for the breakdown.
     assert_eq!(
         ii.memory_usage(),
-        104 // empty InvertedIndex overhead
+        56 // empty InvertedIndex overhead
         + 40 // pending ThinVec heap (8-byte header + cap=4)
-        + (16 + IndexBlock::STACK_SIZE) // pending block (Arc<IndexBlock>)
+        + (16 + IndexBlock::STACK_SIZE) * 2 // ARC_HEADER + STACK_SIZE for each pending block
         + 8 + 16 // buffer capacities of the two blocks
     );
 
@@ -593,20 +584,16 @@ fn ii_apply_gc_last_block_updated() {
         deltas: gc_result,
     };
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(delta);
 
-    assert_eq!(ii.gc_marker(), 1);
-
-    // POST-GC: block 0 deleted, block 1 (in_progress) survives unchanged (last-block
-    // delta dropped because num_entries grew since the scan). The surviving block
-    // becomes the new directly-owned `in_progress` (no Arc overhead — IndexBlock stack
-    // is in the 104 overhead). sealed and pending are both empty.
+    // POST-GC: block 0 deleted, block 1 survives unchanged (last-block delta dropped
+    // because num_entries grew since the scan). The surviving block becomes the sole
+    // `pending` tail (Arc-wrapped); sealed is empty.
     assert_eq!(
         ii.memory_usage(),
-        104 // empty InvertedIndex overhead
-        + 16 // in_progress buffer capacity (block 1's original cap=16)
+        56 // empty InvertedIndex overhead
+        + 40 // pending ThinVec heap (8-byte header + cap=4) for the single tail block
+        + (16 + IndexBlock::STACK_SIZE + 16) // pending tail: ARC_HEADER + STACK_SIZE + buffer cap 16
     );
 
     assert_eq!(ii.unique_docs(), 3);
@@ -622,10 +609,10 @@ fn ii_apply_gc_last_block_updated() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Block 0 freed (56) plus container-level overhead released during
-            // compaction (its Arc<IndexBlock> wrapper + pending ThinVec heap incl. its
-            // header) — reconciled to match the memory_usage() delta.
-            bytes_freed: 112,
+            // Block 0 freed: its Arc<IndexBlock> wrapper (16) + IndexBlock STACK (48) +
+            // buffer (8) = 72, reconciled to match the memory_usage() delta. The surviving
+            // tail keeps the pending ThinVec, so no ThinVec heap is freed here.
+            bytes_freed: 72,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -681,9 +668,10 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Block 0 freed (56) plus container-level overhead (its Arc<IndexBlock>
-            // wrapper + pending ThinVec heap) reconciled against memory_usage().
-            bytes_freed: 112,
+            // Block 0 freed: its Arc<IndexBlock> wrapper (16) + IndexBlock STACK (48) +
+            // buffer (8) = 72, reconciled against memory_usage(). The surviving tail keeps
+            // the pending ThinVec, so no ThinVec heap is freed here.
+            bytes_freed: 72,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -964,11 +952,7 @@ fn ii_apply_gc_entries_tracking_index() {
         expected_delta
     );
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(expected_delta);
-
-    assert_eq!(ii.gc_marker(), 1);
     assert_eq!(ii.number_of_entries(), 2);
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);

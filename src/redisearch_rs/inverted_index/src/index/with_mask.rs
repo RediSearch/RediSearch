@@ -98,16 +98,6 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
         self.index.snapshot()
     }
 
-    /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> u32 {
-        self.index.gc_marker()
-    }
-
-    /// Increment the GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker_inc(&self) {
-        self.index.gc_marker_inc();
-    }
-
     /// Get a reference to the inner inverted index.
     pub const fn inner(&self) -> &InvertedIndex<E> {
         &self.index

@@ -9,11 +9,9 @@
 
 use std::io::Cursor;
 
-use std::sync::Arc;
-
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, FieldMaskTrackingIndex, GcScanDelta, IdDelta,
-    IndexBlock, InvertedIndex, PER_ROLLOVER_HEAP_BYTES,
+    InvertedIndex, PER_ROLLOVER_HEAP_BYTES,
     debug::{BlockSummary, Summary},
     gc::BlockGcScanResult,
     gc::RepairType,
@@ -31,11 +29,12 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // Empty index: stack (80 = sealed Arc ptr 8 + pending ThinVec ptr 8 + Option<IndexBlock>
-    // 48 + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4 + alignment) plus the
-    // empty `sealed` Arc allocation (16 Arc header + 8 ThinVec stack rep = 24). pending
-    // and in_progress have no heap allocation when empty.
-    let empty_size = 104;
+    // Empty index: stack (32 = sealed Arc ptr 8 + pending ThinVec ptr 8 + n_unique_docs 4
+    // + flags 4 + unique_id 4 + alignment) plus the empty `sealed` Arc allocation (16 Arc
+    // header + 8 ThinVec stack rep = 24). `pending` has no heap allocation when empty.
+    // (Down from 80 stack / 104 total on the pre-fold layout, which inlined a 48-byte
+    // `Option<IndexBlock>` and a 4-byte `gc_marker`.)
+    let empty_size = 56;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -97,9 +96,9 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth, 4,
-        "the first record promotes in_progress from None — no Arc allocation; \
-         only the 4-byte encoded delta lands on the heap"
+        mem_growth, 108,
+        "first record allocates the tail block as an Arc (16 header + 48 IndexBlock = 64) \
+         plus the pending ThinVec's first heap alloc (40) plus the 4-byte encoded delta"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -235,8 +234,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .unwrap()
         .mem_growth as usize;
     assert_eq!(
-        mem_growth, 1,
-        "first record: in_progress promoted from None, no Arc, just 1 byte buffer growth"
+        mem_growth, 105,
+        "first record: Arc tail block (64) + pending ThinVec first alloc (40) + 1 byte buffer"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     let mem_growth = ii
@@ -246,19 +245,18 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
     assert_eq!(ii.number_of_blocks(), 1);
 
-    // 3rd entry should create a new block — this is the first rollover, so the
-    // empty `pending` ThinVec allocates from capacity 0 to 4. Charge the Arc heap
-    // allocation plus the actual ThinVec bump (8-byte len/cap header + 4 slots), plus
-    // the 1 byte the encoder wrote into the new buffer.
-    let pending_first_alloc_bytes = 8 + 4 * std::mem::size_of::<Arc<IndexBlock>>();
+    // 3rd entry should create a new block. The `pending` ThinVec was already allocated
+    // (cap 4) by the very first record, so this rollover just pushes another
+    // Arc<IndexBlock> into existing capacity — no ThinVec growth. Charge the Arc heap
+    // allocation plus the 1 byte the encoder wrote into the new buffer.
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(12).build())
         .unwrap()
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        PER_ROLLOVER_HEAP_BYTES + pending_first_alloc_bytes + 1,
-        "Arc<IndexBlock> heap allocation + pending ThinVec growth (header + 0→4 slots) + 1 buffer byte"
+        PER_ROLLOVER_HEAP_BYTES + 1,
+        "Arc<IndexBlock> heap allocation + 1 buffer byte (pending ThinVec already at cap 4)"
     );
     assert_eq!(
         ii.number_of_blocks(),
@@ -298,8 +296,8 @@ fn adding_big_delta_makes_new_block() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth, 4,
-        "first record: in_progress promoted from None, no Arc, just 4 bytes for the delta"
+        mem_growth, 108,
+        "first record: Arc tail block (64) + pending ThinVec first alloc (40) + 4-byte delta"
     );
     assert_eq!(ii.number_of_blocks(), 1);
     assert_eq!(ii.snapshot().block_ref(0).unwrap().buffer, [0, 0, 0, 0]);
@@ -314,13 +312,13 @@ fn adding_big_delta_makes_new_block() {
 
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
-    // First rollover: pending ThinVec 0 → header + 4 slots, plus one Arc<IndexBlock>
-    // heap allocation, plus 4 bytes for the new block's first encoded delta.
-    let pending_first_alloc_bytes = 8 + 4 * std::mem::size_of::<Arc<IndexBlock>>();
+    // Big-delta rollover: the `pending` ThinVec was already allocated (cap 4) by the
+    // first record, so this pushes another Arc<IndexBlock> into existing capacity — no
+    // ThinVec growth. Charge 4 bytes for the new block's first encoded delta plus the Arc.
     assert_eq!(
         mem_growth,
-        4 + PER_ROLLOVER_HEAP_BYTES + pending_first_alloc_bytes,
-        "4 buffer bytes + Arc<IndexBlock> heap allocation + pending ThinVec growth (header + 0→4 slots)"
+        4 + PER_ROLLOVER_HEAP_BYTES,
+        "4 buffer bytes + Arc<IndexBlock> heap allocation (pending ThinVec already at cap 4)"
     );
     assert_eq!(ii.number_of_blocks(), 2);
     assert_eq!(ii.snapshot().block_ref(1).unwrap().buffer, [0, 0, 0, 0]);
@@ -426,20 +424,21 @@ fn adding_ii_blocks_growth_strategy() {
     assert_eq!(
         ii.number_of_blocks(),
         1,
-        "GC leaves only the surviving in_progress block"
+        "GC leaves only the surviving tail block"
     );
-    // The pending Vec was drained by `apply_gc`. Only the in_progress block remains;
-    // pending is empty.
-    assert!(ii.pending.is_empty(), "no surviving pending blocks");
+    // `apply_gc` compacted everything into the single surviving tail, which becomes the
+    // sole `pending` entry; `sealed` stays empty (nothing to compact before the tail).
+    assert_eq!(ii.pending.len(), 1, "the surviving tail is the sole pending block");
+    assert!(ii.sealed.is_empty());
 }
 
 #[test]
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    // InvertedIndex's own bytes (104, see `memory_usage` test) + EntriesTrackingIndex's
-    // own 8-byte `number_of_entries` field = 112.
-    let empty_size = 112;
+    // InvertedIndex's own bytes (56, see `memory_usage` test) + EntriesTrackingIndex's
+    // own 8-byte `number_of_entries` field = 64.
+    let empty_size = 64;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -459,9 +458,9 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    // InvertedIndex's own bytes (104, see `memory_usage` test) + FieldMaskTrackingIndex's
-    // own 16 bytes (field_mask + sum_of_records) = 120.
-    assert_eq!(ii.memory_usage(), 120);
+    // InvertedIndex's own bytes (56, see `memory_usage` test) + FieldMaskTrackingIndex's
+    // own 16 bytes (field_mask + sum_of_records) = 72.
+    assert_eq!(ii.memory_usage(), 72);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
@@ -471,8 +470,8 @@ fn adding_track_field_mask() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth, 4,
-        "first record: in_progress promoted from None, no Arc, just 4 bytes for the result"
+        mem_growth, 108,
+        "first record: Arc tail block (64) + pending ThinVec first alloc (40) + 4-byte result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 

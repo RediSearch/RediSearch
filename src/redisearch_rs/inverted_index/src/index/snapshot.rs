@@ -9,15 +9,16 @@
 
 //! Owned, point-in-time snapshot of an inverted index's block storage.
 //!
-//! `sealed`, `pending`, and `in_progress` all live as direct fields on
+//! `sealed` and `pending` both live as direct fields on
 //! [`InvertedIndex`](super::core::InvertedIndex). Writers and GC mutate them under
 //! `&mut self` plus the spec write lock; readers take a snapshot under the spec read
-//! lock, which captures all three at once:
+//! lock, which captures both at once:
 //!
 //! - `sealed`: cheap [`Arc::clone`] (refcount bump only, no data copy).
 //! - `pending`: shallow [`Vec::clone`] (clones the pointer slots; the [`Arc<IndexBlock>`]s
-//!   they point to are refcount-bumped, not deep-copied).
-//! - `in_progress`: deep clone of the `IndexBlock` (copies the encoded buffer).
+//!   they point to are refcount-bumped, not deep-copied). This includes the writable tail
+//!   block (the last slot); a later append to it copies-on-write, so the snapshot keeps
+//!   observing the frozen tail via its `Arc`.
 //!
 //! The snapshot then walks blocks lock-free for the rest of the query — writers and GC
 //! can proceed without affecting it.
@@ -40,34 +41,27 @@ use crate::BlockCapacity;
 /// Combines:
 /// - An [`Arc`] clone of the index's `sealed` blocks (data shared via refcount).
 /// - A shallow clone of `pending`: the [`ThinVec`] of [`Arc<IndexBlock>`] pointer slots
-///   is copied, but the block data behind each `Arc` is shared.
-/// - An owned clone of `in_progress`: deep copy of the trailing block (its encoded
-///   `buffer` is duplicated).
+///   is copied, but the block data behind each `Arc` is shared — including the writable
+///   tail block (the last `pending` slot). A writer that later appends to the tail
+///   copies-on-write, so this snapshot's `Arc` keeps observing the frozen tail.
 ///
-/// All three are captured together while the caller holds the spec read lock, so no
+/// Both regions are captured together while the caller holds the spec read lock, so no
 /// concurrent writer/GC can split the snapshot across an inconsistent moment. After the
 /// lock is released the snapshot is fully owned and can be walked without coordination.
 #[derive(Debug)]
 pub struct InvertedIndexSnapshot {
     sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
     pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
-    in_progress: Option<IndexBlock>,
 }
 
 impl InvertedIndexSnapshot {
-    /// Construct from the three regions of an [`InvertedIndex`](super::core::InvertedIndex).
-    /// Caller is responsible for capturing all three under the same spec-read-lock
-    /// acquisition.
+    /// Construct from the two regions of an [`InvertedIndex`](super::core::InvertedIndex).
+    /// Caller is responsible for capturing both under the same spec-read-lock acquisition.
     pub(crate) const fn new(
         sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
         pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
-        in_progress: Option<IndexBlock>,
     ) -> Self {
-        Self {
-            sealed,
-            pending,
-            in_progress,
-        }
+        Self { sealed, pending }
     }
 
     /// The `sealed` region `Arc` captured when this snapshot was taken.
@@ -82,25 +76,17 @@ impl InvertedIndexSnapshot {
 
     /// Total number of blocks visible in the snapshot.
     pub fn block_count(&self) -> usize {
-        self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())
+        self.sealed.len() + self.pending.len()
     }
 
-    /// Borrow the block at logical index `idx`. The logical index is flat across:
-    /// sealed → pending → in_progress (if present, occupying the last slot).
+    /// Borrow the block at logical index `idx`. The logical index is flat across
+    /// sealed → pending (the writable tail is the last `pending` slot).
     pub fn block_ref(&self, idx: usize) -> Option<&IndexBlock> {
         if let Some(b) = self.sealed.get(idx) {
             return Some(b);
         }
         let idx = idx.checked_sub(self.sealed.len())?;
-        if let Some(arc) = self.pending.get(idx) {
-            return Some(&**arc);
-        }
-        let idx = idx.checked_sub(self.pending.len())?;
-        if idx == 0 {
-            self.in_progress.as_ref()
-        } else {
-            None
-        }
+        self.pending.get(idx).map(|arc| &**arc)
     }
 
     /// First block in the snapshot.
@@ -146,19 +132,12 @@ impl InvertedIndexSnapshot {
             }
         }
 
-        if start <= n_sealed + n_pending
-            && let Some(ip) = self.in_progress.as_ref()
-            && ip.last_doc_id >= target
-        {
-            return n_sealed + n_pending;
-        }
-
         self.block_count()
     }
 
-    /// Access to the cloned in_progress block (test-only inspection).
+    /// Access to the writable tail block (last `pending` slot), for test-only inspection.
     #[cfg(test)]
-    pub(crate) fn in_progress(&self) -> Option<&IndexBlock> {
-        self.in_progress.as_ref()
+    pub(crate) fn tail(&self) -> Option<&IndexBlock> {
+        self.pending.last().map(|arc| &**arc)
     }
 }
