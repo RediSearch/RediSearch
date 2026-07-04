@@ -49,7 +49,7 @@ use crate::BlockCapacity;
 /// lock is released the snapshot is fully owned and can be walked without coordination.
 #[derive(Debug)]
 pub struct InvertedIndexSnapshot {
-    sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+    sealed: Arc<[IndexBlock]>,
     pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
     in_progress: Option<IndexBlock>,
 }
@@ -59,7 +59,7 @@ impl InvertedIndexSnapshot {
     /// Caller is responsible for capturing all three under the same spec-read-lock
     /// acquisition.
     pub(crate) const fn new(
-        sealed: Arc<ThinVec<IndexBlock, BlockCapacity>>,
+        sealed: Arc<[IndexBlock]>,
         pending: ThinVec<Arc<IndexBlock>, BlockCapacity>,
         in_progress: Option<IndexBlock>,
     ) -> Self {
@@ -76,7 +76,7 @@ impl InvertedIndexSnapshot {
     /// [`InvertedIndex::sealed`](super::core::InvertedIndex), so a reader whose captured
     /// `sealed` still points at the index's current `sealed` has not been invalidated by a
     /// compaction. See [`needs_revalidation`](crate::reader::core).
-    pub(crate) const fn sealed_arc(&self) -> &Arc<ThinVec<IndexBlock, BlockCapacity>> {
+    pub(crate) const fn sealed_arc(&self) -> &Arc<[IndexBlock]> {
         &self.sealed
     }
 

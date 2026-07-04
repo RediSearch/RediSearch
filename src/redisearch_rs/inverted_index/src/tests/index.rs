@@ -31,10 +31,11 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    // Empty index: stack (80 = sealed Arc ptr 8 + pending ThinVec ptr 8 + Option<IndexBlock>
-    // 48 + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4 + alignment) plus the
-    // empty `sealed` Arc allocation (16 Arc header + 8 ThinVec stack rep = 24). pending
-    // and in_progress have no heap allocation when empty.
+    // Empty index: stack (88 = sealed Arc<[IndexBlock]> fat ptr 16 + pending ThinVec ptr 8
+    // + Option<IndexBlock> 48 + n_unique_docs 4 + flags 4 + gc_marker 4 + unique_id 4) plus
+    // the empty `sealed` Arc allocation (16 Arc header, 0 blocks). pending and in_progress
+    // have no heap allocation when empty. (88 + 16 = 104, unchanged from the ThinVec-backed
+    // sealed: the +8 fat pointer offsets the -8 ThinVec header that moved into the Arc.)
     let empty_size = 104;
 
     assert_eq!(ii.memory_usage(), empty_size);
