@@ -466,20 +466,19 @@ fn ii_apply_gc() {
 
     assert_eq!(ii.gc_marker(), 1);
 
-    // POST-GC layout:
-    //   - 3 sealed blocks live in a `ThinVec<IndexBlock>` (capacity = 3 here):
+    // POST-GC layout (sealed is a single `Arc<[IndexBlock]>` allocation — the refcount
+    // header is already part of the 104-byte empty overhead):
+    //   - 3 sealed blocks inline in the Arc allocation (no ThinVec header):
     //       Replace_block_for_1 (cap=8),
-    //       survivor_of_block_2 (cap=8, preserved by Arc::try_unwrap — the survivor's
-    //       Arc is uniquely owned at compaction time, so its original buffer Vec is
-    //       moved out without cloning),
+    //       survivor_of_block_2 (cap=8, moved out of its uniquely-owned sealed slot
+    //       without cloning its buffer),
     //       Replace_block_for_3a (cap=8).
     //   - 1 in_progress block, owned directly on the struct: Replace_block_for_3b
     //     (cap=8). Its IndexBlock stack bytes are in the 104-byte overhead already.
     //   - pending is empty (drained, no heap allocation).
     assert_eq!(
         ii.memory_usage(),
-        104 // empty InvertedIndex overhead
-        + 8 // sealed ThinVec heap header (4-byte length + 4-byte capacity)
+        104 // empty InvertedIndex overhead (88 stack + 16 sealed Arc header)
         + IndexBlock::STACK_SIZE * 3 // sealed slots (in-line IndexBlocks)
         + 8 + 8 + 8 // sealed buffer capacities
         + 8 // in_progress buffer capacity (block itself is in the 104 overhead)
@@ -520,9 +519,11 @@ fn ii_apply_gc() {
         GcApplyInfo {
             // Per-block frees (184) plus the container-level overhead released during
             // compaction (Arc<IndexBlock> wrappers around pending blocks, pending ThinVec
-            // heap incl. its header, ThinVec rebuild) — reconciled to match memory_usage()
-            // delta.
-            bytes_freed: 264,
+            // heap incl. its header, sealed region reallocated as a single
+            // `Arc<[IndexBlock]>`) — reconciled to match memory_usage() delta. 8 bytes more
+            // than the ThinVec-backed sealed: the compacted region no longer carries a
+            // ThinVec header.
+            bytes_freed: 272,
             // The third and fifth block was split making 168 new bytes
             bytes_allocated: 168,
             entries_removed: 5,
