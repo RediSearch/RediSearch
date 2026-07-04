@@ -21,10 +21,7 @@ use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
-    sync::{
-        Arc, LazyLock,
-        atomic::{self, AtomicU32},
-    },
+    sync::{Arc, LazyLock},
 };
 use thin_vec::ThinVec;
 
@@ -82,10 +79,6 @@ pub struct InvertedIndex<E> {
     /// The flags of this index. This is used to determine the type of index and how it should be
     /// handled.
     pub(crate) flags: IndexFlags,
-
-    /// A marker used by the garbage collector to determine if the index has been modified since
-    /// the last GC pass. This is used to reset a reader if the index has been modified.
-    pub(crate) gc_marker: AtomicU32,
 
     /// A unique identifier for this index instance, assigned at construction time from a global
     /// monotonic counter. Used together with pointer comparison to detect the ABA problem: when
@@ -212,7 +205,6 @@ impl<E: Encoder> InvertedIndex<E> {
             in_progress: None,
             n_unique_docs: 0,
             flags,
-            gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
             _encoder: Default::default(),
         }
@@ -248,7 +240,6 @@ impl<E: Encoder> InvertedIndex<E> {
             in_progress,
             n_unique_docs,
             flags,
-            gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
             _encoder: Default::default(),
         }
@@ -504,16 +495,6 @@ impl<E: Encoder> InvertedIndex<E> {
             self.pending.clone(),
             self.in_progress.clone(),
         )
-    }
-
-    /// Get the current GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker(&self) -> u32 {
-        self.gc_marker.load(atomic::Ordering::Relaxed)
-    }
-
-    /// Increment the GC marker of this index. This is only used by the some C tests.
-    pub fn gc_marker_inc(&self) {
-        self.gc_marker.fetch_add(1, atomic::Ordering::Relaxed);
     }
 
     /// Returns the unique identifier for this index instance. This ID is assigned once at

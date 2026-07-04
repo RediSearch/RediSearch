@@ -460,11 +460,7 @@ fn ii_apply_gc() {
         deltas: gc_result,
     };
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(delta);
-
-    assert_eq!(ii.gc_marker(), 1);
 
     // POST-GC layout (sealed is a single `Arc<[IndexBlock]>` allocation — the refcount
     // header is already part of the 104-byte empty overhead):
@@ -594,11 +590,7 @@ fn ii_apply_gc_last_block_updated() {
         deltas: gc_result,
     };
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(delta);
-
-    assert_eq!(ii.gc_marker(), 1);
 
     // POST-GC: block 0 deleted, block 1 (in_progress) survives unchanged (last-block
     // delta dropped because num_entries grew since the scan). The surviving block
@@ -965,11 +957,8 @@ fn ii_apply_gc_entries_tracking_index() {
         expected_delta
     );
 
-    assert_eq!(ii.gc_marker(), 0);
-
     let apply_info = ii.apply_gc(expected_delta);
 
-    assert_eq!(ii.gc_marker(), 1);
     assert_eq!(ii.number_of_entries(), 2);
     assert_eq!(ii.unique_docs(), 1);
     assert_eq!(repaired, vec![15, 15]);
