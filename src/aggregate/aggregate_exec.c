@@ -1248,6 +1248,27 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
   }
 }
 
+// True when the spec read lock can be dropped right after iterator creation, letting
+// the main thread write and GC run while the query iterates:
+//   - disk indexes always snapshot (diskSnapshot != NULL), so they always release; and
+//   - RAM indexes now snapshot their inverted-index blocks too, so under the
+//     experimental _LOCK_FREE_READS flag we release here as well, scoped to cursor
+//     queries — the well-tested cursor-resume path and where a long-held read lock
+//     actually blocks writers (scope only; not a safety requirement).
+// Releasing is safe even with a loader: the lock only guarded the index iteration,
+// which is now covered by the snapshot. The per-result dmd is borrowed (refcounted)
+// and owned by the SearchResult, so it and its sorting vector outlive the unlock; and a
+// loader reads the document from the keyspace under the GIL. The result processor
+// re-acquires the lock per read for the dmd doc-table lookup and releases it per result
+// — see rpQueryItNext / handleSpecLockAndRevalidate.
+static bool shouldReleaseSpecAfterSnapshot(const RedisSearchCtx *sctx, const AREQ *req) {
+  if (sctx->diskSnapshot) {
+    return true;
+  }
+  return RSGlobalConfig.requestConfigParams.lockFreeReads &&
+         (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR);
+}
+
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
 
@@ -1297,21 +1318,17 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     goto error;
   }
 
-  // For disk indexes, release the spec lock immediately after iterator creation.
-  // This is fine, since the disk iterators use snapshots. This allows the main
-  // thread to write while the query iterates over disk data. `diskSnapshot` is
-  // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
-  // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
-  // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
-  // NOTE: Revisit as more index types are supported.
-  if (sctx->diskSnapshot) {
+  // Drop the spec read lock now that the iterators (and their snapshots) exist, when
+  // the pipeline can iterate safely without it — see shouldReleaseSpecAfterSnapshot.
+  if (shouldReleaseSpecAfterSnapshot(sctx, req)) {
     RedisSearchCtx_UnlockSpec(sctx);
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point (debug): pause after iterators are created and snapshot is established.
-  // For disk indexes, the lock is already released at this point.
-  // For RAM indexes, the lock is still held.
+  // Sync point (debug): pause after iterators are created and the snapshot is
+  // established. The lock is already released here for disk indexes and for RAM cursor
+  // queries under _LOCK_FREE_READS (see shouldReleaseSpecAfterSnapshot); otherwise it
+  // is still held.
   SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
 #endif
 
@@ -1908,14 +1925,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       return REDISMODULE_ERR;
     }
 
-    // For disk indexes, release the spec lock immediately after iterator creation.
-    // This is fine, since the disk iterators use snapshots. This allows the main
-    // thread to write while the query iterates over disk data. `diskSnapshot` is
-    // guaranteed non-NULL here for disk-backed indexes — `prepareExecutionPlan`
-    // bails out if SearchDisk_CreateSnapshot fails — so this check distinguishes
-    // disk indexes (snapshot present, can unlock) from RAM-only ones (keep lock).
-    // NOTE: Revisit as more index types are supported.
-    if (sctx->diskSnapshot) {
+    // Drop the spec read lock now that the iterators (and their snapshots) exist, when
+    // the pipeline can iterate safely without it — see shouldReleaseSpecAfterSnapshot.
+    if (shouldReleaseSpecAfterSnapshot(sctx, r)) {
       RedisSearchCtx_UnlockSpec(sctx);
     }
 
