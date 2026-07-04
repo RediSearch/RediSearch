@@ -558,8 +558,6 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             info.bytes_freed += (-residual) as usize;
         }
 
-        self.gc_marker_inc();
-
         info
     }
 }
