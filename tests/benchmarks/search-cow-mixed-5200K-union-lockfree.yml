@@ -1,0 +1,69 @@
+version: 0.5
+name: "search-cow-mixed-5200K-union-lockfree"
+description: |
+  Feature-branch variant of search-cow-mixed-5200K-union with _LOCK_FREE_READS
+  ENABLED (search-_lock-free-reads true): query iteration releases the spec read lock
+  per result (reading from the owned snapshot) instead of holding it for the whole
+  scan. Because the reads are aggregate scans that hold the shard-side snapshot for
+  their full duration, releasing the lock is what lets the concurrent HSET writers
+  make progress instead of blocking on the reader — so this variant exposes the
+  concurrency win. Compare against:
+    - master (search-cow-mixed-5200K-union on a master build) → lock held for the
+      whole scan → writers blocked. Baseline.
+    - feature flag-off (search-cow-mixed-5200K-union on this build) → snapshot capture
+      (C1) + COW cost (C2/C3) but WITHOUT the lock-free benefit (worst case).
+
+  See search-cow-mixed-5200K-union.yml for the full design rationale (real-key HSET
+  churn coupled to a bounded marker-term aggregate read, WORKERS>0 for lock
+  contention).
+
+metadata:
+  component: "search"
+  dataset: "5200K-docs-union-iterators"
+  doc_count: 5204050
+  query_type: "mixed"
+  # NOTE: keep this free of parentheses and other punctuation beyond space, '/', '+',
+  # '-'. redisbench-admin turns `use_case` into a RedisTimeSeries label value, and
+  # RedisTimeSeries rejected the parenthesised form with "TSDB: Couldn't parse LABELS",
+  # failing the whole run at result-upload time (the benchmark itself had succeeded).
+  use_case: "Concurrent read/write with lock-free reads enabled + snapshot COW"
+
+timeout_seconds: 3600
+
+setups:
+  - oss-cluster-08-primaries-250gb-threads-8
+
+dbconfig:
+  - dataset_name: "5200K-docs-union-iterators.idx10-cow-mixed-lockfree"
+  # As search-cow-mixed-5200K-union, plus _LOCK_FREE_READS true so query iteration
+  # releases the spec read lock per result. Applied at module load on every primary
+  # (a runtime CONFIG SET is node-local in a cluster and would leave 7/8 primaries
+  # lock-based, defeating the comparison).
+  - module-configuration-parameters:
+      redisearch:
+        WORKERS: 8
+        MIN_OPERATION_WORKERS: 8
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+        _LOCK_FREE_READS: "true"
+      module-oss:
+        WORKERS: 8
+        MIN_OPERATION_WORKERS: 8
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+        _LOCK_FREE_READS: "true"
+  - init_commands:
+    - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 600
+  - check:
+      keyspacelen: 5204050
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 8 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'HSET __key__ field2 zzqbench' --command-ratio 1 --command 'FT.AGGREGATE idx10 @field2:zzqbench GROUPBY 0 REDUCE COUNT 0 AS n' --command-ratio 1"
