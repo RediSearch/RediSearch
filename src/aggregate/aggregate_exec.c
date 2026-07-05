@@ -484,7 +484,9 @@ long calc_results_len(AREQ *req, size_t limit) {
   size_t resultFactor = getResultsFactor(req);
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? qctx->totalResults : MIN(req->maxSearchResults, qctx->totalResults);
+  // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
+  size_t reported = QITR_ReportedTotal(qctx);
+  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -518,7 +520,12 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
   // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
   if (!HasWithCount(req)) {
     qctx->totalResults = 0;
+  } else {
+    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
+    // permanently so later cursor reads stay corrected.
+    qctx->totalResults = QITR_ReportedTotal(qctx);
   }
+  qctx->skippedResults = 0;
   QueryError_ClearError(qctx->err);
 }
 
@@ -597,7 +604,9 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   }
 
   RedisModule_Reply_Array(reply);
-  RedisModule_Reply_LongLong(reply, qctx->totalResults);
+  // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_Reply_LongLong(reply,
+      QITR_ReportedTotal(qctx));
 
   return resultsLen;
 }
@@ -876,8 +885,9 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc, bool cursor_done) {
   RedisModule_Reply_ArrayEnd(reply); // >results
 
-  // <total_results>
-  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
+  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_ReplyKV_LongLong(reply, "total_results",
+      QITR_ReportedTotal(qctx));
 
   // <error>
   _replyWarnings(req, reply, rc);
