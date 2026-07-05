@@ -303,6 +303,16 @@ static inline void RequestSyncCtx_Destroy(RequestSyncCtx *ctx) {
   pthread_mutex_destroy(&ctx->abortWakeLock);
 }
 
+static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
+  return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
+}
+static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
+}
+static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
+  RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
+}
+
 typedef struct AREQ {
   /* Arguments converted to sds. Received on input */
   sds *args;
@@ -635,10 +645,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RS_AtomicBoolLoadRelaxed(&req->syncCtx.timedOut);
+  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-  RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+  RequestSyncCtx_SetTimedOut(&req->syncCtx);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
