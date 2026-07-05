@@ -1548,12 +1548,25 @@ int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
     return REDISMODULE_OK;
   }
 
-  const bool isJson = isSpecJson(sp);
-  if (!isJson && rule == FlexFieldReturnRule_RejectJsonOnly) {
+  if (rule == FlexFieldReturnRule_RejectJsonOnly) {
+    // This rule's sole caller is the coordinator's pre-fan-out aggregate
+    // validation (prepareForExecution in dist_aggregate.c). With disk enabled,
+    // the whole FT.AGGREGATE path is already command-gated off earlier
+    // (SearchDisk_MarkUnsupportedCommandIfDiskEnabled in module.c), so this is
+    // effectively unreachable; and even if reached, FT.SEARCH field return is
+    // supported for both HASH and JSON. Nothing left to reject.
     return REDISMODULE_OK;
   }
-  if (!isJson && rule == FlexFieldReturnRule_AllowHashSearchOnly &&
-      (reqflags & QEXEC_F_IS_SEARCH)) {
+
+  // Bound-spec validation (FlexFieldReturnRule_AllowHashSearchOnly):
+  // QEXEC_F_IS_SEARCH is reliable here. Field return through the disk async
+  // loader is supported for FT.SEARCH regardless of document type; the
+  // HASH/JSON split lives in the loader itself (redisearch_disk's
+  // new_async_loader only enables RLOOKUP_OPT_ALLLOADED for HASH). `sp` is
+  // no longer needed to make that call, but is kept in the signature to
+  // match the coordinator call site and for future rule additions.
+  (void)sp;
+  if (reqflags & QEXEC_F_IS_SEARCH) {
     return REDISMODULE_OK;
   }
 

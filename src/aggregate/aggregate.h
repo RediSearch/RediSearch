@@ -383,14 +383,21 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
 int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 typedef enum {
-  // Coordinator pre-fanout validation: the coordinator compiles requests as
-  // aggregates, so it cannot reliably distinguish HASH FT.SEARCH field return
-  // from other non-JSON cases. It only rejects JSON field return and lets shard
-  // validation enforce the rest once the spec/request shape is bound.
+  // Coordinator pre-fanout validation: this rule's sole caller is the
+  // coordinator's pre-fan-out aggregate validation (prepareForExecution in
+  // dist_aggregate.c). Historically this rule rejected JSON-on-disk field
+  // return outright; now that FT.SEARCH field return is supported for both
+  // HASH and JSON (via the disk async loader), and the whole FT.AGGREGATE
+  // path is already command-gated off earlier when disk is enabled
+  // (SearchDisk_MarkUnsupportedCommandIfDiskEnabled in module.c), this rule is
+  // effectively unreachable and there is nothing left to reject at this
+  // stage. The name is kept for now (renaming is a separate cleanup) even
+  // though it no longer rejects JSON specifically.
   FlexFieldReturnRule_RejectJsonOnly,
-  // Bound-spec validation: QEXEC_F_IS_SEARCH is reliable, so HASH FT.SEARCH may
-  // return fields through the disk async loader; JSON and non-search requests
-  // must still use NOCONTENT / RETURN 0.
+  // Bound-spec validation: QEXEC_F_IS_SEARCH is reliable here. Field return
+  // through the disk async loader is supported for FT.SEARCH regardless of
+  // document type (HASH or JSON); non-search requests must still use
+  // NOCONTENT / RETURN 0.
   FlexFieldReturnRule_AllowHashSearchOnly,
 } FlexFieldReturnRule;
 
@@ -398,10 +405,11 @@ typedef enum {
  * Reject field return on a disk (flex) index when loading is unsupported.
  *
  * The coordinator compiles every request as an aggregate, so before fan-out it
- * can only reject JSON-on-disk field return. Once the spec is bound and
- * QEXEC_F_IS_SEARCH is reliable, field return is allowed only for a HASH
- * FT.SEARCH (which loads via the disk async loader). No-op when flex is off or
- * when the query returns no document fields.
+ * cannot reliably tell FT.SEARCH apart from other request shapes; see
+ * FlexFieldReturnRule for how each rule handles that. Once the spec is bound
+ * and QEXEC_F_IS_SEARCH is reliable, field return is allowed for FT.SEARCH on
+ * both HASH and JSON (which load via the disk async loader). No-op when flex
+ * is off or when the query returns no document fields.
  */
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
                                      FlexFieldReturnRule rule, QueryError *status);
