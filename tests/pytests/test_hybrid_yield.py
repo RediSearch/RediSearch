@@ -272,7 +272,7 @@ def test_hybrid_combine_duplicate_yield_score_as_error():
             'YIELD_SCORE_AS', 'score1',
             'YIELD_SCORE_AS', 'score2',
         'PARAMS', '2', 'BLOB', query_vector)\
-            .error().contains('Duplicate YIELD_SCORE_AS argument')
+            .error().contains('YIELD_SCORE_AS: Unknown argument')
 
 def test_hybrid_combine_missing_argument():
     """Test that missing argument value for YIELD_SCORE_AS after COMBINE clause

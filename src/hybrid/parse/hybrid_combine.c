@@ -146,10 +146,6 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 //   COMBINE RRF|LINEAR ... YIELD_SCORE_AS <alias>
 //                                         ^
 static void parseCombineYieldScoreClause(ArgsCursor *ac, HybridParseContext *ctx, QueryError *status) {
-  if (ctx->searchopts->scoreAlias != NULL) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate YIELD_SCORE_AS argument");
-    return;
-  }
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
     return;
@@ -217,7 +213,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     return;
   }
 
-  while (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
     parseCombineYieldScoreClause(ac, ctx, status);
     if (QueryError_HasError(status)) {
       return;
