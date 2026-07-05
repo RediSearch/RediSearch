@@ -418,10 +418,12 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
 
   RLookup_SetCache(first, cache);
 
-  // Buffering RPs only need to preserve each result's RSIndexResult if something
-  // downstream (highlighter or matched_terms()) reads it; otherwise they may drop
-  // the borrow instead of paying for a deep copy. The query and output parts share
-  // this qctx, so setting it here covers the whole pipeline.
+  // Initialize the buffering policy from request flags. Highlighting needs the
+  // index result downstream; score-returning requests stay on the conservative
+  // copy path to preserve existing rich-result behavior. matched_terms() is
+  // detected later while building APPLY/FILTER steps and may force copying even
+  // without scores. The query and output parts share this qctx, so setting it
+  // here covers the whole pipeline.
   pipeline->qctx.skipIndexResultDeepCopy =
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
