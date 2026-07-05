@@ -105,6 +105,10 @@ typedef struct QueryProcessingCtx {
   // and decremented by others who might disqualify results
   uint32_t totalResults;
 
+  // results counted in totalResults but dropped by a buffering loader mid-load;
+  // reported total is totalResults - skippedResults (see QITR_ReportedTotal)
+  uint32_t skippedResults;
+
   // the number of results we requested to return at the current chunk.
   // This value is meant to be used by the RP to limit the number of results
   // returned by its upstream RP ONLY.
