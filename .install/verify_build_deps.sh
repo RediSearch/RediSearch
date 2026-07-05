@@ -67,10 +67,9 @@ declare -A os_package_checkers=(
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
   ["almalinux"]="check_package_rpm"
-  ["amzn2"]="check_package_yum"
+  ["rhel"]="check_package_rpm"
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
-  ["mariner"]="check_package_tdnf"
   ["azurelinux"]="check_package_tdnf"
 )
 
@@ -96,11 +95,6 @@ check_package_rpm() {
   rpm -q "$1" &> /dev/null
 }
 
-# amzn2
-check_package_yum() {
-  yum list installed "$1" &> /dev/null
-}
-
 # amzn2023
 check_package_dnf() {
   dnf list installed "$1" &> /dev/null
@@ -111,7 +105,7 @@ check_package_apk() {
   apk info -e "$1" &> /dev/null
 }
 
-# mariner and azure linux
+# azure linux
 check_package_tdnf() {
   tdnf list installed "$1" &> /dev/null
 }
@@ -214,10 +208,6 @@ declare -A rocky_dependencies=(
   ["openssl-devel"]="package"
 )
 
-declare -A amzn2_dependencies=(
-  ["openssl11-devel"]="package"
-)
-
 declare -A amzn2023_dependencies=(
   ["openssl-devel"]="package"
 )
@@ -251,13 +241,9 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
-elif [[ "$OS" == "rocky" || "$OS" == "almalinux" ]]; then
+elif [[ "$OS" == "rocky" || "$OS" == "almalinux" || "$OS" == "rhel" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
-  done
-elif [[ "$OS" == "amzn2" ]]; then
-  for key in "${!amzn2_dependencies[@]}"; do
-    dependencies["$key"]="${amzn2_dependencies[$key]}"
   done
 elif [[ "$OS" == "amzn2023" ]]; then
   for key in "${!amzn2023_dependencies[@]}"; do
@@ -267,7 +253,7 @@ elif [[ "$OS" == "alpine" ]]; then
   for key in "${!alpine_dependencies[@]}"; do
     dependencies["$key"]="${alpine_dependencies[$key]}"
   done
-elif [[ "$OS" == "mariner" || "$OS" == "azurelinux" ]]; then
+elif [[ "$OS" == "azurelinux" ]]; then
   for key in "${!microsoft_dependencies[@]}"; do
     dependencies["$key"]="${microsoft_dependencies[$key]}"
   done
