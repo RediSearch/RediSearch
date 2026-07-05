@@ -373,7 +373,7 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_aggregate_allows_load_and_groupby(env):
+def test_flex_aggregate(env):
     """FT.AGGREGATE is enabled on flex indexes (MOD-16604): HASH field loading
     goes through the disk async loader."""
     _create_flex_search(env)
