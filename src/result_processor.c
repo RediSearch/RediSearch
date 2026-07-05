@@ -213,10 +213,11 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
  *
  * The borrow points into the source iterator's `it->current` slot, which the
  * next Read() overwrites. Unless the pipeline has opted into skipping the copy
- * (`qctx.skipIndexResultDeepCopy`, set only when nothing downstream — highlighter
- * or matched_terms() — reads the index result), promote the borrow to an owned
- * deep copy. Otherwise drop the borrow so the buffered result never retains a
- * dangling pointer, without paying for the copy.
+ * (`qctx.skipIndexResultDeepCopy`, set only after request flags and parsed
+ * APPLY/FILTER expressions show that preserving the index result is not
+ * required), promote the borrow to an owned deep copy. Otherwise drop the borrow
+ * so the buffered result never retains a dangling pointer, without paying for
+ * the copy.
  */
 static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchResult *res) {
   if (rp->parent->skipIndexResultDeepCopy) {
@@ -1499,7 +1500,8 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
-                                     "Vector Normalizer", "Hybrid Merger", "Threadsafe-Depleter", "Depleter"};
+                                     "Vector Normalizer", "Hybrid Merger", "Threadsafe-Depleter", "Depleter",
+                                     "Disk Async Loader"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

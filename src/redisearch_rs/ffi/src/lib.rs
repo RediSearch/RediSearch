@@ -98,9 +98,11 @@ pub struct QueryProcessingCtx {
     /// `RSIndexResult` and instead drop the borrow when storing it across an
     /// iterator advance.
     ///
-    /// Only the highlighter and the `matched_terms()` aggregate function read
-    /// the index result downstream of the buffering point, so this is set iff
-    /// the request needs neither highlighting nor scores.
+    /// The known downstream readers are the highlighter and the
+    /// `matched_terms()` aggregate function. `matched_terms()` is detected while
+    /// building APPLY/FILTER steps and can force preservation even without
+    /// scores. Score-returning requests currently stay on the conservative copy
+    /// path to preserve existing rich-result behavior.
     ///
     /// Polarity is deliberate: the safe (always deep-copy) behavior is the zero
     /// value, so any qctx that is zero-initialized outside the constructor

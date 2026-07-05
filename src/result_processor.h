@@ -73,6 +73,7 @@ typedef enum {
   RP_HYBRID_MERGER,
   RP_SAFE_DEPLETER,
   RP_DEPLETER,
+  RP_DISK_ASYNC_LOADER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
