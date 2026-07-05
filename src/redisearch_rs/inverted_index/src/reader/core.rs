@@ -11,8 +11,8 @@ use std::{io::Cursor, sync::Arc};
 
 use super::{IndexReader, NumericReader, TermReader};
 use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, IndexBlock, InvertedIndex, NumericDecoder,
+    TermDecoder, index::snapshot::InvertedIndexSnapshot, index::unique_id::IndexUniqueId,
     opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
@@ -41,6 +41,19 @@ pub struct IndexReaderCore<'index, E> {
     /// Logical index of the current block in [`Self::snapshot`]. The index is flat
     /// across the snapshot's three regions (sealed → pending → in_progress).
     pub(crate) current_block_idx: usize,
+
+    /// Cached reference to the current block, avoiding a per-record
+    /// [`block_ref`](InvertedIndexSnapshot::block_ref) 3-region walk in the hot
+    /// [`next_record`](Self::next_record) loop. `Some` only when
+    /// [`Self::current_block_idx`] points into a *pointer-stable* region (sealed / pending,
+    /// see [`InvertedIndexSnapshot::pointer_stable_block_count`]); `None` for the inline
+    /// `in_progress` block (which would dangle if the reader moves) and when there is no
+    /// current block, in which case `next_record` falls back to `block_ref`. Refreshed by
+    /// [`Self::cache_current_block`] whenever `current_block_idx` changes or the snapshot
+    /// is replaced (`reset` / `swap_index`). The `'index` lifetime is fabricated, exactly
+    /// as in [`Self::cursor_at`] — the reference is only valid until the snapshot is
+    /// replaced (see MOD-16148).
+    current_block: Option<&'index IndexBlock>,
 
     /// Byte offset within the current block's buffer. We don't store a [`Cursor`]
     /// directly because its borrow lifetime would be tied to the snapshot's block
@@ -81,9 +94,23 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
     #[inline(always)]
     fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
         loop {
-            let block = match self.snapshot.block_ref(self.current_block_idx) {
+            // Resolve the current block. The common case — consecutive records in a
+            // pointer-stable (sealed/pending) block — hits `current_block` and skips the
+            // per-record `block_ref` 3-region walk entirely. Only the (single) inline
+            // `in_progress` block, or an out-of-range index, takes the `block_ref` path.
+            let block: &IndexBlock = match self.current_block {
                 Some(b) => b,
-                None => return Ok(false),
+                None => match self.snapshot.block_ref(self.current_block_idx) {
+                    // SAFETY: fabricate the `'index` lifetime, exactly as `cursor_at`
+                    // does. `b` borrows `self.snapshot`, which is not replaced within
+                    // `next_record` (only `reset`/`swap_index` replace it, and callers
+                    // must drop outstanding results first — MOD-16148). The reference is
+                    // used only within this call, before any `set_current_block`.
+                    Some(b) => unsafe {
+                        std::mem::transmute::<&IndexBlock, &'index IndexBlock>(b)
+                    },
+                    None => return Ok(false),
+                },
             };
 
             // If we're at (or past) the end of this block's buffer, advance to the next
@@ -190,6 +217,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReader<'index>
             .first_block()
             .map(|b| b.first_doc_id)
             .unwrap_or(0);
+        self.cache_current_block();
     }
 
     fn unique_docs(&self) -> u64 {
@@ -239,14 +267,17 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             None => (0, 0, 0),
         };
 
-        Self {
+        let mut reader = Self {
             ii,
             snapshot,
             current_block_idx,
+            current_block: None,
             current_position,
             last_doc_id,
             ii_unique_id: ii.unique_id(),
-        }
+        };
+        reader.cache_current_block();
+        reader
     }
 
     /// Check if this reader is reading from the given index by comparing both their pointers
@@ -277,6 +308,7 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
             .first_block()
             .map(|b| b.first_doc_id)
             .unwrap_or(0);
+        self.cache_current_block();
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
@@ -295,6 +327,33 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> IndexReaderCore<'index, E> {
         if let Some(block) = self.snapshot.block_ref(index) {
             self.last_doc_id = block.first_doc_id;
         }
+        self.cache_current_block();
+    }
+
+    /// Refresh [`Self::current_block`] to match [`Self::current_block_idx`]. Must be called
+    /// whenever `current_block_idx` changes or `self.snapshot` is replaced.
+    ///
+    /// Caches a reference only for pointer-stable blocks (sealed / pending); the inline
+    /// `in_progress` block and out-of-range indices leave the cache `None` so
+    /// [`Self::next_record`] falls back to [`block_ref`](InvertedIndexSnapshot::block_ref).
+    fn cache_current_block(&mut self) {
+        self.current_block =
+            if self.current_block_idx < self.snapshot.pointer_stable_block_count() {
+                self.snapshot.block_ref(self.current_block_idx).map(|b| {
+                    // SAFETY: `b` points into a sealed (`Arc<[IndexBlock]>`) or pending
+                    // (`Arc<IndexBlock>`) block, whose storage is heap-allocated and does
+                    // not move for the life of `self.snapshot` — so the reference stays
+                    // valid across `next_record` calls and across moves of the reader
+                    // itself. Fabricating the `'index` lifetime mirrors `cursor_at`; the
+                    // cache is invalidated by re-caching whenever the snapshot is replaced
+                    // (`reset`/`swap_index`) or the index changes (`set_current_block`).
+                    // `in_progress` is excluded by the `pointer_stable_block_count` guard
+                    // precisely because it is inline and would dangle on a reader move.
+                    unsafe { std::mem::transmute::<&IndexBlock, &'index IndexBlock>(b) }
+                })
+            } else {
+                None
+            };
     }
 
     /// Construct a [`Cursor`] over a snapshot block's buffer, with its position set.

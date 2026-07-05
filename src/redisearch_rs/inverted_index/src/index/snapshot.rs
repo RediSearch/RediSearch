@@ -85,6 +85,18 @@ impl InvertedIndexSnapshot {
         self.sealed.len() + self.pending.len() + usize::from(self.in_progress.is_some())
     }
 
+    /// Number of leading blocks whose storage is *pointer-stable*: the `sealed`
+    /// `Arc<[IndexBlock]>` slice and each `pending` `Arc<IndexBlock>` live in heap
+    /// allocations that do not move for the life of the snapshot, so a reference to one of
+    /// them survives moves of the snapshot (and its owning reader). The trailing
+    /// `in_progress` block is *not* counted: it is stored inline in the snapshot, so a
+    /// cached reference to it would dangle if the snapshot value is moved. A reader may
+    /// therefore cache a block reference across `next_record` calls only when the logical
+    /// index is `< pointer_stable_block_count()`.
+    pub(crate) fn pointer_stable_block_count(&self) -> usize {
+        self.sealed.len() + self.pending.len()
+    }
+
     /// Borrow the block at logical index `idx`. The logical index is flat across:
     /// sealed → pending → in_progress (if present, occupying the last slot).
     pub fn block_ref(&self, idx: usize) -> Option<&IndexBlock> {
