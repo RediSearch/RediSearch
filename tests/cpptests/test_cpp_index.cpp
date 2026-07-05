@@ -19,6 +19,7 @@ extern "C" {
 #include "tokenize.h"
 #include "varint_ffi.h"
 #include "iterators/hybrid_reader.h"
+#include "vector_index.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
@@ -823,22 +824,29 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
-  VecSimQueryReply *results =
-      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
-  // Run simple range query.
-  QueryIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true, true);
+  // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
+  // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
+  // outlives it). A far-future deadline disables the timeout for this test.
+  struct timespec never_timeout = {.tv_sec = INT64_MAX, .tv_nsec = 0};
+  QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
+      index, range_query.vector, range_query.radius, queryParams, range_query.order,
+      /*yields_metric=*/true, never_timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
-  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
-  VecSim_Normalize(query, d, t);
+  // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100.
+  // VecSimIndex_GetDistanceFrom_Unsafe does not normalize its input, so compute expected distances
+  // against a normalized copy. The iterator keeps the raw `query` for its deferred range query.
+  float query_normalized[d];
+  memcpy(query_normalized, query, sizeof(query));
+  VecSim_Normalize(query_normalized, d, t);
   while (vecIt->Read(vecIt) != ITERATOR_EOF) {
     RSIndexResult *h = vecIt->current;
     ASSERT_EQ(h->data.tag, RSResultData_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
-    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
+    double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query_normalized);
     ASSERT_EQ(IndexResult_NumValue(h), exp_dist);
     ASSERT_EQ(MetricsVec_AsSlice(&h->metrics).data[0].value, exp_dist);
     count++;
@@ -857,13 +865,13 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Test valid combinations of SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, lowest_id + 10);
-  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt, n-1), ITERATOR_OK);
   ASSERT_EQ(vecIt->lastDocId, n-1);
-  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query);
+  exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, vecIt->lastDocId, query_normalized);
   ASSERT_EQ(IndexResult_NumValue(vecIt->current), exp_dist);
   ASSERT_EQ(MetricsVec_AsSlice(&vecIt->current->metrics).data[0].value, exp_dist);
 

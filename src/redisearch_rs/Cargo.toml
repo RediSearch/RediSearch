@@ -47,6 +47,7 @@ members = [
     "trie_bencher",
     "top_k",
     "top_k_bencher",
+    "vector_score_source",
     "trie_rs",
     "ttl_table",
     "ttl_table_bencher",
@@ -143,6 +144,7 @@ rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
 rqe_iterators_test_utils = { path = "./rqe_iterators_test_utils" }
 schema_rule = { path = "./c_wrappers/schema_rule" }
+search_disk = { path = "./c_wrappers/search_disk" }
 search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
@@ -152,6 +154,7 @@ thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
+vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 ttl_table = { path = "./ttl_table" }

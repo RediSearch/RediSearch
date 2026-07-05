@@ -297,6 +297,10 @@ Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a
 Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
 Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
 
+### Benchmarking
+Invoke [/run-macro-benchmarks](.skills/run-macro-benchmarks/SKILL.md) to run an end-to-end macro benchmark (`tests/benchmarks/*.yml`) against a real redis-server.
+Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust micro-benchmarks and compare performance with the C implementation.
+
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.

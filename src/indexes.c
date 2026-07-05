@@ -210,8 +210,10 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
-      SearchDisk_UnregisterIndex(ctx, spec);
+      // Main-thread teardown must always precede close (which may run on a
+      // background thread when Indexes_RemoveSpecFromGlobals triggers the
+      // StrongRef destructor).
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
@@ -1042,14 +1044,14 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (!spec) continue;
-    // Unregister here (not in the destructor) because the destructor may run
-    // on a background thread when the last StrongRef drops, and unregister
-    // needs the main-thread RedisModuleCtx. Must precede the close that
-    // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
-    // idempotent, so it safely handles specs aborted before LOADING_ENDED
-    // registered them.
+    // Run the main-thread teardown here (not in the destructor) because the
+    // destructor may run on a background thread when the last StrongRef drops,
+    // and the teardown needs the main-thread RedisModuleCtx. Must precede the
+    // close that IndexSpec_FreeUnlinkedData performs.
+    // SearchDisk_CloseIndexOnMainThread is idempotent, so it safely handles
+    // specs aborted before LOADING_ENDED finalised them.
     if (spec->diskSpec) {
-      SearchDisk_UnregisterIndex(ctx, spec);
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.

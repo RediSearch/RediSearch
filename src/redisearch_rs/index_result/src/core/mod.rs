@@ -11,17 +11,16 @@ mod proximity;
 
 use std::ptr;
 
-use ffi::RSDocumentMetadata;
-use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref, SharedPtr};
-use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
-
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
 use super::metrics::{MetricsVec, RawMetricsVec};
 use super::offsets::{RSOffsetVector, RawOffsetSlice};
 use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
+use ffi::RSDocumentMetadata;
+use query_term::RSQueryTerm;
+use ref_mode::{Active, Ref, SharedPtr};
+use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 /// Builder for creating [`RawIndexResult`] instances.
 ///
@@ -114,13 +113,13 @@ impl<R: Ref> RawIndexResultBuilder<R> {
         }
     }
 
-    /// Create a builder for a metric index result
-    const fn metric() -> Self {
+    /// Create a builder for a metric index result with the given number
+    const fn metric(num: f64) -> Self {
         Self {
             doc_id: 0,
             field_mask: RS_FIELDMASK_ALL,
             freq: 0,
-            data: RawResultData::Metric(0f64),
+            data: RawResultData::Metric(num),
             weight: 1.0,
         }
     }
@@ -390,9 +389,9 @@ impl<R: Ref> RawIndexResult<R> {
         RawIndexResultBuilder::numeric(num)
     }
 
-    /// Create a builder for a metric index result
-    pub const fn build_metric() -> RawIndexResultBuilder<R> {
-        RawIndexResultBuilder::metric()
+    /// Create a builder for a metric index result with the given number
+    pub const fn build_metric(num: f64) -> RawIndexResultBuilder<R> {
+        RawIndexResultBuilder::metric(num)
     }
 
     /// Create a builder for an intersection index result with the given capacity

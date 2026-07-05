@@ -88,34 +88,22 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Register the spec's disk index with Redis BigModule APIs
+ * @brief Main-thread half of closing the spec's disk index.
  *
- * Must be called from the main thread with a valid RedisModuleCtx.
- * Call this after SearchDisk_OpenIndex to register the database with Redis.
+ * Performs every teardown step that needs the Redis module API (today: unregister
+ * the database from BigModule). Must be called from the main thread with a valid
+ * RedisModuleCtx, and must precede SearchDisk_CloseIndex. The split exists because
+ * SearchDisk_CloseIndex may run on a background thread (StrongRef destructor) and
+ * cannot make Redis module API calls from there.
  *
- * Must not be called on an already-registered spec; doing so asserts in debug
- * builds. The spec's diskRegistered flag is updated by this function; callers
- * must not toggle it directly.
- *
- * @param ctx Redis module context (required, must be valid)
- * @param spec IndexSpec whose diskSpec should be registered (must have a non-NULL diskSpec)
- */
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
-
-/**
- * @brief Unregister the spec's disk index from Redis BigModule APIs
- *
- * Must be called from the main thread with a valid RedisModuleCtx.
- * Call this before SearchDisk_CloseIndex to unregister the database from Redis.
- *
- * Idempotent: a no-op when the spec is not currently registered (either never
- * registered, or already unregistered). The spec's diskRegistered flag is
- * updated by this function; callers must not toggle it directly.
+ * Idempotent: a no-op when the spec has no diskSpec or has already been
+ * closed-on-main-thread.
  *
  * @param ctx Redis module context (required, must be valid)
- * @param spec IndexSpec whose diskSpec should be unregistered (must have a non-NULL diskSpec)
+ * @param spec IndexSpec whose diskSpec should be torn down on the main thread
+ *             (must have a non-NULL diskSpec)
  */
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec);
+void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec);
 
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
@@ -759,6 +747,64 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
 void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx);
 
 /**
+ * @brief Get per-field disk metrics for a TEXT field.
+ *
+ * Text fields share the single `fulltext` column family, so per-field byte
+ * usage is attributed from each posting's field mask. The field is identified
+ * by its bit position in the mask (`FieldSpec.ftId`).
+ *
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown bit or when no counters
+ * exist for the field.
+ *
+ * @param index Pointer to the disk index spec
+ * @param ftId  Text field id — the field's bit position in the field mask
+ * @return Per-field text byte metrics; `available` is false when no data exists
+ */
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       t_fieldId ftId);
+
+/**
+ * @brief Get per-field disk metrics for a TAG or NUMERIC field.
+ *
+ * These field types each own a dedicated column family named with the field's
+ * unique `fieldIndex`; the metrics are read from that CF. VECTOR fields are
+ * keyed by name instead — use `SearchDisk_GetVectorFieldMetrics`.
+ *
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown index, an unsupported field
+ * type, or when no CF data exists.
+ *
+ * @param index      Pointer to the disk index spec
+ * @param fieldIndex Unique field index identifying the field's column family
+ * @return Per-field column-family metrics; `available` is false when no data exists
+ */
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                   t_fieldIndex fieldIndex);
+
+/**
+ * @brief Get per-field disk metrics for a VECTOR field.
+ *
+ * A vector field's column family is named `vector_<fieldName>`, so its CF is
+ * keyed by the field name rather than the numeric field index. Pass the same
+ * raw field name used to create/bind the vector index storage.
+ *
+ * Requires initialized SearchDisk and non-null index (RS_ASSERT); the disk API
+ * is always present for a disk-backed index. The returned struct's `available`
+ * flag is a data-level signal: false for an unknown name or when no CF data
+ * exists.
+ *
+ * @param index        Pointer to the disk index spec
+ * @param fieldName    Raw vector field name identifying the field's column family
+ * @param fieldNameLen Length of `fieldName` in bytes
+ * @return Per-field column-family metrics; `available` is false when no data exists
+ */
+PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       const char* fieldName, size_t fieldNameLen);
+
+/**
  * @brief Get the total disk usage for a disk index
  *
  * Returns the sum of live SST file sizes across all column families.
@@ -827,6 +873,18 @@ void SearchDisk_ReplicationAbort(IndexSpec *sp);
  * @param percentage Percentage of available memory to request (0-100)
  */
 void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage);
+
+/**
+ * @brief Reapply the max_open_files cap to all live disk databases.
+ *
+ * Called from the `search-disk-max-open-files` config setter on CONFIG SET. Stores
+ * the configured value on the shared disk context (so newly created indexes use it)
+ * and applies the resolved per-DB cap to every existing index's database at runtime.
+ *
+ * @param ctx Redis module context
+ * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+ */
+void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles);
 
 // ---------------------------------------------------------------------------
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)

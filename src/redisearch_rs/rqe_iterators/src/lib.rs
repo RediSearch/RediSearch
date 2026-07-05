@@ -31,6 +31,7 @@ use query_term::RSQueryTerm;
 
 pub mod c2rust;
 pub mod config;
+pub mod deferred;
 pub mod empty;
 pub mod expiration_checker;
 pub mod geo_shape;

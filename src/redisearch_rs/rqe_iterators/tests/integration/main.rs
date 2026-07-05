@@ -33,6 +33,7 @@ use rstest_reuse::template;
 fn id_cases(#[case] case: &[u64]) {}
 
 mod c2rust;
+mod deferred;
 mod empty;
 #[cfg(not(miri))]
 mod format_g;

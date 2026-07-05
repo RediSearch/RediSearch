@@ -584,7 +584,8 @@ impl TestContext {
             ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
-        let tag_index_raw = unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut()) };
+        let tag_index_raw =
+            unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut(), false) };
         let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
 
         // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex

@@ -18,7 +18,7 @@
 //! # Case-insensitivity
 //!
 //! Every term and query is lowercased on the way in via
-//! [`unicode_tolower`], so stored terms and matches are always in
+//! [`unicode_tolower_cow`], so stored terms and matches are always in
 //! lowercase form and lookups are case-insensitive. Callers pass terms
 //! verbatim; the index owns normalization.
 //!
@@ -38,7 +38,7 @@ use std::{
 };
 
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
-use string_utils::unicode_tolower;
+use string_utils::unicode_tolower_cow;
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -80,8 +80,8 @@ impl TermSuffixIndex {
             return;
         }
 
-        let lowered = unicode_tolower(term);
-        let term = lowered.as_str();
+        let lowered = unicode_tolower_cow(term);
+        let term: &str = &lowered;
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
@@ -107,8 +107,8 @@ impl TermSuffixIndex {
             return;
         }
 
-        let lowered = unicode_tolower(term);
-        let term = lowered.as_str();
+        let lowered = unicode_tolower_cow(term);
+        let term: &str = &lowered;
 
         if let Some(data) = self.inner.get_mut(term)
             && data.has_full_term()
@@ -143,17 +143,17 @@ impl TermSuffixIndex {
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower(needle);
+        let lowered = unicode_tolower_cow(needle);
         self.inner
-            .prefixed_iter(&lowered)
-            .flat_map(|(_, data)| data.terms().map(|term| &**term))
+            .prefixed_values(&lowered)
+            .flat_map(|data| data.terms().map(|term| &**term))
     }
 
     /// Iterate over the members that end with `needle`.
     /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower(needle);
+        let lowered = unicode_tolower_cow(needle);
         let data = if lowered.is_empty() {
             None
         } else {
@@ -180,7 +180,7 @@ impl TermSuffixIndex {
     /// engine's pre-existing `?` behavior, which we deliberately reuse rather
     /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
-        let lowered = unicode_tolower(pattern);
+        let lowered = unicode_tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
         // A token followed by `*` can sit anywhere inside a match,
@@ -189,10 +189,7 @@ impl TermSuffixIndex {
         // match, so only terms ending with it — exactly its own
         // suffix entry — qualify.
         let (subtree, exact) = if followed_by_star {
-            (
-                Some(self.inner.prefixed_iter(token).map(|(_, data)| data)),
-                None,
-            )
+            (Some(self.inner.prefixed_values(token)), None)
         } else {
             (None, self.inner.get(token))
         };
