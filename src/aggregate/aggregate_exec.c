@@ -2003,6 +2003,9 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
       SearchDisk_IsEnabledForValidation() && *RedisModule_StringPtrLen(argv[0], NULL) != '_') {
     SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status);
+    // prepareRequest installed the thread-local spec; on success paths
+    // buildPipelineAndExecute clears it, so clear it here before bailing.
+    CurrentThread_ClearIndexSpec();
     goto error;
   }
 
