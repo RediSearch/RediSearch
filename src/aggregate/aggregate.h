@@ -388,20 +388,20 @@ typedef enum {
   // from other non-JSON cases. It only rejects JSON field return and lets shard
   // validation enforce the rest once the spec/request shape is bound.
   FlexFieldReturnRule_RejectJsonOnly,
-  // Bound-spec validation: QEXEC_F_IS_SEARCH is reliable, so HASH FT.SEARCH may
-  // return fields through the disk async loader; JSON and non-search requests
-  // must still use NOCONTENT / RETURN 0.
-  FlexFieldReturnRule_AllowHashSearchOnly,
+  // Bound-spec validation: the request-type flags are reliable, so HASH
+  // FT.SEARCH and FT.AGGREGATE may return fields through the disk async
+  // loader; JSON and other request types must still use NOCONTENT / RETURN 0.
+  FlexFieldReturnRule_AllowHashQuery,
 } FlexFieldReturnRule;
 
 /**
  * Reject field return on a disk (flex) index when loading is unsupported.
  *
  * The coordinator compiles every request as an aggregate, so before fan-out it
- * can only reject JSON-on-disk field return. Once the spec is bound and
- * QEXEC_F_IS_SEARCH is reliable, field return is allowed only for a HASH
- * FT.SEARCH (which loads via the disk async loader). No-op when flex is off or
- * when the query returns no document fields.
+ * can only reject JSON-on-disk field return. Once the spec is bound and the
+ * request-type flags are reliable, field return is allowed only for a HASH
+ * FT.SEARCH or FT.AGGREGATE (which load via the disk async loader). No-op when
+ * flex is off or when the query returns no document fields.
  */
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
                                      FlexFieldReturnRule rule, QueryError *status);

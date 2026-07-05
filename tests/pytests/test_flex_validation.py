@@ -373,13 +373,70 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_aggregate_and_hybrid_commands(env):
+def test_flex_allows_aggregate(env):
+    """FT.AGGREGATE is enabled on flex indexes (MOD-16604): HASH field loading
+    goes through the disk async loader."""
     _create_flex_search(env)
 
-    env.expect('FT.AGGREGATE', 'idx', '*') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
-    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+    env.expect('FT.AGGREGATE', 'idx', '*').noError()
+    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*').noError()
+
+    # LOAD (explicit fields and LOAD *) is allowed for HASH aggregations.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t') \
+        .equal([1, ['t', 'hello world']])
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*') \
+        .equal([1, ['t', 'hello world']])
+
+    # GROUPBY on a schema field (implicit load path).
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
+               'REDUCE', 'COUNT', '0', 'AS', 'c') \
+        .equal([1, ['t', 'hello world', 'c', '1']])
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_aggregate_allows_sortby(env):
+    """FT.AGGREGATE SORTBY is unrestricted on flex (sort keys load via the disk
+    async loader); the vector-distance-only restriction is FT.SEARCH only.
+    Multi-field SORTBY exercises the guard's early-return ordering (the
+    FT.SEARCH single-field asserts must not fire for aggregations)."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               't', 'TEXT', 'u', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
+
+    # SORTBY with an implicit field load (no LOAD step).
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
+
+    # Multi-field SORTBY.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
+        .noError()
+
+    # The FT.SEARCH restriction is unchanged.
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_aggregate_rejects_withcursor(env):
+    """User-facing WITHCURSOR stays blocked on flex; only the coordinator's
+    internal shard cursors are supported."""
+    _create_flex_search(env)
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '10') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+
+    # PROFILE rejects cursors generically (before the flex check), so only
+    # assert rejection, not the flex-specific message.
+    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCURSOR').error()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_hybrid_commands(env):
+    _create_flex_search(env)
 
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
         .error().contains('FT.HYBRID is not supported in Redis Flex')
@@ -815,13 +872,14 @@ def test_flex_blocks_cursor_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
+def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
     _create_flex_search(env)
 
+    # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+        .noError()
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+        .noError()
 
     env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \

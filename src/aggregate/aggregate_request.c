@@ -1012,7 +1012,12 @@ error:
 
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
-  if (isDiskIndex) {
+  // FT.AGGREGATE LOAD is allowed on disk (flex): HASH documents load through
+  // the disk async loader, and JSON-on-disk is rejected at bound-spec time
+  // (AREQ_ApplyContext, FlexValidation_RejectFieldReturn), where the doc type
+  // is known. FT.SEARCH LOAD stays rejected. The request-type flag is set from
+  // the command type before compilation (buildRequest / prepareForExecution).
+  if (isDiskIndex && !(*reqflags & QEXEC_F_IS_AGGREGATE)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
     return REDISMODULE_ERR;
   }
@@ -1552,8 +1557,8 @@ int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
   if (!isJson && rule == FlexFieldReturnRule_RejectJsonOnly) {
     return REDISMODULE_OK;
   }
-  if (!isJson && rule == FlexFieldReturnRule_AllowHashSearchOnly &&
-      (reqflags & QEXEC_F_IS_SEARCH)) {
+  if (!isJson && rule == FlexFieldReturnRule_AllowHashQuery &&
+      (reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_AGGREGATE))) {
     return REDISMODULE_OK;
   }
 
@@ -1592,12 +1597,10 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   // Disk (flex) field-loading validation, now that the spec is bound. JSON-on-disk
-  // loading is unsupported; HASH-on-disk loads via the async loader, but only on
-  // the FT.SEARCH output pipeline. Everything else still requires NOCONTENT /
-  // RETURN 0. (On the coordinator this is enforced pre-fan-out; see
-  // prepareForExecution.)
-  if (FlexValidation_RejectFieldReturn(index, reqFlags,
-                                       FlexFieldReturnRule_AllowHashSearchOnly,
+  // loading is unsupported; HASH-on-disk loads via the async loader for FT.SEARCH
+  // and FT.AGGREGATE. Everything else still requires NOCONTENT / RETURN 0. (On the
+  // coordinator this is enforced pre-fan-out; see prepareForExecution.)
+  if (FlexValidation_RejectFieldReturn(index, reqFlags, FlexFieldReturnRule_AllowHashQuery,
                                        status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }

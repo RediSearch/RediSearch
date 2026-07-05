@@ -2197,23 +2197,23 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
-  RM_TRY(
-    RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
-      NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
-    )
-  )
+  // In flex (disk) mode the aggregate caps get lower registration-time
+  // defaults (see config.h). SearchDisk_IsEnabled() is valid here: isFlex is
+  // resolved by GetRedisVersion before configs are registered. Keyed on real
+  // disk enablement, NOT _SIMULATE_IN_FLEX, which is itself a config applied
+  // only after registration.
+  RM_TRY(RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aggregate-results",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
+                             : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config,
+      set_size_t_numeric_config, NULL, (void *)&(RSGlobalConfig.maxAggregateResults)))
 
-  RM_TRY(
-    RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
-      MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
-      NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
-    )
-  )
+  RM_TRY(RedisModule_RegisterNumericConfig(
+      ctx, "search-max-aggregate-groups",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_GROUPS_FLEX : DEFAULT_MAX_AGGREGATE_GROUPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, MAX_AGGREGATE_GROUPS, get_size_t_numeric_config,
+      set_size_t_numeric_config, NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)))
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
