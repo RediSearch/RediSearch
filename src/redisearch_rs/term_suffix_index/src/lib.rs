@@ -47,6 +47,11 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// must out-length an exact token by this many codepoints to win.
 const STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
 
+/// Longest addable term, in bytes, after lowercasing. The underlying
+/// trie stores node labels with `u16` lengths, so a longer key cannot
+/// be represented and would panic on insert.
+const MAX_TERM_BYTE_LEN: usize = u16::MAX as usize;
+
 #[derive(Default)]
 pub struct TermSuffixIndex {
     inner: StrTrieMap<TermRefs>,
@@ -75,6 +80,8 @@ impl TermSuffixIndex {
     /// Add a term to the set, registering it under its own key and every
     /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
     /// re-adding an existing term, or adding an empty one, is a no-op.
+    /// So is adding a term whose lowercased form exceeds `u16::MAX`
+    /// bytes — the trie cannot represent such a key.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -82,6 +89,10 @@ impl TermSuffixIndex {
 
         let lowered = unicode_tolower_cow(term);
         let term: &str = &lowered;
+
+        if term.len() > MAX_TERM_BYTE_LEN {
+            return;
+        }
 
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;

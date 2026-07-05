@@ -108,7 +108,8 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
 
 /**
  * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
- * empty term is a no-op.
+ * empty term is a no-op, as is adding a term whose lowercased form
+ * exceeds `u16::MAX` bytes — the trie cannot represent such a key.
  *
  * Matching is case-insensitive: `term` is lowercased before insertion,
  * so subsequent lookups and removals are case-insensitive too.
