@@ -684,15 +684,46 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
+// Whether a loaded result can be serialized to the client. A result flagged
+// Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
+// the iterator yielding it and the safe loader loading it (the safe loader releases the
+// spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
+// that window) - so serializing it would produce a doc id followed by a nil field-array
+// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
+// with Redis locked throughout and never sees them.
+static inline bool loaderResultIsEmittable(const SearchResult *r) {
+  return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
+}
+
+// Drop a row a loader could not emit (its document was deleted, re-indexed, or expired
+// between matching and load). Count it against the reported total (which is
+// totalResults - skippedResults; see QueryProcessingCtx::skippedResults for why we bump
+// a separate counter rather than decrementing totalResults) and fully release the
+// partially-loaded row, re-initializing the slot to an empty result. SearchResult_Destroy
+// (not just _Clear) frees the RLookupRow dynamic storage too: the safe loader leaves
+// dropped buffer slots as tombstones that its yield phase skips and that are later
+// overwritten by the next accumulate cycle or bulk-freed with no per-slot destroy, so a
+// mere Clear would leak that storage. SearchResult_New nulls the document metadata, so the
+// emptied slot still reads as a tombstone; the plain loader reuses it for the next row.
+static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
+  base->parent->skippedResults++;
+  SearchResult_Destroy(r);
+  *r = SearchResult_New();
+}
+
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+  int rc;
+  while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
+    rpLoader_loadDocument(lc, r);
+    if (loaderResultIsEmittable(r)) {
+      return RS_RESULT_OK;
+    }
+    // Deleted/expired/failed-to-open between matching and load: drop it rather than
+    // emit a nil field-array. The emptied slot is reused for the next upstream row.
+    loaderDropResult(base, r);
   }
-
-  rpLoader_loadDocument(lc, r);
-  return RS_RESULT_OK;
+  return rc;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
@@ -868,6 +899,13 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     rpLoader_loadDocument(&self->base_loader, curr_res);
+    if (!loaderResultIsEmittable(curr_res)) {
+      // The document was deleted/re-indexed between buffering and load (the safe loader
+      // released the read lock to take the GIL). Drop it: loaderDropResult counts it as
+      // skipped and re-initializes the slot to an empty tombstone (null metadata), which
+      // the yield phase skips and rpSafeLoaderFree can destroy safely.
+      loaderDropResult(&self->base_loader.base, curr_res);
+    }
   }
 
   // Reset the iterator
@@ -876,14 +914,19 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res = GetNextResult(self);
+  SearchResult *curr_res;
 
-  if (curr_res) {
+  while ((curr_res = GetNextResult(self))) {
+    // rpSafeLoader_Load emptied the slots of documents invalidated mid-query (and
+    // counted them in skippedResults). A tombstone owns nothing, so skip it with no
+    // cleanup; a live buffered result always carries document metadata.
+    if (SearchResult_GetDocumentMetadata(curr_res) == NULL) {
+      continue;
+    }
     SetResult(curr_res, result_output);
     return RS_RESULT_OK;
-  } else {
-    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
+  return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
 /*********************************************************************************/
@@ -2012,6 +2055,9 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   // Update total results to reflect the number of unique documents we'll yield
   rp->parent->totalResults = dictSize(self->hybridResults);
+  // Merged-doc count excludes upstream loader drops; clear the skip correction
+  // (same invariant as the grouper).
+  rp->parent->skippedResults = 0;
 
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;
