@@ -12,15 +12,14 @@
 //! All string parameters are byte pointers with an explicit length and
 //! must be valid UTF-8. Passing invalid UTF-8 panics.
 //!
-//! The index follows a readers-writer contract, matching the engine's
-//! per-spec rwlock: read-only calls (the iterate functions, cursors and
-//! [`TermSuffixIndex_MemUsage`]) may run concurrently with each other,
-//! while [`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`] and
-//! [`TermSuffixIndex_Free`] require exclusive access — no other call on
-//! the same index, and no live iterator obtained from it. A cursor
-//! iterator itself is single-threaded: it may not be advanced or freed
-//! from two threads at once, though separate iterators over the same
-//! index may.
+//! The index follows a readers-writer contract: read-only calls (the
+//! iterate functions, cursors and [`TermSuffixIndex_MemUsage`]) may run
+//! concurrently with each other, while [`TermSuffixIndex_Add`],
+//! [`TermSuffixIndex_Remove`] and [`TermSuffixIndex_Free`] require
+//! exclusive access — no other call on the same index, and no live
+//! iterator obtained from it. A cursor iterator itself is
+//! single-threaded: it may not be advanced or freed from two threads at
+//! once, though separate iterators over the same index may.
 
 mod index;
 mod iter_callback;
