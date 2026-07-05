@@ -14,6 +14,7 @@
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "debug_commands.h"
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -86,7 +87,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskMaxOpenFiles);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
@@ -184,6 +186,12 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec_ReleaseWriteLock(sp);
 }
 
+#ifdef ENABLE_ASSERT
+static void Compaction_BeforeApplySyncPoint(void) {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_COMPACTION_APPLY);
+}
+#endif
+
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
 // IndexSpec's compaction listener; the C-side struct itself does not need to
 // outlive the openIndexSpec call.
@@ -193,6 +201,13 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
+        // Debug/test sync point; NULL outside ENABLE_ASSERT so the Rust side
+        // skips it and there is no production cost.
+#ifdef ENABLE_ASSERT
+        .beforeApplySyncPoint = Compaction_BeforeApplySyncPoint,
+#else
+        .beforeApplySyncPoint = NULL,
+#endif
     };
 }
 
@@ -200,7 +215,20 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
 RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName, const char *obfuscatedName, DocumentType type, bool deleteBeforeOpen, IndexSpec *c_index_spec) {
     RS_ASSERT(disk_db && c_index_spec);
     SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-    return disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
+    RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen, &callbacks, c_index_spec);
+    if (result) {
+        // Open atomically registers with BigModule, so the spec needs a
+        // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
+        c_index_spec->diskRegistered = true;
+    }
+    return result;
+}
+
+ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, uint32_t reqflags,
+                                                          RLookup *lk, const RLookupKey **keys,
+                                                          size_t nkeys, uint32_t *outStateFlags) {
+    return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
+                                                     outStateFlags);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -214,19 +242,12 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_RegisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
-    RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
-    RS_ASSERT(!spec->diskRegistered);
-    disk->basic.registerIndex(ctx, spec->diskSpec);
-    spec->diskRegistered = true;
-}
-
-void SearchDisk_UnregisterIndex(RedisModuleCtx *ctx, IndexSpec *spec) {
+void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
     if (!spec->diskRegistered) {
         return;
     }
-    disk->basic.unregisterIndex(ctx, spec->diskSpec);
+    disk->basic.closeIndexOnMainThread(ctx, spec->diskSpec);
     spec->diskRegistered = false;
 }
 
@@ -253,7 +274,13 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndexWithRdbState(RedisModuleCtx *ctx,
                                                             IndexSpec *c_index_spec) {
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  return disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks, c_index_spec);
+  if (result) {
+    // Open atomically registers with BigModule, so the spec needs a
+    // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
+    c_index_spec->diskRegistered = true;
+  }
+  return result;
 }
 
 void SearchDisk_FreeRdbState(RedisSearchDiskRdbState *rdbState) {
@@ -539,6 +566,24 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   disk->metrics.outputInfoMetrics(disk_db, ctx);
 }
 
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       t_fieldId ftId) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getTextFieldMetrics(index, ftId);
+}
+
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                   t_fieldIndex fieldIndex) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getCfFieldMetrics(index, fieldIndex);
+}
+
+PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       const char* fieldName, size_t fieldNameLen) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getVectorFieldMetrics(index, fieldName, fieldNameLen);
+}
+
 uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->index.getDiskUsage(index);
@@ -588,6 +633,28 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
       disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
+  RS_ASSERT(disk && disk_db);
+
+  // Store the configured value on the shared context so new DBs pick it up.
+  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
+  // Reapply to every existing index's database.
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      disk->index.updateMaxOpenFiles(sp->diskSpec, maxOpenFiles);
     }
   }
   dictReleaseIterator(iter);

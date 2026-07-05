@@ -1153,6 +1153,7 @@ dependencies = [
 name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "ffi",
  "field",
  "index_result",
@@ -1707,6 +1708,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "search_disk",
  "workspace_hack",
 ]
 
@@ -2534,6 +2536,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "search_disk"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "search_result"
 version = "0.0.1"
 dependencies = [
@@ -2739,6 +2750,7 @@ name = "string_utils"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "criterion",
  "ffi",
  "proptest",
  "redis_mock",
@@ -3381,6 +3393,20 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "vector_score_source"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "rqe_core",
+ "rqe_iterators",
+ "top_k",
+ "tracing",
+ "vecsim",
  "workspace_hack",
 ]
 

@@ -654,8 +654,8 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
-      // Unregister must always precede close (see SearchDisk_CloseIndex docs).
-      SearchDisk_UnregisterIndex(ctx, sp);
+      // Main-thread teardown must always precede close (see SearchDisk_CloseIndex docs).
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
       SearchDisk_MarkIndexForDeletion(sp->diskSpec);
       SearchDisk_CloseIndex(sp->diskSpec);
       sp->diskSpec = NULL;

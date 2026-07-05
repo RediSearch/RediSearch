@@ -9,6 +9,7 @@
 #include "field_spec_info.h"
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
+#include "search_disk.h"
 
 static FieldType getFieldType(const char *type){
     if (strcmp(type, "vector") == 0) {
@@ -109,6 +110,16 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
             break;
         default:
             break;
+    }
+
+    // Per-field disk metrics (disk-backed indexes only; gated on `available`).
+    if (stats->textDisk.available) {
+        REPLY_KVINT("disk_exclusive_bytes", stats->textDisk.exclusive_bytes);
+        REPLY_KVINT("disk_shared_bytes", stats->textDisk.shared_bytes);
+    }
+    if (stats->cfDisk.available) {
+        REPLY_KVINT("disk_total_bytes", stats->cfDisk.total_bytes);
+        REPLY_KVINT("disk_num_keys", stats->cfDisk.estimate_num_keys);
     }
 }
 
@@ -234,12 +245,34 @@ FieldSpecStats IndexSpec_GetFieldStats(FieldSpec *fs){
   }
 }
 
-// Get the information of the field `fs`.
-FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate) {
+// Populate disk-backed FT.INFO metrics for field `fs`.
+static void FieldSpecStats_PopulateDiskMetrics(FieldSpecStats *stats, const IndexSpec *sp,
+                                               const FieldSpec *fs) {
+  if (FieldSpec_IsIndexableText(fs)) {
+    stats->textDisk = SearchDisk_GetTextFieldMetrics(sp->diskSpec, fs->ftId);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG | INDEXFLD_T_NUMERIC)) {
+    // TAG/NUMERIC CFs are named by the numeric field index.
+    stats->cfDisk = SearchDisk_GetCfFieldMetrics(sp->diskSpec, fs->index);
+  } else if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    // Vector CFs are named `vector_<fieldName>`, so they are keyed by name.
+    size_t nameLen;
+    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
+    stats->cfDisk = SearchDisk_GetVectorFieldMetrics(sp->diskSpec, namePtr, nameLen);
+  }
+}
+
+// Get the information of the field `fs` in the index `sp`.
+FieldSpecInfo FieldSpec_GetInfo(const IndexSpec *sp, FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
   FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs));
+  FieldSpecStats stats = IndexSpec_GetFieldStats(fs);
+  // Per-field disk metrics only exist for disk-backed indexes.
+  if (sp->diskSpec) {
+    FieldSpecStats_PopulateDiskMetrics(&stats, sp, fs);
+  }
+  FieldSpecInfo_SetStats(&info, stats);
   return info;
 }

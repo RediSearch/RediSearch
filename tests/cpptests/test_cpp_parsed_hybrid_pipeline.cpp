@@ -711,3 +711,39 @@ TEST_F(HybridRequestParseTest, testKeyCorrespondenceBetweenSearchAndTailPipeline
     }
   }
 }
+
+// A tail with no index-result reader lets every subquery depleter drop the borrow.
+TEST_F(HybridRequestParseTest, testHybridSkipIndexResultDeepCopyWhenTailHasNoReader) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_skip_copy_no_reader",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "LOAD", "1", "@title",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  HYBRID_TEST_SETUP("test_skip_copy_no_reader", args);
+
+  EXPECT_TRUE(hybridReq->tailPipeline->qctx.skipIndexResultDeepCopy)
+    << "Tail without matched_terms()/highlight should skip the index-result copy";
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    EXPECT_TRUE(hybridReq->requests[i]->pipeline.qctx.skipIndexResultDeepCopy)
+      << "Subquery " << i << " should not be forced to preserve the index result";
+  }
+}
+
+// A tail matched_terms() must force every subquery depleter to preserve the borrow.
+TEST_F(HybridRequestParseTest, testHybridForceIndexResultDeepCopyWhenTailReadsIt) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", "test_force_copy_matched_terms",
+                      "SEARCH", "machine",
+                      "VSIM", "@vector_field", "$BLOB",
+                      "APPLY", "matched_terms()", "AS", "terms",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+
+  HYBRID_TEST_SETUP("test_force_copy_matched_terms", args);
+
+  EXPECT_FALSE(hybridReq->tailPipeline->qctx.skipIndexResultDeepCopy)
+    << "Tail with matched_terms() must preserve the index result";
+  for (size_t i = 0; i < hybridReq->nrequests; i++) {
+    EXPECT_FALSE(hybridReq->requests[i]->pipeline.qctx.skipIndexResultDeepCopy)
+      << "Subquery " << i << " must preserve the index result for the tail's matched_terms()";
+  }
+}

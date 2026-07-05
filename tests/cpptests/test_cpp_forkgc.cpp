@@ -94,7 +94,7 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisSearchCtx *sctx, const char *field,
                                    const char *value) {
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, "f1", strlen("f1"));
-  auto tix = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL);
+  auto tix = TagIndex_Ensure(const_cast<FieldSpec *>(fs), NULL, false);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
   sctx->spec->stats.invertedSize += sz;

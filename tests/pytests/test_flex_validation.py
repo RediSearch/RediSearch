@@ -1,4 +1,5 @@
 from common import *
+import threading
 
 
 def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False):
@@ -293,11 +294,39 @@ def _create_flex_search(env):
     env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
 
 
+def _create_flex_search_json(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.t', 'AS', 't', 'TEXT').ok()
+
+
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_search_requires_nocontent_or_return_0(env):
-    """In Flex mode, FT.SEARCH must use NOCONTENT (explicit) or RETURN 0."""
+def test_flex_search_hash_allows_default_return(env):
+    """On a HASH (flex) index, FT.SEARCH loads fields from disk via the async
+    loader, so NOCONTENT / RETURN 0 are no longer required."""
     _create_flex_search(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello world']])
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_search_json_requires_nocontent_or_return_0(env):
+    """JSON-on-disk field loading is unsupported, so FT.SEARCH on a JSON (flex)
+    index must still use NOCONTENT (explicit) or RETURN 0."""
+    _create_flex_search_json(env)
+
+    env.expect('FT.SEARCH', 'idx', 'hello') \
+        .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
+
+
+@with_simulate_in_flex(True)
+def test_flex_search_json_requires_nocontent_or_return_0_on_coordinator(env):
+    """The coordinator rejects JSON-on-disk field return before fanning out to
+    shards (it cannot tell HASH from JSON until the spec is bound). Runs on
+    cluster to exercise prepareForExecution; harmlessly re-checks the standalone
+    path otherwise."""
+    _create_flex_search_json(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello') \
         .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
@@ -637,6 +666,89 @@ def test_disk_vector_query_validation(env: Env):
     # Negative radius is still rejected by the vector index validation path.
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE -1 $b]', 'NOCONTENT',
                'PARAMS', '2', 'b', query_blob).error()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_disk_vector_range_query_concurrent_writes(env: Env):
+    """MOD-16437: a vector range query on a disk index must not block writes.
+
+    The range query is built into a lazy iterator that runs the VecSim query on the
+    first read, *after* the spec lock is released, so documents can be inserted while
+    the query executes. This test streams inserts on a dedicated connection while
+    running many range queries, and asserts that:
+
+      * the writes and the queries all keep succeeding (no lock-acquisition errors,
+        no deadlock) -- i.e. we can insert during query execution; and
+      * no query ever returns a newly-inserted, out-of-radius document, and every
+        returned key currently exists.
+
+    The newly-inserted vectors are placed outside the query radius, so a correct
+    range query must never report them. (HNSW range recall is approximate, so the
+    test deliberately does not assert exhaustive recall of the in-radius docs; a
+    final quiescent query below checks recall once writes have stopped.)
+    """
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '64', 'RERANK', 'TRUE',
+    ).ok()
+
+    # A small set of in-radius docs (few enough that HNSW reliably recalls them all).
+    base_docs = {f'base:{i}' for i in range(5)}
+    in_radius = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    far_away = create_np_array_typed([1000.0, 1000.0], 'FLOAT32').tobytes()
+    for doc_id in base_docs:
+        env.cmd('HSET', doc_id, 'v', in_radius)
+    waitForIndex(env, 'idx')
+
+    query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    errors = []
+    stop = threading.Event()
+
+    def writer():
+        # Stream out-of-radius inserts on a dedicated connection so the writer never
+        # shares a socket with the querying thread.
+        try:
+            wconn = env.getConnection()
+            i = 0
+            while not stop.is_set():
+                wconn.execute_command('HSET', f'extra:{i}', 'v', far_away)
+                i += 1
+        except Exception as e:  # noqa: BLE001 - surface to the asserting thread
+            errors.append(f'writer: {e}')
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    try:
+        for _ in range(200):
+            try:
+                res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                              'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f'query: {e}')
+                break
+            returned = set(res[1:])
+            # Newly-inserted (out-of-radius) docs must never leak into the result.
+            if not returned.issubset(base_docs):
+                errors.append(f'range result leaked out-of-radius docs: {sorted(returned - base_docs)}')
+                break
+            # Every returned key must currently exist (no stale/never-existing ids).
+            if not all(env.cmd('EXISTS', k) == 1 for k in returned):
+                errors.append('range result contains a non-existent document')
+                break
+    finally:
+        stop.set()
+        writer_thread.join()
+
+    env.assertEqual(errors, [], message=f'concurrent writes/queries reported errors: {errors}')
+
+    # Once writes have stopped, the in-radius docs are recalled exactly.
+    waitForIndex(env, 'idx')
+    res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                  'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+    env.assertEqual(set(res[1:]), base_docs)
 
 
 @skip(cluster=True)

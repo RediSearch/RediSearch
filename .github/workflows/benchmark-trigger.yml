@@ -16,6 +16,10 @@ jobs:
       ) || (
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
+      ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'bench:vs-master' &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
       )
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-benchmark
@@ -26,6 +30,10 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-build-benchmark-binary.yml)
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
 
   msmarco-benchmark:
     name: Trigger MS MARCO Benchmark
@@ -35,6 +43,10 @@ jobs:
         github.event.label.name == 'action:run-msmarco-benchmark'
       ) || (
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-msmarco-benchmark')
+      ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'bench:vs-master' &&
         contains(github.event.pull_request.labels.*.name, 'action:run-msmarco-benchmark')
       )
     concurrency:
@@ -48,6 +60,9 @@ jobs:
     secrets: inherit
     with:
       allowed_setup: oss-cluster-08-primaries-250gb-threads-8
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
 
   rust-micro-benchmarks:
     name: Trigger Rust Micro Benchmarks
@@ -90,6 +105,13 @@ jobs:
       ) || (
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-c-micro-benchmark')
+      ) || (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'bench:vs-master' &&
+        (
+          contains(github.event.pull_request.labels.*.name, 'action:run-micro-benchmark') ||
+          contains(github.event.pull_request.labels.*.name, 'action:run-c-micro-benchmark')
+        )
       )
     concurrency:
       group: ${{ github.workflow }}-${{ github.event.number }}-micro-benchmark
@@ -99,3 +121,7 @@ jobs:
       id-token: write # OIDC role assumption for sccache S3 (used inside flow-micro-benchmarks-runner.yml)
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
+    with:
+      # Baseline against master when the 'bench:vs-master' label is set (for
+      # stacked PRs), otherwise against the PR base branch.
+      base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}

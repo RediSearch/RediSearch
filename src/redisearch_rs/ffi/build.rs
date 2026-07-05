@@ -81,7 +81,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "deps/VectorSimilarity/src/VecSim/vec_sim_common.h",
         fns: &[],
-        types: &["ThrottleCB", "VecSimIndexBasicInfo", "VecSimParamsDisk"],
+        types: &[
+            "ThrottleCB",
+            "VecSimIndexBasicInfo",
+            "VecSimParamsDisk",
+            "VecSimQueryParams",
+        ],
         vars: &[],
     },
     HeaderAllowlist {
@@ -93,8 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &["AREQ_CheckTimedOut"],
-        types: &[],
-        vars: &[],
+        types: &[
+            // Disk async loader checks QEXEC_S_HAS_LOAD to decide whether to
+            // set the LOAD flag on a new pipeline.
+            "QEStateFlags",
+        ],
+        vars: &["QEXEC_S_HAS_LOAD"],
     },
     HeaderAllowlist {
         path: "src/aggregate/reducer.h",
@@ -138,14 +147,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        // Benchmark-only GeoShape iterator constructor, used by
-        // `rqe_iterators_bencher` to compare against the Rust implementation.
-        path: "src/geometry/geometry_api.h",
-        fns: &["NewGeometryQueryIterator_Bench"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -165,7 +166,10 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
         ],
-        types: &[],
+        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
+        // deadline) handed to VecSim. Exposed via this already-included header
+        // rather than a dedicated `timeout.h` bindgen root.
+        types: &["TimeoutCtx", "timespec"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -257,12 +261,22 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[],
         // RSE: `RedisModuleIO` is referenced by the RDB save/load entry points
         // in `src/search_disk_api.h`.
-        types: &["RedisModuleIO", "RedisModuleString"],
+        types: &[
+            "RedisModuleIO",
+            "RedisModuleString",
+            // RSE: callback typedef used in the `RedisModule_SwapPrefetchKey`
+            // function-pointer signature; bindgen pulls it in transitively but
+            // we allow it explicitly so it is stable across header changes.
+            "RedisModuleSwapPrefetchCB",
+        ],
         vars: &[
             "REDISMODULE_ERR",
             "REDISMODULE_OK",
             "REDISMODULE_POSTPONED_ARRAY_LEN",
             "REDISMODULE_POSTPONED_LEN",
+            // RSE: flag constant for `RedisModule_SwapPrefetchKey` — value 0
+            // means "prefetch for anyone / no restrictions".
+            "REDISMODULE_SWAP_PREFETCH_FLAG_NOONE",
             "RedisModule_Alloc",
             "RedisModule_Free",
             "RedisModule_FreeString",
@@ -288,8 +302,20 @@ const HEADERS: &[HeaderAllowlist] = &[
             "RedisModule_ReplyWithMap",
             "RedisModule_ReplyWithSimpleString",
             "RedisModule_ReplyWithStringBuffer",
+            "RedisModule_IsKeyInRam",
+            // RSE: used by `redisearch_disk` to schedule async swap-prefetch
+            // for a key before blocking on disk I/O.
+            "RedisModule_SwapPrefetchKey",
             "RedisModule_StringPtrLen",
+            "RedisModule_ThreadSafeContextLock",
+            "RedisModule_ThreadSafeContextUnlock",
         ],
+    },
+    HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
@@ -299,8 +325,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/rlookup_load_document.h",
-        fns: &["loadIndividualKeys", "sdslen_rust"],
-        types: &[],
+        fns: &[
+            "loadIndividualKeys",
+            "RLookup_LoadDocumentAll",
+            "RLookup_LoadDocumentIndividual",
+            "sdslen_rust",
+        ],
+        types: &["RLookupLoadOptions"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -317,7 +348,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_ctx.h",
-        fns: &["NewSearchCtxC", "SearchCtx_Free"],
+        fns: &[
+            "NewSearchCtxC",
+            "SearchCtx_Free",
+            // RSE: the disk async loader checks request timeout between disk
+            // reads via this main-thread-owned flag accessor.
+            "SearchTime_IsTimedOut",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_disk.h",
+        fns: &["SearchDisk_GetMaxDocId"],
         types: &[],
         vars: &[],
     },
@@ -345,6 +388,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "SearchDiskWriteBatchHandle",
             "VectorDiskAPI",
         ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/search_options.h",
+        fns: &[],
+        types: &["RSSearchFlags"],
         vars: &[],
     },
     HeaderAllowlist {

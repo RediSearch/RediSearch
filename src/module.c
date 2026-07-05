@@ -719,7 +719,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp);
+    SearchDisk_CloseIndexOnMainThread(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 

@@ -32,11 +32,12 @@ static uint32_t tagUniqueId = 0;
 // Tags are limited to 4096 each
 #define MAX_TAG_LEN 0x1000
 /* See tag_index.h for documentation  */
-TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex) {
+TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex,
+                      bool withSuffix) {
   TagIndex *idx = rm_new(TagIndex);
   idx->values = NewTrieMap();
   idx->uniqueId = tagUniqueId++;
-  idx->suffix = NULL;
+  idx->suffix = withSuffix ? NewTrieMap() : NULL;
   idx->diskSpec = diskSpec;
   idx->fieldIndex = fieldIndex;
   return idx;
@@ -334,17 +335,74 @@ TagIndex *TagIndex_Open(const FieldSpec *spec) {
 }
 
 /* Open the tag index, creating it if it doesn't exist. */
-TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec) {
+TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, bool withSuffix) {
   RS_ASSERT(FIELD_IS(spec, INDEXFLD_T_TAG));
   if (!spec->tagOpts.tagIndex) {
-    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index);
+    spec->tagOpts.tagIndex = NewTagIndex(diskSpec, spec->index, withSuffix);
   }
   return spec->tagOpts.tagIndex;
 }
 
+uint32_t TagIndex_GetId(const TagIndex *idx) {
+  return idx->uniqueId;
+}
+
+bool TagIndex_HasSuffix(const TagIndex *idx) {
+  return idx->suffix != NULL;
+}
+
+bool TagIndex_HasDiskSpec(const TagIndex *idx) {
+  return idx->diskSpec != NULL;
+}
+
+TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
+  return TrieMap_Iterate(idx->values);
+}
+
+size_t TagIndex_NUniqueValues(const TagIndex *idx) {
+  return TrieMap_NUniqueKeys(idx->values);
+}
+
+int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
+  return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+}
+
+void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen) {
+  deleteSuffixTrieMap(idx->suffix, tagVal, tagValLen);
+}
+
+TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
+                                                 size_t tagValLen, tag_iter_mode mode) {
+  return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
+}
+
+void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
+                                 const char *max, int maxlen, bool includeMax,
+                                 TrieMapRangeCallback callback, void *ctx) {
+  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax, callback,
+                       ctx);
+}
+
+TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
+  return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
+}
+
+/* Return a list of list of terms which match the suffix or contains term or NULL */
+arrayof(char **)
+    TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
+                           struct timespec timeout, bool skipTimeoutChecks) {
+  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, timeout, skipTimeoutChecks) : NULL;
+}
+
+arrayof(char *)
+    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks) : NULL;
+}
+
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(idx->values);
+  TrieMapIterator *it = TagIndex_IterateValues(idx);
 
   char *str;
   tm_len_t slen;
