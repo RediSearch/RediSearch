@@ -613,6 +613,41 @@ def testFailOnTimeout_strict():
   # error becomes a warning for the `FT.PROFILE` command.
   TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT FAIL"))
 
+@skip(cluster=True)
+def testProfileTimeoutDuringQueryBuild():
+  """
+  `FT.PROFILE` under `ON_TIMEOUT FAIL` must report a timeout as a `Warning`, not
+  as an error.
+
+  The `testFailOnTimeout_*` tests above check this with a wildcard and are flaky:
+  whether the 1ms budget is crossed while building the iterator tree or while
+  executing it is a timing race, and only the build-phase case regressed. This
+  test removes the race by forcing the build phase to overrun the budget.
+  """
+  env = Env(moduleArgs="ON_TIMEOUT FAIL WORKERS 0")
+  conn = getConnectionByEnv(env)
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # Let single-character prefixes expand without bound, so the union below covers
+  # every indexed term.
+  env.expect(config_cmd(), 'SET', 'MINPREFIX', '1').ok()
+  env.expect(config_cmd(), 'SET', 'MAXEXPANSIONS', '1000000').ok()
+
+  num_docs = 10000
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Matches every indexed term, so building the iterator tree costs ~num_docs
+  # term iterators -- enough to overrun the 1ms budget before execution starts.
+  heavy_query = '|'.join(f'{d}*' for d in range(10))
+
+  env.expect(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', heavy_query, 'DIALECT', '2',
+    'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  ).noError(
+    message="FT.PROFILE hard-failed on a pre-execution timeout instead of embedding a Warning"
+  ).apply(str).contains('Timeout limit was reached')
+
 def TimedoutTest_resp3(env):
   """Tests that the `Timedout` value of the profile response is correct"""
 

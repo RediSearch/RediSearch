@@ -1428,7 +1428,10 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  // FT.PROFILE reports a timeout as a Warning, not an error, so skip the
+  // pre-execution hard-fail and let it proceed to execution like the RETURN path.
+  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+      !IsProfile(req)) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
