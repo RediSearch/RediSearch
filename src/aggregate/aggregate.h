@@ -383,9 +383,16 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
 int parseAggPlan(ParseAggPlanContext *ctx, ArgsCursor *ac, bool isDiskIndex, QueryError *status);
 
 typedef enum {
-  FlexValidationMode_CoordinatorPreFanout,
-  FlexValidationMode_BoundSpec,
-} FlexValidationMode;
+  // Coordinator pre-fanout validation: the coordinator compiles requests as
+  // aggregates, so it cannot reliably distinguish HASH FT.SEARCH field return
+  // from other non-JSON cases. It only rejects JSON field return and lets shard
+  // validation enforce the rest once the spec/request shape is bound.
+  FlexFieldReturnRule_RejectJsonOnly,
+  // Bound-spec validation: QEXEC_F_IS_SEARCH is reliable, so HASH FT.SEARCH may
+  // return fields through the disk async loader; JSON and non-search requests
+  // must still use NOCONTENT / RETURN 0.
+  FlexFieldReturnRule_AllowHashSearchOnly,
+} FlexFieldReturnRule;
 
 /**
  * Reject field return on a disk (flex) index when loading is unsupported.
@@ -397,7 +404,7 @@ typedef enum {
  * when the query returns no document fields.
  */
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                     FlexValidationMode mode, QueryError *status);
+                                     FlexFieldReturnRule rule, QueryError *status);
 
 /**
  * Initialize basic AREQ structure with search options and aggregation plan.
