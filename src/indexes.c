@@ -734,9 +734,13 @@ static void reindexDocAfterFieldExpirationGain(RedisModuleCtx *ctx, IndexSpec *s
                                                RedisModuleString *key, DocumentType type) {
   // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
   // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
-  // table in one pass.
+  // table in one pass. If the schema FILTER no longer accepts the doc, delete it
+  // instead — otherwise the stale entry (with a clear inline bit) keeps being
+  // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
   if (SchemaRule_ShouldIndex(spec, key, type)) {
     IndexSpec_UpdateDoc(spec, ctx, key, type);
+  } else {
+    IndexSpec_DeleteDoc(spec, ctx, key);
   }
 }
 
