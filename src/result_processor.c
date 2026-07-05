@@ -652,15 +652,27 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
+static inline bool loaderResultIsEmittable(const SearchResult *r) {
+  return !(r->flags & Result_ExpiredDoc);
+}
+
+static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
+  base->parent->skippedResults++;
+  SearchResult_Destroy(r);
+  memset(r, 0, sizeof(*r));
+}
+
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
-  int rc = base->upstream->Next(base->upstream, r);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+  int rc;
+  while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
+    rpLoader_loadDocument(lc, r);
+    if (loaderResultIsEmittable(r)) {
+      return RS_RESULT_OK;
+    }
+    loaderDropResult(base, r);
   }
-
-  rpLoader_loadDocument(lc, r);
-  return RS_RESULT_OK;
+  return rc;
 }
 
 static void rploaderFreeInternal(ResultProcessor *base) {
@@ -833,6 +845,9 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     rpLoader_loadDocument(&self->base_loader, curr_res);
+    if (!loaderResultIsEmittable(curr_res)) {
+      loaderDropResult(&self->base_loader.base, curr_res);
+    }
   }
 
   // Reset the iterator
@@ -841,14 +856,16 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
-  SearchResult *curr_res = GetNextResult(self);
+  SearchResult *curr_res;
 
-  if (curr_res) {
+  while ((curr_res = GetNextResult(self))) {
+    if (curr_res->dmd == NULL) {
+      continue;
+    }
     SetResult(curr_res, result_output);
     return RS_RESULT_OK;
-  } else {
-    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
+  return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
 /*********************************************************************************/

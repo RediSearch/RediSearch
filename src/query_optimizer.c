@@ -271,6 +271,8 @@ void QOptimizer_UpdateTotalResults(AREQ *req) {
     PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
+    req->qiter.totalResults = QITR_ReportedTotal(&req->qiter);
+    req->qiter.skippedResults = 0;
     req->qiter.totalResults = req->qiter.totalResults > reqOffset ?
                               req->qiter.totalResults - reqOffset : 0;
     if(req->qiter.totalResults > reqLimit) {
