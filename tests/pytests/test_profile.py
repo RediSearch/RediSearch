@@ -617,12 +617,9 @@ def testFailOnTimeout_strict():
 def testProfileTimeoutDuringQueryBuild():
   """
   `FT.PROFILE` under `ON_TIMEOUT FAIL` must report a timeout as a `Warning`, not
-  as an error.
-
-  The `testFailOnTimeout_*` tests above check this with a wildcard and are flaky:
-  whether the 1ms budget is crossed while building the iterator tree or while
-  executing it is a timing race, and only the build-phase case regressed. This
-  test removes the race by forcing the build phase to overrun the budget.
+  an error. The large term expansion forces the timeout to hit during query
+  build -- the case that regressed and made the wildcard `testFailOnTimeout_*`
+  tests above flaky.
   """
   env = Env(moduleArgs="ON_TIMEOUT FAIL WORKERS 0")
   conn = getConnectionByEnv(env)
