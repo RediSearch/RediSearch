@@ -450,7 +450,6 @@ jobs:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_standalone.txt
           job-name: ${{ needs.get-config.outputs.name }} standalone
-          ci-common-ref: v1
 
       - name: Build TESTFILE excluding flaky tests (coordinator)
         id: coordinator_testfile
@@ -492,7 +491,6 @@ jobs:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_coordinator.txt
           job-name: ${{ needs.get-config.outputs.name }} coordinator
-          ci-common-ref: v1
 
       - name: Rust tests (MIRI)
         if: inputs.san == 'address' && inputs.unit-tests
