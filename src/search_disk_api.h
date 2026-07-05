@@ -298,6 +298,18 @@ typedef struct BasicDiskAPI {
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
 
   /**
+   * @brief Store a new max_open_files cap on the disk context.
+   *
+   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
+   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+   */
+  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
+
+  /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
    * Drop-in replacement for RPLoader_New on disk (flex) HASH indexes: the C
@@ -319,18 +331,6 @@ typedef struct BasicDiskAPI {
   ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
                                                     RLookup *lk, const RLookupKey **keys,
                                                     size_t nkeys, uint32_t *outStateFlags);
-
-  /**
-   * @brief Store a new max_open_files cap on the disk context.
-   *
-   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
-   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
-   *
-   * @param ctx Redis module context
-   * @param disk Pointer to the disk context
-   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
-   */
-  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
