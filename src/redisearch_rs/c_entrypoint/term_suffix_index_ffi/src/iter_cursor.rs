@@ -29,8 +29,10 @@ use super::*;
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. No other call on `tsi` (mutating or read-only) may run while the
-///    iterator lives, and `tsi` must not be freed until then.
+/// 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+///    [`TermSuffixIndex_Free`]) may run on `tsi` while the iterator lives.
+///    Concurrent read-only calls, including other live iterators, are
+///    allowed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -63,11 +65,14 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateAll<'si>(
 /// # Safety
 ///
 /// 1. `it` must be a [valid], non-null pointer to a live
-///    [`TermSuffixIndexIterator`].
+///    [`TermSuffixIndexIterator`], not advanced or freed concurrently
+///    from another thread.
 /// 2. `str` and `len` must be [valid], non-null pointers to writable
 ///    locations.
 /// 3. The [`TermSuffixIndex`] the iterator was obtained from must still
-///    be alive, with no other call on it running concurrently.
+///    be alive, with no mutating call ([`TermSuffixIndex_Add`],
+///    [`TermSuffixIndex_Remove`], [`TermSuffixIndex_Free`]) running
+///    concurrently. Concurrent read-only calls are allowed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

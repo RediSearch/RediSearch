@@ -21,16 +21,17 @@
 //! an indexed member from updating back-reference bookkeeping for
 //! a longer source.
 
-use std::rc::Rc;
+use std::sync::Arc;
 
-/// [`Rc<str>`](std::rc::Rc) shares one heap allocation across all of a term's
+/// [`Arc<str>`](std::sync::Arc) shares one heap allocation across all of a term's
 /// trie entries — one full-term entry plus its `N - 1` proper-suffix
 /// entries — keeping per-term memory `O(N)` instead of `O(N²)`.
-/// Bytes drop with the last reference.
+/// Bytes drop with the last reference. The atomic (rather than plain)
+/// refcount keeps [`TermSuffixIndex`](super::TermSuffixIndex) `Send + Sync`.
 #[derive(Debug, Default)]
 pub(super) struct TermRefs {
-    full_term: Option<Rc<str>>,
-    longer_terms: Vec<Rc<str>>,
+    full_term: Option<Arc<str>>,
+    longer_terms: Vec<Arc<str>>,
 }
 
 impl TermRefs {
@@ -38,7 +39,7 @@ impl TermRefs {
     /// entry's current payload (`None` if the key is new). Shaped to be
     /// passed straight to [`StrTrieMap::insert_with`](trie_rs::str_trie_map::StrTrieMap::insert_with),
     /// which constructs-or-mutates in a single trie descent.
-    pub(super) fn upsert_full_term(slot: Option<Self>, term: Rc<str>) -> Self {
+    pub(super) fn upsert_full_term(slot: Option<Self>, term: Arc<str>) -> Self {
         match slot {
             Some(mut data) => {
                 debug_assert!(
@@ -59,7 +60,7 @@ impl TermRefs {
     /// is a proper suffix of, given the entry's current payload (`None`
     /// if the key is new). Same construct-or-mutate shape as
     /// [`upsert_full_term`](Self::upsert_full_term).
-    pub(super) fn upsert_longer_term(slot: Option<Self>, term: Rc<str>) -> Self {
+    pub(super) fn upsert_longer_term(slot: Option<Self>, term: Arc<str>) -> Self {
         match slot {
             Some(mut data) => {
                 data.longer_terms.push(term);
@@ -115,7 +116,7 @@ impl TermRefs {
 
     /// Every member term reachable through this entry: the full term (if
     /// the key is one) followed by the longer terms it is a suffix of.
-    pub(super) fn terms(&self) -> impl Iterator<Item = &Rc<str>> {
+    pub(super) fn terms(&self) -> impl Iterator<Item = &Arc<str>> {
         self.full_term.iter().chain(self.longer_terms.iter())
     }
 }

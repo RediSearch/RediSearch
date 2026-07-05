@@ -50,7 +50,9 @@ struct TermSuffixIndex *TermSuffixIndex_New(void);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No iterator obtained from `tsi` may be alive.
+ * 2. No other call on `tsi` (mutating or read-only) may run
+ *    concurrently with this call, and no iterator obtained from
+ *    `tsi` may be alive.
  * 3. `tsi` must not be used after this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -70,8 +72,10 @@ void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No other call on `tsi` (mutating or read-only) may run while the
- *    iterator lives, and `tsi` must not be freed until then.
+ * 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) may run on `tsi` while the iterator lives.
+ *    Concurrent read-only calls, including other live iterators, are
+ *    allowed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -86,8 +90,10 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
- *    read-only) running concurrently.
+ *    [`TermSuffixIndex_New`], with no mutating call
+ *    ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) running concurrently. Concurrent
+ *    read-only calls are allowed.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -140,11 +146,14 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
  * # Safety
  *
  * 1. `it` must be a [valid], non-null pointer to a live
- *    [`TermSuffixIndexIterator`].
+ *    [`TermSuffixIndexIterator`], not advanced or freed concurrently
+ *    from another thread.
  * 2. `str` and `len` must be [valid], non-null pointers to writable
  *    locations.
  * 3. The [`TermSuffixIndex`] the iterator was obtained from must still
- *    be alive, with no other call on it running concurrently.
+ *    be alive, with no mutating call ([`TermSuffixIndex_Add`],
+ *    [`TermSuffixIndex_Remove`], [`TermSuffixIndex_Free`]) running
+ *    concurrently. Concurrent read-only calls are allowed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -159,8 +168,10 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
- *    read-only) running concurrently.
+ *    [`TermSuffixIndex_New`], with no mutating call
+ *    ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) running concurrently. Concurrent
+ *    read-only calls are allowed.
  * 2. `needle` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.
@@ -220,8 +231,9 @@ void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
  *    [`TermSuffixIndex_New`].
- * 2. No other call on `tsi` (mutating or read-only) may run
- *    concurrently with this call.
+ * 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) may run concurrently with this call.
+ *    Concurrent read-only calls are allowed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -240,8 +252,10 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * # Safety
  *
  * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`], with no other call on `tsi` (mutating or
- *    read-only) running concurrently.
+ *    [`TermSuffixIndex_New`], with no mutating call
+ *    ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) running concurrently. Concurrent
+ *    read-only calls are allowed.
  * 2. `pattern` must point to a [valid] byte sequence of length `len`.
  * 3. `cb` must not modify or free `tsi`, nor retain the term
  *    pointer beyond the call.

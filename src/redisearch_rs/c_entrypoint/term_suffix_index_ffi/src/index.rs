@@ -27,7 +27,9 @@ pub extern "C" fn TermSuffixIndex_New() -> *mut TermSuffixIndex {
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. No iterator obtained from `tsi` may be alive.
+/// 2. No other call on `tsi` (mutating or read-only) may run
+///    concurrently with this call, and no iterator obtained from
+///    `tsi` may be alive.
 /// 3. `tsi` must not be used after this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -123,8 +125,9 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
 ///
 /// 1. `tsi` must be a [valid], non-null pointer obtained from
 ///    [`TermSuffixIndex_New`].
-/// 2. No other call on `tsi` (mutating or read-only) may run
-///    concurrently with this call.
+/// 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+///    [`TermSuffixIndex_Free`]) may run concurrently with this call.
+///    Concurrent read-only calls are allowed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
