@@ -90,6 +90,20 @@ impl<'index> SearchResult<'index> {
         }
     }
 
+    fn clear_index_result(&mut self) {
+        // If we own the index_result, reclaim and drop the Box.
+        if self._flags.contains(SearchResultFlag::OwnsIndexResult)
+            && let Some(ir) = self._index_result.take()
+        {
+            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was populated from a `Box<RSIndexResult>`.
+            // Reconstituting and dropping the box reverses that allocation.
+            // The reference is unaliased because the SearchResult is the unique holder while the flag is set.
+            drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
+        }
+        self._index_result = None;
+        self._flags.remove(SearchResultFlag::OwnsIndexResult);
+    }
+
     /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
     /// This has no effect on the allocated capacity of the lookup row.
     #[inline]
@@ -103,16 +117,7 @@ impl<'index> SearchResult<'index> {
             }
         }
 
-        // If we own the index_result, reclaim and drop the Box.
-        if self._flags.contains(SearchResultFlag::OwnsIndexResult)
-            && let Some(ir) = self._index_result.take()
-        {
-            // SAFETY: `OwnsIndexResult` is set iff `_index_result` was populated from a `Box<RSIndexResult>`.
-            // Reconstituting and dropping the box reverses that allocation.
-            // The reference is unaliased because the SearchResult is the unique holder while the flag is set.
-            drop(unsafe { Box::from_raw(std::ptr::from_ref(ir).cast_mut()) });
-        }
-        self._index_result = None;
+        self.clear_index_result();
 
         self._flags = SearchResultFlags::empty();
 
@@ -194,6 +199,28 @@ impl<'index> SearchResult<'index> {
         self._index_result = index_result;
     }
 
+    /// Prepare the index result for buffering across an upstream iterator advance.
+    ///
+    /// Borrowed index results point into iterator-owned storage. A buffering result processor must
+    /// either deep-copy that tree before the next iterator advance, or drop the borrow if downstream
+    /// processors do not need matched-term/highlighter data.
+    pub fn buffer_index_result(&mut self, skip_deep_copy: bool) {
+        if skip_deep_copy {
+            self.clear_index_result();
+            return;
+        }
+        if self._flags.contains(SearchResultFlag::OwnsIndexResult) {
+            return;
+        }
+        let Some(index_result) = self._index_result else {
+            return;
+        };
+
+        let owned = Box::leak(Box::new(index_result.to_owned()));
+        self._index_result = Some(owned);
+        self._flags.insert(SearchResultFlag::OwnsIndexResult);
+    }
+
     /// Returns an immutable reference to the [`RLookupRow`][ffi::RLookupRow] of this search result.
     pub const fn row_data(&self) -> &RLookupRow<'index> {
         &self._row_data
@@ -212,5 +239,36 @@ impl<'index> SearchResult<'index> {
     /// Sets the [`SearchResultFlags`] of this search result.
     pub const fn set_flags(&mut self, flags: SearchResultFlags) {
         self._flags = flags;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_index_result_drops_borrow_when_copy_is_skipped() {
+        let index_result = RSIndexResult::build_numeric(3.0).doc_id(7).build();
+        let mut result = SearchResult::new();
+        result.set_index_result(Some(&index_result));
+
+        result.buffer_index_result(true);
+
+        assert!(result.index_result().is_none());
+        assert!(!result.flags().contains(SearchResultFlag::OwnsIndexResult));
+    }
+
+    #[test]
+    fn buffer_index_result_owns_copy_when_downstream_needs_it() {
+        let index_result = RSIndexResult::build_numeric(3.0).doc_id(7).build();
+        let mut result = SearchResult::new();
+        result.set_index_result(Some(&index_result));
+
+        result.buffer_index_result(false);
+
+        let buffered = result.index_result().expect("index result should be kept");
+        assert!(!std::ptr::addr_eq(buffered, &index_result));
+        assert_eq!(buffered.doc_id, index_result.doc_id);
+        assert!(result.flags().contains(SearchResultFlag::OwnsIndexResult));
     }
 }
