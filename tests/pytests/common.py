@@ -26,6 +26,7 @@ import inspect
 import math
 import tempfile
 import faker
+import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
 REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
@@ -81,7 +82,61 @@ def wait_for_condition(check_fn, message, timeout=120):
         log = f"{message}: {timeout_msg}"
         raise Exception(f'Error: {e}, log: {log}')
 
-class DialectEnv(Env):
+if RS_TEST_ENTERPRISE:
+    class RediSearchEnterpriseStandaloneEnv(Env):
+        """Standalone-only Env: re-seeds the single-shard coordinator topology
+        (see _seed_single_shard_topology further below) after every (re)start,
+        since the enterprise build otherwise leaves the coordinator
+        uninitialized until SEARCH.CLUSTERSET arrives."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._seed_topology()
+
+        def start(self, *args, **kwargs):
+            super().start(*args, **kwargs)
+            self._seed_topology()
+
+        def dumpAndReload(self, restart=False, shardId=None, timeout_sec=40):
+            super().dumpAndReload(restart=restart, shardId=shardId, timeout_sec=timeout_sec)
+            if restart:
+                self._seed_topology()
+
+        def _seed_topology(self):
+            # 'existing' (external) servers set up their own topology.
+            try:
+                if 'existing' in self.env:
+                    return
+            except Exception:
+                return
+            if self.isCluster():
+                raise RuntimeError(
+                    "RediSearchEnterpriseStandaloneEnv is standalone-only; "
+                    "do not use with a cluster env")
+            conn = self.getConnection()
+            port = conn.connection_pool.connection_kwargs.get('port')
+            try:
+                _seed_single_shard_topology(conn, port)
+            except Exception:
+                pass
+            # Also seed the slave, if any (useSlaves=True).
+            try:
+                slave_conn = self.getSlaveConnection()
+                slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
+                _seed_single_shard_topology(slave_conn, slave_port)
+            except Exception:
+                pass
+
+    # Make bare Env(...) construction (fixture-injected tests and direct
+    # `from RLTest import Env; env = Env(...)` call sites alike) yield this
+    # subclass, via the RLTest __new__ hook.
+    Defaults.env_class = RediSearchEnterpriseStandaloneEnv  # read by RLTest's Env.__new__ hook (RedisLabsModules/RLTest#254)
+
+# Base for suite-defined Env subclasses so they inherit enterprise seeding
+# (the Env.__new__ hook only redirects bare Env(), not subclasses).
+EnterpriseStandaloneEnvBase = RediSearchEnterpriseStandaloneEnv if RS_TEST_ENTERPRISE else Env
+
+class DialectEnv(EnterpriseStandaloneEnvBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dialect = None
@@ -326,20 +381,63 @@ def skipOnDialect(env, dialect):
     if dialect == server_dialect:
         env.skip()
 
-def waitForRdbSaveToFinish(env):
+def waitForRdbSaveToFinish(env_or_check, attempts=None, sleep_interval=0.1, stop_on_error=False):
+    """Wait for RDB bgsave to go idle.
+
+    env_or_check: either an Env (poll every master, or every shard if
+    clustered), or a zero-arg callable returning an INFO persistence reply
+    (a dict, or a raw RESP2 string) -- e.g. for polling a single connection.
+
+    attempts=None (default): busy-wait with no cap, for callers where a
+    bgsave is expected to finish quickly (e.g. right after DEBUG RELOAD).
+    attempts=<N>: bounded poll, up to N tries `sleep_interval` apart;
+    returns the final in-progress state instead of blocking indefinitely.
+
+    stop_on_error: if a poll raises, treat it as idle and return False
+    instead of propagating (used where a stale/closing connection means
+    there's nothing left to wait for).
+    """
+    if callable(env_or_check):
+        get_info = env_or_check
+        if attempts is None:
+            attempts = 50
+        in_progress = True
+        for _ in range(attempts):
+            try:
+                info = get_info()
+            except Exception:
+                if stop_on_error:
+                    return False
+                raise
+            if isinstance(info, dict):
+                in_progress = bool(info.get('rdb_bgsave_in_progress', 0))
+            else:
+                in_progress = 'rdb_bgsave_in_progress:1' in str(info)
+            if not in_progress:
+                break
+            time.sleep(sleep_interval)
+        return in_progress
+
+    env = env_or_check
     if env.isCluster():
         conns = env.getOSSMasterNodesConnectionList()
     else:
         conns = [env.getConnection()]
 
-    # Busy wait until all connection are done rdb bgsave
+    # Busy wait until all connections are done with rdb bgsave.
     check_bgsave = True
-    while check_bgsave:
+    tries = itertools.count() if attempts is None else range(attempts)
+    for _ in tries:
         check_bgsave = False
         for conn in conns:
             if conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
                 check_bgsave = True
                 break
+        if not check_bgsave:
+            break
+        if attempts is not None:
+            time.sleep(sleep_interval)
+    return check_bgsave
 
 
 def countKeys(env, pattern='*'):
@@ -360,6 +458,143 @@ def collectKeys(env, pattern='*'):
         keys.extend(conn.keys(pattern))
     return sorted(keys)
 
+
+# ---------------------------------------------------------------------------
+# Enterprise test-compatibility helpers
+# Gated by RS_TEST_ENTERPRISE=1; default=0 → zero behavior change on OSS CI.
+# ---------------------------------------------------------------------------
+
+# Enterprise standalone test builds expose the local config command as
+# _FT.CONFIG.  Route public FT.CONFIG SET/GET through that command so OSS tests
+# exercise the same FT.CONFIG parser and reply shape instead of emulating it
+# with Redis CONFIG search-* twins.
+
+# The two helpers below both strip the enterprise-only 'Shard ID' key from
+# FT.PROFILE replies, but for different reply shapes (RESP2 flat lists vs.
+# RESP3 dicts) — kept separate rather than unified into one function.
+
+def _strip_shard_id_from_profile(obj):
+    """Strip 'Shard ID',<value> pair from each shard flat list in FT.PROFILE reply.
+    Enterprise inserts 'Shard ID' before 'Warning', shifting Iterators profile index.
+    Normalizes the shard list to the OSS layout so positional accesses work unchanged.
+    No-op when RS_TEST_ENTERPRISE is off or the key is absent."""
+    if not RS_TEST_ENTERPRISE or CLUSTER or not isinstance(obj, list) or len(obj) < 2:
+        return obj
+    # FT.PROFILE RESP2 structure: [search_result, ['Shards', [shard0, shard1, ...], ...]]
+    # shard is a flat list: ['Shard ID', '1', 'Warning', [...], 'Iterators profile', ...]
+    # Walk recursively through lists; strip ['Shard ID', <val>] from flat k-v lists.
+    def _strip_shard(lst):
+        if not isinstance(lst, list):
+            return lst
+        # Check if this looks like a shard profile flat list containing 'Shard ID'
+        try:
+            idx = lst.index('Shard ID')
+            if idx % 2 == 0 and idx + 1 < len(lst):
+                lst = lst[:idx] + lst[idx+2:]
+        except ValueError:
+            pass
+        return [_strip_shard(v) if isinstance(v, list) else v for v in lst]
+    return _strip_shard(obj)
+
+
+def strip_enterprise_profile_keys(obj):
+    """Recursively remove the enterprise-only 'Shard ID' key from an
+    FT.PROFILE reply so community-shaped expected values still match.
+    No-op unless RS_TEST_ENTERPRISE=1."""
+    if not RS_TEST_ENTERPRISE or CLUSTER:
+        return obj
+    if isinstance(obj, dict):
+        return {k: strip_enterprise_profile_keys(v)
+                for k, v in obj.items() if k != 'Shard ID'}
+    if isinstance(obj, list):
+        return [strip_enterprise_profile_keys(v) for v in obj]
+    return obj
+
+
+if RS_TEST_ENTERPRISE:
+    _orig_execute_command = redis.client.Redis.execute_command
+
+    # NOTE: command routing stays on this process-global patch
+    # rather than a per-connection subclass because RLTest's own
+    # envRunner.dumpAndReload() (used by Env.dumpAndReload(), i.e. most
+    # DEBUG RELOAD flows) issues `conn.save()` on a connection it obtains
+    # internally, bypassing any wrapping done at the Env.getConnection()
+    # level -- exactly the call site the SAVE-collision handling below
+    # exists to protect. A connection subclass would miss it.
+    def _enterprise_execute_command(self, *args, **kwargs):
+        """Intercept command rewrites for enterprise/OSS compat:
+        - FT.CONFIG GET|SET → _FT.CONFIG GET|SET
+        - _FT._RESTOREIFNX → FT._RESTOREIFNX (enterprise registers without leading underscore)
+        - FT.PROFILE: strip 'Shard ID' from each shard's flat list to normalize positions
+        """
+        # Rewrite _FT._RESTOREIFNX -> FT._RESTOREIFNX
+        if args and str(args[0]).upper() == '_FT._RESTOREIFNX':
+            args = ('FT._RESTOREIFNX',) + tuple(args[1:])
+        if (len(args) >= 2
+                and str(args[0]).upper() == 'FT.CONFIG'
+                and str(args[1]).upper() in ('SET', 'GET')):
+            args = ('_FT.CONFIG',) + tuple(args[1:])
+        # FT.PROFILE: strip Shard ID from raw RESP2 shard lists so index [3] stays = Iterators profile value
+        if args and str(args[0]).upper() == 'FT.PROFILE':
+            raw = _orig_execute_command(self, *args, **kwargs)
+            return _strip_shard_id_from_profile(raw)
+        # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
+        # Enterprise background-saves can fire automatically; OSS tests that call
+        # SAVE directly would race and get 'Background save already in progress'.
+        if args and str(args[0]).upper() == 'SAVE':
+            waitForRdbSaveToFinish(
+                lambda: _orig_execute_command(self, 'INFO', 'persistence'),
+                stop_on_error=True,
+            )
+            # Now issue SAVE and retry once if still racing
+            for _attempt in range(3):
+                try:
+                    return _orig_execute_command(self, *args, **kwargs)
+                except Exception as _exc:
+                    if 'Background save already in progress' in str(_exc) and _attempt < 2:
+                        time.sleep(0.2)
+                        continue
+                    raise
+        return _orig_execute_command(self, *args, **kwargs)
+
+    redis.client.Redis.execute_command = _enterprise_execute_command
+
+# Unlike OSS, the enterprise build doesn't auto-seed a single-shard topology
+# at module init: coordinator-gated commands (FT.SEARCH / FT.AGGREGATE /
+# _FT.DEBUG query-debug) reply "ERRCLUSTER Uninitialized cluster state" until
+# a SEARCH.CLUSTERSET arrives. RediSearchEnterpriseStandaloneEnv (above)
+# sends one covering all slots so standalone enterprise envs behave like OSS.
+
+def _seed_single_shard_topology(conn, port, attempts=50, sleep_interval=0.1):
+    """Send SEARCH.CLUSTERSET to seed a single-shard (all slots) topology on
+    `conn`, addressed at `port`. Callers wrap this in their own exception
+    handling since tolerance for 'command absent' vs. transient errors
+    differs by call site.
+
+    Retries on ConnectionError (server still coming up) up to `attempts`
+    times, sleeping `sleep_interval` seconds between tries; the last
+    ConnectionError is re-raised. ResponseError (e.g. command unsupported)
+    propagates immediately for callers to handle."""
+    password = conn.connection_pool.connection_kwargs.get('password')
+    addr = f'{password}@127.0.0.1:{port}' if password else f'127.0.0.1:{port}'
+    for attempt in range(attempts):
+        try:
+            return conn.execute_command(
+                'SEARCH.CLUSTERSET',
+                'MYID', '1',
+                'RANGES', '1',
+                'SHARD', '1',
+                'SLOTRANGE', '0', '16383',
+                'ADDR', addr,
+                'MASTER',
+            )
+        except redis.exceptions.ConnectionError:
+            if attempt >= attempts - 1:
+                raise
+            time.sleep(sleep_interval)
+
+
+# ---------------------------------------------------------------------------
 
 def debug_cmd():
     return '_FT.DEBUG'
@@ -499,7 +734,7 @@ def skipTestUntil(date_str, reason=None):
 
 def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
                             redis_greater_equal, min_shards, arch, gc_no_fork,
-                            no_json):
+                            no_json, enterprise):
     """True if the caller provided at least one skip condition.
 
     With no conditions, @skip's legacy behaviour is to always skip — used as a
@@ -507,11 +742,11 @@ def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
     """
     return ((cluster is not None) or macos or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json)
+            or gc_no_fork or no_json or enterprise)
 
 
 def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
-                            no_json):
+                            no_json, enterprise):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
     Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
@@ -531,6 +766,8 @@ def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
         return True
     if no_json and not REJSON:
         return True
+    if enterprise and RS_TEST_ENTERPRISE:
+        return True
     return False
 
 
@@ -549,9 +786,10 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=False):
     static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json)
+                         min_shards=min_shards, arch=arch, no_json=no_json,
+                         enterprise=enterprise)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
                           gc_no_fork=gc_no_fork)

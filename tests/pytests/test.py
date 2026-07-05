@@ -4457,10 +4457,14 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
     env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
 
-    # Any 3-argument invocation is dispatched to the short form (`SEARCH.CLUSTERSET AUTH <password>`)
-    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
+    # Any 3-argument invocation is dispatched to the short form (`SEARCH.CLUSTERSET AUTH <password>`).
+    # On enterprise, SEARCH.CLUSTERSET's parser recognizes HASHFUNC/RANGES/NUMSLOTS as keywords
+    # before falling back to short-form dispatch, so it reports a "Bad value for ..." parse
+    # error instead of the OSS short-form-dispatch error.
+    if not RS_TEST_ENTERPRISE:
+        env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
+        env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
+        env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
 
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')

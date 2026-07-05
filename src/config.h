@@ -336,6 +336,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #ifndef MAX_WORKER_THREADS
 #define MAX_WORKER_THREADS (1 << 4)
 #endif
+
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000

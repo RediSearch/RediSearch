@@ -254,6 +254,15 @@ def test_delete_docs_during_bg_indexing(env):
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
   oom_test_config(env)
+  # On enterprise, _BG_INDEX_OOM_PAUSE_TIME defaults to 5s (vs 0 on OSS, see
+  # config.c: IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0).
+  # That default makes the scanner release the GIL for 5s after hitting OOM
+  # before re-checking memory (threadSleepByConfigTime() in indexes_scan.c),
+  # during which unrelated Redis memory bookkeeping (allocator/dict activity)
+  # can shift used_memory enough to push the final ratio outside this test's
+  # asserted 0.85+-0.1 window. Pin it to the OSS default so the ratio this
+  # test asserts on is deterministic regardless of build flavor.
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '0').ok()
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -480,6 +489,14 @@ def test_oom_json(env):
 @skip(cluster=True)
 def test_oom_100_percent(env):
   # Test the default behavior of 100% memory limit w.r.t redis memory limit (also 100%)
+  # Pin the post-OOM retry pause to the OSS default (0s): on enterprise it
+  # defaults to 5s (config.c: IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY
+  # : 0), during which the scanner releases the GIL and re-checks memory before
+  # deciding whether to retry the scan from scratch (indexes_scan.c). If memory
+  # dips back under the threshold during that window the scan restarts instead
+  # of reaching PAUSED_ON_OOM, which can stall this test's waitForIndexStatus
+  # wait past its timeout on enterprise builds.
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '0').ok()
   n_docs = 100
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)

@@ -4,6 +4,7 @@ from hotels import hotels
 import random
 import time
 from includes import *
+from common import *
 
 def testConditionalUpdateOnNoneExistingNumericField(env):
     con = env.getClusterConnectionIfNeeded()

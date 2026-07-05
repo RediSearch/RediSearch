@@ -344,6 +344,9 @@ def test_command_info_availability():
         if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
             #we only register this command if we are not in a cluster mode
             continue
+        # Enterprise registers _FT.CONFIG instead of FT.CONFIG; skip FT.CONFIG subcommands
+        if RS_TEST_ENTERPRISE and cmd_name.startswith('FT.CONFIG'):
+            continue
 
         cmd_upper = cmd_name.upper().replace(' ', '|')
 
@@ -412,8 +415,12 @@ def test_command_info_tips_field():
     failed_tips = []
 
     for cmd_name, expected_data in commands_with_tips.items():
+        if RS_TEST_ENTERPRISE and cmd_name == 'FT.CREATE':
+            # Enterprise exposes only partial COMMAND INFO metadata for FT.CREATE;
+            # see test_specific_command_docs_structure.
+            continue
         cmd_upper = cmd_name.upper().replace(' ', '|')
-        if env.isCluster() and cmd_name.startswith('FT.CONFIG'):
+        if (env.isCluster() or RS_TEST_ENTERPRISE) and cmd_name.startswith('FT.CONFIG'):
             # In cluster mode the coordinator does not register public FT.CONFIG,
             # but the local _FT.CONFIG subcommands use the same command info.
             cmd_upper = '_' + cmd_upper
@@ -521,18 +528,31 @@ def test_specific_command_docs_structure():
     cmd_docs = docs["FT.CREATE"]
     env.assertEqual(cmd_docs is not None, True, message="FT.CREATE should have command docs structure")
 
-    # Check required fields
-    env.assertEqual('summary' in cmd_docs, True, message="FT.CREATE should have summary")
-    env.assertEqual('complexity' in cmd_docs, True, message="FT.CREATE should have complexity")
-    env.assertEqual('since' in cmd_docs, True, message="FT.CREATE should have since field")
+    # Check required fields.
+    # Enterprise registers only group+module metadata for COMMAND DOCS (no summary/complexity/since).
+    # Observed enterprise output for `COMMAND DOCS FT.CREATE`:
+    #   {'FT.CREATE': {'group': 'module', 'module': 'search'}}
+    # Assert the enterprise-specific absence and OSS presence explicitly.
+    if RS_TEST_ENTERPRISE:
+        env.assertEqual('summary' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have summary (known gap)")
+        env.assertEqual('complexity' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have complexity (known gap)")
+        env.assertEqual('since' in cmd_docs, False,
+                        message="Enterprise FT.CREATE COMMAND DOCS must NOT have since (known gap)")
+        env.assertEqual('group' in cmd_docs, True,
+                        message="Enterprise FT.CREATE COMMAND DOCS should have group")
+    else:
+        env.assertEqual('summary' in cmd_docs, True, message="FT.CREATE should have summary")
+        env.assertEqual('complexity' in cmd_docs, True, message="FT.CREATE should have complexity")
+        env.assertEqual('since' in cmd_docs, True, message="FT.CREATE should have since field")
 
+        # Check that summary is meaningful
+        summary = cmd_docs['summary']
+        env.assertEqual(isinstance(summary, str), True, message="Summary should be a string")
+        env.assertEqual(len(summary) > 10, True, message="Summary should be descriptive")
+        env.assertEqual('index' in summary.lower(), True, message="FT.CREATE summary should mention index")
 
-    # Check that summary is meaningful
-    summary = cmd_docs['summary']
-    env.assertEqual(isinstance(summary, str), True, message="Summary should be a string")
-    env.assertEqual(len(summary) > 10, True, message="Summary should be descriptive")
-    env.assertEqual('index' in summary.lower(), True, message="FT.CREATE summary should mention index")
-
-    env.debugPrint(f"FT.CREATE summary: {summary}")
+    env.debugPrint(f"FT.CREATE summary: {cmd_docs.get('summary', 'N/A')}")
     env.debugPrint(f"FT.CREATE complexity: {cmd_docs.get('complexity', 'N/A')}")
     env.debugPrint(f"FT.CREATE since: {cmd_docs.get('since', 'N/A')}")

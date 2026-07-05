@@ -7,7 +7,7 @@ dependencies = [
     "packaging<=24.2",
     "deepdiff==8.6.2",
     "redis>=5.2.1,<7.0.0", # Pin to avoid redis-py 7.x incompatibility (todo: update once fixed)
-    "rltest>=0.7.27,<0.8.0",
+    "rltest @ git+https://github.com/RedisLabsModules/RLTest.git@3506d5965876b5ff892d482373272d10c5908aa3", # NOTE: temporary git-pin until RLTest cuts a release containing the `Defaults.env_class` hook (RedisLabsModules/RLTest#254); then revert to a version range.
     "numpy<=2.2.4",
     "scipy<=1.15.2",
     "faker<=37.1.0",

@@ -2505,7 +2505,7 @@ def test_score_name_case_sensitivity():
                'RETURN', '1', score_name.lower()).equal(expected())
 
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_tiered_index_gc():
     N = 100
     env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')

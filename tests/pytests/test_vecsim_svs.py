@@ -155,17 +155,33 @@ def test_svs_vamana_info():
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', len(cmd_params), *cmd_params).ok()
 
         # Validate that ft.info returns the default params for SVS VAMANA, along with compression
-        # compression in runtime is LVQ8 if we are running on intel optimizations are enabled and GlobalSQ otherwise.
-        compression_runtime = compression_type if is_intel_opt_enabled() or compression_type == 'NO_COMPRESSION' else 'GlobalSQ8'
-        expected_info = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
-                          'data_type', data_type, 'dim', dim, 'distance_metric', 'L2', 'graph_max_degree', 32,
-                          'construction_window_size', 200, 'compression', compression_runtime]]
-        if compression_type != 'NO_COMPRESSION':
-            expected_info[0].extend(['training_threshold', 10240])
-        if compression_runtime == 'LeanVec4x8' or compression_runtime == 'LeanVec8x8':
-            expected_info[0].extend(['reduced_dim', dim // 2])
-        assertInfoField(env, 'idx', 'attributes',
-                        expected_info)
+        # Non-Intel builds report the runtime fallback compression in FT.INFO.
+        compression_runtime = (
+            compression_type
+            if is_intel_opt_enabled() or compression_type == 'NO_COMPRESSION'
+            else 'GlobalSQ8'
+        )
+
+        def expected_attributes(runtime_compression):
+            expected = [['identifier', 'v', 'attribute', 'v', 'type', 'VECTOR', 'algorithm', 'SVS-VAMANA',
+                         'data_type', data_type, 'dim', dim, 'distance_metric', 'L2', 'graph_max_degree', 32,
+                         'construction_window_size', 200, 'compression', runtime_compression]]
+            if compression_type != 'NO_COMPRESSION':
+                expected[0].extend(['training_threshold', 10240])
+            if runtime_compression == 'LeanVec4x8' or runtime_compression == 'LeanVec8x8':
+                expected[0].extend(['reduced_dim', dim // 2])
+            return expected
+
+        expected_info = expected_attributes(compression_runtime)
+        if RS_TEST_ENTERPRISE and compression_runtime == 'GlobalSQ8':
+            # Enterprise builds may expose either the requested compression or
+            # the runtime fallback, depending on SVS optimization availability.
+            optimized_info = expected_attributes(compression_type)
+            actual_info = index_info(env, 'idx')['attributes']
+            env.assertTrue(actual_info in (expected_info, optimized_info), message='field name: attributes')
+        else:
+            assertInfoField(env, 'idx', 'attributes',
+                            expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
 
 def test_vamana_debug_info_vs_info():

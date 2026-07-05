@@ -643,15 +643,30 @@ def test_gc_oom_replica_relaxed():
     # (only checks max_process_mem which is 0 in OSS, so used_memory_ratio = 0)
     slave.execute_command('CONFIG', 'SET', 'maxmemory', int(slave_memory * 0.99))
 
-    # Force GC on slave - should run despite maxmemory being exceeded
-    # because replicas only check max_process_mem (which is 0 in OSS)
-    slave.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+    # Enterprise standalone replication can leave a background save child
+    # around briefly, which makes RedisModule_Fork fail with EEXIST; wait for
+    # it to clear before invoking GC. On OSS this is a no-op poll (no autosave
+    # races the fork).
+    waitForRdbSaveToFinish(lambda: slave.execute_command('INFO', 'Persistence'),
+                            attempts=100, sleep_interval=0.1)
 
-    # Verify bytes were collected by GC on the slave
-    slave_info = slave.execute_command('FT.INFO', 'idx')
-    slave_info_dict = to_dict(slave_info)
-    gc_dict = to_dict(slave_info_dict["gc_stats"])
-    bytes_collected = int(gc_dict['bytes_collected'])
+    bytes_collected = 0
+    # A new autosave can start in the gap between the wait above and
+    # GC_FORCEINVOKE below; retry a couple of times as a residual-race safety net.
+    for _ in range(2):
+        # Force GC on slave - should run despite maxmemory being exceeded
+        # because replicas only check max_process_mem (which is 0 in OSS)
+        slave.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+
+        # Verify bytes were collected by GC on the slave
+        slave_info = slave.execute_command('FT.INFO', 'idx')
+        slave_info_dict = to_dict(slave_info)
+        gc_dict = to_dict(slave_info_dict["gc_stats"])
+        bytes_collected = int(gc_dict['bytes_collected'])
+        if bytes_collected > 0:
+            break
+        sleep(0.1)
+
     env.assertGreater(bytes_collected, 0,
         message="GC should run on replica even when maxmemory is exceeded")
 
@@ -713,4 +728,3 @@ def testForkGCEmptyTextSuffixTrie_emptyValue():
     env.expect('DEL', 'doc1').equal(1)
     forceInvokeGC(env, 'idx')
     env.expect('PING').equal(True)
-
