@@ -40,6 +40,16 @@ pub struct QueryProcessingCtx {
     pub GILTime: rs_wall_clock_ns_t,
     pub minScore: f64,
     pub totalResults: u32,
+    /// Results that were counted in `totalResults` but dropped by a buffering
+    /// result processor (the safe loader) because the document was deleted or
+    /// re-indexed between buffering and load. The reported total is
+    /// `totalResults - skippedResults`.
+    ///
+    /// Tracked separately rather than decrementing `totalResults` so the live
+    /// match count stays stable for the length prediction (`calc_results_len`),
+    /// and so a post-header re-accumulation cannot "resurrect" a row whose
+    /// decrement already shipped in the RESP2 header.
+    pub skippedResults: u32,
     pub resultLimit: u32,
     pub err: *mut QueryError,
     pub isProfile: bool,
@@ -58,6 +68,7 @@ impl QueryProcessingCtx {
             GILTime: 0,
             minScore: 0.0,
             totalResults: 0,
+            skippedResults: 0,
             resultLimit: 0,
             err: ptr::null_mut(),
             isProfile: false,
