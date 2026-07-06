@@ -956,6 +956,19 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+
+    // If the source node was still background-indexing when the snapshot was
+    // taken, the on-disk index is only partially populated. Restart the async
+    // scan to backfill the remaining documents. Redelivery of an already
+    // indexed document is a no-op (DocIdMeta skip / ADD_REPLACE), so this is a
+    // safe backfill rather than a duplicate insert.
+    if (sp->resume_bg_indexing) {
+      sp->resume_bg_indexing = false;
+      // Reset any persisted OOM failure so the restarted scan runs clean and
+      // FT.INFO reflects it correctly while it progresses.
+      sp->scan_failed_OOM = false;
+      IndexSpec_ScanAndReindex(ctx, spec_ref);
+    }
   }
   dictReleaseIterator(iter);
 }

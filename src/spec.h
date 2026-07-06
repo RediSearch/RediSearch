@@ -366,6 +366,14 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
+
+  // True when the SST+RDB stream indicated the source node was still
+  // background-indexing (scan in progress, or a previous scan failed on OOM)
+  // when the snapshot was taken. Set at RDB load (SST path only) and consumed at
+  // Indexes_FinishSSTReplication, which restarts the async scan so the loading
+  // node (replica / hot-restart) finishes the partially populated index.
+  // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
+  bool resume_bg_indexing;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;

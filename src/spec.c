@@ -2189,9 +2189,11 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->scan_failed_OOM = false;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
+  sp->resume_bg_indexing = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
                                RedisModule_HashFieldMinExpire != NULL;
@@ -2990,6 +2992,12 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
+    // Persist whether the source node was mid background-indexing, so the
+    // loading node (replica / hot-restart) can restart the async scan and
+    // finish a partially populated index. A scan actively in progress or a
+    // previous scan that failed on OOM both leave the index incomplete.
+    // See Indexes_FinishSSTReplication.
+    RedisModule_SaveUnsigned(rdb, (uint64_t)(sp->scan_in_progress || sp->scan_failed_OOM));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
@@ -3112,6 +3120,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    // Symmetric with IndexSpec_RdbSave: whether the source node was mid
+    // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
+    // the async scan and backfill the remaining documents.
+    sp->resume_bg_indexing = (bool)LoadUnsigned_IOError(rdb, goto cleanup);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
       TrieType_Free(sp->terms);
