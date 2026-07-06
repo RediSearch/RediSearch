@@ -324,10 +324,6 @@ typedef struct AREQ {
 
   bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
-  ChunkReplyState storedReplyState;
 } AREQ;
 
 /* Forward declaration; full type lives in hybrid_request.h. */
@@ -389,6 +385,12 @@ struct BlockedRequestCtx {
                                   // MOD-16023, generalized to all cycles)
   void *coord_ctx;              // CoordRequestCtx*/MRCtx* on coordinator
                                 // paths (wired in Step 5); NULL for shard
+  // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
+  // results/error here before UnblockClient; the reply or timeout callback
+  // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
+  // EndCycle (per cycle) and again, idempotently, in BlockedRequestCtx_Free
+  // for cycles that do not run EndCycle yet (coordinator paths until Step 5).
+  ChunkReplyState reply;
   /* Transitional bridge until Step 3 links the wrapper itself into
    * BlockedQueries: the registry node created for this cycle, unlinked and
    * freed in EndCycle. Kind-tagged because query and cursor nodes live in
@@ -602,11 +604,11 @@ void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
 
 /**
- * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Free a cursor parked in `req->brc->reply.cursor`, if any.
  * Used by cleanup paths to release a cursor left behind when the
  * blocked-client timeout fires before the reply callback runs and
  * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `storedReplyState.cursor` is NULL.
+ * No-op when `brc->reply.cursor` is NULL.
  */
 void AREQ_CleanUpStoredCursor(AREQ *req);
 

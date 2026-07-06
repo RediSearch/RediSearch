@@ -49,6 +49,14 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
     rm_free(brc->registry_node);
     brc->registry_node = NULL;
   }
+  // Per-cycle reply-state teardown: dispose whatever the reply callback did
+  // not consume — unconsumed stored results (timeout fired first) and any
+  // cursor stashed by runCursor (disposing it here is what prevents the
+  // RETURN_STRICT preempt path from leaking the cursor reserved by an initial
+  // WITHCURSOR query — MOD-8477 / PR #10085). Idempotent; runs again in
+  // BlockedRequestCtx_Free for coordinator cycles that skip EndCycle (Step 5).
+  ChunkReplyState_Destroy(&brc->reply);
+  brc->reply.hasStoredResults = false;
   brc->bc = NULL;
   brc->reply_cb = NULL;
   brc->coord_ctx = NULL;
@@ -57,14 +65,6 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   BlockedRequestCtx *brc = privdata;
   BlockedRequestCtx_EndCycle(brc);
-  // Drain any cursor parked in the stored reply state before releasing the
-  // cycle's hold. Guarded no-op on the happy path (the reply callback already
-  // cleared the stash) and for queries that never reserved a cursor; disposing
-  // it here is what prevents the RETURN_STRICT preempt path from leaking the
-  // cursor reserved by an initial WITHCURSOR query (MOD-8477 / PR #10085).
-  if (brc->kind == REQUEST_KIND_AREQ) {
-    AREQ_CleanUpStoredCursor(brc->query.areq);
-  }
   BlockedRequestCtx_DecrRef(brc);
 }
 
