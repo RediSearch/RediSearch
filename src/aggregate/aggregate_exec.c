@@ -1996,15 +1996,12 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // User-facing cursors are unsupported on disk (flex). The coordinator rejects
-  // them pre-fan-out; this covers routes where the public command reaches the
-  // shard handler directly. Internal "_FT.*" dispatch (the coordinator's own
-  // WITHCURSOR fan-out) must pass.
+  // User-facing cursors are unsupported on disk (flex); internal "_FT.*"
+  // dispatch (the coordinator's own WITHCURSOR fan-out) must pass.
   if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
-      SearchDisk_IsEnabledForValidation() && *RedisModule_StringPtrLen(argv[0], NULL) != '_') {
-    SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status);
-    // prepareRequest installed the thread-local spec; on success paths
-    // buildPipelineAndExecute clears it, so clear it here before bailing.
+      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status)) {
+    // prepareRequest installed the thread-local spec; clear before bailing.
     CurrentThread_ClearIndexSpec();
     goto error;
   }

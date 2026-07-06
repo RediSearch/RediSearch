@@ -1802,102 +1802,57 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   const bool enterprise = IsEnterprise();
 
   SearchCommand commands[] = {
-      // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
-      // to be able to replicate from an old RediSearch version.
-      // If this is the light version then the _ft.safeadd/_ft.del does not exist
-      // and we will get the normal ft.safeadd/ft.del command.
-      DEFINE_COMMAND(RS_ADD_CMD, DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom", NULL,
-                     NONE, "write", true, indexDocCmdArgs, false),
-      DEFINE_COMMAND(RS_DEL_CMD, DiskDisabledCmd(DeleteCommand), "write", NULL, NONE, "write", true,
-                     indexDocCmdArgs, false),
-      DEFINE_COMMAND(RS_SAFEADD_CMD, DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom", NULL,
-                     NONE, "write", true, indexDocCmdArgs, false),
-      DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",
-                     NULL, NONE, "write", enterprise, indexDocCmdArgs, true),
-      DEFINE_COMMAND(LEGACY_RS_DEL_CMD, DiskDisabledCmd(DeleteCommand), "write", NULL, NONE,
-                     "write", enterprise, indexDocCmdArgs, true),
+    // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
+    // to be able to replicate from an old RediSearch version.
+    // If this is the light version then the _ft.safeadd/_ft.del does not exist
+    // and we will get the normal ft.safeadd/ft.del command.
+    DEFINE_COMMAND(RS_ADD_CMD,            DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_DEL_CMD,            DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(RS_SAFEADD_CMD,        DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       true,                 indexDocCmdArgs, false),
+    DEFINE_COMMAND(LEGACY_RS_SAFEADD_CMD, DiskDisabledCmd(RSAddDocumentCommand), "write deny-oom",  NULL, NONE, "write",       enterprise,       indexDocCmdArgs, true),
+    DEFINE_COMMAND(LEGACY_RS_DEL_CMD,     DiskDisabledCmd(DeleteCommand),        "write",           NULL, NONE, "write",       enterprise,       indexDocCmdArgs, true),
 
-      // write commands (on enterprise we do not define them, the dmc takes care of them)
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_CMD), CreateIndexCommand, "write deny-oom", NULL, NONE,
-                     "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_IF_NX_CMD), CreateIndexIfNotExistsCommand,
-                     "write deny-oom", NULL, NONE, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_RESTORE_IF_NX), NULL, "write", RegisterRestoreIfNxCommands,
-                     SUBSCRIBE_SUBCOMMANDS, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_SYNUPDATE_CMD), DiskDisabledCmd(SynUpdateCommand),
-                     "write deny-oom", SetFtSynupdateInfo, SET_COMMAND_INFO, "", true,
-                     indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_CMD), DiskDisabledCmd(AlterIndexCommand),
-                     "write deny-oom", SetFtAlterInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs,
-                     !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_IF_NX_CMD), DiskDisabledCmd(AlterIndexIfNXCommand),
-                     "write deny-oom", SetFtAlterInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs,
-                     !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_ADD), DiskDisabledCmd(DictAddCommand), "write deny-oom",
-                     SetFtDictaddInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_DEL), DiskDisabledCmd(DictDelCommand), "write",
-                     SetFtDictdelInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD), AliasAddCommand, "write deny-oom", SetFtAliasaddInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD_IF_NX), AliasAddCommandIfNX, "write deny-oom",
-                     SetFtAliasaddInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE), AliasUpdateCommand, "write deny-oom",
-                     SetFtAliasupdateInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs,
-                     !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL), AliasDelCommand, "write", SetFtAliasdelInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X), AliasDelIfExCommand, "write", SetFtAliasdelInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, !enterprise),
-      DEFINE_COMMAND(RS_ALIASLIST_CMD, AliasListCommand, "readonly", SetFtAliaslistInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, false),
+    // write commands (on enterprise we do not define them, the dmc takes care of them)
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_CMD),         CreateIndexCommand,            "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_CREATE_IF_NX_CMD),   CreateIndexIfNotExistsCommand, "write deny-oom",   NULL,                         NONE,                   "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_RESTORE_IF_NX),      NULL,                          "write",            RegisterRestoreIfNxCommands,  SUBSCRIBE_SUBCOMMANDS,  "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_SYNUPDATE_CMD),      DiskDisabledCmd(SynUpdateCommand),              "write deny-oom",   SetFtSynupdateInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_CMD),          DiskDisabledCmd(AlterIndexCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALTER_IF_NX_CMD),    DiskDisabledCmd(AlterIndexIfNXCommand),             "write deny-oom",   SetFtAlterInfo,               SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_ADD),           DiskDisabledCmd(DictAddCommand),  "write deny-oom",   SetFtDictaddInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_DICT_DEL),           DiskDisabledCmd(DictDelCommand),  "write",            SetFtDictdelInfo,             SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD),           AliasAddCommand,               "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASADD_IF_NX),     AliasAddCommandIfNX,           "write deny-oom",   SetFtAliasaddInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASUPDATE),        AliasUpdateCommand,            "write deny-oom",   SetFtAliasupdateInfo,         SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL),           AliasDelCommand,               "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(CMD_FOR_ENV(RS_ALIASDEL_IF_X),      AliasDelIfExCommand,           "write",            SetFtAliasdelInfo,            SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, !enterprise),
+    DEFINE_COMMAND(RS_ALIASLIST_CMD,                   AliasListCommand,              "readonly",         SetFtAliaslistInfo,           SET_COMMAND_INFO,       "",  true, indexOnlyCmdArgs, false),
 
-      // Suggestion commands key specs should be 1, 1, 1
-      DEFINE_COMMAND(RS_SUGADD_CMD, DiskDisabledCmd(RSSuggestAddCommand), "write deny-oom",
-                     SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
-      DEFINE_COMMAND(RS_SUGGET_CMD, DiskDisabledCmd(RSSuggestGetCommand), "readonly",
-                     SetFtSuggetInfo, SET_COMMAND_INFO, "read", true, indexSugCmdArgs, false),
-      DEFINE_COMMAND(RS_SUGDEL_CMD, DiskDisabledCmd(RSSuggestDelCommand), "write", SetFtSugdelInfo,
-                     SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
-      DEFINE_COMMAND(RS_SUGLEN_CMD, DiskDisabledCmd(RSSuggestLenCommand), "readonly",
-                     SetFtSuglenInfo, SET_COMMAND_INFO, "read", true, indexSugCmdArgs, false),
-      // Local commands
-      DEFINE_COMMAND(RS_EXPLAIN_CMD, QueryExplainCommand, "readonly", SetFtExplainInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly", SetFtExplaincliInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_DICT_DUMP, DiskDisabledCmd(DictDumpCommand), "readonly", SetFtDictdumpInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_SYNDUMP_CMD, DiskDisabledCmd(SynDumpCommand), "readonly", SetFtSyndumpInfo,
-                     SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList, "readonly", SetFt_ListInfo, SET_COMMAND_INFO,
-                     "slow admin", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_SYNADD_CMD, DiskDisabledCmd(SynAddCommand), "write deny-oom", NULL, NONE,
-                     "", true, indexOnlyCmdArgs, false),
-      // read only commands
-      DEFINE_COMMAND(RS_INFO_CMD, IndexInfoCommand, "readonly", SetDontCacheInfo, SET_COMMAND_INFO,
-                     "", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_SEARCH_CMD, RSSearchCommand, "readonly", SetFtSearchInfo, SET_COMMAND_INFO,
-                     "", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_GET_CMD, DiskDisabledCmd(GetSingleDocumentCommand), "readonly",
-                     SetDontCacheInfo, SET_COMMAND_INFO, "read", true, indexDocCmdArgs, false),
-      DEFINE_COMMAND(RS_HYBRID_CMD, DiskDisabledCmd(RSShardedHybridCommand), "readonly",
-                     SetFtHybridInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand, "readonly", SetFtAggregateInfo,
-                     SET_COMMAND_INFO, "read", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_PROFILE_CMD, RSProfileCommand, "readonly", SetFtProfileInfo,
-                     SET_COMMAND_INFO, "read", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_MGET_CMD, DiskDisabledCmd(GetDocumentsCommand), "readonly",
-                     SetDontCacheInfo, SET_COMMAND_INFO, "read", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_TAGVALS_CMD, DiskDisabledCmd(TagValsCommand), "readonly", SetFtTagvalsInfo,
-                     SET_COMMAND_INFO, "read slow dangerous", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_CURSOR_CMD, NULL, "readonly", RegisterCursorCommands, SUBSCRIBE_SUBCOMMANDS,
-                     "read", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_DEBUG, NULL, RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,
-                     SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous", true, indexOnlyCmdArgs, false),
-      DEFINE_COMMAND(RS_SPELL_CHECK, DiskDisabledCmd(SpellCheckCommand), "readonly",
-                     SetFtSpellcheckInfo, SET_COMMAND_INFO, "", true, indexOnlyCmdArgs, true),
-      DEFINE_COMMAND(RS_CONFIG, NULL, RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands,
-                     SUBSCRIBE_SUBCOMMANDS, "admin", true, indexOnlyCmdArgs, false),
+    // Suggestion commands key specs should be 1, 1, 1
+    DEFINE_COMMAND(RS_SUGADD_CMD,     DiskDisabledCmd(RSSuggestAddCommand), "write deny-oom", SetFtSugaddInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
+    DEFINE_COMMAND(RS_SUGGET_CMD,     DiskDisabledCmd(RSSuggestGetCommand), "readonly",       SetFtSuggetInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs, false),
+    DEFINE_COMMAND(RS_SUGDEL_CMD,     DiskDisabledCmd(RSSuggestDelCommand), "write",          SetFtSugdelInfo, SET_COMMAND_INFO, "write", true, indexSugCmdArgs, false),
+    DEFINE_COMMAND(RS_SUGLEN_CMD,     DiskDisabledCmd(RSSuggestLenCommand), "readonly",       SetFtSuglenInfo, SET_COMMAND_INFO, "read",  true, indexSugCmdArgs, false),
+    // Local commands
+    DEFINE_COMMAND(RS_EXPLAIN_CMD,    QueryExplainCommand,    "readonly",       SetFtExplainInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_EXPLAINCLI_CMD, QueryExplainCLICommand, "readonly",       SetFtExplaincliInfo, SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_DICT_DUMP,      DiskDisabledCmd(DictDumpCommand), "readonly",       SetFtDictdumpInfo,   SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_SYNDUMP_CMD,    DiskDisabledCmd(SynDumpCommand),         "readonly",       SetFtSyndumpInfo,    SET_COMMAND_INFO, "",           true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_INDEX_LIST_CMD, IndexList,              "readonly",       SetFt_ListInfo,      SET_COMMAND_INFO, "slow admin", true, indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_SYNADD_CMD,     DiskDisabledCmd(SynAddCommand),          "write deny-oom", NULL,                NONE,             "",           true, indexOnlyCmdArgs, false),
+    // read only commands
+    DEFINE_COMMAND(RS_INFO_CMD,      IndexInfoCommand,         "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
+    DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_CURSOR_CMD,    NULL,                     "readonly"                , RegisterCursorCommands,    SUBSCRIBE_SUBCOMMANDS, "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_DEBUG,         NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterAllDebugCommands,  SUBSCRIBE_SUBCOMMANDS, "admin slow dangerous",                true,             indexOnlyCmdArgs, false),
+    DEFINE_COMMAND(RS_SPELL_CHECK,   DiskDisabledCmd(SpellCheckCommand),        "readonly"                , SetFtSpellcheckInfo,       SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_CONFIG,        NULL,                     RS_READ_ONLY_FLAGS_DEFAULT, RegisterConfigSubCommands, SUBSCRIBE_SUBCOMMANDS, "admin",                true,             indexOnlyCmdArgs, false),
   };
 
   if (CreateSearchCommands(ctx, commands, sizeof(commands) / sizeof(commands[0])) != REDISMODULE_OK) {
@@ -4073,34 +4028,24 @@ CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
   CommandKeys keys = DEFINE_COMMAND_KEYS(0, 0, 0);
-  // Internal ("_FT") cursor subcommands stay enabled on disk (flex): the
-  // coordinator's aggregate fan-out always creates shard cursors and drains
-  // them via `_FT.CURSOR READ/DEL`. User-facing cursors are rejected at the
-  // public boundary (WITHCURSOR rejection + RegisterCoordCursorCommands).
-  SubCommand subcommands[] = {{.name = "READ",
-                               .fullName = RS_CURSOR_CMD "|READ",
-                               .flags = "readonly",
-                               .handler = RSCursorReadCommand,
-                               .setCommandInfo = SetFtCursorReadInfo,
-                               .position = keys},
-                              {.name = "DEL",
-                               .fullName = RS_CURSOR_CMD "|DEL",
-                               .flags = "readonly",
-                               .handler = RSCursorDelCommand,
-                               .setCommandInfo = SetFtCursorDelInfo,
-                               .position = keys},
-                              {.name = "PROFILE",
-                               .fullName = RS_CURSOR_CMD "|PROFILE",
-                               .flags = "readonly",
-                               .handler = RSCursorProfileCommand,
-                               .setCommandInfo = SetDontCacheInfo,
-                               .position = keys},
-                              {.name = "GC",
-                               .fullName = RS_CURSOR_CMD "|GC",
-                               .flags = "readonly",
-                               .handler = RSCursorGCCommand,
-                               .setCommandInfo = SetDontCacheInfo,
-                               .position = keys}};
+  // Internal cursor subcommands stay enabled on disk (flex): the coordinator's
+  // aggregate fan-out creates shard cursors and drains them via _FT.CURSOR.
+  // User-facing cursors are rejected at the public boundary (WITHCURSOR
+  // rejection + RegisterCoordCursorCommands).
+  SubCommand subcommands[] = {
+    {.name = "READ",    .fullName = RS_CURSOR_CMD "|READ",    .flags = "readonly",
+     .handler = RSCursorReadCommand,
+     .setCommandInfo = SetFtCursorReadInfo, .position = keys},
+    {.name = "DEL",     .fullName = RS_CURSOR_CMD "|DEL",     .flags = "readonly",
+     .handler = RSCursorDelCommand,
+     .setCommandInfo = SetFtCursorDelInfo, .position = keys},
+    {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
+     .handler = RSCursorProfileCommand,
+     .setCommandInfo = SetDontCacheInfo, .position = keys},
+    {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
+     .handler = RSCursorGCCommand,
+     .setCommandInfo = SetDontCacheInfo, .position = keys}
+    };
 
   return CreateSubCommands(ctx, cursorCommand, subcommands, sizeof(subcommands) / sizeof(SubCommand));
 }
@@ -4976,21 +4921,14 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const CommandKeys noKeyArgs = DEFINE_COMMAND_KEYS(0, 0, 0);
 
   SearchCommand readCommands[] = {
-      // read commands
-      DEFINE_COMMAND("FT.INFO", SafeCmd(InfoCommandHandler), "readonly", SetFtInfoInfo,
-                     SET_COMMAND_INFO, "", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.SEARCH", SafeCmd(DistSearchCommand), "readonly", SetFtSearchInfo,
-                     SET_COMMAND_INFO, "read", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.AGGREGATE", SafeCmd(DistAggregateCommand), "readonly", SetFtAggregateInfo,
-                     SET_COMMAND_INFO, "read", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.PROFILE", SafeCmd(ProfileCommandHandler), "readonly", SetFtProfileInfo,
-                     SET_COMMAND_INFO, "read", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(DiskDisabledCmd(SpellCheckCommandHandler)),
-                     "readonly", SetFtSpellcheckInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.HYBRID", SafeCmd(DiskDisabledCmd(DistHybridCommand)), "readonly",
-                     SetFtHybridInfo, SET_COMMAND_INFO, "read", true, noKeyArgs, false),
-      DEFINE_COMMAND("FT.CURSOR", NULL, "readonly", RegisterCoordCursorCommands,
-                     SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
+    // read commands
+    DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,               SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(DiskDisabledCmd(SpellCheckCommandHandler)), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DiskDisabledCmd(DistHybridCommand)), "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.CURSOR",     NULL,                              "readonly", RegisterCoordCursorCommands, SUBSCRIBE_SUBCOMMANDS, "read", true, noKeyArgs, false),
   };
   if (CreateSearchCommands(ctx, readCommands, sizeof(readCommands) / sizeof(SearchCommand)) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

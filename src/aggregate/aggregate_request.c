@@ -1012,11 +1012,9 @@ error:
 
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
-  // FT.AGGREGATE LOAD is allowed on disk (flex): HASH documents load through
-  // the disk async loader, and JSON-on-disk is rejected at bound-spec time
-  // (AREQ_ApplyContext, FlexValidation_RejectFieldReturn), where the doc type
-  // is known. FT.SEARCH LOAD stays rejected. The request-type flag is set from
-  // the command type before compilation (buildRequest / prepareForExecution).
+  // FT.AGGREGATE LOAD is allowed on disk (flex): HASH loads via the disk async
+  // loader; JSON-on-disk is rejected at bound-spec time (AREQ_ApplyContext).
+  // FT.SEARCH LOAD stays rejected.
   if (isDiskIndex && !(*reqflags & QEXEC_F_IS_AGGREGATE)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
     return REDISMODULE_ERR;
