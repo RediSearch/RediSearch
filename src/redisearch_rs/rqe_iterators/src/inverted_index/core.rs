@@ -7,26 +7,39 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::IndexReader;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    SkipToOutcomeRaw,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
-/// A generic iterator over inverted index entries.
+/// A generic iterator over inverted index entries, parameterised over a
+/// [`Ref`] mode.
 ///
 /// This iterator is used to query an inverted index.
 ///
+/// Layout is fixed via `#[repr(C)]` so that the `Active`/`Suspended`
+/// instantiations are transmute-compatible: every `Rf`-dependent field —
+/// `result`, `read_impl`, `skip_to_impl` — has the same memory size and
+/// alignment regardless of the chosen mode, and `R` is expected to be
+/// `#[repr(C)]` with the same property. See [`InvIndIterator`] for the only
+/// instantiation that currently has an [`RQEIterator`] impl.
+///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode: [`Active<'a>`] gives the iterator working,
+///   readable references into the index; [`Suspended`](ref_mode::Suspended)
+///   produces a passive carrier with no callable surface.
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
-pub struct InvIndIterator<'index, R, E = NoOpChecker> {
+#[repr(C)]
+pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
     /// The reader used to iterate over the inverted index.
     pub(super) reader: R,
     /// if we reached the end of the index.
@@ -34,7 +47,7 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     /// the last document ID read by the iterator.
     last_doc_id: DocId,
     /// A reusable result object to avoid allocations on each `read` call.
-    pub(super) result: RSIndexResult<'index>,
+    pub(super) result: RawIndexResult<Rf>,
 
     /// The expiration checker used to determine if documents are expired.
     expiration_checker: E,
@@ -42,11 +55,20 @@ pub struct InvIndIterator<'index, R, E = NoOpChecker> {
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
-    read_impl: fn(&mut Self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError>,
+    read_impl: fn(&mut Self) -> Result<Option<&mut RawIndexResult<Rf>>, RQEIteratorError>,
     /// The implementation of the [`skip_to`](RQEIterator::skip_to) method.
+    #[expect(
+        clippy::type_complexity,
+        reason = "Specialised fn pointer parameterised by Rf — extracting it to a type alias \
+                  would hide the Rf dependency that drives transmute soundness across modes."
+    )]
     skip_to_impl:
-        fn(&mut Self, DocId) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError>,
+        fn(&mut Self, DocId) -> Result<Option<SkipToOutcomeRaw<'_, Rf>>, RQEIteratorError>,
 }
+
+/// Alias for an [`Active`] [`RawInvIndIterator`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type InvIndIterator<'index, R, E = NoOpChecker> = RawInvIndIterator<Active<'index>, R, E>;
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where

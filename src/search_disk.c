@@ -224,6 +224,13 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
     return result;
 }
 
+ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, uint32_t reqflags,
+                                                          RLookup *lk, const RLookupKey **keys,
+                                                          size_t nkeys, uint32_t *outStateFlags) {
+    return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
+                                                     outStateFlags);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);

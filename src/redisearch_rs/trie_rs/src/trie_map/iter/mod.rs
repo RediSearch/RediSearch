@@ -21,7 +21,10 @@ mod unfiltered;
 mod values;
 mod wildcard;
 
-pub use automaton::{Automaton, AutomatonIter, AutomatonLendingIter, StateClass};
+pub use automaton::{
+    Automaton, AutomatonIter, AutomatonLendingIter, NfaBitSet, StateClass, WildcardBackend,
+    WildcardNfa, WildcardSpecializedIter, WildcardSpecializedLendingIter,
+};
 pub use contains::ContainsIter;
 pub use into_values::IntoValues;
 pub use lending::LendingIter;

@@ -23,6 +23,7 @@ field.workspace = true
 idf.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
+ref_mode.workspace = true
 inverted_index.workspace = true
 libc.workspace = true
 numeric_range_tree.workspace = true

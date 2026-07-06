@@ -83,6 +83,7 @@ impl Decoder for FieldsOffsets {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
@@ -181,6 +182,7 @@ impl Decoder for FieldsOffsetsWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,

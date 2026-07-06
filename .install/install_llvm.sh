@@ -70,6 +70,26 @@ export_path_gha() {
     export LIBCLANG_PATH="${INSTALL_DIR}/lib"
 }
 
+llvm_major() {
+    "$1" --version 2>/dev/null | head -1 | sed -En 's/.*version ([0-9]+).*/\1/p'
+}
+
+accept_native_llvm() {
+    local clang_cmd="$1"
+    local lld_cmd="$2"
+
+    command -v "$clang_cmd" &>/dev/null || return 1
+    command -v "$lld_cmd" &>/dev/null || return 1
+
+    local actual
+    actual=$(llvm_major "$clang_cmd")
+    [[ "$actual" == "$LLVM_VER" ]] || return 1
+
+    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
+}
+
 # ---------------------------------------------------------------------------
 # Source the macOS profile updater if present.
 # ---------------------------------------------------------------------------
@@ -178,8 +198,28 @@ install_llvm() {
         fi
         ;;
 
+    # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
+    rhel|rocky|almalinux|centos|fedora|amzn)
+        # Try native distro packages first — they're built against the system
+        # glibc/libstdc++ so no version-mismatch issues with the tarball.
+        if $MODE dnf install -y --nobest --skip-broken \
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null \
+                && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
+        elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
+        elif $MODE yum install -y clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed clang from native yum repos"
+        else
+            echo ">>> Native packages unavailable or wrong LLVM major — falling back to official tarball"
+            install_from_tarball
+        fi
+        ;;
+
     # ----- Everything else: official tarball ----------------------------------
-    # Rocky, CentOS, RHEL, AlmaLinux, Fedora, Amazon Linux, Mariner, Azure Linux
+    # Mariner, Azure Linux, and anything else
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball

@@ -1109,6 +1109,7 @@ dependencies = [
  "qint",
  "query_term",
  "redis_reply",
+ "ref_mode",
  "rqe_core",
  "serde",
  "smallvec",
@@ -1932,6 +1933,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdb_io"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redis-module"
 version = "2.0.8"
 source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
@@ -2035,6 +2044,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.118",
+ "term_suffix_index_ffi",
  "toml",
  "triemap_ffi",
  "ttl_table_ffi",
@@ -2283,6 +2293,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
@@ -2890,6 +2901,18 @@ dependencies = [
  "rstest",
  "string_utils",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_suffix_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "term_suffix_index",
+ "term_suffix_index_ffi",
  "workspace_hack",
 ]
 

@@ -9,7 +9,8 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -23,6 +24,9 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 /// An optimized NOT iterator that uses a wildcard inverted index iterator.
 ///
+/// Parameterised over a [`Ref`] mode — see [`NotOptimized`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// Unlike [`Not`](super::not::Not) which iterates sequentially from 1 to
 /// `max_doc_id`, this variant uses a
 /// [wildcard iterator](crate::wildcard) that reads from the existing-documents inverted
@@ -35,12 +39,13 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode.
 /// * `W` - The wildcard iterator type, must implement [`WildcardIterator`].
 /// * `I` - The child iterator type whose results are negated.
 /// * `TC` - The [`TimeoutContext`] implementation. Chosen at construction
 ///   time and monomorphized into the hot path.
-pub struct NotOptimized<'index, W, I, TC> {
+#[repr(C)]
+pub struct RawNotOptimized<Rf: Ref, W, I, TC> {
     /// The wildcard iterator over all existing documents.
     wcii: W,
     /// The child iterator whose results are negated.
@@ -50,12 +55,16 @@ pub struct NotOptimized<'index, W, I, TC> {
     /// Sticky EOF flag, set when iteration completes.
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
     /// Tracks the execution deadline for this iterator. Pass
     /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
     timeout_ctx: TC,
 }
+
+/// Alias for an [`Active`] [`RawNotOptimized`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<Active<'index>, W, I, TC>;
 
 impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
 where
