@@ -371,44 +371,20 @@ pub unsafe fn build_union(
 ) -> *mut QueryIterator {
     use crate::union_reducer::{NewUnionIterator, new_union_iterator};
 
-    match new_union_iterator(children, quick_exit, min_union_iter_heap) {
-        NewUnionIterator::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
-        NewUnionIterator::ReducedSingle(child) => child.into_raw().as_ptr(),
-        NewUnionIterator::Flat(flat) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::FlatFull(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUnionIterator::FlatQuick(flat) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::FlatQuick(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUnionIterator::Heap(heap) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::HeapFull(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUnionIterator::HeapQuick(heap) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::HeapQuick(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-    }
+    let variant = match new_union_iterator(children, quick_exit, min_union_iter_heap) {
+        NewUnionIterator::ReducedEmpty(empty) => return RQEIteratorWrapper::boxed_new(empty),
+        NewUnionIterator::ReducedSingle(child) => return child.into_raw().as_ptr(),
+        NewUnionIterator::Flat(flat) => UnionVariant::FlatFull(flat),
+        NewUnionIterator::FlatQuick(flat) => UnionVariant::FlatQuick(flat),
+        NewUnionIterator::Heap(heap) => UnionVariant::HeapFull(heap),
+        NewUnionIterator::HeapQuick(heap) => UnionVariant::HeapQuick(heap),
+    };
+
+    let mut dispatch = UnionOpaque {
+        variant,
+        query_node_type: type_,
+        query_string: q_str,
+    };
+    dispatch.set_result_weight(weight);
+    RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
 }
