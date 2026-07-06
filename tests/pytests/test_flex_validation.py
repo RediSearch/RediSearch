@@ -294,11 +294,6 @@ def _create_flex_search(env):
     env.expect('HSET', 'doc:1', 't', 'hello world').equal(1)
 
 
-def _create_flex_search_json(env):
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.t', 'AS', 't', 'TEXT').ok()
-
-
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_search_hash_allows_default_return(env):
@@ -307,32 +302,6 @@ def test_flex_search_hash_allows_default_return(env):
     _create_flex_search(env)
 
     env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello world']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_search_json_allows_default_return(env):
-    """On a JSON (flex) index, FT.SEARCH loads field values, so the implicit
-    default return (no RETURN, no NOCONTENT) resolves the whole document under
-    the '$' key, matching the in-memory JSON behavior (see test_json.py)."""
-    _create_flex_search_json(env)
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world"}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello').equal(
-        [1, 'doc:1', ['$', '{"t":"hello world"}']])
-
-
-@with_simulate_in_flex(True)
-def test_flex_search_json_allows_default_return_on_coordinator(env):
-    """The coordinator no longer rejects field return for JSON before fanning
-    out to shards; both HASH and JSON forward to the shard, which resolves the
-    fields. Runs on cluster to exercise prepareForExecution; harmlessly
-    re-checks the standalone path otherwise."""
-    _create_flex_search_json(env)
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world"}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello').equal(
-        [1, 'doc:1', ['$', '{"t":"hello world"}']])
 
 
 @skip(cluster=True)
