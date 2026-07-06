@@ -48,6 +48,17 @@ typedef struct DiskGC {
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
+// Disable disk GC and wait for any in-flight run to finish. After this returns no
+// disk GC run is executing and none will start, so disk indexes can be closed
+// without racing a background compaction. Called on the main thread during
+// shutdown teardown (may hold the GIL); there is no matching re-enable.
+void DiskGC_DisableAndWait(void);
+
+// Destroy the module-global disk GC lock. Must be called only on full module
+// teardown, after the GC thread pool has been destroyed so no GC thread can still
+// use the lock.
+void DiskGC_Cleanup(void);
+
 #ifdef __cplusplus
 }
 #endif

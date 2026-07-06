@@ -21,6 +21,7 @@
 #include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "disk_gc.h"
 #include "doc_id_meta.h"
 #include "iterators_ffi.h"
 #include "module_init_ffi.h"
@@ -644,10 +645,23 @@ static bool g_hotRestartSave = false;
 // The catch is *ownership*: the Rust index handle is owned by
 // the C IndexSpec as a raw pointer (sp->diskSpec, a Box::into_raw), and the
 // ONLY thing that ever drops that Box is SearchDisk_CloseIndex.
+//
+// The teardown runs in three steps, waiting out any in-flight disk GC run in the
+// middle. This close force-drops the Box directly, bypassing the StrongRef refcount
+// that normally serialises a background GC cycle against the close (on FT.DROPINDEX
+// the StrongRef destructor defers the close until periodicCb releases its ref).
+// Without the wait, a GC compaction cycle still running run_gc against a spec we
+// drop here dereferences a freed database -> SIGSEGV (see
+// docs/design/gc-shutdown-teardown-race-crash.md).
 static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     return;
   }
+
+  // Pass 1: main-thread teardown + mark for deletion on every disk spec.
+  // SearchDisk_MarkIndexForDeletion also disable_compactions(), which cancels the
+  // in-flight GC cycle (the GC pool has a single thread) so the wait below returns
+  // promptly instead of sitting through a full compaction.
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
@@ -657,6 +671,23 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
       // Main-thread teardown must always precede close (see SearchDisk_CloseIndex docs).
       SearchDisk_CloseIndexOnMainThread(ctx, sp);
       SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  // Wait out any in-flight disk GC run and block new ones: after this no run is
+  // executing and none will start, so the closes below cannot free a diskSpec out
+  // from under an in-flight compaction. disable_compactions() (pass 1) only cancels
+  // the compaction; this wait is what guarantees the GC run has finished the tail
+  // of run_gc and released the spec.
+  DiskGC_DisableAndWait();
+
+  // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
+  iter = dictGetIterator(specDict_g);
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
       SearchDisk_CloseIndex(sp->diskSpec);
       sp->diskSpec = NULL;
     }
@@ -670,6 +701,12 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     RedisModule_Log(ctx, "notice", "%s",
                     "Deleting on-disk search indexes on shutdown (not a hot restart)");
     DeleteDiskIndexesOnShutdown(ctx);
+  } else {
+    // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
+    // shared DiskContext; wait out any in-flight disk GC run first so no compaction
+    // races that close. The checkpoint (index_spec_pre_checkpoint) already
+    // disable_compactions()d during the save, so this wait is prompt.
+    DiskGC_DisableAndWait();
   }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
