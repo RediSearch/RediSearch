@@ -150,22 +150,41 @@ jobs:
             fi
           }
 
+          ensure_curl() {
+            command -v curl >/dev/null 2>&1 && return 0
+
+            if command -v dnf >/dev/null 2>&1; then
+              run_pkg dnf install -y curl-minimal || run_pkg dnf install -y curl
+            elif command -v yum >/dev/null 2>&1; then
+              run_pkg yum install -y curl
+            elif command -v tdnf >/dev/null 2>&1; then
+              run_pkg tdnf install -y --noplugins curl
+            elif command -v apk >/dev/null 2>&1; then
+              run_pkg apk add --no-cache curl
+            elif command -v apt-get >/dev/null 2>&1; then
+              run_pkg apt-get install -y --no-install-recommends curl
+            fi
+
+            command -v curl >/dev/null 2>&1
+          }
+
           if command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
             run_pkg apt-get update
-            run_pkg apt-get install -y --no-install-recommends bash ca-certificates curl git make
+            run_pkg apt-get install -y --no-install-recommends bash ca-certificates curl findutils gawk git make
           elif command -v dnf >/dev/null 2>&1; then
-            run_pkg dnf install -y bash ca-certificates curl git gzip make tar
+            run_pkg dnf install -y bash ca-certificates findutils gawk git gzip make tar
           elif command -v yum >/dev/null 2>&1; then
-            run_pkg yum install -y bash ca-certificates curl git gzip make tar
+            run_pkg yum install -y bash ca-certificates findutils gawk git gzip make tar
           elif command -v apk >/dev/null 2>&1; then
-            run_pkg apk add --no-cache bash ca-certificates curl git make
+            run_pkg apk add --no-cache bash ca-certificates curl findutils gawk git make
           elif command -v tdnf >/dev/null 2>&1; then
-            run_pkg tdnf install -y --noplugins bash ca-certificates curl git gzip make tar
+            run_pkg tdnf install -y --noplugins bash ca-certificates findutils gawk git gzip make tar
           elif command -v brew >/dev/null 2>&1; then
             brew list git >/dev/null 2>&1 || brew install git
           fi
 
+          ensure_curl
           git config --global --add safe.directory '*'
 
       - name: Checkout Redis
@@ -215,23 +234,28 @@ jobs:
             show && count >= 5 { show = 0 }
           ' "$MANIFEST_FILE"
 
-      - name: Run Redis modules build flow
+      - name: Run make modules-update redisearch
         timeout-minutes: ${{ inputs.test-timeout }}
         working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
-        run: |
-          echo "::group::make modules-update redisearch"
-          make modules-update redisearch
-          echo "::endgroup::"
+        run: make modules-update redisearch
 
-          echo "::group::make bootstrap redisearch"
-          make bootstrap redisearch
-          echo "::endgroup::"
+      # Bootstrap may install toolchains and persist them through GITHUB_PATH/GITHUB_ENV.
+      # Keep build in a later step so those updates are visible.
+      - name: Run make bootstrap redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: make bootstrap redisearch
 
-          echo "::group::make build redisearch"
-          make build redisearch
-          echo "::endgroup::"
+      - name: Run make build redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: make build redisearch
 
       - name: Verify make run loads RediSearch
         working-directory: redis
