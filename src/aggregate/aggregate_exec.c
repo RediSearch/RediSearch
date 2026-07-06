@@ -428,7 +428,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
  * from the reply_callback on the main thread.
  *
  * @param req The aggregate request
- * @param results Pipeline results (ownership transferred to storedReplyState)
+ * @param results Pipeline results (ownership transferred to brc->reply)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  * @param limit Original limit passed to sendChunk (for RESP2 resultsLen calculation)
@@ -1608,7 +1608,7 @@ void AREQ_SetCanYieldPartialResults(AREQ *req) {
       pipelineCanYieldPartialResults(req);
 }
 
-// Drain any queued partial results into `storedReplyState.results` on the main
+// Drain any queued partial results into `brc->reply.results` on the main
 // thread after the background pipeline has aborted. Shard pipelines need no
 // root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
 // flip), so this just gates and delegates the actual loop to the shared helper.
@@ -2160,7 +2160,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   if (req->useReplyCallback) {
     // Stash the cursor BEFORE sendChunk: sendChunk's signal can wake the
-    // timeout_callback, which reads storedReplyState.cursor to pause/free it.
+    // timeout_callback, which reads brc->reply.cursor to pause/free it.
     req->brc->reply.cursor = cursor;
   }
 

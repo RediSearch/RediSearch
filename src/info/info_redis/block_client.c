@@ -20,6 +20,12 @@
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy,
                                   void *coord_ctx) {
+  // No overlapping cycles: the previous cycle's OnFree must have run before a
+  // new cycle may begin on the same wrapper. Until Step 2b moves cursor
+  // park/free from the BG thread to OnFree, there is a narrow window where a
+  // concurrent FT.CURSOR READ can reach a paused cursor before the previous
+  // cycle's OnFree ran — this assert makes that overlap loud in debug builds.
+  RS_ASSERT(brc->bc == NULL && brc->registry_node == NULL);
   // The cycle's hold on the wrapper: keeps the wrapper (and the owned request)
   // alive until OnFree, so the reply/timeout callbacks may dereference the
   // privdata even if the BG worker released its own hold (e.g. a cursor freed
@@ -49,12 +55,21 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
     rm_free(brc->registry_node);
     brc->registry_node = NULL;
   }
+  // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
+  // AREQ_CleanUpStoredCursor frees the cursor with execState intact, so
+  // Cursor_FreeInternal releases the cursor's wrapper reference. Skipping this
+  // and letting ChunkReplyState_Destroy handle the stash would leak that
+  // reference (it deliberately clears execState first — correct only in the
+  // refcount==0 context of BlockedRequestCtx_Free). Disposing the stash here is
+  // also what prevents the RETURN_STRICT preempt path from leaking the cursor
+  // reserved by an initial WITHCURSOR query (MOD-8477 / PR #10085).
+  if (brc->kind == REQUEST_KIND_AREQ) {
+    AREQ_CleanUpStoredCursor(brc->query.areq);
+  }
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
-  // not consume — unconsumed stored results (timeout fired first) and any
-  // cursor stashed by runCursor (disposing it here is what prevents the
-  // RETURN_STRICT preempt path from leaking the cursor reserved by an initial
-  // WITHCURSOR query — MOD-8477 / PR #10085). Idempotent; runs again in
-  // BlockedRequestCtx_Free for coordinator cycles that skip EndCycle (Step 5).
+  // not consume (unconsumed stored results when the timeout replied first).
+  // Idempotent; runs again in BlockedRequestCtx_Free for coordinator cycles
+  // that skip EndCycle (until Step 5).
   ChunkReplyState_Destroy(&brc->reply);
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;

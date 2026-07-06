@@ -484,7 +484,7 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
  * from the reply_callback on the main thread.
  *
  * @param hreq The hybrid request
- * @param results Pipeline results (ownership transferred to storedReplyState)
+ * @param results Pipeline results (ownership transferred to brc->reply)
  * @param rc Pipeline return code
  * @param cv Cached variables for result serialization
  */
