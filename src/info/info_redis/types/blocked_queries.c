@@ -93,6 +93,10 @@ void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
-  StrongRef_Release(blockedCursorNode->spec);
+  // AddCursor's promotion can fail (index dropped while the cursor was idle),
+  // leaving a NULL ref; releasing it would dereference a NULL RefManager.
+  if (blockedCursorNode->spec.rm) {
+    StrongRef_Release(blockedCursorNode->spec);
+  }
   dllist_delete(&blockedCursorNode->llnode);
 }

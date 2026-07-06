@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "aggregate_debug.h"
 #include "search_result_ffi.h"
 #include "reducer.h"
 
@@ -1727,6 +1728,11 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 static void AREQ_Free(AREQ *req) {
+  if (IsDebug(req)) {
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member)
+    // and own copies of their debug argv; release them.
+    AREQ_Debug_FreeParams((AREQ_Debug *)req);
+  }
   ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)

@@ -2409,16 +2409,25 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // pipeline blocks on prefetch completions delivered by the main thread, so
     // a main-thread read would deadlock. Only sub-case (3) can carry a
     // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
-    if (!upstreamBC && cursor->execState) {
-      RedisSearchCtx *cursorSctx = AREQ_SearchCtx(cursor->execState);
-      if (cursorSctx && cursorSctx->spec && cursorSctx->spec->diskSpec) {
-        // Keep the cursor valid for a later blockable read; only this read is
-        // rejected. Mirrors RSCursorProfileCommand's pause-on-error pattern.
-        Cursor_Pause(cursor);
-        return RedisModule_ReplyWithError(
-            ctx,
-            "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
-            "supported in Redis Flex");
+    // The AREQ's sctx->spec is a raw pointer that dangles if the index was
+    // dropped while the cursor was idle, so inspect the spec through the
+    // cursor's weak ref. If the index is gone, fall through — cursorRead
+    // replies with the canonical "index was dropped" error.
+    if (!upstreamBC && cursor->execState && cursor_HasSpecWeakRef(cursor)) {
+      StrongRef check_ref = IndexSpecRef_Promote(cursor->spec_ref);
+      IndexSpec *liveSpec = StrongRef_Get(check_ref);
+      if (liveSpec) {
+        const bool isDiskCursor = liveSpec->diskSpec != NULL;
+        IndexSpecRef_Release(check_ref);
+        if (isDiskCursor) {
+          // Keep the cursor valid for a later blockable read; only this read is
+          // rejected. Mirrors RSCursorProfileCommand's pause-on-error pattern.
+          Cursor_Pause(cursor);
+          return RedisModule_ReplyWithError(
+              ctx,
+              "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
+              "supported in Redis Flex");
+        }
       }
     }
 
