@@ -1919,17 +1919,31 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
-    // Disk (flex) aggregations must run on a worker thread: the async loader
-    // blocks on prefetch completions delivered by the main thread, so inline
-    // (main-thread) execution would deadlock. RunInThread is false here either
-    // because the client cannot be blocked (MULTI/EXEC, Lua) or WORKERS is 0;
-    // flex enforces WORKERS > 0, so this is the non-blockable-client case.
-    if (IsAggregate(r) && sctx->spec && sctx->spec->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                          "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
-                          "scripts) is not supported in Redis Flex");
-      CurrentThread_ClearIndexSpec();
-      return REDISMODULE_ERR;
+    // Disk (flex) pipelines that carry the async loader must run on a worker
+    // thread: the loader blocks on prefetch completions delivered by the main
+    // thread, so inline (main-thread) execution would deadlock. RunInThread is
+    // false here either because the client cannot be blocked (MULTI/EXEC, Lua)
+    // or WORKERS is 0; flex enforces WORKERS > 0, so this is the
+    // non-blockable-client case. Aggregations nearly always load fields, so
+    // reject them all (a predictable error beats a plan-shape-dependent one);
+    // searches load fields unless NOCONTENT / RETURN 0 was given, so those
+    // stay usable in MULTI/Lua exactly as before the loader existed.
+    if (sctx->spec && sctx->spec->diskSpec) {
+      if (IsAggregate(r)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                            "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
+                            "scripts) is not supported in Redis Flex");
+        CurrentThread_ClearIndexSpec();
+        return REDISMODULE_ERR;
+      }
+      if (IsSearch(r) && !(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
+                            "FT.SEARCH with field return in a context that cannot block "
+                            "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
+                            "use NOCONTENT or RETURN 0");
+        CurrentThread_ClearIndexSpec();
+        return REDISMODULE_ERR;
+      }
     }
 
     // Take a read lock on the spec (to avoid conflicts with the GC).
@@ -2587,6 +2601,18 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);
     }
+    goto error;
+  }
+
+  // Mirror execCommandCommon: user-facing cursors are unsupported on disk
+  // (flex). The debug table dispatches the public wrapper with
+  // argv[0] == "FT.AGGREGATE" and the internal shard variant with
+  // "_FT.AGGREGATE", so the same public/internal split applies.
+  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
+      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status)) {
+    // prepareRequest installed the thread-local spec; clear before bailing.
+    CurrentThread_ClearIndexSpec();
     goto error;
   }
 

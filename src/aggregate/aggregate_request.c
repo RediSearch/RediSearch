@@ -1599,6 +1599,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // loading is unsupported; HASH-on-disk loads via the async loader for FT.SEARCH
   // and FT.AGGREGATE. Everything else still requires NOCONTENT / RETURN 0. (On the
   // coordinator this is enforced pre-fan-out; see prepareForExecution.)
+  // Deliberately conservative for JSON: even fieldless JSON aggregates are
+  // rejected rather than analyzing the plan for load-freedom — JSON-on-disk
+  // loader support is landing separately (MOD-16601) and will lift this.
   if (FlexValidation_RejectFieldReturn(index, reqFlags, FlexFieldReturnRule_AllowHashQuery,
                                        status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;

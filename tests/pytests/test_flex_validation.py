@@ -881,6 +881,14 @@ def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .noError()
 
+    # ... including the user-facing WITHCURSOR rejection: the debug table
+    # dispatches the public wrapper with the public command form, so it must
+    # reject exactly like plain FT.AGGREGATE (the internal "_FT.AGGREGATE"
+    # debug variant remains the coordinator's cursor transport).
+    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR',
+               'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+
     env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('FT.HYBRID is not supported in Redis Flex')
