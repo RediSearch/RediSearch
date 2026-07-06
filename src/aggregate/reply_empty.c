@@ -188,8 +188,9 @@ int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Uses the common helper which compiles the query and works for both command types.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
 
+    // Transient, unwrapped AREQ: only flows through the reply-only chunk sender
+    // and AREQ_DecrRef, neither of which needs a BlockedRequestCtx.
     AREQ *req = AREQ_New();
-    BlockedRequestCtx_NewAREQ(req);
     // Clock init required for profiling
     rs_wall_clock_init(&req->profileClocks.initClock);
     rs_wall_clock_init(&AREQ_QueryProcessingCtx(req)->initTime);
@@ -223,8 +224,8 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 }
 
 int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
+    // Transient, unwrapped AREQ (see single_shard_common_query_reply_empty).
     AREQ *req = AREQ_New();
-    BlockedRequestCtx_NewAREQ(req);
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;
 

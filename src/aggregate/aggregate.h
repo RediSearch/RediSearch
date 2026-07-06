@@ -650,6 +650,10 @@ bool AREQ_CheckTimedOut(AREQ *areq);
  * under RETURN_STRICT, and on shard/standalone AREQs for RETURN_STRICT
  * cursor reads; all other paths skip the protocol. */
 static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
+  // Invariant: every AREQ reaching the strict-sync protocol is wrapped (the
+  // blocked client's privdata is the wrapper). Unwrapped sub-/transient AREQs
+  // never run it.
+  RS_ASSERT(req->brc != NULL);
   return req->brc->requiresAggregateResultsSync;
 }
 

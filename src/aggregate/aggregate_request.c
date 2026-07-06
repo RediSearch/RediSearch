@@ -1127,19 +1127,21 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
 }
 
 BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc) {
-  __atomic_fetch_add((int *)&brc->refcount, 1, __ATOMIC_RELAXED);
+  atomic_fetch_add_explicit(&brc->refcount, 1, memory_order_relaxed);
   return brc;
 }
 
 void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   // ACQ_REL: release ensures our writes are visible before decrement;
   // acquire ensures we see all prior writes when refcount reaches 0.
-  if (brc && !__atomic_sub_fetch((int *)&brc->refcount, 1, __ATOMIC_ACQ_REL)) {
+  if (brc && atomic_fetch_sub_explicit(&brc->refcount, 1, memory_order_acq_rel) == 1) {
     BlockedRequestCtx_Free(brc);
   }
 }
 
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
+  // Wrapping an already-wrapped request would silently leak the first wrapper.
+  RS_ASSERT(areq->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
@@ -1147,6 +1149,8 @@ BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
 }
 
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
+  // Wrapping an already-wrapped request would silently leak the first wrapper.
+  RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;

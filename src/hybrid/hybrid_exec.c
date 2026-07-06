@@ -782,7 +782,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
       // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
       // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
-      RS_ASSERT(areq->brc == NULL);
       BlockedRequestCtx_NewAREQ(areq);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
