@@ -1889,7 +1889,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
  * deadlock. Aggregations nearly always load fields, so all of them are
  * rejected (a predictable error beats a plan-shape-dependent one); searches
  * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
- * MULTI/Lua exactly as before the loader existed.
+ * MULTI/Lua.
  *
  * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
  * the request must be rejected, REDISMODULE_OK otherwise.
@@ -1953,10 +1953,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
-    // RunInThread is false here either because the client cannot be blocked
-    // (MULTI/EXEC, Lua) or WORKERS is 0; flex enforces WORKERS > 0, so this is
-    // the non-blockable-client case — disk loader-bearing pipelines must not
-    // run inline (see rejectDiskLoaderInlineExecution).
+    // RunInThread is false because the client cannot be blocked (MULTI/EXEC,
+    // Lua) or WORKERS is 0; flex enforces WORKERS > 0, so on disk this is the
+    // non-blockable-client case.
     if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -2003,6 +2002,24 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 }
 
 /**
+ * Reject a user-facing cursor aggregation on disk (flex). The public/internal
+ * split keys on the command's leading underscore: internal "_FT.*" dispatch
+ * (the coordinator's WITHCURSOR fan-out, including its debug variant) must
+ * pass. On rejection, the thread-local spec installed by prepareRequest is
+ * cleared; callers bail through their shared error path (goto error).
+ */
+static int rejectUserCursorOnDisk(RedisModuleString **argv, const AREQ *r, CommandType type,
+                                  QueryError *status) {
+  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
+      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+/**
  * @param profileOptions is a bitmask of EXEC_* flags defined in ProfileOptions enum.
  */
 int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -2035,13 +2052,7 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto error;
   }
 
-  // User-facing cursors are unsupported on disk (flex); internal "_FT.*"
-  // dispatch (the coordinator's own WITHCURSOR fan-out) must pass.
-  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
-      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
-      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status)) {
-    // prepareRequest installed the thread-local spec; clear before bailing.
-    CurrentThread_ClearIndexSpec();
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -2461,7 +2472,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
     if (!upstreamBC && cursor->execState && cursorIsDiskBacked(cursor)) {
       // Keep the cursor valid for a later blockable read; only this read is
-      // rejected. Mirrors RSCursorProfileCommand's pause-on-error pattern.
+      // rejected.
       Cursor_Pause(cursor);
       return RedisModule_ReplyWithError(
           ctx,
@@ -2628,15 +2639,7 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     goto error;
   }
 
-  // Mirror execCommandCommon: user-facing cursors are unsupported on disk
-  // (flex). The debug table dispatches the public wrapper with
-  // argv[0] == "FT.AGGREGATE" and the internal shard variant with
-  // "_FT.AGGREGATE", so the same public/internal split applies.
-  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
-      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
-      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", &status)) {
-    // prepareRequest installed the thread-local spec; clear before bailing.
-    CurrentThread_ClearIndexSpec();
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 

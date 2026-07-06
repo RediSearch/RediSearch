@@ -116,14 +116,13 @@ static ResultProcessor *getLoaderRP(RedisSearchCtx *sctx, uint32_t reqflags, RLo
                                     const RLookupKey **keys, size_t nkeys, bool forceLoad,
                                     uint32_t *outStateFlags) {
   if (sctx && sctx->spec && sctx->spec->diskSpec) {
-    // HASH-on-disk (flex): load fields from disk via the async loader. JSON-on-disk
-    // field loading is rejected earlier (AREQ_ApplyContext / coordinator), so a
-    // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD
-    // in outStateFlags itself, mirroring RPLoader_New.
+    // JSON-on-disk field loading is rejected earlier (AREQ_ApplyContext /
+    // coordinator), so a disk-backed spec here is always HASH. The async
+    // loader sets QEXEC_S_HAS_LOAD in outStateFlags itself, like RPLoader_New.
     RS_ASSERT(!isSpecJson(sctx->spec));
     ResultProcessor *rp =
         SearchDisk_NewAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys, outStateFlags);
-    RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New
+    RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");
     return rp;
   }
   return RPLoader_New(sctx, reqflags, lk, keys, nkeys, forceLoad, outStateFlags);
@@ -414,7 +413,6 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     return NULL;
   }
 
-  // Create a loader if we have keys to load or LOAD ALL flag is set
   if (loadStep->nkeys || loadStep->base.flags & PLN_F_LOAD_ALL) {
     ResultProcessor *rp = getLoaderRP(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys,
                                       forceLoad, outStateFlags);

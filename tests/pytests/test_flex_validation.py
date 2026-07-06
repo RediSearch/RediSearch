@@ -381,7 +381,6 @@ def test_flex_aggregate(env):
     env.expect('FT.AGGREGATE', 'idx', '*').noError()
     env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*').noError()
 
-    # LOAD (explicit fields and LOAD *) is allowed for HASH aggregations.
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t') \
         .equal([1, ['t', 'hello world']])
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*') \
@@ -404,10 +403,7 @@ def test_flex_aggregate_allows_sortby(env):
                't', 'TEXT', 'u', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
 
-    # SORTBY with an implicit field load (no LOAD step).
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
-
-    # Multi-field SORTBY.
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
         .noError()
 
@@ -881,10 +877,8 @@ def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .noError()
 
-    # ... including the user-facing WITHCURSOR rejection: the debug table
-    # dispatches the public wrapper with the public command form, so it must
-    # reject exactly like plain FT.AGGREGATE (the internal "_FT.AGGREGATE"
-    # debug variant remains the coordinator's cursor transport).
+    # The public debug wrapper must reject user WITHCURSOR like plain
+    # FT.AGGREGATE; the internal "_FT.AGGREGATE" debug variant stays open.
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR',
                'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .error().contains('WITHCURSOR is not supported in Redis Flex')

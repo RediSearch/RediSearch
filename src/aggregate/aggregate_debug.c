@@ -31,7 +31,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   // Own a copy of the debug argv tail. The request may execute on a worker
   // thread (WORKERS > 0, always the case on flex), where parseAndCompileDebug
   // runs at pipeline-build time — after the dispatcher's argv (or FT.PROFILE's
-  // duplicated argv array) is already freed. Released in AREQ_Debug_FreeParams.
+  // duplicated argv array) is already freed.
   unsigned long long debug_argv_count =
       debug_params.debug_params_count + 2;  // + `DEBUG_PARAMS_COUNT` `<count>`
   RedisModuleString **argv_copy = rm_malloc(sizeof(*argv_copy) * debug_argv_count);

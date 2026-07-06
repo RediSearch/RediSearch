@@ -1732,8 +1732,7 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
 static void AREQ_Free(AREQ *req) {
   if (IsDebug(req)) {
-    // Debug requests are allocated as AREQ_Debug (AREQ is the first member)
-    // and own copies of their debug argv; release them.
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
     AREQ_Debug_FreeParams((AREQ_Debug *)req);
   }
   ChunkReplyState_Destroy(&req->storedReplyState);

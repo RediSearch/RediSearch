@@ -395,13 +395,9 @@ typedef enum {
 } FlexFieldReturnRule;
 
 /**
- * Reject field return on a disk (flex) index when loading is unsupported.
- *
- * The coordinator compiles every request as an aggregate, so before fan-out it
- * can only reject JSON-on-disk field return. Once the spec is bound and the
- * request-type flags are reliable, field return is allowed only for a HASH
- * FT.SEARCH or FT.AGGREGATE (which load via the disk async loader). No-op when
- * flex is off or when the query returns no document fields.
+ * Reject field return on a disk (flex) index when loading is unsupported,
+ * according to `rule` (see FlexFieldReturnRule). No-op when flex is off or
+ * when the query returns no document fields.
  */
 int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
                                      FlexFieldReturnRule rule, QueryError *status);
