@@ -1536,44 +1536,6 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// True when a query returns no document fields (NOCONTENT, or RETURN 0, both of
-// which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
-static inline bool queryReturnsNoFields(uint32_t reqflags) {
-  return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
-}
-
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                     FlexFieldReturnRule rule, QueryError *status) {
-  if (!SearchDisk_IsEnabledForValidation() || queryReturnsNoFields(reqflags)) {
-    return REDISMODULE_OK;
-  }
-
-  if (rule == FlexFieldReturnRule_RejectJsonOnly) {
-    // This rule's sole caller is the coordinator's pre-fan-out aggregate
-    // validation (prepareForExecution in dist_aggregate.c). With disk enabled,
-    // the whole FT.AGGREGATE path is already command-gated off earlier
-    // (SearchDisk_MarkUnsupportedCommandIfDiskEnabled in module.c), so this is
-    // effectively unreachable; and even if reached, FT.SEARCH field return is
-    // supported for both HASH and JSON. Nothing left to reject.
-    return REDISMODULE_OK;
-  }
-
-  // Bound-spec validation (FlexFieldReturnRule_AllowHashSearchOnly):
-  // QEXEC_F_IS_SEARCH is reliable here. Field return through the disk async
-  // loader is supported for FT.SEARCH regardless of document type; the
-  // HASH/JSON split lives in the loader itself (redisearch_disk's
-  // new_async_loader only enables RLOOKUP_OPT_ALLLOADED for HASH). `sp` is
-  // no longer needed to make that call, but is kept in the signature to
-  // match the coordinator call site and for future rule additions.
-  (void)sp;
-  if (reqflags & QEXEC_F_IS_SEARCH) {
-    return REDISMODULE_OK;
-  }
-
-  QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-  return REDISMODULE_ERR;
-}
-
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1601,17 +1563,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetError(
         status, QUERY_ERROR_CODE_INVAL,
         "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
-    return REDISMODULE_ERR;
-  }
-
-  // Disk (flex) field-loading validation, now that the spec is bound. JSON-on-disk
-  // loading is unsupported; HASH-on-disk loads via the async loader, but only on
-  // the FT.SEARCH output pipeline. Everything else still requires NOCONTENT /
-  // RETURN 0. (On the coordinator this is enforced pre-fan-out; see
-  // prepareForExecution.)
-  if (FlexValidation_RejectFieldReturn(index, reqFlags,
-                                       FlexFieldReturnRule_AllowHashSearchOnly,
-                                       status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
