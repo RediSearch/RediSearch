@@ -520,13 +520,10 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   if (loadkeys || !params->outFields->explicitReturn) {
     RedisSearchCtx *sctx = params->common.sctx;
     if (sctx->spec->diskSpec) {
-      // On-disk (flex): load fields from disk via the async loader, for both
-      // HASH and JSON specs. JSON resolves through the same C JSON path used
-      // by the in-memory loader (getKeyCommonJSON / RLookup_JSON_GetAll); the
-      // async loader itself only enables RLOOKUP_OPT_ALLLOADED for HASH,
-      // mirroring the RLOOKUP_OPT_ALLLOADED disable for JSON below. The async
-      // loader sets QEXEC_S_HAS_LOAD in outStateFlags itself, mirroring
-      // RPLoader_New.
+      // On-disk (flex): the async loader loads fields via the disk API and owns
+      // the RLOOKUP_OPT_ALLLOADED decision internally, so — unlike the in-memory
+      // branch below — there is no explicit JSON disable here. It sets
+      // QEXEC_S_HAS_LOAD in outStateFlags itself, mirroring RPLoader_New.
       rp = SearchDisk_NewAsyncLoaderResultProcessor(sctx, params->common.reqflags, lookup, loadkeys,
                                                     array_len(loadkeys), outStateFlags);
       RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New

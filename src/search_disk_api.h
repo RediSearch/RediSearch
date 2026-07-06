@@ -312,22 +312,16 @@ typedef struct BasicDiskAPI {
   /**
    * Create a result processor that loads document fields from disk asynchronously.
    *
-   * Drop-in replacement for RPLoader_New on disk (flex) indexes, for both HASH
-   * and JSON specs: the C pipeline calls this instead of RPLoader_New when the
-   * spec is backed by disk. The disk implementation resolves field values per
-   * document type (`dmd->type`); JSON documents resolve via the same JSON load
-   * path RPLoader_New uses in memory, so implementations must not assume HASH.
-   * For "load all" (keys NULL, nkeys 0) the implementation only marks fields as
-   * all-loaded for HASH, mirroring the in-memory pipeline which disables
-   * RLOOKUP_OPT_ALLLOADED for JSON (JSON "load all" yields only the root value).
-   * The returned ResultProcessor must set QEXEC_S_HAS_LOAD in *outStateFlags when
-   * it will load fields, mirroring RPLoader_New, so downstream cursor handling
-   * (HasLoader) treats it as a loader.
+   * Drop-in replacement for RPLoader_New: the pipeline calls this instead of
+   * RPLoader_New whenever the spec is disk-backed. The returned ResultProcessor
+   * must set QEXEC_S_HAS_LOAD in *outStateFlags when it will load fields,
+   * mirroring RPLoader_New, so downstream cursor handling (HasLoader) treats it
+   * as a loader.
    *
    * @param sctx          Search context (owns the spec and the disk handle)
    * @param reqflags      Request flags (QEXEC_F_*)
    * @param lk            Lookup the loaded fields are written into
-   * @param keys          Keys to load; NULL with nkeys 0 means "load all"
+   * @param keys          Keys to load; NULL with nkeys 0 to load all fields
    * @param nkeys         Number of entries in `keys`
    * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
    * @return A valid ResultProcessor. Like RPLoader_New, construction is infallible:
