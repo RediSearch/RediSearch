@@ -879,15 +879,20 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     rs_wall_clock_init(&pipelineClock);
   }
 
+  // Hold the spec read lock for the pipeline build: QAST_Iterate reads the
+  // trie/stats, which GC can mutate concurrently. Release semantics differ per
+  // depletion mode (see below).
+  RedisSearchCtx_LockSpecRead(sctx);
+
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
     if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
-      return REDISMODULE_ERR;
+      goto error;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+    goto error;
   }
 
   // Record pipeline build time if profiling is enabled
@@ -898,17 +903,35 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   // Apply debug timeouts after pipeline is built (for _FT.DEBUG FT.HYBRID)
   if (hreq->debugParams && applyHybridDebugTimeout(hreq, hreq->debugParams) != REDISMODULE_OK) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Failed to apply debug timeouts");
-      return REDISMODULE_ERR;
+      goto error;
+  }
+
+  // Foreground (WORKERS == 0) depletion runs inline via RPDepleter, whose
+  // query-iterators re-acquire the read lock themselves; holding it here would
+  // re-lock the non-recursive, writer-preferring rwlock and deadlock against a
+  // queued writer (e.g. fork-GC). The background path instead keeps the lock,
+  // handing it off to its worker threads (see RPSafeDepleter_WaitForDepletionToStart).
+  if (!depleteInBackground) {
+    RedisSearchCtx_UnlockSpec(sctx);
   }
 
   if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
   } else if (HybridRequest_StartCursors(hybrid_ref, ctx, status, depleteInBackground) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+    goto error;
   }
 
+  // Release the lock still held by the background path. Idempotent: no-op if
+  // the foreground path or background handoff already released it.
+  RedisSearchCtx_UnlockSpec(sctx);
   freeHybridParams(hybridParams);
   return REDISMODULE_OK;
+
+error:
+  // Single cleanup path for all failures above. UnlockSpec is idempotent, so
+  // this is safe whether or not the lock was already released.
+  RedisSearchCtx_UnlockSpec(sctx);
+  return REDISMODULE_ERR;
 }
 
 // Timeout callback for HybridRequest execution in Run in Threads mode.
@@ -1193,7 +1216,8 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
 
     return REDISMODULE_OK;
   } else {
-    // Single-threaded execution path
+    // Single-threaded execution path. buildPipelineAndExecute takes and
+    // releases the spec read lock internally, scoped to the pipeline build.
     return buildPipelineAndExecute(hybrid_ref, hybridParams, ctx, sctx, status, internal, false);
   }
 }
@@ -1415,19 +1439,12 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     sctx->redisCtx = outctx;
   }
 
-  // Acquire read lock before building pipeline (matching AREQ_Execute_Callback)
-  RedisSearchCtx_LockSpecRead(sctx);
-
+  // buildPipelineAndExecute takes and releases the spec read lock internally
+  // (see the unlock comments there).
   if (buildPipelineAndExecute(hybrid_ref, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
-    RedisSearchCtx_UnlockSpec(sctx);
   } else {
-    // buildPipelineAndExecute failed - release the lock if still held.
-    // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
-    // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
-    RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
       HybridRequest_GetError(hreq, &status);
