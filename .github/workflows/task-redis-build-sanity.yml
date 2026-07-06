@@ -87,7 +87,7 @@ jobs:
       contents: read
     defaults:
       run:
-        shell: bash -l -eo pipefail {0}
+        shell: /bin/bash -l -eo pipefail {0}
     steps:
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
