@@ -47,6 +47,18 @@ typedef struct QueryProcessingCtx {
    */
   uint32_t totalResults;
   /**
+   * Results that were counted in `totalResults` but dropped by a buffering
+   * result processor (the safe loader) because the document was deleted or
+   * re-indexed between buffering and load. The reported total is
+   * `totalResults - skippedResults`.
+   *
+   * Tracked separately rather than decrementing `totalResults` so the live
+   * match count stays stable for the length prediction (`calc_results_len`),
+   * and so a post-header re-accumulation cannot "resurrect" a row whose
+   * decrement already shipped in the RESP2 header.
+   */
+  uint32_t skippedResults;
+  /**
    * The number of results we requested to return at the current chunk.
    * This value is meant to be used by the RP to limit the number of results
    * returned by its upstream RP ONLY.

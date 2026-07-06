@@ -212,6 +212,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   // Reset the total results length
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
+  qctx->skippedResults = 0;
   QueryError_ClearError(err);
 }
 
@@ -254,8 +255,8 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   QueryProcessingCtx *qctx) {
   RedisModule_Reply_Map(reply);
 
-  // <total_results>
-  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
+  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 }
