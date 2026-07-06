@@ -155,7 +155,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
     /// Swap the underlying inverted index of the reader.
     ///
     /// Used by tests to trigger [revalidation](RQEIterator::revalidate).
-    pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
+    pub fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
         self.it.reader.swap_index(index);
     }
 }

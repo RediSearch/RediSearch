@@ -105,6 +105,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
         self.index.block_ref(index)
     }
 
+    /// Take a snapshot of the inverted index's block storage. See [`InvertedIndex::snapshot`].
+    pub fn snapshot(&self) -> crate::InvertedIndexSnapshot<'_> {
+        self.index.snapshot()
+    }
+
     /// Get the current GC marker of this index. This is only used by the some C tests.
     pub fn gc_marker(&self) -> u32 {
         self.index.gc_marker()
@@ -143,7 +148,7 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     pub fn scan_gc(
         &self,
         doc_exist: impl Fn(DocId) -> bool,
-        repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
+        repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &crate::RepairContext<'snap>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }

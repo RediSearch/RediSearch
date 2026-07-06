@@ -28,8 +28,8 @@ pub struct RepairContext<'a> {
     /// The block the surviving record was decoded from.
     pub block: &'a IndexBlock,
     /// The block's logical index within the inverted index. Use this instead of
-    /// pointer-equality on `block` — pointer identity isn't reliable if blocks are
-    /// ever decoded into temporary buffers rather than read in place.
+    /// pointer-equality on `block` — pointer identity isn't reliable when blocks
+    /// are read through a snapshot.
     pub block_idx: usize,
 }
 
@@ -133,7 +133,7 @@ impl IndexBlock {
     /// carrying the block and its logical index within the inverted index. Comparing
     /// `ctx.block_idx` against `index.number_of_blocks() - 1` answers "is this the last
     /// block?" without relying on pointer identity — pointer equality won't be stable
-    /// if blocks are ever decoded into temporary buffers rather than read in place.
+    /// once blocks are read through a snapshot in a later epic.
     ///
     /// `None` is returned when there is nothing to repair in this block.
     pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
@@ -214,11 +214,16 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc(
         &self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
+        mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
+        let snapshot = self.snapshot();
         let mut results = Vec::new();
 
-        for (i, block) in self.blocks.iter().enumerate() {
+        let total = snapshot.block_count();
+        for i in 0..total {
+            let Some(block) = snapshot.block_ref(i) else {
+                continue;
+            };
             let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
 
             if let Some(repair) = repair {
@@ -229,9 +234,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         if results.is_empty() {
             Ok(None)
         } else {
+            let last_block_idx = total.saturating_sub(1);
+            let last_block_num_entries = snapshot.last_block().map(|b| b.num_entries).unwrap_or(0);
             Ok(Some(GcScanDelta {
-                last_block_idx: self.blocks.len() - 1,
-                last_block_num_entries: self.blocks.last().map(|b| b.num_entries).unwrap_or(0),
+                last_block_idx,
+                last_block_num_entries,
                 deltas: results,
             }))
         }
