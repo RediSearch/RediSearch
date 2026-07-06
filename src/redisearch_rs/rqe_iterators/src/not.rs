@@ -9,7 +9,8 @@
 
 //! Supporting types for [`Not`].
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -22,16 +23,20 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that negates the results of its child iterator.
 ///
+/// Parameterised over a [`Ref`] mode — see [`Not`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// Yields all document IDs from 1 to `max_doc_id` (inclusive) that are **not**
 /// present in the child iterator.
 ///
 /// # Type parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode.
 /// * `I` - The child iterator type whose results are negated.
 /// * `TC` - The [`TimeoutContext`] implementation. The variant is chosen at
 ///   construction time and monomorphized into the hot path.
-pub struct Not<'index, I, TC> {
+#[repr(C)]
+pub struct RawNot<Rf: Ref, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
@@ -41,7 +46,7 @@ pub struct Not<'index, I, TC> {
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
     /// Tracks the execution deadline for this iterator. Pass
     /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
@@ -50,6 +55,10 @@ pub struct Not<'index, I, TC> {
     /// reset upon rewinding.
     timeout_ctx: TC,
 }
+
+/// Alias for an [`Active`] [`RawNot`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Not<'index, I, TC> = RawNot<Active<'index>, I, TC>;
 
 impl<'index, I, TC> Not<'index, I, TC>
 where

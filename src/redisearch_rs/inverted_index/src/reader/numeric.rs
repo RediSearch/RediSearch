@@ -85,6 +85,11 @@ impl NumericFilter {
 /// specified filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
+///
+/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
+/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
+/// the whole `FilterNumericReader` is too.
+#[repr(C)]
 pub struct FilterNumericReader<IR> {
     /// The numeric filter that is used to filter the records.
     filter: NumericFilter,
