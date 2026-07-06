@@ -573,12 +573,13 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
     // exactly once, top-down, so we hold exclusive access to this node and its
     // subtree for the duration of the call — exactly what `as_mut` requires.
     let mut node = unsafe { node.as_mut() };
-    let mut children = Vec::with_capacity(num_children);
-    for i in 0..num_children {
-        let mut child = node.child_mut(i);
-        child.and_field_mask(node_mask);
-        children.push(eval_child_iterator(ctx, child.as_ref()));
-    }
+    let children: Vec<CRQEIterator> = (0..num_children)
+        .map(|i| {
+            let mut child = node.child_mut(i);
+            child.and_field_mask(node_mask);
+            eval_child_iterator(ctx, child.as_ref())
+        })
+        .collect();
 
     // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
     let result_ptr = unsafe {
