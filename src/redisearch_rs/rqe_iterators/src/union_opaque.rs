@@ -21,7 +21,7 @@
 //! and call methods such as [`UnionOpaque::num_children_active`] directly,
 //! without going through a C FFI trampoline.
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{ffi::CStr, ptr::NonNull};
 
 use ffi::{QueryIterator, QueryNodeType};
 use index_result::RSIndexResult;
@@ -118,14 +118,15 @@ macro_rules! delegate_variant_ref_mut {
 pub struct RawUnionOpaque<Rf: Ref, I> {
     pub variant: RawUnionVariant<Rf, I>,
     pub query_node_type: QueryNodeType,
-    /// Non-owning pointer to a C string describing the query (e.g. the search
-    /// term). May be null.
+    /// Borrowed C string describing the query (e.g. the search term), or
+    /// [`None`] when the union has no associated query string.
     ///
-    /// The pointee is owned by the query AST and must outlive this iterator.
-    /// In practice the AST is freed only after the entire query execution
-    /// pipeline — including all iterators — has been torn down, so the
-    /// pointer remains valid for the lifetime of this struct.
-    pub query_string: *const c_char,
+    /// The string is owned by the query AST, not the index; the `'index`
+    /// lifetime is reused here because both the index and the AST outlive the
+    /// iterator. In practice the AST is freed only after the entire query
+    /// execution pipeline — including all iterators — has been torn down, so
+    /// the borrow remains valid for the lifetime of this struct.
+    pub query_string: Option<&'index CStr>,
 }
 
 /// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
@@ -231,8 +232,6 @@ where
     I: RQEIterator<'index> + ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        use std::ffi::CStr;
-
         let node_type = self.query_node_type;
         // Union, Geo, and LexRange always print full children even in
         // limited mode — these types have few enough children that
@@ -257,20 +256,19 @@ where
             _ => unreachable!("Invalid type for union"),
         };
 
-        let q_str_ptr = self.query_string;
-        if q_str_ptr.is_null() {
-            let value = std::ffi::CString::new(type_str).unwrap();
-            map.kv_simple_string(c"Query type", &value);
-        } else {
-            // SAFETY: q_str_ptr is a valid null-terminated C string (checked
-            // non-null). The pointee is owned by the query AST and outlives
-            // this iterator.
-            let q_str_rust = unsafe { CStr::from_ptr(q_str_ptr) }.to_string_lossy();
-            let formatted = format!("{type_str} - {q_str_rust}");
-            // Use string_buffer (bulk string) instead of simple_string: the
-            // query string may contain \r\n which is invalid in RESP Simple
-            // Strings.
-            map.kv_string_buffer(c"Query type", formatted.as_bytes());
+        match self.query_string {
+            None => {
+                let value = std::ffi::CString::new(type_str).unwrap();
+                map.kv_simple_string(c"Query type", &value);
+            }
+            Some(q_str) => {
+                let q_str_rust = q_str.to_string_lossy();
+                let formatted = format!("{type_str} - {q_str_rust}");
+                // Use string_buffer (bulk string) instead of simple_string: the
+                // query string may contain \r\n which is invalid in RESP Simple
+                // Strings.
+                map.kv_string_buffer(c"Query type", formatted.as_bytes());
+            }
         }
 
         ctx.print_optional_counters(map);
@@ -348,15 +346,14 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 ///
 /// # Safety
 ///
-/// The caller must uphold the following for the lifetime of the returned
-/// iterator (the value is stored verbatim in the [`UnionOpaque`] and read back
-/// only when the C-driven profiler prints the iterator):
+/// The caller must uphold the following:
 ///
-/// 1. `q_str` is either null or a valid, NUL-terminated C string that stays
-///    live and unchanged for as long as the returned iterator exists. It is
-///    dereferenced via [`CStr::from_ptr`](std::ffi::CStr::from_ptr) during
-///    profile printing; a dangling, freed, or non-NUL-terminated non-null
-///    pointer is undefined behavior.
+/// 1. `q_str`, when [`Some`], must stay live and unchanged for as long as the
+///    returned iterator exists. The borrow is stored in the [`UnionOpaque`] and
+///    read back when the C-driven profiler prints the iterator, but its
+///    `'index` lifetime is erased once the iterator is leaked to a raw
+///    `*mut QueryIterator`, so the borrow checker cannot enforce this — the
+///    caller must guarantee the string outlives the returned iterator.
 /// 2. `type_` is one of the union-compatible query node types understood by the
 ///    profile printer (`Geo`, `Tag`, `Union`, `Fuzzy`, `Prefix`, `Numeric`,
 ///    `LexRange`, `WildcardQuery`); any other discriminant aborts profile
@@ -366,7 +363,7 @@ pub unsafe fn build_union(
     quick_exit: bool,
     min_union_iter_heap: usize,
     type_: QueryNodeType,
-    q_str: *const c_char,
+    q_str: Option<&CStr>,
     weight: f64,
 ) -> *mut QueryIterator {
     use crate::union_reducer::{NewUnionIterator, new_union_iterator};

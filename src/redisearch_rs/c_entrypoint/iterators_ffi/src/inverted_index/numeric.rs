@@ -198,18 +198,9 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
         })
         .collect();
 
-    // SAFETY: `q_str` is null and `node_type` is `Numeric` or `Geo`, both
+    // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
     // union-compatible, satisfying the requirements of `build_union`.
-    unsafe {
-        build_union(
-            children,
-            true,
-            min_union_iter_heap,
-            node_type,
-            ptr::null(),
-            1.0,
-        )
-    }
+    unsafe { build_union(children, true, min_union_iter_heap, node_type, None, 1.0) }
 }
 
 impl profile_print::ProfilePrint for NumericIterator<'_> {

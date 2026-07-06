@@ -580,8 +580,8 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
         children.push(eval_child_iterator(ctx, child.as_ref()));
     }
 
-    // SAFETY: `q_str` is null, and `node_type` is the type of a `QN_UNION` node
-    // (`QueryNodeType::Union`), which is union-compatible — satisfying the
+    // SAFETY: `q_str` is `None`, and `node_type` is the type of a `QN_UNION`
+    // node (`QueryNodeType::Union`), which is union-compatible — satisfying the
     // requirements of `build_union`.
     let result_ptr = unsafe {
         build_union(
@@ -589,7 +589,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
             quick_exit,
             min_union_iter_heap,
             node_type,
-            std::ptr::null(),
+            None,
             weight,
         )
     };

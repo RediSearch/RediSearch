@@ -9,7 +9,10 @@
 
 //! FFI bridge for the Rust union iterators.
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    ptr::NonNull,
+};
 
 use ffi::{QueryIterator, QueryNodeType};
 
@@ -96,8 +99,16 @@ pub unsafe extern "C" fn NewUnionIterator(
     // SAFETY: its was allocated via rm_malloc per the function's safety contract (1).
     unsafe { free_iterators_array(its) };
 
-    // SAFETY: by contract (5), `q_str` is null or a valid NUL-terminated C
-    // string that outlives the returned iterator, and `type_` is union-compatible.
+    let q_str = if q_str.is_null() {
+        None
+    } else {
+        // SAFETY: by contract (5), a non-null `q_str` is a valid, NUL-terminated
+        // C string that outlives the returned iterator.
+        Some(unsafe { CStr::from_ptr(q_str) })
+    };
+
+    // SAFETY: by contract (5), `q_str` outlives the returned iterator and
+    // `type_` is union-compatible.
     unsafe {
         build_union(
             children,

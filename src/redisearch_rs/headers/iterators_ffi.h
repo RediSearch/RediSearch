@@ -465,17 +465,6 @@ NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool cre
 void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
 
 /**
- * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
- * sequential read mode.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
-
-/**
  * Append a new child iterator to the intersection.
  *
  * Transfers ownership of `child` to the intersection. Updates the estimated result count
@@ -514,6 +503,17 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
  * 3. `ctx` must remain valid until the iterator is freed; ownership transfers to the iterator.
  */
 QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
+
+/**
+ * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
+ * sequential read mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
 /**
  * Print iterator profile tree as a Redis reply.
