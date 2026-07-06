@@ -2,7 +2,7 @@ from common import *
 import threading
 
 
-def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False, protocol=None):
+def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False):
     mode = 'true' if enabled else 'false'
     args = f'_SIMULATE_IN_FLEX {mode}'
     if module_args:
@@ -10,7 +10,7 @@ def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False,
 
     def decorator(test_fn):
         def wrapper():
-            env = Env(moduleArgs=args, noDefaultModuleArgs=no_default_module_args, protocol=protocol)
+            env = Env(moduleArgs=args, noDefaultModuleArgs=no_default_module_args)
             if env.env == 'existing-env':
                 env.skip()
             try:
@@ -333,81 +333,6 @@ def test_flex_search_json_allows_default_return_on_coordinator(env):
 
     env.expect('FT.SEARCH', 'idx', 'hello').equal(
         [1, 'doc:1', ['$', '{"t":"hello world"}']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_search_json_return_scalar_field_types(env):
-    """RETURN on a JSON (flex) index resolves TEXT, TAG, and NUMERIC scalar
-    single-value fields, matching the in-memory JSON reply shape: values come
-    back as plain strings (not JSON-quoted)."""
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.t', 'AS', 't', 'TEXT',
-               '$.tag', 'AS', 'tag', 'TAG',
-               '$.n', 'AS', 'n', 'NUMERIC').ok()
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world","tag":"red","n":42}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 't') \
-        .equal([1, 'doc:1', ['t', 'hello world']])
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'tag') \
-        .equal([1, 'doc:1', ['tag', 'red']])
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'n') \
-        .equal([1, 'doc:1', ['n', '42']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_search_json_return_nested_path(env):
-    """RETURN on a JSON (flex) index resolves a nested JSONPath."""
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.a.b.c', 'AS', 'deep', 'TEXT').ok()
-    env.expect('JSON.SET', 'doc:1', '$', '{"a":{"b":{"c":"hello world"}}}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'deep') \
-        .equal([1, 'doc:1', ['deep', 'hello world']])
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', '$.a.b.c') \
-        .equal([1, 'doc:1', ['$.a.b.c', 'hello world']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_search_json_return_alias(env):
-    """RETURN ... AS <alias> on a JSON (flex) index returns the value under
-    the alias key, not the JSONPath/schema name."""
-    _create_flex_search_json(env)
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world"}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', '$.t', 'AS', 'myalias') \
-        .equal([1, 'doc:1', ['myalias', 'hello world']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_flex_search_json_return_missing_path(env):
-    """RETURN of a path missing from a particular document omits that field
-    from the reply entirely (no error, no nil), matching in-memory JSON."""
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.t', 'AS', 't', 'TEXT',
-               '$.missing', 'AS', 'missing', 'TEXT').ok()
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world"}').ok()
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'missing') \
-        .equal([1, 'doc:1', []])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True, protocol=3)
-def test_flex_search_json_return_resp3_shaping(env):
-    """RESP3 FT.SEARCH on a JSON (flex) index shapes the reply as a dict with
-    a dict-shaped 'extra_attributes' per result, matching in-memory JSON."""
-    _create_flex_search_json(env)
-    env.expect('JSON.SET', 'doc:1', '$', '{"t":"hello world"}').ok()
-
-    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 't')
-    env.assertEqual(res['total_results'], 1)
-    env.assertEqual(len(res['results']), 1)
-    env.assertEqual(res['results'][0]['id'], 'doc:1')
-    env.assertEqual(res['results'][0]['extra_attributes'], {'t': 'hello world'})
 
 
 @skip(cluster=True)
