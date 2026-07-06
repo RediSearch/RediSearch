@@ -596,7 +596,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: Option<NonNull<OpaqueRLookup>>)
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
-/// 8. `open_key`, if non-null, must be a valid, already-open `ffi::RedisModuleKey` handle for
+/// 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
 ///    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
 /// 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///
@@ -608,7 +608,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
-    open_key: *mut ffi::RedisModuleKey,
+    open_key: *mut redis_module::RedisModuleKey,
     status: Option<NonNull<OpaqueQueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
@@ -639,7 +639,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let res = lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, open_key);
 
     match res {
-        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Ok(_) => redis_module::REDISMODULE_OK as i32,
         Err(err) if err.is_stale_document() => {
             tracing::debug!(
                 ?lookup,
@@ -648,7 +648,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
                 "rlookup::load_rule_fields skipped stale document: {err:?}"
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
         Err(err) => {
             tracing::error!(
@@ -663,7 +663,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
                 CString::new(err.to_string()).ok(),
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
     }
 }
@@ -749,7 +749,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                     Some(c"cannot operate on a JSON index as RedisJSON is not loaded".to_owned()),
                 );
 
-                return ffi::REDISMODULE_ERR as i32;
+                return redis_module::REDISMODULE_ERR as i32;
             };
 
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
@@ -760,14 +760,14 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
     };
 
     match res {
-        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Ok(_) => redis_module::REDISMODULE_OK as i32,
         Err(err) if err.is_stale_document() => {
             tracing::debug!(
                 ?dmd,
                 "rlookup::load_document::load_all_keys skipped stale document: {err:?}"
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
         Err(err) => {
             tracing::error!(
@@ -779,7 +779,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 "rlookup::load_document::load_all_keys failed with {err:?}"
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
     }
 }
@@ -872,7 +872,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                     Some(c"cannot operate on a JSON index as RedisJSON is not loaded".to_owned()),
                 );
 
-                return ffi::REDISMODULE_ERR as i32;
+                return redis_module::REDISMODULE_ERR as i32;
             };
 
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
@@ -885,7 +885,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     };
 
     match res {
-        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Ok(_) => redis_module::REDISMODULE_OK as i32,
         Err(err) if err.is_stale_document() => {
             tracing::debug!(
                 ?dmd,
@@ -899,7 +899,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 ),
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
         Err(err) => {
             tracing::error!(
@@ -917,7 +917,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 Some(c"rlookup::load_document::load_specific_keys failed".to_owned()),
             );
 
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
     }
 }

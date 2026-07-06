@@ -107,7 +107,7 @@ impl GeometryFixture {
         // SAFETY: `GeometryApi_Get` always populates the `addGeomStr` callback.
         let add = unsafe { (*api).addGeomStr }.expect("geometry api `addGeomStr` must be set");
 
-        let mut err: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut err: *mut redis_module::RedisModuleString = std::ptr::null_mut();
         // SAFETY: `index` is valid, `wkt` points to `wkt.as_bytes().len()` bytes,
         // and `err` is a valid out-pointer.
         let rc = unsafe {

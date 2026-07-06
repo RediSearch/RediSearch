@@ -114,7 +114,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_len(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -145,7 +145,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_int(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -161,7 +161,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_double(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -177,7 +177,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_boolean(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out != 0)
         } else {
             None
@@ -194,7 +194,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_string(self.ptr, &raw mut str, &raw mut len) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             // Safety: `getString` returns `OK` it promises to return a valid c string.
             let bytes = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -214,7 +214,7 @@ impl<'a> JsonValueRef<'a> {
 
         // Safety: `ptr` is valid by construction, we correctly allocated the `JsonValue` before.
         let status = unsafe { get_at(self.ptr, idx, out.as_ptr()) };
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -230,7 +230,7 @@ impl<'a> JsonValueRef<'a> {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn key_values(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Option<KeyValuesIterator<'_>> {
         let (ptr, len) = if let Some(len) = self.len()
             && len > 0
@@ -272,16 +272,16 @@ impl<'a> JsonValueRef<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
         let get_json = vtable_fn!(self.api, getJSON);
 
-        let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.) and ptr is valid by construction.
         let status = unsafe { get_json(self.ptr, ctx, &mut str) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
                 ctx.cast(),
                 str.cast(),

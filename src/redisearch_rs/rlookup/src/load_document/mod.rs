@@ -124,7 +124,7 @@ impl LoadAllError {
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
     dst_row: &'env mut RLookupRow<'a>,
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     force_load: bool,
     dmd: &'a DocumentMetadata,
     format: F,
@@ -147,7 +147,7 @@ pub trait DocumentFormat {
     /// Like [`open`](Self::open), but over an already-open handle the caller owns.
     fn borrow<'key>(
         &'key self,
-        open_key: &'key ffi::RedisModuleKey,
+        open_key: &'key redis_module::RedisModuleKey,
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
 
@@ -172,7 +172,7 @@ pub trait FieldLoader {
 impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     pub fn new(
         dst_row: &'env mut RLookupRow<'a>,
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         dmd: &'a DocumentMetadata,
         format: F,
     ) -> Self {
@@ -258,7 +258,7 @@ pub(crate) fn load_specific_keys<'a, F, I>(
     key_name: &RedisString,
     keys_to_load: I,
     force_load: bool,
-    open_key: Option<&ffi::RedisModuleKey>,
+    open_key: Option<&redis_module::RedisModuleKey>,
     mut profile: Option<&mut [LoadFieldProfile]>,
 ) -> Result<(), LoadFieldError>
 where
@@ -353,7 +353,7 @@ mod tests {
 
         fn borrow<'key>(
             &'key self,
-            _open_key: &'key ffi::RedisModuleKey,
+            _open_key: &'key redis_module::RedisModuleKey,
             _key_name: &'key RedisString,
         ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
             unimplemented!("not exercised by these tests")
