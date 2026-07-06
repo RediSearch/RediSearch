@@ -93,6 +93,10 @@ void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
-  StrongRef_Release(blockedCursorNode->spec);
+  // The spec ref is legitimately empty when the promote in BlockedQueries_AddCursor failed
+  // (the index was dropped while the cursor was idle), so mirror its guard here.
+  if (blockedCursorNode->spec.rm) {
+    StrongRef_Release(blockedCursorNode->spec);
+  }
   dllist_delete(&blockedCursorNode->llnode);
 }
