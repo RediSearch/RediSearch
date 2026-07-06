@@ -100,6 +100,36 @@ echo "Rustup binary location: $rustup_bin"
 echo "Cargo binary location: $cargo_bin"
 cargo +"$PINNED_VERSION" -vV
 
+# cargo-nextest is the runner `make test` / `make rust-tests` invoke
+# (build.sh runs `cargo nextest run`), so bootstrap must provision it or
+# the documented `make bootstrap` -> `make test` flow dies with
+# "no such command: `nextest`". Pinned via .nextest-version, which
+# .install/test_deps/install_rust_deps.sh shares. On Linux the
+# statically-linked musl prebuilt is used so the same artifact works on
+# any glibc (and on musl systems) — the same preference
+# test_deps/install_rust_deps.sh documents for its binstall fallbacks.
+NEXTEST_VERSION=$(cat "$REPO_ROOT/.nextest-version")
+have_nextest="$(cargo nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)"
+if [[ "$have_nextest" == "$NEXTEST_VERSION" ]]; then
+    echo "cargo-nextest $have_nextest already installed - skipping"
+else
+    if [[ -n "$have_nextest" ]]; then
+        echo "cargo-nextest $have_nextest does not match required $NEXTEST_VERSION - installing"
+    else
+        echo "Installing cargo-nextest $NEXTEST_VERSION"
+    fi
+    if [[ "$OS_TYPE" = 'Darwin' ]]; then
+        nextest_artifact="mac"
+    elif [[ "$processor" =~ ^(aarch64|arm64)$ ]]; then
+        nextest_artifact="linux-arm-musl"
+    else
+        nextest_artifact="linux-musl"
+    fi
+    curl -L --proto '=https' --tlsv1.2 -sSf \
+        "https://get.nexte.st/${NEXTEST_VERSION}/${nextest_artifact}" \
+        | tar zxf - -C "$cargo_bin_dir"
+fi
+
 # cheadergen is required when REDISEARCH_GENERATE_HEADERS=ON, the default
 # for a top-level RediSearch build. It uses rustdoc JSON from the pinned
 # nightly toolchain to regenerate the Rust C headers.
