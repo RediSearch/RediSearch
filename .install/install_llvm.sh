@@ -54,7 +54,32 @@ install_from_tarball() {
     rm -rf "$tmpdir"
 
     export_path_gha
+    link_tools_for_fresh_shells
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# Fresh-shell usability for the tarball install: export_path_gha only covers
+# GitHub Actions steps (via $GITHUB_PATH/$GITHUB_ENV) and the shell that ran
+# this script. A user following the manual flow — `make bootstrap` now,
+# `make build LTO=1` from a later shell — has no ${INSTALL_DIR}/bin on PATH,
+# so build.sh cannot find clang-${LLVM_VER} and LTO refuses to enable. The
+# package-manager install paths don't have this problem (they land versioned
+# binaries in /usr/bin), so mirror that: symlink the tools build.sh looks up
+# — and llvm-config, through which bindgen's clang-sys locates libclang
+# (`llvm-config --libdir`) without needing a persisted LIBCLANG_PATH — into
+# /usr/local/bin, which is on the default PATH of every supported distro.
+# Same pattern rocky_linux_8.sh uses for its gcc-toolset shims.
+link_tools_for_fresh_shells() {
+    local bindir="${INSTALL_DIR}/bin"
+    local tool target
+    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" ld.lld llvm-config; do
+        # The tarball ships some of these only under their unversioned
+        # names; resolve to whichever exists.
+        target="${bindir}/${tool}"
+        [[ -e "$target" ]] || target="${bindir}/${tool%-${LLVM_VER}}"
+        [[ -e "$target" ]] || continue
+        $MODE ln -sf "$target" "/usr/local/bin/${tool}" || true
+    done
 }
 
 # Wire up $INSTALL_DIR/bin for GitHub Actions and the current shell.
