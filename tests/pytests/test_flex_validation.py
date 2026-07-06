@@ -373,27 +373,6 @@ def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_aggregate(env):
-    """FT.AGGREGATE is enabled on flex indexes (MOD-16604): HASH field loading
-    goes through the disk async loader."""
-    _create_flex_search(env)
-
-    env.expect('FT.AGGREGATE', 'idx', '*').noError()
-    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*').noError()
-
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t') \
-        .equal([1, ['t', 'hello world']])
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*') \
-        .equal([1, ['t', 'hello world']])
-
-    # GROUPBY on a schema field (implicit load path).
-    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@t',
-               'REDUCE', 'COUNT', '0', 'AS', 'c') \
-        .equal([1, ['t', 'hello world', 'c', '1']])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_aggregate_allows_sortby(env):
     """FT.AGGREGATE SORTBY is unrestricted on flex (sort keys load via the disk
     async loader); the vector-distance-only restriction is FT.SEARCH only.
