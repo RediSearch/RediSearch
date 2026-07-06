@@ -34,7 +34,7 @@ mod term_refs;
 
 use std::{
     fmt::{self, Debug},
-    rc::Rc,
+    sync::Arc,
 };
 
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
@@ -46,6 +46,11 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// scans a whole subtree instead of a single exact entry, so they
 /// must out-length an exact token by this many codepoints to win.
 const STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
+
+/// Longest addable term, in bytes, after lowercasing. The underlying
+/// trie stores node labels with `u16` lengths, so a longer key cannot
+/// be represented and would panic on insert.
+const MAX_TERM_BYTE_LEN: usize = u16::MAX as usize;
 
 #[derive(Default)]
 pub struct TermSuffixIndex {
@@ -75,6 +80,8 @@ impl TermSuffixIndex {
     /// Add a term to the set, registering it under its own key and every
     /// queryable suffix. [Lowercased on entry](crate#case-insensitivity);
     /// re-adding an existing term, or adding an empty one, is a no-op.
+    /// So is adding a term whose lowercased form exceeds `u16::MAX`
+    /// bytes — the trie cannot represent such a key.
     pub fn add(&mut self, term: &str) {
         if term.is_empty() {
             return;
@@ -83,18 +90,22 @@ impl TermSuffixIndex {
         let lowered = unicode_tolower_cow(term);
         let term: &str = &lowered;
 
+        if term.len() > MAX_TERM_BYTE_LEN {
+            return;
+        }
+
         if self.inner.get(term).is_some_and(TermRefs::has_full_term) {
             return;
         }
 
-        let owner = Rc::from(term);
+        let owner = Arc::from(term);
         self.inner.insert_with(term, |existing| {
-            TermRefs::upsert_full_term(existing, Rc::clone(&owner))
+            TermRefs::upsert_full_term(existing, Arc::clone(&owner))
         });
 
         for suffix in Self::suffixes_of(term) {
             self.inner.insert_with(suffix, |existing| {
-                TermRefs::upsert_longer_term(existing, Rc::clone(&owner))
+                TermRefs::upsert_longer_term(existing, Arc::clone(&owner))
             });
         }
     }
@@ -179,7 +190,7 @@ impl TermSuffixIndex {
     /// match `entré`. This is not an approximation introduced here — it is the
     /// engine's pre-existing `?` behavior, which we deliberately reuse rather
     /// than diverge from with a second, codepoint-aware matcher.
-    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Rc<str>>> {
+    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Arc<str>>> {
         let lowered = unicode_tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
@@ -195,7 +206,7 @@ impl TermSuffixIndex {
         };
 
         let wildcard = WildcardPattern::parse(lowered.as_bytes());
-        let matches: Vec<Rc<str>> = subtree
+        let matches: Vec<Arc<str>> = subtree
             .into_iter()
             .flatten()
             .chain(exact)
