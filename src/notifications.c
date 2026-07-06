@@ -675,12 +675,13 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   }
   dictReleaseIterator(iter);
 
-  // Wait out any in-flight disk GC run and block new ones: after this no run is
-  // executing and none will start, so the closes below cannot free a diskSpec out
-  // from under an in-flight compaction. disable_compactions() (pass 1) only cancels
-  // the compaction; this wait is what guarantees the GC run has finished the tail
-  // of run_gc and released the spec.
-  DiskGC_DisableAndWait();
+  // Take the run lock and disable disk GC, waiting out any in-flight run: after this
+  // no run is executing and none will start, so the closes below cannot free a diskSpec
+  // out from under an in-flight compaction. disable_compactions() (pass 1) only cancels
+  // the compaction; this wait guarantees the GC run has finished the tail of run_gc and
+  // released the spec. We hold the lock across pass 2 so clearing each sp->diskSpec is
+  // serialised against periodicCb, which reads sp->diskSpec only under the same lock.
+  DiskGC_LockRunsAndDisable();
 
   // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
   iter = dictGetIterator(specDict_g);
@@ -693,6 +694,8 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
     }
   }
   dictReleaseIterator(iter);
+
+  DiskGC_UnlockRuns();
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -705,8 +708,10 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
     // shared DiskContext; wait out any in-flight disk GC run first so no compaction
     // races that close. The checkpoint (index_spec_pre_checkpoint) already
-    // disable_compactions()d during the save, so this wait is prompt.
-    DiskGC_DisableAndWait();
+    // disable_compactions()d during the save, so this wait is prompt. Nothing clears
+    // sp->diskSpec here, so release the lock immediately — the wait is all we need.
+    DiskGC_LockRunsAndDisable();
+    DiskGC_UnlockRuns();
   }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");

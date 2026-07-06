@@ -23,8 +23,9 @@
 // at most one run is ever in flight; a single global lock + flag is enough.
 //
 // periodicCb holds g_diskGcRunLock across the actual SearchDisk_RunGC call, so
-// DiskGC_DisableAndWait() (main thread) can wait for an in-flight run to finish
-// before the diskSpec it is compacting is closed, and g_diskGcDisabled stops any
+// DiskGC_LockRunsAndDisable() (main thread) can wait for an in-flight run to finish
+// before the diskSpec it is compacting is closed, and holds the lock across that close
+// so clearing sp->diskSpec is serialised against periodicCb. g_diskGcDisabled stops any
 // new run from starting once teardown has begun. run_gc never acquires the GIL
 // (its compaction callbacks take the IndexSpec rwlock, not the ThreadSafeContext),
 // so the shutdown thread may hold the GIL while it waits on this lock without
@@ -56,19 +57,19 @@ static bool periodicCb(void *privdata, bool force) {
   }
 
   // Hold g_diskGcRunLock across the whole check-and-run so shutdown teardown
-  // (DiskGC_DisableAndWait) waits for an in-flight run to finish before closing the
-  // diskSpec, and g_diskGcDisabled stops a new run from starting once teardown has
-  // begun. run_gc never takes the GIL (its compaction callbacks take the IndexSpec
-  // rwlock), so the shutdown thread may hold the GIL while it waits on this lock.
+  // (DiskGC_LockRunsAndDisable) waits for an in-flight run to finish and then closes
+  // the diskSpec under the same lock, and g_diskGcDisabled stops a new run from starting
+  // once teardown has begun. run_gc never takes the GIL (its compaction callbacks take
+  // the IndexSpec rwlock), so the shutdown thread may hold the GIL while it waits here.
   pthread_mutex_lock(&g_diskGcRunLock);
 
-  // Run GC only when the index is still disk-backed, teardown has not disabled it,
+  // Run GC only when teardown has not disabled it, the index is still disk-backed,
   // and enough changes accumulated since the last run (unless forced).
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
-  if (sp->diskSpec && !g_diskGcDisabled &&
+  if (!g_diskGcDisabled && sp->diskSpec &&
       (force || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
@@ -87,16 +88,21 @@ static bool periodicCb(void *privdata, bool force) {
   return true;
 }
 
-// Disable disk GC and wait for any in-flight run to finish. After this returns,
-// no disk GC run is executing and none will start, so it is safe to close the
-// disk indexes. Called on the main thread during shutdown teardown; may hold the
-// GIL (run_gc never needs it — see g_diskGcRunLock above). Not re-enabled.
-void DiskGC_DisableAndWait(void) {
-  // Acquiring the lock blocks until any in-flight run releases it; setting the
-  // flag under the lock makes every subsequent periodicCb bail before it touches
-  // a diskSpec.
+// Take the run lock and disable disk GC, blocking until any in-flight run finishes.
+// Returns with g_diskGcRunLock HELD so the caller can close the disk indexes and clear
+// each sp->diskSpec while it holds the lock: periodicCb touches sp->diskSpec only under
+// this lock, so it can neither be mid-run against a spec being closed nor read a pointer
+// being cleared. g_diskGcDisabled, latched here under the lock, also makes every run
+// that acquires the lock afterwards bail before touching a diskSpec. Must be paired with
+// DiskGC_UnlockRuns(). Runs on the main thread during shutdown teardown; may hold the GIL
+// (run_gc never needs it — see g_diskGcRunLock above). Not re-enabled.
+void DiskGC_LockRunsAndDisable(void) {
   pthread_mutex_lock(&g_diskGcRunLock);
   g_diskGcDisabled = true;
+}
+
+// Release the run lock taken by DiskGC_LockRunsAndDisable().
+void DiskGC_UnlockRuns(void) {
   pthread_mutex_unlock(&g_diskGcRunLock);
 }
 
