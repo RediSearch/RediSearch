@@ -1,5 +1,5 @@
 version: 0.5
-name: "search-groupby-collect-100K-entity-events-hash-fields-star-offset500-k50"
+name: "search-groupby-collect-100K-entity-events-hash-cached-sortby-fields-star-offset500-k50"
 description: "GROUPBY + COLLECT HASH benchmark with FIELDS * and LIMIT 500 50."
 
 metadata:
@@ -10,7 +10,6 @@ metadata:
   window: "500-50"
 
 timeout_seconds: 1800
-dataset_load_timeout_secs: 1800
 
 setups:
   - oss-standalone
@@ -18,6 +17,7 @@ setups:
 
 dbconfig:
   - dataset_name: "groupby-collect-entity-events-100K-heavy-hash"
+  - dataset_load_timeout_secs: 1800
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
     - '"FT.CREATE" "idx:entity_events" "ON" "HASH" "PREFIX" "1" "entity:" "SCHEMA" "recordId" "NUMERIC" "SORTABLE" "entityName" "TEXT" "SORTABLE" "event_id" "AS" "eventId" "NUMERIC" "SORTABLE" "event_type" "AS" "type" "TAG" "event_target" "AS" "target" "TAG" "event_hasNotes" "AS" "hasNotes" "TAG" "event_processed" "AS" "processed" "TAG" "event_dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "event_payload" "AS" "payload" "TEXT" "NOINDEX"'
@@ -33,7 +33,7 @@ clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 8
+    - workers: 64
     - requests: 100000
     - reporting-period: 1s
     - duration: 120s

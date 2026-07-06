@@ -100,8 +100,14 @@ def scale_profile(profile, total):
     if total == base_total:
         return list(base)
 
-    sizes = [round(group_size * total / base_total) for group_size in base]
-    sizes[0] += total - sum(sizes)
+    quotas = [group_size * total / base_total for group_size in base]
+    sizes = [int(quota) for quota in quotas]
+    remainder = total - sum(sizes)
+
+    order = sorted(range(len(base)), key=lambda i: (quotas[i] - sizes[i], -i), reverse=True)
+    for i in order[:remainder]:
+        sizes[i] += 1
+
     return sizes
 
 
@@ -235,6 +241,7 @@ def query_for_variant(variant):
         *collect_args,
         "AS",
         "events",
+        # Keep the grouped rows deterministic; the COLLECT SORTBY above remains the measured sort.
         "SORTBY",
         "2",
         "@entityName",
