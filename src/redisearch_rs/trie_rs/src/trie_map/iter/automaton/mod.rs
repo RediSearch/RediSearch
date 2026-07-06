@@ -35,14 +35,26 @@
 //! `Automaton` over a trie via a DFS that carries the post-edge state
 //! on its stack.
 //!
+//! **Start there for a worked NFA primer** — the module
+//! doc on [`wildcard`] explains positions, ε-closure, and the bitset
+//! state encoding with a concrete `*ab*` against `xaab` trace.
+//!
 //! ## Layout
 //!
 //! - This module: the [`Automaton`] trait and the [`StateClass`] enum.
 //! - [`driver`]: [`AutomatonIter`] and its lending variant.
+//! - [`wildcard`]: the wildcard NFA, atom encoding, and the
+//!   pattern-size-based backend dispatcher
+//!   ([`WildcardSpecializedIter`]).
 
 pub mod driver;
+pub mod wildcard;
 
 pub use driver::{AutomatonIter, AutomatonLendingIter};
+pub use wildcard::{
+    NfaBitSet, WildcardBackend, WildcardNfa, WildcardSpecializedIter,
+    WildcardSpecializedLendingIter,
+};
 
 /// Tells the driver what to do at the current trie node.
 ///
