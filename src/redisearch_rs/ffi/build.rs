@@ -356,7 +356,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "SearchTime_IsTimedOut",
         ],
         types: &[],
-        vars: &[],
+        vars: &["APIVERSION_RETURN_MULTI_CMP_FIRST"],
     },
     HeaderAllowlist {
         path: "src/search_disk.h",
