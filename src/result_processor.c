@@ -718,12 +718,12 @@ static inline bool loaderResultIsEmittable(const SearchResult *r) {
 // (not just _Clear) frees the RLookupRow dynamic storage too: the safe loader leaves
 // dropped buffer slots as tombstones that its yield phase skips and that are later
 // overwritten by the next accumulate cycle or bulk-freed with no per-slot destroy, so a
-// mere Clear would leak that storage. SearchResult_New nulls the document metadata, so the
+// mere Clear would leak that storage. Zero-initializing nulls the document metadata, so the
 // emptied slot still reads as a tombstone; the plain loader reuses it for the next row.
 static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
   base->parent->skippedResults++;
   SearchResult_Destroy(r);
-  *r = SearchResult_New();
+  *r = (SearchResult){0};
 }
 
 static int rploaderNext(ResultProcessor *base, SearchResult *r) {
