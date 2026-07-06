@@ -364,8 +364,7 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
  * 3. Null entries in `its` are treated as empty iterators.
  * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
  * 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
- *    the returned iterator, and `type_` must be a union-compatible query node
- *    type — the requirements of [`build_union`].
+ *    the returned iterator — the requirement of [`build_union`].
  */
 QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
 

@@ -346,18 +346,12 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 ///
 /// # Safety
 ///
-/// The caller must uphold the following:
-///
-/// 1. `q_str`, when [`Some`], must stay live and unchanged for as long as the
-///    returned iterator exists. The borrow is stored in the [`UnionOpaque`] and
-///    read back when the C-driven profiler prints the iterator, but its
-///    `'index` lifetime is erased once the iterator is leaked to a raw
-///    `*mut QueryIterator`, so the borrow checker cannot enforce this — the
-///    caller must guarantee the string outlives the returned iterator.
-/// 2. `type_` is one of the union-compatible query node types understood by the
-///    profile printer (`Geo`, `Tag`, `Union`, `Fuzzy`, `Prefix`, `Numeric`,
-///    `LexRange`, `WildcardQuery`); any other discriminant aborts profile
-///    printing via an `unreachable!`.
+/// `q_str`, when [`Some`], must stay live and unchanged for as long as the
+/// returned iterator exists. The borrow is stored in the [`UnionOpaque`] and
+/// read back when the C-driven profiler prints the iterator, but its
+/// `'index` lifetime is erased once the iterator is leaked to a raw
+/// `*mut QueryIterator`, so the borrow checker cannot enforce this — the
+/// caller must guarantee the string outlives the returned iterator.
 pub unsafe fn build_union(
     children: Vec<CRQEIterator>,
     quick_exit: bool,

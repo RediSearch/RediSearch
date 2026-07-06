@@ -198,8 +198,7 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
         })
         .collect();
 
-    // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
-    // union-compatible, satisfying the requirements of `build_union`.
+    // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
     unsafe { build_union(children, true, min_union_iter_heap, node_type, None, 1.0) }
 }
 

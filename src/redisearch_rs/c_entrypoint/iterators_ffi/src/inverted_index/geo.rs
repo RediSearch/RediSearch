@@ -76,8 +76,7 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
         })
         .collect();
 
-    // SAFETY: `q_str` is `None` and `QueryNodeType::Geo` is union-compatible,
-    // satisfying the requirements of `build_union`.
+    // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
     unsafe {
         build_union(
             children,

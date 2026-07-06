@@ -64,8 +64,7 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
 /// 3. Null entries in `its` are treated as empty iterators.
 /// 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
 /// 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
-///    the returned iterator, and `type_` must be a union-compatible query node
-///    type — the requirements of [`build_union`].
+///    the returned iterator — the requirement of [`build_union`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewUnionIterator(
     its: *mut *mut QueryIterator,
@@ -107,8 +106,7 @@ pub unsafe extern "C" fn NewUnionIterator(
         Some(unsafe { CStr::from_ptr(q_str) })
     };
 
-    // SAFETY: by contract (5), `q_str` outlives the returned iterator and
-    // `type_` is union-compatible.
+    // SAFETY: by contract (5), `q_str` outlives the returned iterator.
     unsafe {
         build_union(
             children,
