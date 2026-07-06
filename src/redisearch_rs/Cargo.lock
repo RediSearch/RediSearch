@@ -1932,6 +1932,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdb_io"
+version = "0.0.1"
+dependencies = [
+ "redis-module",
+ "workspace_hack",
+]
+
+[[package]]
 name = "redis-module"
 version = "2.0.8"
 source = "git+https://github.com/RedisLabsModules/redismodule-rs.git?rev=7fb620f1ef42453dea4e22c9358d0d25d4224710#7fb620f1ef42453dea4e22c9358d0d25d4224710"
