@@ -25,6 +25,7 @@ use rqe_iterators::{
     inverted_index::new_missing_iterator,
     not_reducer::{NewNotIterator, new_not_iterator},
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
+    union_opaque::build_union,
 };
 
 use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
@@ -163,6 +164,7 @@ pub fn eval_node<'index>(
         QueryNode::Optional => Some(eval_optional(ctx, node)),
         QueryNode::Not => Some(eval_not(ctx, node)),
         QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
+        QueryNode::Union => Some(eval_union(ctx, node)),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -537,4 +539,59 @@ fn eval_phrase<'index>(
     Some(Evaluated::RustCompound(
         NonNull::new(result_ptr).expect("phrase iterator must not be null"),
     ))
+}
+
+/// `QN_UNION` — a logical OR over its children (matches any document matched by
+/// at least one child).
+///
+/// The children are evaluated and combined with the Rust union iterator. Each
+/// child's field mask is first intersected with the union node's own mask, and
+/// `quick_exit` is enabled when the union only needs the matching id set rather
+/// than per-child scores — i.e. inside a `NOT` subtree or when the node's weight
+/// is zero.
+fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> Evaluated<'index> {
+    // Parsers and expanders always create unions with 2+ children.
+    debug_assert!(
+        node.num_children() > 1,
+        "a union node must have more than one child"
+    );
+
+    let num_children = node.num_children();
+    let node_mask = node.opts().field_mask;
+    let weight = node.opts().weight;
+    let node_type = node.node_type();
+
+    // We want results from every matching child (`quick_exit == false`) unless
+    // either (1) we are inside a `NOT` subtree, where only the id set matters,
+    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
+    let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+
+    // Recursively evaluate every child, narrowing its field mask first.
+    //
+    // SAFETY: query evaluation is single-threaded and walks each AST node
+    // exactly once, top-down, so we hold exclusive access to this node and its
+    // subtree for the duration of the call — exactly what `as_mut` requires.
+    let mut node = unsafe { node.as_mut() };
+    let children: Vec<CRQEIterator> = (0..num_children)
+        .map(|i| {
+            let mut child = node.child_mut(i);
+            child.and_field_mask(node_mask);
+            eval_child_iterator(ctx, child.as_ref())
+        })
+        .collect();
+
+    // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
+    let result_ptr = unsafe {
+        build_union(
+            children,
+            quick_exit,
+            min_union_iter_heap,
+            node_type,
+            None,
+            weight,
+        )
+    };
+
+    Evaluated::RustCompound(NonNull::new(result_ptr).expect("union iterator must not be null"))
 }
