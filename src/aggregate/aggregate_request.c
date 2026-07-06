@@ -1013,9 +1013,9 @@ error:
 
 static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
   ArgsCursor loadfields = {0};
-  // FT.AGGREGATE LOAD is allowed on disk (flex): HASH loads via the disk async
-  // loader; JSON-on-disk is rejected at bound-spec time (AREQ_ApplyContext).
-  // FT.SEARCH LOAD stays rejected.
+  // FT.AGGREGATE LOAD is allowed on disk (flex): fields load via the disk
+  // async loader. FT.SEARCH LOAD stays rejected (its disk field-return
+  // surface is RETURN).
   if (isDiskIndex && !(*reqflags & QEXEC_F_IS_AGGREGATE)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
     return REDISMODULE_ERR;
@@ -1540,31 +1540,6 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// True when a query returns no document fields (NOCONTENT, or RETURN 0, both of
-// which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
-static inline bool queryReturnsNoFields(uint32_t reqflags) {
-  return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
-}
-
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                     FlexFieldReturnRule rule, QueryError *status) {
-  if (!SearchDisk_IsEnabledForValidation() || queryReturnsNoFields(reqflags)) {
-    return REDISMODULE_OK;
-  }
-
-  const bool isJson = isSpecJson(sp);
-  if (!isJson && rule == FlexFieldReturnRule_RejectJsonOnly) {
-    return REDISMODULE_OK;
-  }
-  if (!isJson && rule == FlexFieldReturnRule_AllowHashQuery &&
-      (reqflags & (QEXEC_F_IS_SEARCH | QEXEC_F_IS_AGGREGATE))) {
-    return REDISMODULE_OK;
-  }
-
-  QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-  return REDISMODULE_ERR;
-}
-
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1592,18 +1567,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetError(
         status, QUERY_ERROR_CODE_INVAL,
         "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
-    return REDISMODULE_ERR;
-  }
-
-  // Disk (flex) field-loading validation, now that the spec is bound. JSON-on-disk
-  // loading is unsupported; HASH-on-disk loads via the async loader for FT.SEARCH
-  // and FT.AGGREGATE. Everything else still requires NOCONTENT / RETURN 0. (On the
-  // coordinator this is enforced pre-fan-out; see prepareForExecution.)
-  // Deliberately conservative for JSON: even fieldless JSON aggregates are
-  // rejected rather than analyzing the plan for load-freedom — JSON-on-disk
-  // loader support is landing separately (MOD-16601) and will lift this.
-  if (FlexValidation_RejectFieldReturn(index, reqFlags, FlexFieldReturnRule_AllowHashQuery,
-                                       status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
