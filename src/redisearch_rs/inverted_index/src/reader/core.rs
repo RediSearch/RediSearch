@@ -146,6 +146,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         Ok(success)
     }
 
+    #[inline(always)]
     fn skip_to(&mut self, doc_id: DocId) -> bool {
         let ii = self.ii.get();
         if ii.blocks.is_empty() {
@@ -272,6 +273,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
     }
 
     /// Set the current active block to the given index
+    #[inline(always)]
     fn set_current_block(&mut self, index: usize) {
         let ii = self.ii.get();
         debug_assert!(index < ii.blocks.len(), "block index should stay in bounds");
