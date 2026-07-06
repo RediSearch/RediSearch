@@ -12,6 +12,7 @@
 #include <sched.h>
 
 #include "redismodule.h"
+#include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
 #include "spec.h"
 #include <time.h>
@@ -116,6 +117,14 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
+
+/* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
+ * background request-cycle boundaries: the lock must be taken and released
+ * within a single cycle, on the same worker thread — a later release (request
+ * free / client unblock on the main thread) would unlock the pthread_rwlock
+ * from a thread that does not own it, which is undefined behavior. */
+#define RedisSearchCtx_AssertLockNotHeld(sctx) \
+  RS_LOG_ASSERT(!(sctx) || (sctx)->lock_state == SPEC_LOCK_UNSET, "spec lock must not be held")
 
 #ifdef __cplusplus
 }

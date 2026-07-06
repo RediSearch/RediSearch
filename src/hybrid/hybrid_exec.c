@@ -1394,9 +1394,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
-  // BG-cycle entry bookend: the hybrid's shared sctx must have a clean lock
-  // state before the pipeline may take the spec lock.
-  RequestCycle_AssertLockUnset(HREQ_SearchCtx(hreq));
+  // The lock state must be clean before the pipeline may take the spec lock.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -1407,8 +1406,6 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
     RedisModule_FreeThreadSafeContext(outctx);
-    // BG-cycle exit bookend (early bail): the lock was never taken.
-    RequestCycle_EnsureLockReleased(HREQ_SearchCtx(hreq));
     blockedClientHybridCtx_destroy(BCHCtx);
     return;
   }
@@ -1442,8 +1439,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
-  // BG-cycle exit bookend: the hybrid request is still alive here (destroy
-  // releases the StrongRef), and unblocking the client below may free it.
-  RequestCycle_EnsureLockReleased(HREQ_SearchCtx(hreq));
+  // The hybrid request is still alive here (destroy releases the StrongRef),
+  // and unblocking the client below may free it.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   blockedClientHybridCtx_destroy(BCHCtx);
 }

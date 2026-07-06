@@ -517,27 +517,6 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *outctx);
 void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit);
 void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
-/* Background request-cycle spec-lock bookends.
- *
- * A "request cycle" is one background (worker-pool) execution of a request:
- * the initial FT.SEARCH/FT.AGGREGATE/FT.HYBRID execution, or a single cursor
- * read. The spec rwlock must be taken and released on the same worker thread
- * within one cycle; releasing it later from another thread (e.g. when the
- * request is freed or the blocked client is unblocked on the main thread) is
- * undefined behavior for the underlying pthread_rwlock. These bookends prove
- * the invariant at the cycle boundaries. Both tolerate sctx == NULL (no-op).
- */
-
-/* Called on the worker thread at BG-cycle entry, before the pipeline may take
- * the spec lock. The lock state must be clean from the previous cycle. */
-void RequestCycle_AssertLockUnset(const RedisSearchCtx *sctx);
-
-/* Called on the worker thread at BG-cycle exit, after the pipeline finished
- * and before the request may be freed / the client unblocked. Debug builds
- * assert; release builds recover by force-unlocking on this same thread
- * (never cross-thread). */
-void RequestCycle_EnsureLockReleased(RedisSearchCtx *sctx);
-
 /**
  * Increment the reference count of the AREQ.
  * @param req the request to increment
