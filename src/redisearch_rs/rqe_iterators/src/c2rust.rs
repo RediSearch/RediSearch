@@ -174,6 +174,17 @@ impl CRQEIterator {
         let self_ = ManuallyDrop::new(self);
         self_.header
     }
+
+    /// Return the raw pointer to the underlying [`QueryIterator`] without
+    /// consuming `self`.
+    ///
+    /// Unlike [`Self::into_raw`], `self` retains ownership: the returned pointer
+    /// aliases the one owned by `self`, so it must not be freed while `self` is
+    /// still live, nor used to construct a second owning [`CRQEIterator`] unless
+    /// ownership is first relinquished (e.g. by overwriting `self` in place).
+    pub const fn as_raw(&self) -> NonNull<QueryIterator> {
+        self.header
+    }
 }
 
 impl<'index> RQEIterator<'index> for CRQEIterator {

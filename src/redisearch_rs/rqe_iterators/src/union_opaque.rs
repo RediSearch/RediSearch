@@ -21,7 +21,7 @@
 //! and call methods such as [`UnionOpaque::num_children_active`] directly,
 //! without going through a C FFI trampoline.
 
-use std::{ffi::CStr, ptr::NonNull};
+use std::ffi::CStr;
 
 use ffi::{QueryIterator, QueryNodeType};
 use index_result::RSIndexResult;
@@ -312,17 +312,16 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
     for child in wrapper.inner.children_mut() {
+        // Read the child's owning pointer without consuming the slot; ownership
+        // is moved out here and handed back in place below.
+        let it = child.as_raw();
+        // SAFETY: `it` is a valid, uniquely-owned C iterator; it is consumed
+        // here and replaced below, so it is neither leaked nor double-freed.
+        let profiled = unsafe { CRQEIterator::new(it) }.into_profiled();
         // `CRQEIterator` is `#[repr(transparent)]` over `NonNull<QueryIterator>`,
         // so a `&mut CRQEIterator` can be viewed as a `*mut *mut QueryIterator`
         // slot for in-place replacement.
         let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: `slot` is a valid pointer to the child's owning iterator slot.
-        let raw = unsafe { *slot };
-        // SAFETY: the child slot holds a valid, non-null `QueryIterator`.
-        let it = unsafe { NonNull::new_unchecked(raw) };
-        // SAFETY: `it` is a valid, uniquely-owned C iterator; it is consumed
-        // here and replaced below, so it is neither leaked nor double-freed.
-        let profiled = unsafe { CRQEIterator::new(it) }.into_profiled();
         // SAFETY: `slot` is a valid, writable pointer; store the profiled
         // iterator back in place.
         unsafe { *slot = profiled.into_raw().as_ptr() };
