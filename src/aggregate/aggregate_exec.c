@@ -1882,6 +1882,40 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+/**
+ * Reject disk (flex) requests whose pipeline would carry the async loader when
+ * execution is about to happen inline on the main thread: the loader blocks on
+ * prefetch completions delivered by the main thread, so inline execution would
+ * deadlock. Aggregations nearly always load fields, so all of them are
+ * rejected (a predictable error beats a plan-shape-dependent one); searches
+ * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
+ * MULTI/Lua exactly as before the loader existed.
+ *
+ * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
+ * the request must be rejected, REDISMODULE_OK otherwise.
+ */
+static int rejectDiskLoaderInlineExecution(const AREQ *r, const RedisSearchCtx *sctx,
+                                           QueryError *status) {
+  if (!sctx->spec || !sctx->spec->diskSpec) {
+    return REDISMODULE_OK;
+  }
+  const char *error = NULL;
+  if (IsAggregate(r)) {
+    error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
+            "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) && !(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS)) {
+    error = "FT.SEARCH with field return in a context that cannot block "
+            "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
+            "use NOCONTENT or RETURN 0";
+  }
+  if (error) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT, error);
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
@@ -1919,31 +1953,12 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
-    // Disk (flex) pipelines that carry the async loader must run on a worker
-    // thread: the loader blocks on prefetch completions delivered by the main
-    // thread, so inline (main-thread) execution would deadlock. RunInThread is
-    // false here either because the client cannot be blocked (MULTI/EXEC, Lua)
-    // or WORKERS is 0; flex enforces WORKERS > 0, so this is the
-    // non-blockable-client case. Aggregations nearly always load fields, so
-    // reject them all (a predictable error beats a plan-shape-dependent one);
-    // searches load fields unless NOCONTENT / RETURN 0 was given, so those
-    // stay usable in MULTI/Lua exactly as before the loader existed.
-    if (sctx->spec && sctx->spec->diskSpec) {
-      if (IsAggregate(r)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                            "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
-                            "scripts) is not supported in Redis Flex");
-        CurrentThread_ClearIndexSpec();
-        return REDISMODULE_ERR;
-      }
-      if (IsSearch(r) && !(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT,
-                            "FT.SEARCH with field return in a context that cannot block "
-                            "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
-                            "use NOCONTENT or RETURN 0");
-        CurrentThread_ClearIndexSpec();
-        return REDISMODULE_ERR;
-      }
+    // RunInThread is false here either because the client cannot be blocked
+    // (MULTI/EXEC, Lua) or WORKERS is 0; flex enforces WORKERS > 0, so this is
+    // the non-blockable-client case — disk loader-bearing pipelines must not
+    // run inline (see rejectDiskLoaderInlineExecution).
+    if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
 
     // Take a read lock on the spec (to avoid conflicts with the GC).
@@ -2305,6 +2320,27 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
 }
 
 /**
+ * Check whether a shard cursor's index is disk (flex) backed. The AREQ's
+ * sctx->spec is a raw pointer that dangles if the index was dropped while the
+ * cursor was idle, so the spec is inspected through the cursor's weak ref.
+ * Returns false when the index is gone — callers fall through and cursorRead
+ * replies with the canonical "index was dropped" error.
+ */
+static bool cursorIsDiskBacked(const Cursor *cursor) {
+  if (!cursor_HasSpecWeakRef(cursor)) {
+    return false;
+  }
+  StrongRef check_ref = IndexSpecRef_Promote(cursor->spec_ref);
+  const IndexSpec *liveSpec = StrongRef_Get(check_ref);
+  if (!liveSpec) {
+    return false;
+  }
+  const bool isDisk = liveSpec->diskSpec != NULL;
+  IndexSpecRef_Release(check_ref);
+  return isDisk;
+}
+
+/**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2423,26 +2459,14 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     // pipeline blocks on prefetch completions delivered by the main thread, so
     // a main-thread read would deadlock. Only sub-case (3) can carry a
     // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
-    // The AREQ's sctx->spec is a raw pointer that dangles if the index was
-    // dropped while the cursor was idle, so inspect the spec through the
-    // cursor's weak ref. If the index is gone, fall through — cursorRead
-    // replies with the canonical "index was dropped" error.
-    if (!upstreamBC && cursor->execState && cursor_HasSpecWeakRef(cursor)) {
-      StrongRef check_ref = IndexSpecRef_Promote(cursor->spec_ref);
-      IndexSpec *liveSpec = StrongRef_Get(check_ref);
-      if (liveSpec) {
-        const bool isDiskCursor = liveSpec->diskSpec != NULL;
-        IndexSpecRef_Release(check_ref);
-        if (isDiskCursor) {
-          // Keep the cursor valid for a later blockable read; only this read is
-          // rejected. Mirrors RSCursorProfileCommand's pause-on-error pattern.
-          Cursor_Pause(cursor);
-          return RedisModule_ReplyWithError(
-              ctx,
-              "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
-              "supported in Redis Flex");
-        }
-      }
+    if (!upstreamBC && cursor->execState && cursorIsDiskBacked(cursor)) {
+      // Keep the cursor valid for a later blockable read; only this read is
+      // rejected. Mirrors RSCursorProfileCommand's pause-on-error pattern.
+      Cursor_Pause(cursor);
+      return RedisModule_ReplyWithError(
+          ctx,
+          "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
+          "supported in Redis Flex");
     }
 
     if (reqCtx) {
