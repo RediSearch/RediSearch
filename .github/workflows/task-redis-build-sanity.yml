@@ -261,9 +261,10 @@ jobs:
         working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+          REDISEARCH_LTO: ${{ needs.get-config.outputs.enable_lto }}
         run: |
           export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
-          make build redisearch
+          make build redisearch LTO="$REDISEARCH_LTO"
 
       - name: Verify make run loads RediSearch
         working-directory: redis
