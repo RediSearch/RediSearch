@@ -738,14 +738,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-  // Reject JSON-on-disk field return before fanning out to shards. HASH-on-disk
-  // passes through and is enforced shard-side in AREQ_ApplyContext.
-  if (FlexValidation_RejectFieldReturn(sp, AREQ_RequestFlags(r),
-                                       FlexFieldReturnRule_RejectJsonOnly,
-                                       status) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-
   // Pin back to the dispatch-time policy before skipTimeoutChecks / the pipeline
   // ctx are derived from it below.
   applyCoordReqConfigTimeoutPolicy(r, requestTimeoutPolicy);
