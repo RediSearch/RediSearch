@@ -349,7 +349,7 @@ struct BlockedRequestCtx {
   /* Reference count. Starts at 1 (set by New). Incremented by IncrRef,
    * decremented by DecrRef; reaches 0 exactly once, triggering Free.
    * Uses ACQ_REL on decrement so the free path sees all prior writes.
-   * Removed in Step 2 (replaced by the single-owner OnFree discipline). */
+   * Removed in Step 2b (replaced by the single-owner OnFree discipline). */
   RS_Atomic(int) refcount;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
@@ -372,6 +372,29 @@ struct BlockedRequestCtx {
   int safeLoadersHoldingGIL;
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
+
+  /* ===== Per-cycle fields =====
+   * A "cycle" is one blocked-client round trip: the initial query execution or
+   * a single cursor read. Bound on the main thread by
+   * BlockedRequestCtx_BeginCycle (after RedisModule_BlockClient returned `bc`,
+   * before dispatching BG work) and cleared by BlockedRequestCtx_EndCycle
+   * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
+   * Between cycles these are NULL/zeroed and must not be read. */
+  RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
+  RedisModuleCmdFunc reply_cb;  // NULL => BG replied inline via a thread-safe
+                                // ctx; non-NULL => BG stores results and this
+                                // runs on main after UnblockClient
+  RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle; immutable
+                                  // for the cycle (sticky-policy pattern,
+                                  // MOD-16023, generalized to all cycles)
+  void *coord_ctx;              // CoordRequestCtx*/MRCtx* on coordinator
+                                // paths (wired in Step 5); NULL for shard
+  /* Transitional bridge until Step 3 links the wrapper itself into
+   * BlockedQueries: the registry node created for this cycle, unlinked and
+   * freed in EndCycle. Kind-tagged because query and cursor nodes live in
+   * different lists. */
+  void *registry_node;
+  bool registry_node_is_cursor;
 };
 
 /* Allocate a heap BlockedRequestCtx that takes ownership of the request,

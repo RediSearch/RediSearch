@@ -920,16 +920,16 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!brc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no blocked-request ctx");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  HybridRequest *hreq = brc->query.hybrid;
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -965,14 +965,14 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!brc) {
     RedisModule_Log(ctx, "warning",
-                    "HybridQueryTimeoutReturnStrictCallback: no node or privdata");
+                    "HybridQueryTimeoutReturnStrictCallback: no blocked-request ctx");
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false, false);
   }
 
-  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  HybridRequest *hreq = brc->query.hybrid;
 
   // Signal timeout to the worker and to all subquery depleters.
   HybridRequest_SetTimedOut(hreq);
@@ -1011,16 +1011,16 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!brc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryTimeoutFailCallback: no blocked-request ctx");
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
     return REDISMODULE_OK;
   }
 
-  HybridRequest *hreq = (HybridRequest *)node->privdata;
+  HybridRequest *hreq = brc->query.hybrid;
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1052,15 +1052,15 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!brc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no blocked-request ctx");
     RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
+  HybridRequest *req = brc->query.hybrid;
 
   if (QueryError_HasError(&req->storedReplyState.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, SHARD_ERR_WARN);
@@ -1086,15 +1086,15 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   UNUSED(argv);
   UNUSED(argc);
 
-  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!node || !node->privdata) {
+  BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
+  if (!brc) {
     // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no node or privdata");
+    RedisModule_Log(ctx, "warning", "HybridQueryReplyCallback: no blocked-request ctx");
     RedisModule_ReplyWithError(ctx, "Internal error: no request context");
     return REDISMODULE_OK;
   }
 
-  HybridRequest *req = (HybridRequest *)node->privdata;
+  HybridRequest *req = brc->query.hybrid;
 
   // Check if results were stored (background thread completed successfully)
   if (!req->storedReplyState.hasStoredResults) {
@@ -1115,11 +1115,6 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
 
   return REDISMODULE_OK;
 
-}
-
-// Wrapper for HybridRequest_DecrRef to match BlockedClientFreePrivDataCB signature
-static void HybridRequest_DecrRefWrapper(void *privdata) {
-  HybridRequest_DecrRef((HybridRequest *)privdata);
 }
 
 // Background execution functions implementation
@@ -1147,33 +1142,34 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    BlockClientCtx blockClientCtx = {0};
-
-    blockClientCtx.privdata = hreq;
-    HybridRequest_IncrRef(hreq);
-    blockClientCtx.freePrivData = HybridRequest_DecrRefWrapper;
+    // Capture the timeout policy on the main thread; BeginCycle stores it on
+    // the wrapper for the cycle.
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
 
     if (timeoutPolicy != TimeoutPolicy_Return) {
-      blockClientCtx.replyCallback = internal
+      replyCallback = internal
           ? HybridQueryCursorReplyCallback
           : HybridQueryReplyCallback;
 
-      blockClientCtx.timeoutMS = hreq->reqConfig.queryTimeoutMS;
+      timeoutMS = hreq->reqConfig.queryTimeoutMS;
       hreq->useReplyCallback = true;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
-        blockClientCtx.timeoutCallback = HybridQueryTimeoutFailCallback;
+        timeoutCallback = HybridQueryTimeoutFailCallback;
       } else {
         RS_ASSERT(timeoutPolicy == TimeoutPolicy_ReturnStrict);
-        blockClientCtx.timeoutCallback = internal
+        timeoutCallback = internal
             ? HybridQueryCursorTimeoutReturnStrictCallback
             : HybridQueryTimeoutReturnStrictCallback;
         hreq->brc->requiresAggregateResultsSync = true;
       }
     }
 
-    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(ctx, spec_ref, &blockClientCtx);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
+        ctx, spec_ref, hreq->brc, replyCallback, timeoutCallback, timeoutPolicy, timeoutMS);
 
     blockedClientHybridCtx *BCHCtx = blockedClientHybridCtx_New(StrongRef_Clone(hybrid_ref), hybridParams, blockedClient, spec_ref, internal);
 
