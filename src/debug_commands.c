@@ -1981,6 +1981,23 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
+// The debug scanner limit/pause knobs (SET_MAX_SCANNED_DOCS, SET_PAUSE_ON_SCANNED_DOCS,
+// SET_PAUSE_BEFORE_SCAN, SET_PAUSE_ON_OOM, SET_PAUSE_BEFORE_OOM_RETRY) and the
+// GET_DEBUG_SCANNER_STATUS readout are implemented entirely by DebugIndexes_ScanProc on the
+// synchronous RAM scan path — it is what enforces the doc limits, flips the pause flag, and
+// advances DebugIndexesScanner.status. In disk mode the scan is dispatched to
+// Indexes_AsyncScanAndReindexTask, which never invokes that proc; the DebugIndexesScanner would
+// be allocated but never driven, so these controls would silently never take effect and any
+// client polling GET_DEBUG_SCANNER_STATUS for PAUSED would hang. Reject them up front instead
+// (mirrors TERMINATE_BG_POOL), until/unless the hooks are implemented in the async driver.
+static bool rejectDiskDebugScannerControl(RedisModuleCtx *ctx, const char *cmd) {
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported when disk is enabled", cmd);
+    return true;
+  }
+  return false;
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1990,6 +2007,9 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_MAX_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long max_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
@@ -2015,6 +2035,9 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long pause_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
@@ -2055,6 +2078,9 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "GET_DEBUG_SCANNER_STATUS")) {
+    return REDISMODULE_OK;
+  }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
@@ -2092,6 +2118,9 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_SCAN")) {
+    return REDISMODULE_OK;
+  }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
@@ -2116,6 +2145,9 @@ DEBUG_COMMAND(setPauseOnOOM) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_OOM")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2169,6 +2201,9 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_OOM_RETRY")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2227,6 +2262,9 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "DEBUG_SCANNER_UPDATE_CONFIG")) {
+    return REDISMODULE_OK;
   }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
