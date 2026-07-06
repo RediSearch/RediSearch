@@ -322,6 +322,7 @@ fn union_limited_lexrange_prints_full() {
 #[test]
 fn union_with_query_string() {
     use ffi::QueryNodeType;
+    use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -331,7 +332,7 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
-        query_string: Some(query_str.as_c_str()),
+        query_string: Some(SharedPtr::from_ref(query_str.as_c_str())),
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);

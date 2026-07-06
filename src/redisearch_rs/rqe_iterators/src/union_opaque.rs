@@ -25,7 +25,7 @@ use std::ffi::CStr;
 
 use ffi::{QueryIterator, QueryNodeType};
 use index_result::RSIndexResult;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, SharedPtr};
 use rqe_core::DocId;
 
 use crate::{
@@ -121,12 +121,12 @@ pub struct RawUnionOpaque<Rf: Ref, I> {
     /// Borrowed C string describing the query (e.g. the search term), or
     /// [`None`] when the union has no associated query string.
     ///
-    /// The string is owned by the query AST, not the index; the `'index`
-    /// lifetime is reused here because both the index and the AST outlive the
-    /// iterator. In practice the AST is freed only after the entire query
+    /// The string is owned by the query AST, not the index; its validity is
+    /// tied to the [`Ref`] mode `Rf`, since both the index and the AST outlive
+    /// the iterator. In practice the AST is freed only after the entire query
     /// execution pipeline — including all iterators — has been torn down, so
     /// the borrow remains valid for the lifetime of this struct.
-    pub query_string: Option<&'index CStr>,
+    pub query_string: Option<SharedPtr<Rf, CStr>>,
 }
 
 /// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
@@ -262,7 +262,7 @@ where
                 map.kv_simple_string(c"Query type", &value);
             }
             Some(q_str) => {
-                let q_str_rust = q_str.to_string_lossy();
+                let q_str_rust = q_str.get().to_string_lossy();
                 let formatted = format!("{type_str} - {q_str_rust}");
                 // Use string_buffer (bulk string) instead of simple_string: the
                 // query string may contain \r\n which is invalid in RESP Simple
@@ -373,7 +373,7 @@ pub unsafe fn build_union(
     let mut dispatch = UnionOpaque {
         variant,
         query_node_type: type_,
-        query_string: q_str,
+        query_string: q_str.map(SharedPtr::from_ref),
     };
     dispatch.set_result_weight(weight);
     RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
