@@ -65,6 +65,16 @@ pub struct QueryProcessingCtx {
     /// The total results found in the query, incremented by the root
     /// processors and decremented by others who might disqualify results.
     pub totalResults: u32,
+    /// Results that were counted in `totalResults` but dropped by a buffering
+    /// result processor (the safe loader) because the document was deleted or
+    /// re-indexed between buffering and load. The reported total is
+    /// `totalResults - skippedResults`.
+    ///
+    /// Tracked separately rather than decrementing `totalResults` so the live
+    /// match count stays stable for the length prediction (`calc_results_len`),
+    /// and so a post-header re-accumulation cannot "resurrect" a row whose
+    /// decrement already shipped in the RESP2 header.
+    pub skippedResults: u32,
     /// The number of results we requested to return at the current chunk.
     /// This value is meant to be used by the RP to limit the number of results
     /// returned by its upstream RP ONLY.
@@ -112,6 +122,7 @@ impl QueryProcessingCtx {
             queryGILTime: 0,
             minScore: 0.0,
             totalResults: 0,
+            skippedResults: 0,
             resultLimit: 0,
             err: ptr::null_mut(),
             bgScanOOM: false,
