@@ -1428,13 +1428,10 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  // A query-build timeout under FAIL policy hard-fails a normal query. FT.PROFILE
-  // must report the timeout as a Warning instead: record it right here (so it is
-  // surfaced regardless of any later timeout check) and mark the request timed out
-  // so the pipeline no-ops rather than erroring, leaving the profile to be returned.
   if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
       TimedOut(&sctx->time.timeout) == TIMED_OUT) {
     if (IsProfile(req)) {
+      // FT.PROFILE reports a timeout as a Warning, not an error.
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_TIMEOUT);
       AREQ_SetTimedOut(req);
     } else {
