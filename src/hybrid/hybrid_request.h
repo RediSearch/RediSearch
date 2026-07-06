@@ -85,6 +85,15 @@ static inline bool HybridRequest_TimedOut(HybridRequest *req) {
 }
 static inline void HybridRequest_SetTimedOut(HybridRequest *req) {
   RS_AtomicBoolStoreRelaxed(&req->syncCtx.timedOut, true);
+  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
+  // abort flag (&areq->syncCtx.timedOut) is flipped. Without this the BG
+  // worker can stay parked on the channel even after the hybrid-level flag
+  // is set.
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      AREQ_SetTimedOut(req->requests[i]);
+    }
+  }
 }
 
 // Cursor mutex wrappers for synchronizing cursor creation with timeout callback

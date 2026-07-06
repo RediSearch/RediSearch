@@ -26,6 +26,7 @@
 #include "config.h"
 #include "coord/coord_request_ctx.h"
 #include "debug_commands.h"
+#include "aggregate/aggregate_exec_common.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -734,7 +735,12 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim)) {
+    const struct timespec *deadline =
+        (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
+            ? (const struct timespec *)&hreq->sctx->time.timeout
+            : NULL;
+
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -968,6 +974,18 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     RedisModule_EndReply(reply);
 }
 
+// A parked MR pop may be blocked on the hybrid request's own channel (setup
+// phase) or a subquery's channel (read phase); wake all of them.
+static void wakeHybridAbortChannels(HybridRequest *hreq) {
+  if (!hreq) return;
+  RequestSyncCtx_WakeAbortChannel(&hreq->syncCtx);
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    if (hreq->requests[i]) {
+      RequestSyncCtx_WakeAbortChannel(&hreq->requests[i]->syncCtx);
+    }
+  }
+}
+
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -989,6 +1007,11 @@ int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, i
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
+  // exits, even though this callback replies the error itself.
+  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  wakeHybridAbortChannels(hreq);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
