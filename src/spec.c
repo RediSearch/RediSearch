@@ -3394,8 +3394,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     IndexError_AddQueryError(&spec->stats.indexError, &status, doc.docKey);
 
     // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc(spec, ctx, key);
+    // to prevent mismatch of index and hash. Reuse the caller's pinned handle
+    // (if any) so a scan-path cleanup does not reopen the key by name — inside
+    // the async scan the key is not addressable by name.
+    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
     QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -3450,7 +3452,27 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   }
 }
 
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+// DocIdMeta access for the delete path. When an already-open, pinned key handle
+// is supplied (e.g. from the async scan key callback, where the key is not
+// addressable by name), reuse it via the *WithOpenKey variants instead of
+// reopening the key by name; otherwise fall back to the name-based variants.
+// This mirrors the open-key plumbing on the indexing success path
+// (`actxDocIdMetaGet` / `actxDocIdMetaSet`) so both paths treat the same key
+// consistently.
+static int lookupDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
+                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId) {
+  return openKey ? DocIdMeta_GetWithOpenKey(openKey, specId, docId)
+                 : DocIdMeta_Get(ctx, key, specId, docId);
+}
+
+static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
+                         RedisModuleKey *openKey, uint64_t specId) {
+  return openKey ? DocIdMeta_DeleteWithOpenKey(openKey, specId)
+                 : DocIdMeta_Delete(ctx, key, specId);
+}
+
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                RedisModuleKey *openKey) {
   t_docId id = 0;
   uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
@@ -3458,7 +3480,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
     // Look up docId from key metadata
     uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+    if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK ||
+        docId == 0) {
       // Nothing to delete
       return;
     }
@@ -3476,7 +3499,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     // this, a key that survives in the keyspace but is de-indexed (e.g. an HSET
     // that makes it stop passing the index FILTER) would keep a stale mapping
     // pointing at an already-deleted docId.
-    DocIdMeta_Delete(ctx, key, spec->specId);
+    dropDocIdMeta(ctx, key, openKey, spec->specId);
   } else {
     RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
     if (!md) {
@@ -3493,12 +3516,13 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   indexSpec_OnDocDeleted(spec, id, docLen);
 }
 
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        RedisModuleKey *openKey) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   IndexSpec_IncrActiveWrites(spec);
   RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, openKey);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
 

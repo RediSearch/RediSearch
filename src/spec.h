@@ -541,17 +541,24 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // Delete a document from the index by its key name.
-// In disk mode, looks up the docId via DocIdMeta_Get on the key, removes the
+// In disk mode, looks up the docId via the key's metadata, removes the
 // document from disk by that id, and deletes the DocIdMeta key→docId mapping so
 // it stays authoritative (an entry exists iff the doc is indexed). In memory
 // mode, pops the document metadata from the DocTable.
 // Requires a RedisModuleCtx to access the key's metadata.
+// `openKey` is an optional already-open, pinned handle for the document key.
+// Pass it when the caller holds the key open and pinned (e.g. the async scan key
+// callback, where the key is not addressable by name): the DocIdMeta lookup and
+// delete then reuse it instead of reopening the key by name, matching the
+// open-key plumbing on the indexing success path. Pass NULL to open by name.
 // This function locks the spec for writing.
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        RedisModuleKey *openKey);
 
 // Same as IndexSpec_DeleteDoc but does not lock the spec.
 // Use when the spec is already locked for writing.
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                RedisModuleKey *openKey);
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does

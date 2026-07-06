@@ -20,6 +20,7 @@
 #include "doc_id_meta.h"
 #include "debug_commands.h"
 #include "rmutil/rm_assert.h"
+#include "rmalloc.h"
 #include "rs_wall_clock.h"
 
 // The background-indexing debug context, owned by debug_commands.c. Read here only

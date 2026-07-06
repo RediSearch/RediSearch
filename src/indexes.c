@@ -604,7 +604,7 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
         // the filter expression fails (e.g. a field value changed so the filter
         // no longer passes, or a required field is missing). If the document was
         // previously indexed, it must be removed now.
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
       }
     }
   }
@@ -690,7 +690,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
     if (hashFieldChanged(specOp->spec, hashFields)) {
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key);
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
     }
   }
 
@@ -769,7 +769,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
         IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key);
+        IndexSpec_DeleteDoc(spec, ctx, key, NULL);
       }
       continue;
     }
@@ -869,7 +869,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         }
       } else {
         // For RAM case, look up by old key name and delete
-        IndexSpec_DeleteDoc(spec, ctx, from_key);
+        IndexSpec_DeleteDoc(spec, ctx, from_key, NULL);
       }
     }
   }

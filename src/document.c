@@ -988,8 +988,10 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey);
+    // to prevent mismatch of index and hash. Reuse the caller's pinned handle
+    // (set by the async scan path) so cleanup does not reopen the key by name —
+    // inside the async scan the key is not addressable by name.
+    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, aCtx->disk.openKey);
 
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
     AddDocumentCtx_Finish(aCtx);
