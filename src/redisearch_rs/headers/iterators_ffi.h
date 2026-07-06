@@ -25,6 +25,8 @@ typedef struct timespec timespec;
 typedef struct AREQ AREQ;
 
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
 /**
  * Smart pointer handle for [`RLookupKey`] that can be
  * invalidated when the iterator that owns the key is freed.
@@ -537,7 +539,7 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
  *    that has been profile-wrapped via `Profile_AddIters`.
  */
-void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
+void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.

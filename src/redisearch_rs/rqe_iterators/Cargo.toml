@@ -16,10 +16,8 @@ build_utils = { path = "../build_utils" }
 [dependencies]
 cheadergen.workspace = true
 ffi.workspace = true
-rqe_core.workspace = true
-geo.workspace = true
-rqe_iterator_type.workspace = true
 field.workspace = true
+geo.workspace = true
 idf.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
@@ -29,15 +27,18 @@ libc.workspace = true
 numeric_range_tree.workspace = true
 query_error.workspace = true
 query_term.workspace = true
+redis-module.workspace = true
+redis_mock.workspace = true
 redis_reply.workspace = true
+rqe_core.workspace = true
+rqe_iterator_type.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 trie_rs = { path = "../trie_rs" }
-redis_mock.workspace = true
 ttl_table.workspace = true
 types_ffi = { path = "../c_entrypoint/types_ffi" }
-varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 value.workspace = true
+varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 workspace_hack.workspace = true
 
 [dev-dependencies]

@@ -99,7 +99,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
         let vtable = self.vtable();
@@ -126,7 +126,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
         let vtable = self.vtable();
@@ -155,7 +155,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
         flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {

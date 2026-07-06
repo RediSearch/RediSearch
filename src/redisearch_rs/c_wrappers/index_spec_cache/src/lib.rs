@@ -52,7 +52,7 @@ impl IndexSpecCache {
     /// Creates an [`IndexSpecCache`] from a slice of [`ffi::FieldSpec`].
     pub fn from_fields<const N: usize>(fields: [ffi::FieldSpec; N]) -> Self {
         // Safety: the redis module is always initialized at this point
-        let alloc = unsafe { ffi::RedisModule_Alloc.unwrap() };
+        let alloc = unsafe { redis_module::RedisModule_Alloc.unwrap() };
 
         // Safety: the size is non-zero, and doesn't overflow isize or any other common allocator invariants
         let ptr = NonNull::new(unsafe { alloc(size_of::<ffi::IndexSpecCache>()) })

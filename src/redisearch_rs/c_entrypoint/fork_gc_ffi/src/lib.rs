@@ -144,10 +144,10 @@ pub unsafe extern "C" fn FGC_recvFixed(
     let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
 
     match fgc.reader().read_exact(slice) {
-        Ok(()) => ffi::REDISMODULE_OK as c_int,
+        Ok(()) => redis_module::REDISMODULE_OK as c_int,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error");
-            ffi::REDISMODULE_ERR as c_int
+            redis_module::REDISMODULE_ERR as c_int
         }
     }
 }
@@ -184,7 +184,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame");
-            return ffi::REDISMODULE_ERR as c_int;
+            return redis_module::REDISMODULE_ERR as c_int;
         }
     };
 
@@ -195,7 +195,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     // SAFETY: caller guarantees (2).
     unsafe { *len = payload_len };
 
-    ffi::REDISMODULE_OK as c_int
+    redis_module::REDISMODULE_OK as c_int
 }
 
 /// Receive a field header (field name + unique id).

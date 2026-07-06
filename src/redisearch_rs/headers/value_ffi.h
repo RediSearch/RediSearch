@@ -26,6 +26,8 @@ typedef enum RSValueType {
   RSValueType_Map = 8,
 } RSValueType;
 
+typedef struct RedisModuleString RedisModuleString;
+
 /**
  * Opaque map structure used during map construction.
  * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
@@ -767,7 +769,7 @@ bool RSValue_IsNull(const struct RSValue *value);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSValue *RSValue_NewRedisString(RedisModuleString *str);
+struct RSValue *RSValue_NewRedisString(struct RedisModuleString *str);
 
 /**
  * Returns a read only reference to the underlying [`RedisModuleString`] of an [`RSValue`].
@@ -784,7 +786,7 @@ struct RSValue *RSValue_NewRedisString(RedisModuleString *str);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
+const struct RedisModuleString *RSValue_RedisString_Get(const struct RSValue *value);
 
 /**
  * Replaces the pointer at `*dstpp` with a new clone of `src`.

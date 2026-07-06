@@ -92,7 +92,7 @@ pub enum LoadAllError {
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
     rlookup: &'env mut RLookup<'a>,
     dst_row: &'env mut RLookupRow<'a>,
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     force_load: bool,
     dmd: &'a DocumentMetadata,
     format: F,
@@ -134,7 +134,7 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     pub fn new(
         rlookup: &'env mut RLookup<'a>,
         dst_row: &'env mut RLookupRow<'a>,
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         dmd: &'a DocumentMetadata,
         format: F,
     ) -> Self {

@@ -526,6 +526,7 @@ const BLOCKLIST_FILES: &[&str] = &[
     ".*/query_term.h",
     ".*/query_term_ffi.h",
     ".*/rqe_iterator_type.h",
+    ".*/redismodule.h",
 ];
 
 fn main() {

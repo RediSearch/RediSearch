@@ -34,6 +34,8 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
+use redis_module::raw::*;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context
@@ -47,9 +49,6 @@ pub use query_node_type::{
 
 pub use query_term::{RSQueryTerm, RSTokenFlags};
 pub use rqe_iterator_type::IteratorType;
-
-/// Re-export the `redisearch.h` definitions
-pub use redis_module::raw::*;
 
 #[repr(C)]
 #[derive(Debug)]

@@ -11,10 +11,11 @@ pub use ffi::{
     IndexFlags, IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreByteOffsets,
     IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreNumeric,
     IndexFlags_Index_StoreTermOffsets, IteratorStatus, IteratorStatus_ITERATOR_EOF,
-    IteratorStatus_ITERATOR_OK, RedisModule_Alloc, RedisModule_Free, ValidateStatus,
+    IteratorStatus_ITERATOR_OK, ValidateStatus,
 };
 use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
+use redis_module::{RedisModule_Alloc, RedisModule_Free};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use std::{ffi::c_void, ptr};
 

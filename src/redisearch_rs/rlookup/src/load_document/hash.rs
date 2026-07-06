@@ -22,7 +22,7 @@ use value::{SharedValue, Value};
 
 /// Document loading support for the hash format
 pub struct HashDocumentFormat {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     force_string: bool,
 }
 
@@ -42,7 +42,7 @@ enum HashOpenError {
 }
 
 impl HashDocumentFormat {
-    pub const fn new(ctx: NonNull<ffi::RedisModuleCtx>, force_string: bool) -> Self {
+    pub const fn new(ctx: NonNull<redis_module::RedisModuleCtx>, force_string: bool) -> Self {
         Self { ctx, force_string }
     }
 

@@ -33,7 +33,7 @@ struct MockState {
 /// `f`.
 pub fn with_json_api<R>(
     doc: Option<serde_json::Value>,
-    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+    f: impl FnOnce(RedisJsonApi, NonNull<redis_module::RedisModuleCtx>) -> R,
 ) -> R {
     let state = MockState {
         doc,
@@ -41,7 +41,7 @@ pub fn with_json_api<R>(
     };
     // Derive the handle from a shared reference: we never form `&mut state`
     // afterwards, and all interior mutation goes through `RefCell`.
-    let ctx = NonNull::from(&state).cast::<ffi::RedisModuleCtx>();
+    let ctx = NonNull::from(&state).cast::<redis_module::RedisModuleCtx>();
     let api = RedisJsonApi::from_vtable(&VTABLE);
 
     f(api, ctx)
@@ -92,7 +92,7 @@ const unsafe fn node<'a>(json: ffi::RedisJSON) -> &'a serde_json::Value {
 
 /// Create a `RedisModuleString` over `bytes`, keeping the buffer alive in the
 /// mock's string arena.
-fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleString {
+fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut redis_module::RedisModuleString {
     let buf = bytes.into_boxed_slice();
     let ptr = buf.as_ptr();
     let len = buf.len();
@@ -102,7 +102,7 @@ fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleStrin
 
 /// Mint a `RedisModuleString` over `len` bytes at `ptr`, which the caller must
 /// keep alive (the mock `RedisModule_CreateString` stores the pointer).
-fn module_string(ptr: *const u8, len: usize) -> *mut ffi::RedisModuleString {
+fn module_string(ptr: *const u8, len: usize) -> *mut redis_module::RedisModuleString {
     // SAFETY: initialized by `redis_mock::init_redis_module_mock`.
     let create = unsafe { redis_module::raw::RedisModule_CreateString }
         .expect("RedisModule_CreateString not initialized — call init_redis_module_mock()");
@@ -149,8 +149,8 @@ fn eval_path(root: &serde_json::Value, path: &str) -> Vec<*const serde_json::Val
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn open_key_with_flags(
-    ctx: *mut ffi::RedisModuleCtx,
-    _key_name: *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    _key_name: *mut redis_module::RedisModuleString,
     _flags: c_int,
 ) -> ffi::RedisJSON {
     // Safety: ensured by caller (1.)
@@ -244,8 +244,8 @@ unsafe extern "C" fn free_iter(iter: ffi::JSONResultsIterator) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn get_json_from_iter(
     iter: ffi::JSONResultsIterator,
-    ctx: *mut ffi::RedisModuleCtx,
-    str: *mut *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    str: *mut *mut redis_module::RedisModuleString,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let it = unsafe { &*iter.cast::<Results>() };
@@ -268,7 +268,7 @@ unsafe extern "C" fn get_json_from_iter(
     // Safety: ensured by caller (3.)
     unsafe { *str = s };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -300,13 +300,13 @@ unsafe extern "C" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
     let value = match unsafe { node(json) } {
         serde_json::Value::Object(m) => m.len(),
         serde_json::Value::Array(a) => a.len(),
-        _ => return ffi::REDISMODULE_ERR as i32,
+        _ => return redis_module::REDISMODULE_ERR as i32,
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *count = value };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -318,13 +318,13 @@ unsafe extern "C" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
 unsafe extern "C" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(i) = unsafe { node(json) }.as_i64() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *integer = i };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -336,13 +336,13 @@ unsafe extern "C" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> 
 unsafe extern "C" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(d) = unsafe { node(json) }.as_f64() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *dbl = d };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -354,13 +354,13 @@ unsafe extern "C" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
 unsafe extern "C" fn get_boolean(json: ffi::RedisJSON, boolean: *mut c_int) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(b) = unsafe { node(json) }.as_bool() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *boolean = c_int::from(b) };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -377,7 +377,7 @@ unsafe extern "C" fn get_string(
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(s) = unsafe { node(json) }.as_str() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // The bytes live in the document, valid for the mock's lifetime.
@@ -387,7 +387,7 @@ unsafe extern "C" fn get_string(
     // Safety: ensured by caller (3.)
     unsafe { *len = s.len() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -399,8 +399,8 @@ unsafe extern "C" fn get_string(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn get_json(
     json: ffi::RedisJSON,
-    ctx: *mut ffi::RedisModuleCtx,
-    str: *mut *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    str: *mut *mut redis_module::RedisModuleString,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let state = unsafe { ctx.cast::<MockState>().as_ref().unwrap() };
@@ -412,7 +412,7 @@ unsafe extern "C" fn get_json(
     // Safety: ensured by caller (3.)
     unsafe { *str = s };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -424,13 +424,13 @@ unsafe extern "C" fn get_json(
 unsafe extern "C" fn get_at(json: ffi::RedisJSON, index: usize, ptr: ffi::RedisJSONPtr) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(elem) = unsafe { node(json) }.as_array().and_then(|a| a.get(index)) else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *ptr = ptr::from_ref(elem).cast() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 struct KeyValues {
@@ -464,13 +464,13 @@ unsafe extern "C" fn get_key_values(json: ffi::RedisJSON) -> ffi::JSONKeyValuesI
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn next_key_value(
     iter: ffi::JSONKeyValuesIterator,
-    key_name: *mut *mut ffi::RedisModuleString,
+    key_name: *mut *mut redis_module::RedisModuleString,
     ptr: ffi::RedisJSONPtr,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let it = unsafe { &mut *iter.cast::<KeyValues>().cast_mut() };
     let Some(&(key_ptr, key_len, value)) = it.entries.get(it.pos) else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
     it.pos += 1;
 
@@ -482,7 +482,7 @@ unsafe extern "C" fn next_key_value(
     // Safety: ensured by caller (3.)
     unsafe { *ptr = value.cast() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
