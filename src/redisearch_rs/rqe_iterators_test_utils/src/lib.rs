@@ -19,7 +19,9 @@ pub mod mock_context;
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
+use index_spec::IndexSpecReadGuard;
 pub use mock_context::MockContext;
+use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator};
 pub use test_context::{GlobalGuard, TestContext};
 
 /// Drive a suspend/resume cycle on `it` under the given lock guard.
@@ -29,47 +31,22 @@ pub use test_context::{GlobalGuard, TestContext};
 /// to exercise the canonical suspend/resume path during the in-progress
 /// migration away from `RQEIterator::revalidate`.
 ///
-/// The resumed iterator comes back type-erased as a
-/// [`TypeErasedRQEIterator`](rqe_iterators::TypeErasedRQEIterator) inside the returned
-/// [`ResumeOutcome`](rqe_iterators::ResumeOutcome) — exactly what `resume`
-/// yields — so callers keep driving it through the
-/// [`RQEIterator`](rqe_iterators::RQEIterator) surface.
 /// See [`ResumeOutcomeExt`] for `expect_ok` / `expect_moved`.
-///
-/// # Safety contract
-///
-/// `resume` hands the resumed iterator back at the guard's borrow lifetime;
-/// this helper relabels it to the index lifetime `'spec` — the same relabel the
-/// production FFI wrapper performs (see `rqe_iterators::interop::revalidate`).
-/// Lifetimes are erased at runtime, so the relabel never changes the
-/// representation.
-pub fn revalidate_via_resume<'borrow, 'spec>(
-    it: rqe_iterators::TypeErasedRQEIterator<'spec>,
-    spec: &'borrow index_spec::IndexSpecReadGuard<'spec>,
-) -> Result<
-    rqe_iterators::ResumeOutcome<rqe_iterators::TypeErasedRQEIterator<'spec>>,
-    rqe_iterators::RQEIteratorError,
-> {
-    let suspended = <rqe_iterators::TypeErasedRQEIterator<'spec> as rqe_iterators::RQEIteratorBoxed<
-        'spec,
-    >>::suspend(Box::new(it));
+pub fn revalidate_via_resume<'borrow, 'index>(
+    it: TypeErasedRQEIterator<'index>,
+    spec: &'borrow IndexSpecReadGuard<'index>,
+) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, rqe_iterators::RQEIteratorError> {
+    let suspended =
+        <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIteratorBoxed<'index>>::suspend(
+            Box::new(it),
+        );
     // Resume via the dyn path: it yields a single `TypeErasedRQEIterator`,
     // whereas the concrete `RQESuspendedIterator::resume` on the already-erased
     // suspended type would double-box. `resume` re-reads/seeks the index to
     // restore position and can fail with an `RQEIteratorError` (e.g. timeout);
     // propagate it like the production path.
-    let rqe_iterators::TypeErasedRQESuspendedIterator(inner) = *suspended;
-    let outcome = inner.resume(spec)?;
-    // SAFETY: relabel the resumed iterator from the guard's borrow lifetime to
-    // the index lifetime `'spec` — the same relabel the production FFI wrapper
-    // performs. Only the (erased) lifetime changes; the representation is
-    // identical, so the transmute is a no-op at runtime.
-    Ok(unsafe {
-        std::mem::transmute::<
-            rqe_iterators::ResumeOutcome<rqe_iterators::TypeErasedRQEIterator<'_>>,
-            rqe_iterators::ResumeOutcome<rqe_iterators::TypeErasedRQEIterator<'spec>>,
-        >(outcome)
-    })
+    let TypeErasedRQESuspendedIterator(inner) = *suspended;
+    inner.resume(spec)
 }
 
 /// Test-only ergonomic accessors on
@@ -77,35 +54,35 @@ pub fn revalidate_via_resume<'borrow, 'spec>(
 pub trait ResumeOutcomeExt<'a> {
     /// Unwrap the resumed iterator, panicking unless the outcome is
     /// [`Ok`](rqe_iterators::ResumeOutcome::Ok).
-    fn expect_ok(self) -> rqe_iterators::TypeErasedRQEIterator<'a>;
+    fn expect_ok(self) -> TypeErasedRQEIterator<'a>;
 
     /// Unwrap the resumed iterator, panicking unless the outcome is
     /// [`Moved`](rqe_iterators::ResumeOutcome::Moved).
-    fn expect_moved(self) -> rqe_iterators::TypeErasedRQEIterator<'a>;
+    fn expect_moved(self) -> TypeErasedRQEIterator<'a>;
 }
 
-impl<'a> ResumeOutcomeExt<'a> for rqe_iterators::ResumeOutcome<rqe_iterators::TypeErasedRQEIterator<'a>> {
+impl<'a> ResumeOutcomeExt<'a> for ResumeOutcome<TypeErasedRQEIterator<'a>> {
     #[track_caller]
-    fn expect_ok(self) -> rqe_iterators::TypeErasedRQEIterator<'a> {
+    fn expect_ok(self) -> TypeErasedRQEIterator<'a> {
         match self {
-            rqe_iterators::ResumeOutcome::Ok(it) => it,
-            rqe_iterators::ResumeOutcome::Moved(_) => {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => {
                 panic!("expected ResumeOutcome::Ok, got Moved")
             }
-            rqe_iterators::ResumeOutcome::Aborted => {
+            ResumeOutcome::Aborted => {
                 panic!("expected ResumeOutcome::Ok, got Aborted")
             }
         }
     }
 
     #[track_caller]
-    fn expect_moved(self) -> rqe_iterators::TypeErasedRQEIterator<'a> {
+    fn expect_moved(self) -> TypeErasedRQEIterator<'a> {
         match self {
-            rqe_iterators::ResumeOutcome::Moved(it) => it,
-            rqe_iterators::ResumeOutcome::Ok(_) => {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => {
                 panic!("expected ResumeOutcome::Moved, got Ok")
             }
-            rqe_iterators::ResumeOutcome::Aborted => {
+            ResumeOutcome::Aborted => {
                 panic!("expected ResumeOutcome::Moved, got Aborted")
             }
         }

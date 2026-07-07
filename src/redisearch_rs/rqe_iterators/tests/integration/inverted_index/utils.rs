@@ -674,12 +674,13 @@ impl RevalidateTest {
 /// [`revalidate_via_resume`](rqe_iterators_test_utils::revalidate_via_resume)
 /// instead of the legacy [`RQEIterator::revalidate`] call.
 ///
-/// PR F (delete legacy revalidate) deletes [`RevalidateTest`] and replaces
+/// When revalidation starts going through the new suspend/resume code path,
+/// we will delete [`RevalidateTest`] and replace
 /// it by hoisting this module's contents up to the file level. Tests
 /// can then drop the `mod via_resume` wrapper.
 #[allow(
     dead_code,
-    reason = "callers land in the per-iterator R2 commits that follow this one"
+    reason = "callers land in per-iterator resume/suspend commits that follow this one"
 )]
 pub mod via_resume {
     use super::{DecodedBy, Encoder, InvertedIndex, NumericIndex, RevalidateTest, SkipToOutcome};

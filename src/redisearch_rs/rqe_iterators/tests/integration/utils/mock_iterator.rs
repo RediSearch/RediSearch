@@ -506,8 +506,9 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
 
     fn resume<'a>(
         mut self: Box<Self>,
-        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
-    ) -> Result<rqe_iterators::ResumeOutcome<Box<Mock<'a, N>>>, rqe_iterators::RQEIteratorError> {
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<rqe_iterators::ResumeOutcome<Box<Mock<'a, N>>>, rqe_iterators::RQEIteratorError>
+    {
         // Honour the [`MockRevalidateResult`] configured on the mock's
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
@@ -775,8 +776,9 @@ impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
 
     fn resume<'a>(
         self: Box<Self>,
-        _guard: &'a index_spec::IndexSpecReadGuard<'a>,
-    ) -> Result<rqe_iterators::ResumeOutcome<Box<MockVec<'a>>>, rqe_iterators::RQEIteratorError> {
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<rqe_iterators::ResumeOutcome<Box<MockVec<'a>>>, rqe_iterators::RQEIteratorError>
+    {
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical (see [`MockVec::suspend`]).
         let active = unsafe { Box::from_raw(raw as *mut MockVec<'a>) };
