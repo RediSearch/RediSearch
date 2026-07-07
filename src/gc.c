@@ -109,6 +109,13 @@ static void debugTaskCallback(void* data) {
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
+  // The GC thread pool is destroyed on shutdown teardown (GC_ThreadPoolDestroy). A
+  // cycle that completed just before that reschedules a timer, which may fire after
+  // the pool is gone — with no pool there is nothing to run and nothing to reschedule
+  // onto, so drop the tick rather than dereference a NULL pool below.
+  if (!gcThreadpool_g) {
+    return;
+  }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allowed it means that there is a state machine running
     // we do not want to run any GC which might cause a FORK process to start for example.
