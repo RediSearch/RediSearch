@@ -351,6 +351,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define MAX_AGGREGATE_GROUPS (1ULL << 26)
 #define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+// Lower aggregate caps used as the registration-time defaults in flex (disk)
+// mode: bound result materialization and the per-shard group count to reduce
+// OOM risk (the coordinator multiplies the group cap by the shard count).
+// Explicitly-set values (module args / CONFIG SET) override them as usual.
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX 1000000
+#define DEFAULT_MAX_AGGREGATE_GROUPS_FLEX 100000
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000

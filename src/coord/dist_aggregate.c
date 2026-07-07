@@ -29,6 +29,7 @@
 #include "coord/dist_utils.h"
 #include "info/global_stats.h"
 #include "search_disk.h"
+#include "search_disk_utils.h"
 #include "debug_commands.h"
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
@@ -738,11 +739,11 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   rc = AREQ_Compile(r, ctx, argv + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
-  // Reject JSON-on-disk field return before fanning out to shards. HASH-on-disk
-  // passes through and is enforced shard-side in AREQ_ApplyContext.
-  if (FlexValidation_RejectFieldReturn(sp, AREQ_RequestFlags(r),
-                                       FlexFieldReturnRule_RejectJsonOnly,
-                                       status) != REDISMODULE_OK) {
+  // User-facing cursors are unsupported on disk (flex). Reject before fan-out.
+  // The coordinator's own shard fan-out (which always adds WITHCURSOR to the
+  // shard `_FT.AGGREGATE`) does not pass through here.
+  if ((AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     return REDISMODULE_ERR;
   }
 

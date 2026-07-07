@@ -104,6 +104,29 @@ static ResultProcessor *pushRP(QueryProcessingCtx *ctx, ResultProcessor *rp, Res
   return rp;
 }
 
+/**
+ * Build the loader RP that fills lookup rows from the keyspace: the disk async
+ * loader for disk-backed (flex) specs (HASH and JSON), RPLoader otherwise.
+ * Construction is infallible for both (never returns NULL; allocation aborts
+ * on OOM). NULL-safe on sctx/spec: coordinator pipelines run with a spec-less
+ * search context and always get RPLoader. `forceLoad` only applies to RPLoader
+ * (a JSON-dialect concern; the async loader owns its JSON handling
+ * internally).
+ */
+static ResultProcessor *getLoaderRP(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    uint32_t *outStateFlags) {
+  if (sctx && sctx->spec && sctx->spec->diskSpec) {
+    // The async loader sets QEXEC_S_HAS_LOAD in outStateFlags itself, like
+    // RPLoader_New.
+    ResultProcessor *rp =
+        SearchDisk_NewAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys, outStateFlags);
+    RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");
+    return rp;
+  }
+  return RPLoader_New(sctx, reqflags, lk, keys, nkeys, forceLoad, outStateFlags);
+}
+
 static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipelineParams *params, PLN_GroupStep *gstp, ResultProcessor *rpUpstream,
                                    QueryError *status, bool forceLoad, uint32_t *outStateFlags) {
   RLookup *lookup = AGPLN_GetLookup(&pipeline->ap, &gstp->base, AGPLN_GETLOOKUP_PREV);
@@ -120,9 +143,10 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
 
   // See if we need a LOADER group here...?
   if (loadKeys) {
-    ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, firstLk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+    ResultProcessor *rpLoader =
+        getLoaderRP(params->common.sctx, params->common.reqflags, firstLk, loadKeys,
+                    array_len(loadKeys), forceLoad, outStateFlags);
     array_free(loadKeys);
-    RS_LOG_ASSERT(rpLoader, "RPLoader_New failed");
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
@@ -230,7 +254,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       }
       if (loadKeys) {
         // If we have keys to load, add a loader step.
-        ResultProcessor *rpLoader = RPLoader_New(params->common.sctx, params->common.reqflags, lk, loadKeys, array_len(loadKeys), forceLoad, outStateFlags);
+        ResultProcessor *rpLoader =
+            getLoaderRP(params->common.sctx, params->common.reqflags, lk, loadKeys,
+                        array_len(loadKeys), forceLoad, outStateFlags);
         up = pushRP(&pipeline->qctx, rpLoader, up);
       }
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
@@ -386,13 +412,14 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
     return NULL;
   }
 
-  // Create RPLoader if we have keys to load or LOAD ALL flag is set
   if (loadStep->nkeys || loadStep->base.flags & PLN_F_LOAD_ALL) {
-    ResultProcessor *rp = RPLoader_New(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys, forceLoad, outStateFlags);
+    ResultProcessor *rp = getLoaderRP(sctx, reqflags, lookup, loadStep->keys, loadStep->nkeys,
+                                      forceLoad, outStateFlags);
 
-    // Handle JSON spec case
-    if (isSpecJson(sctx->spec)) {
-      // On JSON, load all gets the serialized value of the doc, and doesn't make the fields available.
+    if (isSpecJson(sctx->spec) && !sctx->spec->diskSpec) {
+      // On JSON (in-memory), load all gets the serialized value of the doc, and
+      // doesn't make the fields available. The disk async loader owns the
+      // RLOOKUP_OPT_ALLLOADED decision internally.
       RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
 
@@ -519,23 +546,13 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
   // or if we don't have explicit return, meaning we use LOAD ALL
   if (loadkeys || !params->outFields->explicitReturn) {
     RedisSearchCtx *sctx = params->common.sctx;
-    if (sctx->spec->diskSpec) {
-      RS_ASSERT(!isSpecJson(sctx->spec));
-      // HASH-on-disk (flex): load fields from disk via the async loader. JSON-on-disk
-      // field loading is rejected earlier (AREQ_ApplyContext / coordinator), so a
-      // disk-backed spec here is always HASH. The async loader sets QEXEC_S_HAS_LOAD
-      // in outStateFlags itself, mirroring RPLoader_New.
-      rp = SearchDisk_NewAsyncLoaderResultProcessor(sctx, params->common.reqflags, lookup, loadkeys,
-                                                    array_len(loadkeys), outStateFlags);
-      RS_LOG_ASSERT(rp, "newAsyncLoaderResultProcessor failed");  // infallible, like RPLoader_New
-    } else {
-      rp = RPLoader_New(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),
-                        forceLoad, outStateFlags);
-      if (isSpecJson(sctx->spec)) {
-        // On JSON, load all gets the serialized value of the doc, and doesn't make the fields
-        // available.
-        RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
-      }
+    rp = getLoaderRP(sctx, params->common.reqflags, lookup, loadkeys, array_len(loadkeys),
+                     forceLoad, outStateFlags);
+    if (isSpecJson(sctx->spec) && !sctx->spec->diskSpec) {
+      // On JSON (in-memory), load all gets the serialized value of the doc, and
+      // doesn't make the fields available. The disk async loader owns the
+      // RLOOKUP_OPT_ALLLOADED decision internally.
+      RLookup_DisableOptions(lookup, RLOOKUP_OPT_ALLLOADED);
     }
     array_free(loadkeys);
     PUSH_RP();

@@ -253,17 +253,23 @@ impl<'a> JsonValueRef<'a> {
         &self,
         ctx: *mut ffi::RedisModuleCtx,
     ) -> Option<KeyValuesIterator<'_>> {
-        let vtable = self.api.vtable();
-        let get_key_values = vtable
-            .getKeyValues
-            .expect("RedisJSON API function `getKeyValues` not available");
+        let (ptr, len) = if let Some(len) = self.len()
+            && len > 0
+        {
+            let vtable = self.api.vtable();
+            let get_key_values = vtable
+                .getKeyValues
+                .expect("RedisJSON API function `getKeyValues` not available");
 
-        // Safety: `ptr` is valid by construction.
-        let ptr = unsafe { get_key_values(self.ptr) };
-        // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
-        let ptr = NonNull::new(ptr.cast_mut())?;
+            // Safety: `ptr` is valid by construction.
+            let ptr = unsafe { get_key_values(self.ptr) };
+            // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
+            let ptr = NonNull::new(ptr.cast_mut())?;
 
-        let len = self.len().unwrap_or(0);
+            (Some(ptr), len)
+        } else {
+            (None, 0)
+        };
 
         // Safety: (1.): ensured by caller. (2.): we obtained this pointer from `getKeyValues`.
         Some(unsafe { KeyValuesIterator::from_non_null(ptr, ctx, self.api, len) })

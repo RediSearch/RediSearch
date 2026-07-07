@@ -14,6 +14,7 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use query_node_type::QueryNodeType;
 use rqe_iterators::{
     IteratorsConfig, c2rust::CRQEIterator, interop::RQEIteratorWrapper, new_geo_range_iterator,
+    union_opaque::build_union,
 };
 
 use crate::inverted_index::numeric::NumericIterator;
@@ -75,12 +76,15 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
         })
         .collect();
 
-    crate::union::build_union_from_children(
-        children,
-        true,
-        min_union_iter_heap,
-        QueryNodeType::Geo,
-        ptr::null(),
-        1.0,
-    )
+    // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
+    unsafe {
+        build_union(
+            children,
+            true,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            None,
+            1.0,
+        )
+    }
 }

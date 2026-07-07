@@ -34,14 +34,12 @@ protected:
   const RLookupKey *plannerInputKey = nullptr;
 
   void SetUp() override {
-    RSGlobalConfig.enableUnstableFeatures = true;
     lk = RLookup_New();
     plannerInputKey = RLookup_GetKey_Write(&lk, "__collect_planner_input__", RLOOKUP_F_NOFLAGS);
   }
 
   void TearDown() override {
     RLookup_Cleanup(&lk);
-    RSGlobalConfig.enableUnstableFeatures = false;
   }
 
   void registerKeys(std::initializer_list<const char *> names) {
