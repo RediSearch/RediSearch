@@ -9,12 +9,15 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GeoDistance, GeoFilter};
-use field::FieldFilterContext;
+use ffi::{GeoDistance, GeoFilter, QueryIterator, QueryNodeType, RSGlobalConfig, RedisSearchCtx};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
 use inverted_index::NumericFilter;
 
-use crate::{NumericIteratorVariant, open_numeric_or_geo_index};
+use crate::{
+    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    open_numeric_or_geo_index, union_opaque::build_union,
+};
 
 /// Error returned by [`build_geo_numeric_filters`] when the caller supplies
 /// invalid geo parameters.
@@ -176,5 +179,72 @@ pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
         ffi::GeoDistance_GEO_DISTANCE_FT => 0.3048,
         ffi::GeoDistance_GEO_DISTANCE_MI => 1609.34,
         _ => unreachable!("invalid GeoDistance unit"),
+    }
+}
+
+/// Build a geo-radius iterator over all geohash sub-ranges matching `gf`,
+/// returning a C-ABI [`QueryIterator`] pointer.
+///
+/// A radius query maps to up to [`GEO_RANGE_COUNT`] contiguous geohash ranges;
+/// each is queried via the field's numeric range tree (with per-record distance
+/// filtering) and the results are combined with [`build_union`].
+///
+/// Returns NULL when `gf`'s parameters are invalid, the geo index has not been
+/// created yet, or no entries match.
+///
+/// # Safety
+///
+/// 1. `sctx` must be a valid non-null [`RedisSearchCtx`] whose `spec` is valid
+///    and non-null; both must remain valid for the lifetime of the returned
+///    iterator.
+/// 2. `gf.fieldSpec` must be a valid non-null [`FieldSpec`](ffi::FieldSpec) for
+///    a geo field, remaining valid for the lifetime of the returned iterator.
+/// 3. `gf.numericFilters` must be NULL on entry; it is populated here and must
+///    be freed by `GeoFilter_Free`.
+pub unsafe fn build_geo_range_iterator(
+    sctx: NonNull<RedisSearchCtx>,
+    gf: &mut GeoFilter,
+    min_union_iter_heap: usize,
+) -> *mut QueryIterator {
+    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
+    // Read fieldSpec.index before the mutable borrow in `new_geo_range_iterator`.
+    // SAFETY: precondition (2) — `gf.fieldSpec` is valid and non-null.
+    let field_index = unsafe { (*gf.fieldSpec).index };
+    let field_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+
+    // SAFETY: preconditions (1)–(3) map directly to those of
+    // `new_geo_range_iterator`.
+    let Ok(groups) = (unsafe { new_geo_range_iterator(sctx, gf, &field_ctx, compress) }) else {
+        return std::ptr::null_mut();
+    };
+
+    let children: Vec<CRQEIterator> = groups
+        .into_iter()
+        .flat_map(|(_, variants)| {
+            variants.into_iter().map(move |variant| {
+                let ptr = RQEIteratorWrapper::boxed_new(variant);
+                // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+                let ptr = unsafe { NonNull::new_unchecked(ptr) };
+                // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
+                unsafe { CRQEIterator::new(ptr) }
+            })
+        })
+        .collect();
+
+    // SAFETY: `q_str` is `None` and `node_type` is `Geo`, union-compatible,
+    // satisfying the requirements of `build_union`.
+    unsafe {
+        build_union(
+            children,
+            true,
+            min_union_iter_heap,
+            QueryNodeType::Geo,
+            None,
+            1.0,
+        )
     }
 }
