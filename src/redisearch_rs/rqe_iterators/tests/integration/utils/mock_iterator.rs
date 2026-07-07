@@ -775,14 +775,42 @@ impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
     type Resumed<'a> = MockVec<'a>;
 
     fn resume<'a>(
-        self: Box<Self>,
+        mut self: Box<Self>,
         _guard: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<rqe_iterators::ResumeOutcome<Box<MockVec<'a>>>, rqe_iterators::RQEIteratorError>
     {
+        // Honour the [`MockRevalidateResult`] configured on the mock's
+        // [`MockData`] — mirrors what `MockVec::revalidate` does on the legacy
+        // path, so tests driving suspend/resume see the same per-mock
+        // outcomes as before.
+        let revalidate_result = {
+            let mut data = self._data.0.borrow_mut();
+            data.validation_count += 1;
+            data.revalidate_result
+        };
+        let moved = match revalidate_result {
+            MockRevalidateResult::Ok => false,
+            MockRevalidateResult::Move => {
+                if self._next_index < self._doc_ids.len() {
+                    // Mirror `MockVec::revalidate`'s Move path: advance to the
+                    // next doc id. `MockVec` results are always virtual (no
+                    // offsets), so setting `doc_id` alone is sufficient.
+                    self._result.doc_id = self._doc_ids[self._next_index];
+                    self._next_index += 1;
+                }
+                true
+            }
+            // Unrecoverable: drop the suspended mock, materialize no active iterator.
+            MockRevalidateResult::Abort => return Ok(rqe_iterators::ResumeOutcome::Aborted),
+        };
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical (see [`MockVec::suspend`]).
         let active = unsafe { Box::from_raw(raw as *mut MockVec<'a>) };
-        Ok(rqe_iterators::ResumeOutcome::Ok(active))
+        Ok(if moved {
+            rqe_iterators::ResumeOutcome::Moved(active)
+        } else {
+            rqe_iterators::ResumeOutcome::Ok(active)
+        })
     }
 
     fn last_doc_id(&self) -> DocId {
