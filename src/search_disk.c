@@ -190,6 +190,10 @@ static void Compaction_EndUpdate(void *update_ctx) {
 static void Compaction_BeforeApplySyncPoint(void) {
     SyncPoint_Wait(SYNC_POINT_BEFORE_COMPACTION_APPLY);
 }
+
+static void Compaction_BeforeDeletedIdsRemoveSyncPoint(void) {
+    SyncPoint_Wait(SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE);
+}
 #endif
 
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
@@ -205,8 +209,10 @@ static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
         // skips it and there is no production cost.
 #ifdef ENABLE_ASSERT
         .beforeApplySyncPoint = Compaction_BeforeApplySyncPoint,
+        .beforeDeletedIdsRemoveSyncPoint = Compaction_BeforeDeletedIdsRemoveSyncPoint,
 #else
         .beforeApplySyncPoint = NULL,
+        .beforeDeletedIdsRemoveSyncPoint = NULL,
 #endif
     };
 }

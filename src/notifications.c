@@ -22,6 +22,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "disk_gc.h"
+#include "debug_commands.h"
 #include "doc_id_meta.h"
 #include "iterators_ffi.h"
 #include "module_init_ffi.h"
@@ -696,6 +697,14 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   dictReleaseIterator(iter);
 
   DiskGC_UnlockRuns();
+
+#ifdef ENABLE_ASSERT
+  // Debug/test hold: keep the process alive after every diskSpec has been freed, so a GC
+  // run parked in its tail (SYNC_POINT_GC_BEFORE_DISK_USAGE_INVALIDATE) deterministically
+  // wakes into the freed DB — a use-after-free — when the disk-GC/teardown handshake is
+  // missing. No-op unless a test armed it; compiled out entirely in production.
+  SyncPoint_Wait(SYNC_POINT_AFTER_DISK_INDEX_CLOSE);
+#endif
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
