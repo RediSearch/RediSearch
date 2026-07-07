@@ -21,6 +21,7 @@ void UpdateTopology(RedisModuleCtx *ctx) {
   }
 
   const RedisModuleSlotRangeArray *local_slots;
+  RedisModuleSlotRangeArray *local_slots_from_api = NULL;
   if (my_shard_idx != UINT32_MAX) {
     RS_ASSERT(my_shard_idx < topo->numShards);
     MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
@@ -29,10 +30,14 @@ void UpdateTopology(RedisModuleCtx *ctx) {
     // Valid topology, but this node is not part of it (e.g. a replica or slot-less master).
     MR_SetLocalNodeId(RedisModule_GetMyClusterID());
     static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
-    local_slots = &empty_slots;
+    local_slots_from_api = RedisModule_ClusterGetLocalSlotRanges(ctx);
+    local_slots = local_slots_from_api ?: &empty_slots;
   }
 
   MR_UpdateTopology(topo, local_slots);
+  if (local_slots_from_api) {
+    RedisModule_ClusterFreeSlotRanges(ctx, local_slots_from_api);
+  }
 }
 
 #define REFRESH_PERIOD 1000 // 1 second

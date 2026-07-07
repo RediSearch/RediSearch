@@ -559,12 +559,11 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
 
-  // If `tls-cluster` is not set to `yes`, and `tls-port` is not set or zero,
-  // we do not connect to the other nodes with TLS. We always want to connect with TLS
-  // when the tls-port is set to a non-zero value, since this is the port we
-  // get from the proxy on Enterprise, and the preferred port on OSS (see RedisCluster_GetTopology).
+  // On OSS, the cluster topology module API returns the regular client port
+  // when `tls-cluster` is disabled, even if `tls-port` is also configured.
+  // Enterprise still uses the proxy port and should keep the tls-port fallback.
   if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
-    if (getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
+    if (!IsEnterprise() || getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
       ret = 0;
       goto done;
     }
