@@ -1438,7 +1438,10 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
+  // Warning rather than an error; skip the hard-fail here and let it handle it.
+  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+      !IsProfile(req)) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
