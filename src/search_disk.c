@@ -242,11 +242,6 @@ void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index) {
     disk->index.markToBeDeleted(index);
 }
 
-void SearchDisk_DisableCompactions(IndexSpec *sp) {
-    RS_ASSERT(disk && sp && sp->diskSpec);
-    disk->index.disableCompactions(sp->diskSpec);
-}
-
 void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
     RS_ASSERT(disk_db && spec && spec->diskSpec && ctx);
     if (!spec->diskRegistered) {

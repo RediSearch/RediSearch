@@ -88,17 +88,6 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
 void SearchDisk_MarkIndexForDeletion(RedisSearchDiskIndexSpec *index);
 
 /**
- * @brief Cancel any in-flight compaction and block new ones for this spec's disk
- * index, without marking it for deletion.
- *
- * Used by shutdown teardown on the hot-restart path (which preserves the on-disk DBs)
- * to make the subsequent GC-thread-pool drain prompt. Takes no spec lock.
- *
- * @param sp IndexSpec whose disk index should stop compacting
- */
-void SearchDisk_DisableCompactions(IndexSpec *sp);
-
-/**
  * @brief Main-thread half of closing the spec's disk index.
  *
  * Performs every teardown step that needs the Redis module API (today: unregister

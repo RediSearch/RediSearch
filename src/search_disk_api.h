@@ -342,20 +342,6 @@ typedef struct IndexDiskAPI {
   void (*markToBeDeleted)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Cancel any in-flight compaction and block new ones, without marking the
-   * index for deletion.
-   *
-   * Unlike markToBeDeleted (which also disables compactions), this leaves the index
-   * otherwise intact. Used by shutdown teardown on the hot-restart path, where the
-   * on-disk DBs are preserved: it makes the subsequent wait for the GC thread pool to
-   * drain prompt instead of blocking through a full compaction. Not paired with a
-   * re-enable — the caller is tearing the index down.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*disableCompactions)(RedisSearchDiskIndexSpec *index);
-
-  /**
    * @brief Opens a new write batch bound to the given index.
    *
    * The returned batch accumulates `indexTerm` / `indexTags` / `putDocument` writes

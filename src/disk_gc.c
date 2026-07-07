@@ -15,14 +15,23 @@
 #include "rmalloc.h"
 #include "info/global_stats.h"
 #include <stdatomic.h>
+#include <pthread.h>
 #include <time.h>
 
-// GC vs. teardown ordering: a disk GC run and disk-index close are serialised by the
-// GC thread pool's lifecycle, not by anything in here. On FT.DROPINDEX the StrongRef
-// promoted below defers the close until periodicCb releases its ref; on shutdown
-// teardown ShutdownDiskClose destroys the GC pool (GC_ThreadPoolDestroy waits out the
-// in-flight run and stops new ones) before it closes any diskSpec. So periodicCb needs
-// no lock or disable flag of its own — it just runs while its promoted spec is alive.
+// Explicit handshake between a disk GC run (background GC thread) and disk-index
+// teardown (main thread, on shutdown). The disk GC pool has a single thread, so
+// at most one run is ever in flight; a single global lock + flag is enough.
+//
+// periodicCb holds g_diskGcRunLock across the actual SearchDisk_RunGC call, so
+// DiskGC_LockRunsAndDisable() (main thread) can wait for an in-flight run to finish
+// before the diskSpec it is compacting is closed, and holds the lock across that close
+// so clearing sp->diskSpec is serialised against periodicCb. g_diskGcDisabled stops any
+// new run from starting once teardown has begun. run_gc never acquires the GIL
+// (its compaction callbacks take the IndexSpec rwlock, not the ThreadSafeContext),
+// so the shutdown thread may hold the GIL while it waits on this lock without
+// deadlocking. There is no re-enable: the flag is only ever set on shutdown.
+static pthread_mutex_t g_diskGcRunLock = PTHREAD_MUTEX_INITIALIZER;
+static bool g_diskGcDisabled = false;
 
 // Fold one completed cycle's results into the cumulative per-index counters.
 // Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
@@ -47,13 +56,20 @@ static bool periodicCb(void *privdata, bool force) {
     return false;
   }
 
-  // Run GC only when the index is still disk-backed and enough changes accumulated
-  // since the last run (unless forced).
+  // Hold g_diskGcRunLock across the whole check-and-run so shutdown teardown
+  // (DiskGC_LockRunsAndDisable) waits for an in-flight run to finish and then closes
+  // the diskSpec under the same lock, and g_diskGcDisabled stops a new run from starting
+  // once teardown has begun. run_gc never takes the GIL (its compaction callbacks take
+  // the IndexSpec rwlock), so the shutdown thread may hold the GIL while it waits here.
+  pthread_mutex_lock(&g_diskGcRunLock);
+
+  // Run GC only when teardown has not disabled it, the index is still disk-backed,
+  // and enough changes accumulated since the last run (unless forced).
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
-  if (sp->diskSpec &&
+  if (!g_diskGcDisabled && sp->diskSpec &&
       (force || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
@@ -67,8 +83,36 @@ static bool periodicCb(void *privdata, bool force) {
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   }
 
+  pthread_mutex_unlock(&g_diskGcRunLock);
   IndexSpecRef_Release(spec_ref);
   return true;
+}
+
+// Take the run lock and disable disk GC, blocking until any in-flight run finishes.
+// Returns with g_diskGcRunLock HELD so the caller can close the disk indexes and clear
+// each sp->diskSpec while it holds the lock: periodicCb touches sp->diskSpec only under
+// this lock, so it can neither be mid-run against a spec being closed nor read a pointer
+// being cleared. g_diskGcDisabled, latched here under the lock, also makes every run
+// that acquires the lock afterwards bail before touching a diskSpec. Must be paired with
+// DiskGC_UnlockRuns(). Runs on the main thread during shutdown teardown; may hold the GIL
+// (run_gc never needs it — see g_diskGcRunLock above). Not re-enabled.
+void DiskGC_LockRunsAndDisable(void) {
+  pthread_mutex_lock(&g_diskGcRunLock);
+  g_diskGcDisabled = true;
+}
+
+// Release the run lock taken by DiskGC_LockRunsAndDisable().
+void DiskGC_UnlockRuns(void) {
+  pthread_mutex_unlock(&g_diskGcRunLock);
+}
+
+void DiskGC_Cleanup(void) {
+  // Destroy the module-global disk GC lock on full teardown. Must run after the GC
+  // thread pool has been destroyed (RediSearch_CleanupModule) so no GC thread can
+  // still hold or take the lock. Only reached on the full-cleanup path
+  // (RS_GLOBAL_DTORS / sanitizer builds); on a plain production shutdown the process
+  // just exits and the static mutex is reclaimed by the OS.
+  pthread_mutex_destroy(&g_diskGcRunLock);
 }
 
 static void onTerminateCb(void *privdata) {
