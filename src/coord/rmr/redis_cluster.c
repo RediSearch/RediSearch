@@ -21,26 +21,27 @@ void UpdateTopology(RedisModuleCtx *ctx) {
     return;
   }
 
+  const RedisModuleSlotRangeArray *local_slots;
   if (my_shard_idx != UINT32_MAX) {
     RS_ASSERT(my_shard_idx < topo->numShards);
     MR_SetLocalNodeId(topo->shards[my_shard_idx].node.id);
-    MR_UpdateTopology(topo, topo->shards[my_shard_idx].slotRanges);
-    return;
+    local_slots = topo->shards[my_shard_idx].slotRanges;
+  } else {
+    // Valid topology, but this node is not part of it (e.g. a replica or slot-less master).
+    MR_SetLocalNodeId(RedisModule_GetMyClusterID());
+    static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
+    local_slots = &empty_slots;
   }
 
-  // Valid topology, but this node is not part of it (e.g. a replica or slot-less master).
-  MR_SetLocalNodeId(RedisModule_GetMyClusterID());
-  static const RedisModuleSlotRangeArray empty_slots = {0, {{0, 0}}};
-  MR_UpdateTopology(topo, &empty_slots);
+  MR_UpdateTopology(topo, local_slots);
 }
 
-#define REFRESH_PERIOD 1000  // 1 second
+#define REFRESH_PERIOD 1000 // 1 second
 RedisModuleTimerID topologyRefreshTimer = 0;
 
 static void UpdateTopology_Periodic(RedisModuleCtx *ctx, void *p) {
   REDISMODULE_NOT_USED(p);
-  topologyRefreshTimer =
-      RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   UpdateTopology(ctx);
 }
 
@@ -51,14 +52,12 @@ void RedisTopologyUpdater_StopAndRescheduleImmediately(RedisModuleCtx *ctx) {
 
 int InitRedisTopologyUpdater(RedisModuleCtx *ctx) {
   if (topologyRefreshTimer || clusterConfig.type != ClusterType_RedisOSS) return REDISMODULE_ERR;
-  topologyRefreshTimer =
-      RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
+  topologyRefreshTimer = RedisModule_CreateTimer(ctx, REFRESH_PERIOD, UpdateTopology_Periodic, NULL);
   return REDISMODULE_OK;
 }
 
 int StopRedisTopologyUpdater(RedisModuleCtx *ctx) {
   int rc = RedisModule_StopTimer(ctx, topologyRefreshTimer, NULL);
   topologyRefreshTimer = 0;
-  return rc;  // OK if we stopped the timer, ERR if it was already stopped (or never started -
-              // enterprise)
+  return rc; // OK if we stopped the timer, ERR if it was already stopped (or never started - enterprise)
 }
