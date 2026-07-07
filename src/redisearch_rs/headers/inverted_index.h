@@ -37,6 +37,14 @@ typedef struct InvertedIndexSnapshot InvertedIndexSnapshot;
 typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
 
 /**
+ * An opaque inverted index structure. The actual implementation is determined at runtime based on
+ * the index flags provided when creating the index. This allows us to have a single interface for
+ * all index types while still being able to optimize the storage and performance for each index
+ * type.
+ */
+typedef struct InvertedIndex InvertedIndex;
+
+/**
  * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
  * are ordered by document ID, so the first entry in the block has the lowest document ID, and the
  * last entry has the highest document ID. The block also contains a buffer that is used to
@@ -44,14 +52,6 @@ typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
  * added to the block.
  */
 typedef struct IndexBlock IndexBlock;
-
-/**
- * An opaque inverted index structure. The actual implementation is determined at runtime based on
- * the index flags provided when creating the index. This allows us to have a single interface for
- * all index types while still being able to optimize the storage and performance for each index
- * type.
- */
-typedef struct InvertedIndex InvertedIndex;
 
 /**
  * Summary information about an inverted index containing all key metrics
@@ -156,13 +156,22 @@ typedef union IndexDecoderCtx {
 } IndexDecoderCtx;
 
 /**
- * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+ * Outcome of [`InvertedIndex::add_record`]: how the index's memory changed during the
+ * write. The net memory delta is `mem_growth - mem_freed`; callers maintaining a running
+ * size stat (e.g. `spec->stats.invertedSize`) must apply both.
  */
 typedef struct AddRecordOutcome {
   /**
-   * Number of bytes the inverted index's memory usage grew by.
+   * Number of bytes the inverted index's memory usage grew by (buffer growth + any
+   * `Arc<IndexBlock>` / pending-slot allocation from a roll-over).
    */
   uint32_t mem_growth;
+  /**
+   * Number of bytes freed if this write also folded `pending` into `sealed`
+   * (see [`InvertedIndex::fold_pending_into_sealed`]): the collapsed per-block `Arc`
+   * refcount headers + the drained `pending` Vec heap. `0` when no fold occurred.
+   */
+  uint32_t mem_freed;
   /**
    * Number of new index blocks this write created.
    */

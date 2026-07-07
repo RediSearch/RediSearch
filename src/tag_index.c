@@ -215,6 +215,10 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
   IndexStats_BlockCountAdd(stats, r.blocks_added);
+  // The return only carries growth (added to invertedSize by the caller). If the write
+  // folded pending into sealed, apply the freed bytes here — invertedSize is the running
+  // spec total, always >= this index's freed bytes, so the unsigned subtraction is safe.
+  stats->invertedSize -= r.mem_freed;
   return r.mem_growth + sz;
 }
 
