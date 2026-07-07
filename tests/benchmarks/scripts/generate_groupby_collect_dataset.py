@@ -43,7 +43,7 @@ BOOLS = ["true", "false"]
 DATE0 = date(2020, 1, 1)
 DATE_RANGE_DAYS = 4017  # 2020-01-01 .. 2030-12-31
 
-PROFILES = {
+GROUP_DISTRIBUTIONS = {
     "uniform": [100_000] * 10,
     "moderate": [300_000, 120_000, 120_000, 120_000, 120_000, 44_000, 44_000, 44_000, 44_000, 44_000],
     "heavy": [700_000, 70_000, 70_000, 70_000, 15_000, 15_000, 15_000, 15_000, 15_000, 15_000],
@@ -95,7 +95,7 @@ QUERY_VARIANTS = {
 
 
 def scale_profile(profile, total):
-    base = PROFILES[profile]
+    base = GROUP_DISTRIBUTIONS[profile]
     base_total = sum(base)
     if total == base_total:
         return list(base)
@@ -298,7 +298,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=Path("./output"))
     parser.add_argument("--doc-count", type=int, default=DEFAULT_DOC_COUNT)
     parser.add_argument("--query-count", type=int, default=DEFAULT_QUERY_COUNT)
-    parser.add_argument("--profile", choices=sorted(PROFILES), default="heavy")
+    parser.add_argument("--profile", choices=sorted(GROUP_DISTRIBUTIONS), default="heavy")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--payload-bytes", type=int, default=DEFAULT_PAYLOAD_BYTES)
     parser.add_argument("--backends", default="all", help="all, hash, json, or comma-separated list")
