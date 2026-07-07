@@ -13,7 +13,6 @@
 #include "module.h"
 
 void UpdateTopology(RedisModuleCtx *ctx) {
-  RS_AutoMemory(ctx);
   uint32_t my_shard_idx = UINT32_MAX;
   MRClusterTopology *topo = MRClusterTopology_FromAPI(ctx, NULL, 0, &my_shard_idx);
   if (!topo) {
