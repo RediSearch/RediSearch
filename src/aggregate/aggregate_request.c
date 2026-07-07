@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "aggregate_debug.h"
 #include "search_result_ffi.h"
 #include "reducer.h"
 
@@ -1010,12 +1011,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  if (isDiskIndex) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
-    return REDISMODULE_ERR;
-  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1214,7 +1211,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1536,31 +1533,6 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   return REDISMODULE_OK;
 }
 
-// True when a query returns no document fields (NOCONTENT, or RETURN 0, both of
-// which set QEXEC_F_SEND_NOFIELDS), so disk field loading is not needed.
-static inline bool queryReturnsNoFields(uint32_t reqflags) {
-  return (reqflags & QEXEC_F_SEND_NOFIELDS) != 0;
-}
-
-int FlexValidation_RejectFieldReturn(const IndexSpec *sp, uint32_t reqflags,
-                                     FlexFieldReturnRule rule, QueryError *status) {
-  if (!SearchDisk_IsEnabledForValidation() || queryReturnsNoFields(reqflags)) {
-    return REDISMODULE_OK;
-  }
-
-  const bool isJson = isSpecJson(sp);
-  if (!isJson && rule == FlexFieldReturnRule_RejectJsonOnly) {
-    return REDISMODULE_OK;
-  }
-  if (!isJson && rule == FlexFieldReturnRule_AllowHashSearchOnly &&
-      (reqflags & QEXEC_F_IS_SEARCH)) {
-    return REDISMODULE_OK;
-  }
-
-  QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-  return REDISMODULE_ERR;
-}
-
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
@@ -1588,17 +1560,6 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetError(
         status, QUERY_ERROR_CODE_INVAL,
         "Cannot use HIGHLIGHT/SUMMARIZE because NOOFSETS was specified at index level");
-    return REDISMODULE_ERR;
-  }
-
-  // Disk (flex) field-loading validation, now that the spec is bound. JSON-on-disk
-  // loading is unsupported; HASH-on-disk loads via the async loader, but only on
-  // the FT.SEARCH output pipeline. Everything else still requires NOCONTENT /
-  // RETURN 0. (On the coordinator this is enforced pre-fan-out; see
-  // prepareForExecution.)
-  if (FlexValidation_RejectFieldReturn(index, reqFlags,
-                                       FlexFieldReturnRule_AllowHashSearchOnly,
-                                       status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1726,6 +1687,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 static void AREQ_Free(AREQ *req) {
+  if (IsDebug(req)) {
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
+    AREQ_Debug_FreeParams((AREQ_Debug *)req);
+  }
   ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)

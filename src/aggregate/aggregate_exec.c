@@ -1356,7 +1356,9 @@ cleanup:
 
 /**
  * Validate SORTBY for disk indexes.
- * In disk/flex mode, SORTBY is only allowed on vector score (distance) fields.
+ * In disk/flex mode, FT.SEARCH SORTBY is only allowed on vector score
+ * (distance) fields. FT.AGGREGATE SORTBY is unrestricted (sort keys load via
+ * the disk async loader).
  * Must be called after QAST_Iterate so that metricRequests is populated.
  *
  * Current flex assumptions (asserted):
@@ -1370,6 +1372,14 @@ cleanup:
 static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
   // Skip validation if disk is not enabled
   if (!SearchDisk_IsEnabledForValidation()) {
+    return REDISMODULE_OK;
+  }
+
+  // SORTBY in aggregations is allowed on disk: the arrange step loads the sort
+  // keys through the disk async loader. The restriction (and the single-field
+  // asserts) below apply to FT.SEARCH only, so this early-return must precede
+  // them — a multi-field aggregate SORTBY would trip the asserts.
+  if (IsAggregate(req)) {
     return REDISMODULE_OK;
   }
 
@@ -1438,7 +1448,10 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
+  // Warning rather than an error; skip the hard-fail here and let it handle it.
+  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+      !IsProfile(req)) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
@@ -1872,6 +1885,44 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+/**
+ * Reject disk (flex) requests whose pipeline would carry the async loader when
+ * execution is about to happen inline on the main thread: the loader blocks on
+ * prefetch completions delivered by the main thread, so inline execution would
+ * deadlock. Aggregations nearly always load fields, so all of them are
+ * rejected (a predictable error beats a plan-shape-dependent one); searches
+ * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
+ * MULTI/Lua.
+ *
+ * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
+ * the request must be rejected, REDISMODULE_OK otherwise.
+ */
+static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
+                                           QueryError *status) {
+  if (!sctx->spec || !sctx->spec->diskSpec) {
+    return REDISMODULE_OK;
+  }
+  const char *error = NULL;
+  if (IsAggregate(r)) {
+    error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
+            "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) &&
+             (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
+              AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
+    // Field return or an explicit LOAD step both put the async loader in the
+    // pipeline (NOCONTENT/RETURN 0 alone does not).
+    error = "FT.SEARCH with field return in a context that cannot block "
+            "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
+            "use NOCONTENT or RETURN 0";
+  }
+  if (error) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT, error);
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
@@ -1909,6 +1960,14 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
+    // RunInThread is false either when WORKERS is 0 or when the client cannot
+    // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
+    // request reaching this inline branch is always a non-blockable client —
+    // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
+    if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
@@ -1951,6 +2010,24 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 }
 
 /**
+ * Reject a user-facing cursor aggregation on disk (flex). The public/internal
+ * split keys on the command's leading underscore: internal "_FT.*" dispatch
+ * (the coordinator's WITHCURSOR fan-out, including its debug variant) must
+ * pass. On rejection, the thread-local spec installed by prepareRequest is
+ * cleared; callers bail through their shared error path (goto error).
+ */
+static int rejectUserCursorOnDisk(RedisModuleString **argv, const AREQ *r, CommandType type,
+                                  QueryError *status) {
+  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
+      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+/**
  * @param profileOptions is a bitmask of EXEC_* flags defined in ProfileOptions enum.
  */
 int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1960,10 +2037,6 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return RedisModule_WrongArity(ctx);
   }
 
-  if (type == COMMAND_AGGREGATE &&
-      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail
@@ -1984,6 +2057,10 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
     }
+    goto error;
+  }
+
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -2262,6 +2339,27 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
 }
 
 /**
+ * Check whether a shard cursor's index is disk (flex) backed. The AREQ's
+ * sctx->spec is a raw pointer that dangles if the index was dropped while the
+ * cursor was idle, so the spec is inspected through the cursor's weak ref.
+ * Returns false when the index is gone — callers fall through and cursorRead
+ * replies with the canonical "index was dropped" error.
+ */
+static bool cursorIsDiskBacked(const Cursor *cursor) {
+  if (!cursor_HasSpecWeakRef(cursor)) {
+    return false;
+  }
+  StrongRef check_ref = IndexSpecRef_Promote(cursor->spec_ref);
+  const IndexSpec *liveSpec = StrongRef_Get(check_ref);
+  if (!liveSpec) {
+    return false;
+  }
+  const bool isDisk = liveSpec->diskSpec != NULL;
+  IndexSpecRef_Release(check_ref);
+  return isDisk;
+}
+
+/**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2375,6 +2473,21 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     //   (1) Coord+FAIL: upstreamBC != NULL, privdata is a CoordRequestCtx.
     //   (2) Coord+RETURN: upstreamBC != NULL, privdata is NULL.
     //   (3) NumShards==1 or !RunInThread(): upstreamBC == NULL.
+
+    // Disk (flex) shard cursors must not resume inline: the async-loader
+    // pipeline blocks on prefetch completions delivered by the main thread, so
+    // a main-thread read would deadlock. Only sub-case (3) can carry a
+    // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
+    if (!upstreamBC && cursor->execState && cursorIsDiskBacked(cursor)) {
+      // Keep the cursor valid for a later blockable read; only this read is
+      // rejected.
+      Cursor_Pause(cursor);
+      return RedisModule_ReplyWithError(
+          ctx,
+          "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
+          "supported in Redis Flex");
+    }
+
     if (reqCtx) {
       // Sub-case (1): lock out the main-thread timeout callback while we
       // read/update the AREQ.
@@ -2509,10 +2622,6 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
-  if (type == COMMAND_AGGREGATE &&
-      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   AREQ *r = NULL;
@@ -2535,6 +2644,10 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);
     }
+    goto error;
+  }
+
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 
