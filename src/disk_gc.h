@@ -50,9 +50,7 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
 // Take the run lock and disable disk GC, waiting out any in-flight run. Returns with
 // the run lock HELD so the caller can close disk indexes and clear each sp->diskSpec
-// while no run is executing and none can start; periodicCb touches sp->diskSpec only
-// under this lock. Called on the main thread during shutdown teardown.
-// There is no matching re-enable. Must be paired with DiskGC_UnlockRuns().
+// while no run is executing and none can start.
 void DiskGC_LockRunsAndDisable(void);
 
 // Release the run lock taken by DiskGC_LockRunsAndDisable().

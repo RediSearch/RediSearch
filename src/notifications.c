@@ -677,11 +677,7 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   dictReleaseIterator(iter);
 
   // Take the run lock and disable disk GC, waiting out any in-flight run: after this
-  // no run is executing and none will start, so the closes below cannot free a diskSpec
-  // out from under an in-flight compaction. disable_compactions() (pass 1) only cancels
-  // the compaction; this wait guarantees the GC run has finished the tail of run_gc and
-  // released the spec. We hold the lock across pass 2 so clearing each sp->diskSpec is
-  // serialised against periodicCb, which reads sp->diskSpec only under the same lock.
+  // no run is executing and none will start.
   DiskGC_LockRunsAndDisable();
 
   // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
@@ -699,10 +695,6 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   DiskGC_UnlockRuns();
 
 #ifdef ENABLE_ASSERT
-  // Debug/test hold: keep the process alive after every diskSpec has been freed, so a GC
-  // run parked in its tail (SYNC_POINT_GC_BEFORE_DISK_USAGE_INVALIDATE) deterministically
-  // wakes into the freed DB — a use-after-free — when the disk-GC/teardown handshake is
-  // missing. No-op unless a test armed it; compiled out entirely in production.
   SyncPoint_Wait(SYNC_POINT_AFTER_DISK_INDEX_CLOSE);
 #endif
 }

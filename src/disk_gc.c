@@ -20,16 +20,7 @@
 
 // Explicit handshake between a disk GC run (background GC thread) and disk-index
 // teardown (main thread, on shutdown). The disk GC pool has a single thread, so
-// at most one run is ever in flight; a single global lock + flag is enough.
-//
-// periodicCb holds g_diskGcRunLock across the actual SearchDisk_RunGC call, so
-// DiskGC_LockRunsAndDisable() (main thread) can wait for an in-flight run to finish
-// before the diskSpec it is compacting is closed, and holds the lock across that close
-// so clearing sp->diskSpec is serialised against periodicCb. g_diskGcDisabled stops any
-// new run from starting once teardown has begun. run_gc never acquires the GIL
-// (its compaction callbacks take the IndexSpec rwlock, not the ThreadSafeContext),
-// so the shutdown thread may hold the GIL while it waits on this lock without
-// deadlocking. There is no re-enable: the flag is only ever set on shutdown.
+// at most one run is ever in flight; a single global lock + flag is enough.s
 static pthread_mutex_t g_diskGcRunLock = PTHREAD_MUTEX_INITIALIZER;
 static bool g_diskGcDisabled = false;
 
@@ -59,8 +50,7 @@ static bool periodicCb(void *privdata, bool force) {
   // Hold g_diskGcRunLock across the whole check-and-run so shutdown teardown
   // (DiskGC_LockRunsAndDisable) waits for an in-flight run to finish and then closes
   // the diskSpec under the same lock, and g_diskGcDisabled stops a new run from starting
-  // once teardown has begun. run_gc never takes the GIL (its compaction callbacks take
-  // the IndexSpec rwlock), so the shutdown thread may hold the GIL while it waits here.
+  // once teardown has begun.
   pthread_mutex_lock(&g_diskGcRunLock);
 
   // Run GC only when teardown has not disabled it, the index is still disk-backed,
@@ -90,12 +80,7 @@ static bool periodicCb(void *privdata, bool force) {
 
 // Take the run lock and disable disk GC, blocking until any in-flight run finishes.
 // Returns with g_diskGcRunLock HELD so the caller can close the disk indexes and clear
-// each sp->diskSpec while it holds the lock: periodicCb touches sp->diskSpec only under
-// this lock, so it can neither be mid-run against a spec being closed nor read a pointer
-// being cleared. g_diskGcDisabled, latched here under the lock, also makes every run
-// that acquires the lock afterwards bail before touching a diskSpec. Must be paired with
-// DiskGC_UnlockRuns(). Runs on the main thread during shutdown teardown; may hold the GIL
-// (run_gc never needs it — see g_diskGcRunLock above). Not re-enabled.
+// each sp->diskSpec while it holds the lock
 void DiskGC_LockRunsAndDisable(void) {
   pthread_mutex_lock(&g_diskGcRunLock);
   g_diskGcDisabled = true;

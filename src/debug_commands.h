@@ -160,14 +160,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the deadlock test (MOD-15306) uses to hold a writer against the loader.
 #define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
 #define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
-// Disk GC: parked inside compact_all just before the deleted-ids removal DB write
-// (deleted_ids().remove_batch), after the compaction apply (and its completion callback)
-// has finished — i.e. still inside the run while periodicCb holds g_diskGcRunLock, but past
-// the point disable_compactions() waits for. Lets a test hold the GC run across a shutdown to
-// prove the disk-GC/teardown handshake (not disable_compactions) is what serialises the close.
+// Disk GC: parked inside compact_all just before the deleted-ids removal DB. Lets a test hold the GC run across a shutdown
 #define SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE      "GcBeforeDeletedIdsRemove"
-// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown right after pass 2 has
-// closed and freed every diskSpec, before the process finishes exiting. Lets a test keep
+// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown. Lets a test keep
 // the process alive after the free so a GC run parked at
 // SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
 // (use-after-free) when the disk-GC/teardown handshake is missing.
