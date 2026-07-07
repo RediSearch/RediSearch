@@ -30,6 +30,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod config;
 pub mod deferred;
@@ -50,6 +51,7 @@ pub mod optional_optimized;
 pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
+pub mod resume_outcome;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -59,6 +61,10 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
+    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+};
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
@@ -70,6 +76,7 @@ pub use inverted_index::{
     build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
     open_numeric_or_geo_index,
 };
+pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,

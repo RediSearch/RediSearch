@@ -37,6 +37,22 @@ pub enum RawResultData<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSResultData<'a> = RawResultData<Active<'a>>;
 
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawResultData` are layout-identical. Only `size_of`/`align_of` are checked:
+// `offset_of!` cannot address `#[repr(u8)]` enum variant fields. The variant
+// payloads that carry `R` are guarded one level deeper by the
+// `RawAggregateResult` (`aggregate.rs`) and `RawTermRecord` (`term_record.rs`)
+// blocks. Part of the recursive net backing the conversions on
+// `RawIndexResult` (see `core/mod.rs`).
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, size_of};
+    type A = RawResultData<Active<'static>>;
+    type S = RawResultData<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'a> PartialEq for RSResultData<'a> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
