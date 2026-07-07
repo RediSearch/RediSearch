@@ -23,7 +23,8 @@ use rqe_core::DocId;
 
 use crate::{
     AddRecordOutcome, DecodedBy, Decoder, Encoder, GcApplyInfo, GcScanDelta, InPlaceInvertedIndex,
-    IndexReader, IndexReaderCore, InvertedIndex, RepairContext, debug::Summary,
+    IndexReader, IndexReaderCore, InvertedIndex, RepairContext,
+    debug::{BlockSummary, Summary},
 };
 
 /// Operations every inverted-index backend provides. Implementors differ in block storage,
@@ -55,6 +56,12 @@ pub trait IndexBackend {
 
     /// A summary of the index for introspection (`FT.INFO`).
     fn summary(&self) -> Summary;
+
+    /// Per-block summaries for introspection (`FT.DEBUG`).
+    fn blocks_summary(&self) -> Vec<BlockSummary>;
+
+    /// The highest document id in the index, or `None` if empty.
+    fn last_doc_id(&self) -> Option<DocId>;
 
     /// A reader positioned at the start of the index.
     fn reader(&self) -> Self::Reader<'_>;
@@ -100,6 +107,14 @@ impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InPlaceIn
 
     fn summary(&self) -> Summary {
         InvertedIndex::summary(self)
+    }
+
+    fn blocks_summary(&self) -> Vec<BlockSummary> {
+        InvertedIndex::blocks_summary(self)
+    }
+
+    fn last_doc_id(&self) -> Option<DocId> {
+        InvertedIndex::last_doc_id(self)
     }
 
     fn reader(&self) -> Self::Reader<'_> {
