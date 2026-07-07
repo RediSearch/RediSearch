@@ -15,11 +15,14 @@ use std::{
 use ffi::RedisSearchCtx;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{DecodedBy, DocIdsDecoder, IndexReaderCore, opaque::OpaqueEncoding};
+use inverted_index::{
+    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore,
+    opaque::OpaqueEncoding,
+};
+use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex, RS_FIELDMASK_ALL};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use inverted_index::IndexReader;
 
 use crate::{
     ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError,
@@ -27,9 +30,11 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::InvIndIterator;
+use super::{InvIndIterator, core::RawInvIndIterator};
 
-/// An iterator over documents that are missing a specific field.
+/// An iterator over documents that are missing a specific field, parameterised
+/// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// Used for `ismissing(@field)` queries, where the goal is to match every
 /// document that does not have the specified field indexed. The set of such
@@ -41,11 +46,12 @@ use super::InvIndIterator;
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
-pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
-    it: InvIndIterator<'index, IndexReaderCore<'index, E>, C>,
+#[repr(C)]
+pub struct RawMissing<Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>,
     field_index: FieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
@@ -54,9 +60,14 @@ pub struct Missing<'index, E: DecodedBy, C = crate::expiration_checker::NoOpChec
     field_name: CString,
 }
 
+/// Alias for an [`Active`] [`RawMissing`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Missing<'index, E, C = crate::expiration_checker::NoOpChecker> =
+    RawMissing<Active<'index>, E, C>;
+
 impl<'index, E, C> Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
@@ -177,7 +188,7 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {
@@ -246,7 +257,7 @@ where
 
 impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
 {

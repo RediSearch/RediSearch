@@ -93,8 +93,8 @@ void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
-  // AddCursor's promotion can fail (index dropped while the cursor was idle),
-  // leaving a NULL ref; releasing it would dereference a NULL RefManager.
+  // The spec ref is legitimately empty when the promote in BlockedQueries_AddCursor failed
+  // (the index was dropped while the cursor was idle), so mirror its guard here.
   if (blockedCursorNode->spec.rm) {
     StrongRef_Release(blockedCursorNode->spec);
   }

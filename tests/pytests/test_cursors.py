@@ -759,6 +759,25 @@ def test_cursor_commands_errors(env: Env):
     env.expect('FT.DROPINDEX', 'temp').ok()
     env.expect('_FT.CURSOR', 'PROFILE', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
 
+@skip(cluster=True)
+def test_internal_cursor_read_after_drop_with_workers():
+    """Regression test for MOD-16703: an internal `_FT.CURSOR READ` on a cursor
+    whose index was dropped while it sat idle crashed the shard when the read
+    went through the blocked-client path (`BlockCursorClientWithTimeout`), which
+    is only taken when worker threads are enabled. The test runner forces
+    `WORKERS 0` (inline path), so enable workers explicitly here."""
+    env = Env(moduleArgs='WORKERS 1')
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+    env.cmd('FT.CREATE', 'temp', 'SCHEMA', 't', 'TEXT')
+    # Two docs + COUNT 1 keep the cursor alive after the first read
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    env.cmd('HSET', 'doc2', 't', 'world')
+    waitForIndex(env, 'temp')
+    _, cid = env.cmd('FT.AGGREGATE', 'temp', '*', 'WITHCURSOR', 'COUNT', '1')
+    env.assertNotEqual(cid, 0)
+    env.expect('FT.DROPINDEX', 'temp').ok()
+    env.expect('_FT.CURSOR', 'READ', 'temp', cid).error().contains('The index was dropped while the cursor was idle')
+
 @skip(cluster=False)
 def test_cursor_gc_edge_cases(env: Env):
     """

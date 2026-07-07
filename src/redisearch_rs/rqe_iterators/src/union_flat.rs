@@ -9,7 +9,8 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
@@ -19,6 +20,13 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// Tracks where the child was in the original `children` vector so that
 /// we can restore the original order.
+///
+/// `#[repr(C)]` so that the `Vec<IndexedChild<I>>` elements stay
+/// layout-compatible across the `I` → `I::Suspended` swap: a default-repr
+/// struct is free to reorder its fields differently per instantiation, which
+/// would corrupt elements when the union is transmuted between Active and
+/// Suspended modes.
+#[repr(C)]
 pub(crate) struct IndexedChild<I> {
     /// Position of this child in the original `children` vector passed to
     /// [`UnionFlat::new`].
@@ -44,6 +52,9 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
 ///
+/// Parameterised over a [`Ref`] mode — see [`UnionFlat`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
+///
 /// Unlike [`crate::Intersection`] which requires documents to appear in ALL children,
 /// [`UnionFlat`] yields documents that appear in at least one child. When multiple children
 /// have the same document, their results are aggregated (unless `QUICK_EXIT` is `true`).
@@ -55,11 +66,12 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 ///
 /// # Type Parameters
 ///
-/// - `'index`: Lifetime of the index data.
+/// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
-pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
+#[repr(C)]
+pub struct RawUnionFlat<Rf: Ref, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
     /// exhausted children are moved to the end and not removed so we can rewind the iterator.
     children: Vec<IndexedChild<I>>,
@@ -70,8 +82,12 @@ pub struct UnionFlat<'index, I, const QUICK_EXIT: bool> {
     /// Whether the iterator has reached EOF (all children exhausted).
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawUnionFlat`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type UnionFlat<'index, I, const QUICK_EXIT: bool> = RawUnionFlat<Active<'index>, I, QUICK_EXIT>;
 
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where

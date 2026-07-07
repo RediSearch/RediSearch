@@ -11,4 +11,13 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
-mod eval;
+mod ids;
+mod missing;
+mod not;
+mod null;
+mod optional;
+mod phrase;
+mod qast_iterate;
+mod union;
+mod util;
+mod wildcard;

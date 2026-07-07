@@ -20,6 +20,7 @@ members = [
     "query_error",
     "query_flags",
     "query_term",
+    "rdb_io",
     "redis_json_api",
     "redis_mock",
     "redis_reply",
@@ -157,6 +158,7 @@ vecsim = { path = "./c_wrappers/vecsim" }
 vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+rdb_io = { path = "./rdb_io" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }

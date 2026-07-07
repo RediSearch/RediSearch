@@ -14,7 +14,8 @@
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
@@ -28,6 +29,9 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// An iterator that emits results for all document IDs present in the index,
 /// driven by a [wildcard iterator](crate::wildcard) over the existing-documents inverted index.
 ///
+/// Parameterised over a [`Ref`] mode — see [`OptionalOptimized`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`].
+///
 /// For each doc ID that `wcii` yields:
 /// - If the query child also has a hit at that doc ID, a **real** result is
 ///   returned with [`OptionalOptimized::weight`] applied.
@@ -36,7 +40,8 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// This avoids scanning doc IDs 1..=maxDocId sequentially. When the index is
 /// sparse (few documents relative to `maxDocId`), the optimized variant is
 /// significantly faster.
-pub struct OptionalOptimized<'index, W, I> {
+#[repr(C)]
+pub struct RawOptionalOptimized<Rf: Ref, W, I> {
     /// Wildcard iterator over `spec.existingDocs` — the authoritative source of doc IDs.
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
@@ -44,7 +49,7 @@ pub struct OptionalOptimized<'index, W, I> {
     /// when it is aborted during [`RQEIterator::revalidate`].
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
-    virt: RSIndexResult<'index>,
+    virt: RawIndexResult<Rf>,
     /// Inclusive upper bound (matches C `maxDocId`).
     max_doc_id: DocId,
     /// Weight applied to real results from `child`.
@@ -57,6 +62,10 @@ pub struct OptionalOptimized<'index, W, I> {
     /// Whether the iterator has reached EOF.
     at_eof: bool,
 }
+
+/// Alias for an [`Active`] [`RawOptionalOptimized`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<Active<'index>, W, I>;
 
 impl<'index, W, I> OptionalOptimized<'index, W, I>
 where

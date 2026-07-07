@@ -16,7 +16,7 @@ use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::{DocId, FieldMask};
 
-pub use self::core::*;
+pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
 pub use numeric::{FilterNumericReader, NumericFilter};

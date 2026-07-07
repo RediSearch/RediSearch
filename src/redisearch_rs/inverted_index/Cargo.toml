@@ -13,6 +13,7 @@ field.workspace = true
 rqe_core.workspace = true
 index_result.workspace = true
 query_term.workspace = true
+ref_mode.workspace = true
 thin_vec.workspace = true
 qint.workspace = true
 redis_reply.workspace = true

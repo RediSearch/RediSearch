@@ -18,11 +18,17 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 /// Yields documents appearing in ALL child iterators using a merge (AND) algorithm.
+///
+/// Parameterised over a [`Ref`] mode — see [`Intersection`] for the
+/// [`Active`] instantiation that implements [`RQEIterator`]. `Vec<I>`'s
+/// representation is independent of `Rf`, so this struct is transmute-
+/// compatible across `Active`/`Suspended` instantiations provided `I` is.
 ///
 /// Children are sorted by estimated result count (smallest first) to minimize iterations,
 /// unless `in_order` is set (which preserves the original child order for positional checks).
@@ -32,7 +38,8 @@ use rqe_core::DocId;
 /// - `max_slop`: Maximum allowed slop (distance) between term positions. `None` disables proximity
 ///   validation entirely.
 /// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
-pub struct Intersection<'index, I> {
+#[repr(C)]
+pub struct RawIntersection<Rf: Ref, I> {
     /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
     children: Vec<I>,
     /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
@@ -45,8 +52,12 @@ pub struct Intersection<'index, I> {
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<Rf>,
 }
+
+/// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
+/// with an [`RQEIterator`] impl today.
+pub type Intersection<'index, I> = RawIntersection<Active<'index>, I>;
 
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
