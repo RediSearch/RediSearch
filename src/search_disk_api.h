@@ -99,14 +99,6 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
-
-  // Debug/test-only sync point
-  void (*beforeApplySyncPoint)(void);
-
-  // Debug/test-only sync point, parked inside the GC run (compact_all) after the
-  // compaction apply has completed but just before the deleted-ids removal DB write.
-  // NULL outside ENABLE_ASSERT builds.
-  void (*beforeDeletedIdsRemoveSyncPoint)(void);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
