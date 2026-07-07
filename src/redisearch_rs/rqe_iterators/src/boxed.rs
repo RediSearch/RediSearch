@@ -119,7 +119,7 @@ pub trait RQESuspendedIterator: 'static {
     /// `Err` the suspended iterator is consumed and dropped.
     fn resume<'index>(
         self: Box<Self>,
-        guard: &'index IndexSpecReadGuard<'index>,
+        guard: &IndexSpecReadGuard<'index>,
     ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>;
 
     /// Read the cached `last_doc_id` from the suspended state without
@@ -159,7 +159,7 @@ pub trait RQEDynSuspendedIterator: 'static {
     /// Type-erased counterpart of [`RQESuspendedIterator::resume`].
     fn resume<'index>(
         self: Box<Self>,
-        guard: &'index IndexSpecReadGuard<'index>,
+        guard: &IndexSpecReadGuard<'index>,
     ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError>;
 
     fn last_doc_id(&self) -> t_docId;
@@ -284,7 +284,7 @@ impl<'index, T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T 
 impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
     fn resume<'index>(
         self: Box<Self>,
-        guard: &'index IndexSpecReadGuard<'index>,
+        guard: &IndexSpecReadGuard<'index>,
     ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError> {
         // This bridge is the *only* place the resumed iterator is type-erased:
         // the concrete impl hands back its `Box<Self::Resumed>`, which we wrap
@@ -384,7 +384,7 @@ impl RQESuspendedIterator for TypeErasedRQESuspendedIterator {
 
     fn resume<'index>(
         self: Box<Self>,
-        guard: &'index IndexSpecReadGuard<'index>,
+        guard: &IndexSpecReadGuard<'index>,
     ) -> Result<ResumeOutcome<Box<TypeErasedRQEIterator<'index>>>, RQEIteratorError> {
         let TypeErasedRQESuspendedIterator(inner) = *self;
         // `Self::Resumed` is the already-erased `TypeErasedRQEIterator`, so the
