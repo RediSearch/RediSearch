@@ -25,7 +25,7 @@ use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
-use ::inverted_index::FieldMask;
+use ::inverted_index::{FieldMask, NumericFilter};
 use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
@@ -366,8 +366,8 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        filter: &ffi::NumericFilter,
-        field_index: ffi::t_fieldIndex,
+        filter: &NumericFilter,
+        field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
