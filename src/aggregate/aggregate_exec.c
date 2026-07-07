@@ -1894,7 +1894,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
  * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
  * the request must be rejected, REDISMODULE_OK otherwise.
  */
-static int rejectDiskLoaderInlineExecution(const AREQ *r, const RedisSearchCtx *sctx,
+static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
                                            QueryError *status) {
   if (!sctx->spec || !sctx->spec->diskSpec) {
     return REDISMODULE_OK;
@@ -1903,7 +1903,11 @@ static int rejectDiskLoaderInlineExecution(const AREQ *r, const RedisSearchCtx *
   if (IsAggregate(r)) {
     error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
             "scripts) is not supported in Redis Flex";
-  } else if (IsSearch(r) && !(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS)) {
+  } else if (IsSearch(r) &&
+             (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
+              AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
+    // Field return or an explicit LOAD step both put the async loader in the
+    // pipeline (NOCONTENT/RETURN 0 alone does not).
     error = "FT.SEARCH with field return in a context that cannot block "
             "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
             "use NOCONTENT or RETURN 0";

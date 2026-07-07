@@ -1011,15 +1011,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  // FT.AGGREGATE LOAD is allowed on disk (flex): fields load via the disk
-  // async loader. FT.SEARCH LOAD stays rejected (its disk field-return
-  // surface is RETURN).
-  if (isDiskIndex && !(*reqflags & QEXEC_F_IS_AGGREGATE)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
-    return REDISMODULE_ERR;
-  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1218,7 +1211,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {

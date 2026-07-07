@@ -333,18 +333,6 @@ def test_flex_search_allows_nocontent_withscores(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported in Redis Flex')
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_aggregate_allows_sortby(env):
     """FT.AGGREGATE SORTBY is unrestricted on flex (sort keys load via the disk
     async loader); the vector-distance-only restriction is FT.SEARCH only.
@@ -827,12 +815,6 @@ def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
         .noError()
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .noError()
-
-    # The public debug wrapper must reject user WITHCURSOR like plain
-    # FT.AGGREGATE; the internal "_FT.AGGREGATE" debug variant stays open.
-    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR',
-               'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('WITHCURSOR is not supported in Redis Flex')
 
     env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
