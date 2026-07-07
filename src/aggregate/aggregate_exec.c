@@ -1957,9 +1957,10 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
-    // RunInThread is false because the client cannot be blocked (MULTI/EXEC,
-    // Lua) or WORKERS is 0; flex enforces WORKERS > 0, so on disk this is the
-    // non-blockable-client case.
+    // RunInThread is false either when WORKERS is 0 or when the client cannot
+    // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
+    // request reaching this inline branch is always a non-blockable client —
+    // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
     if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
