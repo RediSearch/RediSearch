@@ -132,10 +132,10 @@ fn build_timeout_context_without_blocked_client_uses_sctx() {
     let mut mock = MockQueryEvalCtx::new();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
-    assert!(matches!(
-        ctx.build_timeout_context(),
-        AnyTimeoutContext::Clock(_)
-    ));
+    // SAFETY: `mock` (and its AREQ, if any) outlives the returned context, which
+    // is dropped at the end of the assertion — never used past the AREQ.
+    let timeout = unsafe { ctx.build_timeout_context() };
+    assert!(matches!(timeout, AnyTimeoutContext::Clock(_)));
 }
 
 #[test]
@@ -146,8 +146,8 @@ fn build_timeout_context_prefers_blocked_client_when_wired() {
     mock.enable_blocked_client_timeout();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
 
-    assert!(matches!(
-        ctx.build_timeout_context(),
-        AnyTimeoutContext::BlockedClient(_)
-    ));
+    // SAFETY: `mock`'s AREQ outlives the returned context, which is dropped at
+    // the end of the assertion — never used past the AREQ.
+    let timeout = unsafe { ctx.build_timeout_context() };
+    assert!(matches!(timeout, AnyTimeoutContext::BlockedClient(_)));
 }

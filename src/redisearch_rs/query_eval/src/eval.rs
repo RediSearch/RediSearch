@@ -422,6 +422,12 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
     let child = eval_child_iterator(ctx, &child_node);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
+    // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
+    // outlives every timeout context derived from `ctx`, and the returned context
+    // is handed straight to `new_not_iterator` below (never retained past this
+    // query), so it cannot be used after the `AREQ` is freed.
+    let timeout_ctx = unsafe { ctx.build_timeout_context() };
+
     // SAFETY: the preconditions of `new_not_iterator` map to
     // `QueryEvalContext::new` invariants:
     // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
@@ -437,7 +443,7 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
             child,
             ctx.max_doc_id(),
             node.opts().weight,
-            ctx.build_timeout_context(),
+            timeout_ctx,
             ctx.as_non_null(),
         )
     };
