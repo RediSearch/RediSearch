@@ -222,20 +222,35 @@ impl QueryEvalContext {
     /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
     /// checks are skipped or no deadline is set) is derived from `sctx.time`.
     ///
-    /// The returned [`AnyTimeoutContext`] borrows `self`: its `'_` lifetime ties
-    /// it (and any iterator built from it) to this wrapper, so it cannot outlive
-    /// the context.
+    /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
+    /// Timeout is wired in it holds the `AREQ` as a raw pointer, not a borrow, so
+    /// the type system no longer ties it to the request. That validity is now a
+    /// runtime precondition (see below), which is why this method is `unsafe`.
+    ///
+    /// # Safety
+    ///
+    /// The returned context, and any iterator built from it, must not be used
+    /// after the `AREQ` behind `bcTimeoutAreq` is freed.
+    ///
+    /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
+    /// no lifetime, so nothing enforces the precondition at compile time:
+    /// probing the context calls [`AREQ_CheckTimedOut`](ffi::AREQ_CheckTimedOut)
+    /// on the stored pointer. For a [`QueryEvalContext`] built through
+    /// [`new`](Self::new), invariant (2) already guarantees `bcTimeoutAreq`
+    /// outlives every timeout context and iterator derived from it, so the
+    /// caller discharges the precondition simply by not retaining the returned
+    /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
     ///
     /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
-    pub fn build_timeout_context(&self) -> AnyTimeoutContext<'_> {
+    pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         match NonNull::new(self.as_ref().bcTimeoutAreq) {
             Some(areq) => {
                 // SAFETY: invariant (2) of `new` guarantees a non-null
                 // `bcTimeoutAreq` points to a valid `AREQ` that outlives every
-                // iterator built from this context. The returned context borrows
-                // `self`, so its lifetime cannot exceed that of `self` (and hence
-                // of the `AREQ`), satisfying the `TimeoutContextBlockedClient::new`
-                // contract that `'req` not outlive the request.
+                // iterator built from this context; this method's own safety
+                // contract requires the caller not to use the returned context
+                // past that window — together they satisfy the
+                // `TimeoutContextBlockedClient::new` contract.
                 let timeout = unsafe { TimeoutContextBlockedClient::new(areq) };
                 AnyTimeoutContext::BlockedClient(timeout)
             }
