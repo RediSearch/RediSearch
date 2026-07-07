@@ -98,19 +98,37 @@
 
 mod suffix;
 
+use std::ptr::NonNull;
+
+use ffi::{RedisSearchDiskIndexSpec, t_fieldIndex};
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 pub use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
+
+enum TagIndexMode {
+    InMemory {
+        /// tag value → postings. Tag postings only need document ids, so the
+        /// inverted indexes always use the [`DocIdsOnly`] encoding.
+        values: TrieMap<InvertedIndex<DocIdsOnly>>,
+    },
+    Disk {
+        /// tag value → (). Is it used only to know whether a tag is there
+        values: TrieMap<()>,
+        /// Field id
+        field_id: t_fieldIndex,
+        /// Disk Index spec
+        disk_index_spec: NonNull<RedisSearchDiskIndexSpec>,
+    },
+}
 
 /// See the [crate documentation](self) for an overview.
 pub struct TagIndex {
     /// Unique id generated at creation time.
     unique_id: u32,
 
-    /// tag value → postings. Tag postings only need document ids, so the
-    /// inverted indexes always use the [`DocIdsOnly`] encoding.
-    values: TrieMap<InvertedIndex<DocIdsOnly>>,
-
     /// Suffix index, present only for fields created `WITHSUFFIXTRIE`.
     suffix: Option<TagSuffixIndex>,
+
+    /// The mode: in memory / disk
+    mode: TagIndexMode,
 }

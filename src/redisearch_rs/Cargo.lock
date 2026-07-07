@@ -2886,6 +2886,7 @@ dependencies = [
 name = "tag_index"
 version = "0.0.1"
 dependencies = [
+ "ffi",
  "inverted_index",
  "thin_vec",
  "trie_rs",

@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+ffi.workspace = true
 inverted_index.workspace = true
 thin_vec.workspace = true
 trie_rs.workspace = true
