@@ -49,8 +49,7 @@ pub fn revalidate_via_resume<'borrow, 'index>(
     inner.resume(spec)
 }
 
-/// Test-only ergonomic accessors on
-/// [`ResumeOutcome`](rqe_iterators::ResumeOutcome).
+/// Test-only ergonomic accessors on [`ResumeOutcome`].
 pub trait ResumeOutcomeExt<'a> {
     /// Unwrap the resumed iterator, panicking unless the outcome is
     /// [`Ok`](rqe_iterators::ResumeOutcome::Ok).
