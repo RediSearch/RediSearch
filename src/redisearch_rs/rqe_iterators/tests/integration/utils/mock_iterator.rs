@@ -362,19 +362,16 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
 
         data.read_count += 1;
 
-        // Re-skip to the current position returns the current record without
-        // advancing. Real iterators (e.g. [`Term`](rqe_iterators::inverted_index::Term))
-        // tolerate this because resume-driven re-skips target the iterator's
-        // pre-suspend position. Backwards skips (`result.doc_id > doc_id`) stay
-        // a contract violation, matching the real `skip_to`'s
-        // `debug_assert!(last_doc_id() < doc_id)`.
-        if self.result.doc_id == doc_id {
-            data.read_count -= 1;
-            return Ok(Some(rqe_iterators::SkipToOutcome::Found(&mut self.result)));
-        }
+        // `skip_to` must be called with a target strictly past the current
+        // position; re-skipping to (or below) `last_doc_id()` is a contract
+        // violation, mirroring the real iterator's
+        // `debug_assert!(self.last_doc_id() < doc_id)` (see
+        // `rqe_iterators::inverted_index::core`). Resume-driven re-skips
+        // `rewind()` first — exactly like the real `revalidate` path — so they
+        // never target the current position.
         debug_assert!(
-            self.result.doc_id < doc_id,
-            "skip_to called with a target below the current position (backwards skip)"
+            self.last_doc_id() < doc_id,
+            "skip_to called with a target at or below the current position"
         );
 
         if self.at_eof() {
@@ -652,16 +649,12 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 
         data.read_count += 1;
 
-        // See `Mock::skip_to` — re-skip to the current position returns the
-        // current record without advancing; backwards skips stay a contract
-        // violation.
-        if self.result.doc_id == doc_id {
-            data.read_count -= 1;
-            return Ok(Some(rqe_iterators::SkipToOutcome::Found(&mut self.result)));
-        }
+        // See `Mock::skip_to` — the target must be strictly past the current
+        // position, mirroring the real iterator's
+        // `debug_assert!(self.last_doc_id() < doc_id)`.
         debug_assert!(
-            self.result.doc_id < doc_id,
-            "skip_to called with a target below the current position (backwards skip)"
+            self.last_doc_id() < doc_id,
+            "skip_to called with a target at or below the current position"
         );
 
         let n = self.doc_ids.len();

@@ -826,10 +826,13 @@ pub mod via_resume {
         assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
         test.remove_document(ii, last_doc_id);
-        // revalidate should return Moved without current doc and be at EOF.
-        let it = revalidate_via_resume(it, &guard)
+        // The move ran off the end: the iterator is at EOF. In the resume model
+        // EOF is observed via `at_eof()` / `read()`, not `current()` (which,
+        // like the real iterators, keeps returning the last record).
+        let mut it = revalidate_via_resume(it, &guard)
             .expect("resume should not fail in this test")
             .expect_moved();
         assert!(it.at_eof());
+        assert!(it.read().expect("read should not fail").is_none());
     }
 }
