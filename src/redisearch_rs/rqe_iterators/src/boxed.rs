@@ -274,6 +274,7 @@ where
 /// the legacy [`RQEIterator`] supertrait, which the
 /// concrete iterator already implements.
 impl<'index, T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T {
+    #[inline(always)]
     fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator {
         let suspended = <T as RQEIteratorBoxed<'index>>::suspend(self);
         TypeErasedRQESuspendedIterator(suspended as Box<dyn RQEDynSuspendedIterator>)
@@ -282,6 +283,7 @@ impl<'index, T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T 
 
 /// Bridge concrete suspended iterators into the dyn-safe sibling.
 impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
+    #[inline(always)]
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
@@ -298,10 +300,12 @@ impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
         })
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         <S as RQESuspendedIterator>::last_doc_id(self)
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         <S as RQESuspendedIterator>::num_estimated(self)
     }
@@ -313,14 +317,17 @@ impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
 /// `I` type parameter of composite iterators (which bound on
 /// [`RQEIterator`] via the [`RQEIteratorBoxed`] supertrait).
 impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
+    #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.0.current()
     }
 
+    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.0.read()
     }
 
+    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: t_docId,
@@ -328,6 +335,7 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.skip_to(doc_id)
     }
 
+    #[inline(always)]
     fn revalidate(
         &mut self,
         spec: &IndexSpecReadGuard,
@@ -335,18 +343,22 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.revalidate(spec)
     }
 
+    #[inline(always)]
     fn rewind(&mut self) {
         self.0.rewind()
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.0.last_doc_id()
     }
 
+    #[inline(always)]
     fn at_eof(&self) -> bool {
         self.0.at_eof()
     }
@@ -356,10 +368,12 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
         self.0.type_()
     }
 
+    #[inline(always)]
     fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
         self.0.as_c_iterator()
     }
 
+    #[inline(always)]
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
     }
@@ -371,6 +385,7 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
 impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
     type Suspended = TypeErasedRQESuspendedIterator;
 
+    #[inline(always)]
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let TypeErasedRQEIterator(inner) = *self;
         Box::new(<dyn RQEDynIterator<'index> as RQEDynIterator<'index>>::suspend(inner))
@@ -382,6 +397,7 @@ impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
 impl RQESuspendedIterator for TypeErasedRQESuspendedIterator {
     type Resumed<'index> = TypeErasedRQEIterator<'index>;
 
+    #[inline(always)]
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
@@ -399,10 +415,12 @@ impl RQESuspendedIterator for TypeErasedRQESuspendedIterator {
         })
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
         self.0.last_doc_id()
     }
 
+    #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
     }
