@@ -302,7 +302,7 @@ jobs:
                       [cli, "-h", "127.0.0.1", "-p", str(port), "PING"],
                       stdout=subprocess.PIPE,
                       stderr=subprocess.DEVNULL,
-                      text=True,
+                      universal_newlines=True,
                       check=False,
                   )
                   if ping.stdout.strip() == "PONG":
@@ -315,7 +315,7 @@ jobs:
                   [cli, "-h", "127.0.0.1", "-p", str(port), "--raw", "COMMAND", "INFO", "FT.SEARCH"],
                   stdout=subprocess.PIPE,
                   stderr=subprocess.STDOUT,
-                  text=True,
+                  universal_newlines=True,
                   check=True,
               )
               if "ft.search" not in command_info.stdout.lower():
