@@ -96,6 +96,11 @@ void sleep_job_us(void *p) {
     std::this_thread::sleep_for(std::chrono::microseconds(*time_us));
 };
 
+void incrementAtomicSize(void *p) {
+    volatile std::atomic<size_t> *value = (volatile std::atomic<size_t> *)p;
+    ++(*value);
+}
+
 struct test_struct {
     std::chrono::time_point<std::chrono::high_resolution_clock> *arr; // Pointer to the array of timestamps
     int index;                                                        // Index of the timestamp in the array
@@ -583,6 +588,69 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestSetToZeroWhileTerminateWhenEmpty) {
         stats = redisearch_thpool_get_stats(this->pool);
     }
     ASSERT_EQ(stats.total_jobs_done, total_jobs_pushed);
+    ASSERT_EQ(stats.total_pending_jobs, 0);
+}
+
+TEST_P(PriorityThpoolTestRuntimeConfig, TestWorkerCanAddJobsWhileTerminateWhenEmpty) {
+    typedef struct {
+        redisearch_thpool_t *pool;
+        volatile std::atomic<bool> &submitted;
+        volatile std::atomic<bool> &release;
+        volatile std::atomic<size_t> &executed;
+    } SubmitFromWorkerCtx;
+
+    auto submitFromWorkerFunc = [](void *p) {
+        SubmitFromWorkerCtx *ctx = (SubmitFromWorkerCtx *)p;
+        while (redisearch_thpool_is_initialized(ctx->pool)) {
+            usleep(1);
+        }
+
+        redisearch_thpool_work_t jobs[] = {
+            {incrementAtomicSize, (void *)&ctx->executed},
+            {incrementAtomicSize, (void *)&ctx->executed},
+            {incrementAtomicSize, (void *)&ctx->executed},
+        };
+        ASSERT_EQ(redisearch_thpool_add_n_work(ctx->pool, jobs, 3, THPOOL_PRIORITY_HIGH), 0);
+        ctx->submitted = true;
+
+        while (ctx->release) {
+            usleep(1);
+        }
+    };
+
+    auto waitForReleaseFunc = [](void *p) {
+        volatile std::atomic<bool> *release = (volatile std::atomic<bool> *)p;
+        while (*release) {
+            usleep(1);
+        }
+    };
+
+    volatile std::atomic<bool> submitted{false};
+    volatile std::atomic<bool> release{true};
+    volatile std::atomic<size_t> executed{0};
+    SubmitFromWorkerCtx ctx = {this->pool, submitted, release, executed};
+
+    redisearch_thpool_add_work(this->pool, submitFromWorkerFunc, &ctx, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(this->pool, waitForReleaseFunc, (void *)&release, THPOOL_PRIORITY_HIGH);
+    jobs_pull_wait(this->pool, 2);
+
+    redisearch_thpool_schedule_config_reduce_threads_job(this->pool, redisearch_thpool_get_num_threads(this->pool), true);
+    ASSERT_FALSE(redisearch_thpool_is_initialized(this->pool));
+    ASSERT_EQ(redisearch_thpool_get_num_threads(this->pool), 0);
+
+    while (!submitted) {
+        usleep(1);
+    }
+
+    release = false;
+    redisearch_thpool_wait(this->pool);
+
+    while (redisearch_thpool_get_stats(this->pool).num_threads_alive) {
+        usleep(1);
+    }
+
+    thpool_stats stats = redisearch_thpool_get_stats(this->pool);
+    ASSERT_EQ(executed, 3);
     ASSERT_EQ(stats.total_pending_jobs, 0);
 }
 

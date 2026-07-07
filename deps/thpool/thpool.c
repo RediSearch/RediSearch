@@ -119,7 +119,7 @@ typedef struct redisearch_thpool_t {
  * within thread_do. NULL on any non-worker thread (e.g. the main thread).
  * Used to detect re-entrant job submission: a worker submitting jobs to its
  * OWN pool must not run the verify_init all-threads barrier, because the
- * submitting worker cannot also arrive at that barrier -> deadlock (MOD-14296). */
+ * submitting worker cannot also arrive at that barrier -> deadlock. */
 static __thread redisearch_thpool_t *g_thpool_self = NULL;
 
 
@@ -447,13 +447,13 @@ static void redisearch_thpool_push_chain_verify_init_threads(
   thpool_priority priority) {
   redisearch_thpool_push_chain(thpool_p, f_newjob_p, l_newjob_p, n, priority);
 
-  /* MOD-14296: never run verify_init from within one of this pool's own worker
-   * threads. verify_init coordinates every live worker through a barrier; the
-   * submitting worker is one of them but is stuck here initiating the barrier,
-   * so it can never be reached -> the pool (and any load-time drain waiting on
-   * it) deadlocks. The pool is already running (the caller is a live worker),
-   * so the jobs just pushed will be drained by the running workers; spawning or
-   * reviving threads is only ever required from a non-worker (main) thread. */
+  /* Never run verify_init from within one of this pool's own worker threads.
+   * verify_init coordinates every live worker through a barrier; the submitting
+   * worker is one of them but is stuck here initiating the barrier, so it can
+   * never be reached. The pool is already running (the caller is a live
+   * worker), so the jobs just pushed will be drained by the running workers;
+   * spawning or reviving threads is only ever required from a non-worker
+   * thread. */
   if (g_thpool_self == thpool_p) {
     return;
   }
