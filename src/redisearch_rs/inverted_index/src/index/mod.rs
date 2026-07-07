@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod backend;
 mod core;
 pub mod opaque;
 pub(crate) mod unique_id;
@@ -14,6 +15,7 @@ mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
+pub use backend::{IndexBackend, InPlaceInvertedIndex};
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 
