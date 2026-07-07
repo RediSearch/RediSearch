@@ -44,15 +44,27 @@
 //! An unlimited number of tag fields can be created per document, as long as the overall number of
 //! fields is under 1024.
 //!
-//! ### With suffix
+//! ### Suffix and contains matching
 //!
-//! [`TagIndex`] supports also suffix search if enabled during the creation as follow:
+//! By default a tag query matches a tag either exactly (`@tags:{foo}`) or by
+//! prefix (`@tags:{foo*}`, every tag starting with `foo`). Two more wildcard
+//! forms are supported:
+//!
+//! - **Suffix** — `@tags:{*foo}` matches every tag that *ends* with `foo`.
+//! - **Contains** (infix) — `@tags:{*foo*}` matches every tag that *contains* `foo`.
+//!
+//! A trie resolves a prefix quickly by walking down to the prefix node, but it
+//! cannot do the same for a suffix or an infix without scanning every tag. To
+//! make those queries efficient, the field can be created with a *suffix trie*:
 //! ```text
 //! FT.CREATE idx SCHEMA tags TAG WITHSUFFIXTRIE
 //! ```
-//! In this case, also the suffix queries use index.
+//! The suffix trie indexes *every suffix* of each tag, so a `*foo` / `*foo*`
+//! query becomes a plain prefix lookup on the suffix trie (see
+//! [`TagSuffixIndex`]).
 //!
-//! NB: the suffix queries work even without `WITHSUFFIXTRIE`, but they will fallback to a brute force search.
+//! NB: suffix and contains queries also work without `WITHSUFFIXTRIE`, but they
+//! fall back to a brute-force scan of the whole tag trie.
 //!
 //! ## Querying Tag Fields
 //!
