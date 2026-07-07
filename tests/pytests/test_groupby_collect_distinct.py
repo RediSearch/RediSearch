@@ -22,7 +22,6 @@ def _group(res, field, value):
 # ---------------------------------------------------------------------------
 def test_collect_distinct_hash():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'g', 'TAG', 'SORTABLE', 'v', 'NUMERIC', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -46,7 +45,6 @@ def test_collect_distinct_hash():
 @skip(no_json=True)
 def test_collect_distinct_json_whole_doc():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     # Only `cat` is indexed (for grouping); the deduped value is the whole doc.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.cat', 'AS', 'cat', 'TAG', 'SORTABLE').ok()
@@ -74,7 +72,6 @@ def test_collect_distinct_json_whole_doc():
 # ---------------------------------------------------------------------------
 def test_collect_distinct_star_includes_loaded_fields():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     # a/b/c are indexed; d is not — it only enters the row via LOAD. g groups.
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'g', 'TAG', 'a', 'TAG', 'b', 'TAG', 'c', 'TAG').ok()
@@ -102,7 +99,6 @@ def test_collect_distinct_star_includes_loaded_fields():
 # ---------------------------------------------------------------------------
 def test_collect_distinct_sortby_limit():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'g', 'TAG', 'SORTABLE', 'v', 'NUMERIC', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -126,7 +122,6 @@ def test_collect_distinct_sortby_limit():
 # ---------------------------------------------------------------------------
 def test_collect_distinct_keeps_best_representative():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'grp', 'TAG', 'SORTABLE',
                'cat', 'TAG', 'SORTABLE', 'p', 'NUMERIC', 'SORTABLE').ok()
@@ -161,7 +156,6 @@ def test_collect_distinct_keeps_best_representative():
 # ---------------------------------------------------------------------------
 def test_collect_distinct_is_per_group_not_global():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'groups', 'TEXT', 'v', 'TAG', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -184,7 +178,6 @@ def test_collect_distinct_is_per_group_not_global():
 # ---------------------------------------------------------------------------
 def test_collect_distinct_outer_groupby():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'color', 'TAG', 'SORTABLE', 'name', 'TEXT').ok()
     conn = getConnectionByEnv(env)
@@ -213,7 +206,6 @@ def test_collect_distinct_outer_groupby():
 @skip(cluster=False)
 def test_collect_distinct_cluster_cross_shard():
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'grp', 'TAG', 'SORTABLE',
                'cat', 'TAG', 'SORTABLE', 'p', 'NUMERIC', 'SORTABLE').ok()

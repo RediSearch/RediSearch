@@ -217,13 +217,6 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
   RS_ASSERT(options && out);
   out->sortAscMap = SORTASCMAP_INIT;
 
-  if (!RSGlobalConfig.enableUnstableFeatures) {
-    QueryError_SetError(options->status, QUERY_ERROR_CODE_INVAL,
-      "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
-      "Enable it with `CONFIG SET search-enable-unstable-features yes`");
-    return false;
-  }
-
   // COLLECT always requires field/sort names to carry an `@` prefix.
   ReducerOptions strict_opts = *options;
   strict_opts.strictPrefix = true;
