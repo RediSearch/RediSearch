@@ -26,8 +26,14 @@ use rqe_core::DocId;
 
 /// An inverted index is a data structure that maps terms to their occurrences in documents. It is
 /// used to efficiently search for documents that contain specific terms.
+///
+/// This is the **in-place** backend: a single mutable block vector, in-place GC repair, and
+/// lock-held reads. It implements [`IndexBackend`](crate::IndexBackend). The name
+/// `InvertedIndex` is kept as an alias below so the FFI and existing call sites are
+/// unaffected; it becomes the compile-time-selected backend alias once a copy-on-write
+/// backend lands.
 #[derive(Debug)]
-pub struct InvertedIndex<E> {
+pub struct InPlaceInvertedIndex<E> {
     /// The blocks of the index. Each block contains a set of entries for a specific range of
     /// document IDs. The entries and blocks themselves are ordered by document ID, so the first
     /// block contains entries for the lowest document IDs, and the last block contains entries for
@@ -55,6 +61,11 @@ pub struct InvertedIndex<E> {
     /// The encoder to use when adding new entries to the index
     pub(crate) _encoder: PhantomData<E>,
 }
+
+/// The current inverted index. Alias for [`InPlaceInvertedIndex`], the in-place backend.
+/// Kept so the FFI and call sites don't churn; will become the backend-selecting alias
+/// (`#[cfg(feature = "snapshot-reads")]`) once a second backend exists.
+pub type InvertedIndex<E> = InPlaceInvertedIndex<E>;
 
 /// Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]

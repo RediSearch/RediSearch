@@ -15,7 +15,7 @@ mod with_entries;
 mod with_mask;
 
 pub use self::core::*;
-pub use backend::{IndexBackend, InPlaceInvertedIndex};
+pub use backend::IndexBackend;
 pub use with_entries::EntriesTrackingIndex;
 pub use with_mask::FieldMaskTrackingIndex;
 

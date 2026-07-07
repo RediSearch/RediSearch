@@ -22,8 +22,8 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Decoder, Encoder, GcApplyInfo, GcScanDelta, IndexReader,
-    IndexReaderCore, InvertedIndex, RepairContext, debug::Summary,
+    AddRecordOutcome, DecodedBy, Decoder, Encoder, GcApplyInfo, GcScanDelta, InPlaceInvertedIndex,
+    IndexReader, IndexReaderCore, InvertedIndex, RepairContext, debug::Summary,
 };
 
 /// Operations every inverted-index backend provides. Implementors differ in block storage,
@@ -72,7 +72,7 @@ pub trait IndexBackend {
     fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo;
 }
 
-impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InvertedIndex<E> {
+impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InPlaceInvertedIndex<E> {
     type Reader<'a>
         = IndexReaderCore<'a, E>
     where
@@ -118,11 +118,3 @@ impl<E: Encoder + DecodedBy<Decoder = D>, D: Decoder> IndexBackend for InvertedI
         InvertedIndex::apply_gc(self, delta)
     }
 }
-
-/// The in-place inverted index backend: a single mutable block vector, in-place GC repair,
-/// and lock-held reads. This is master's implementation. Named for its defining trait —
-/// blocks are mutated *in place* — as opposed to a copy-on-write / snapshot backend.
-///
-/// Currently an alias for [`InvertedIndex`]; a follow-up renames the struct itself once the
-/// second (snapshot) backend lands and `InvertedIndex` becomes the feature-selected alias.
-pub type InPlaceInvertedIndex<E> = InvertedIndex<E>;
