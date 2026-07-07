@@ -90,6 +90,57 @@ fn mem_growth_matches_memory_usage_across_rollovers() {
     }
 }
 
+/// A write that folds `pending`→`sealed` reports the bytes it collapsed in `mem_freed`.
+/// The *net* `mem_growth - mem_freed` must still exactly track the `memory_usage()` change
+/// (a fold is a net decrease), so the C-side `spec->stats.invertedSize` accounting stays
+/// correct across folds — not just across plain rollovers.
+#[test]
+fn mem_accounting_matches_memory_usage_across_folds() {
+    /// Encoder that forces a rollover every 2 records, so folds trigger quickly.
+    #[derive(Clone)]
+    struct SmallBlocksDummy;
+
+    impl Encoder for SmallBlocksDummy {
+        type Delta = u32;
+        const RECOMMENDED_BLOCK_ENTRIES: u16 = 2;
+
+        fn encode<W: std::io::Write + std::io::Seek>(
+            mut writer: W,
+            _delta: Self::Delta,
+            _record: &RSIndexResult,
+        ) -> std::io::Result<usize> {
+            writer.write_all(&[1])?;
+            Ok(1)
+        }
+    }
+
+    let mut ii = InvertedIndex::<SmallBlocksDummy>::new(IndexFlags_Index_DocIdsOnly);
+    let mut folds = 0u32;
+    // ~500 records at 2/block => ~250 blocks => multiple geometric folds (at ~64, ~128 …).
+    for doc_id in 1..=500u64 {
+        let before = ii.memory_usage() as i64;
+        let outcome = ii
+            .add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+        let after = ii.memory_usage() as i64;
+        if outcome.mem_freed > 0 {
+            folds += 1;
+        }
+        assert_eq!(
+            after - before,
+            outcome.mem_growth as i64 - outcome.mem_freed as i64,
+            "doc_id={doc_id}: net (mem_growth {} - mem_freed {}) must equal memory_usage delta ({})",
+            outcome.mem_growth,
+            outcome.mem_freed,
+            after - before,
+        );
+    }
+    assert!(
+        folds >= 2,
+        "expected multiple pending->sealed folds over 500 records, observed {folds}"
+    );
+}
+
 #[test]
 fn adding_records() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);

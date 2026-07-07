@@ -37,8 +37,10 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
 
   // Update index statistics:
 
-  // Number of additional bytes
+  // Number of additional bytes (mem_freed is non-zero when the write also folded
+  // pending blocks into sealed, collapsing per-block Arc headers).
   spec->stats.invertedSize += r.mem_growth;
+  spec->stats.invertedSize -= r.mem_freed;
   IndexStats_BlockCountAdd(&spec->stats, r.blocks_added);
   // Number of records
   spec->stats.numRecords++;
@@ -607,6 +609,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
                          .metrics = MetricsVec_New()};
     AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
     aCtx->spec->stats.invertedSize += r.mem_growth;
+    aCtx->spec->stats.invertedSize -= r.mem_freed;
     IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
   }
   dictReleaseIterator(iter);
@@ -630,6 +633,7 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
                        .metrics = MetricsVec_New()};
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
   aCtx->spec->stats.invertedSize += r.mem_growth;
+  aCtx->spec->stats.invertedSize -= r.mem_freed;
   IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
 }
 

@@ -21,6 +21,7 @@ use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
+    mem::MaybeUninit,
     sync::{Arc, LazyLock},
 };
 use thin_vec::ThinVec;
@@ -90,12 +91,19 @@ pub struct InvertedIndex<E> {
     pub(crate) _encoder: PhantomData<E>,
 }
 
-/// Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
+/// Outcome of [`InvertedIndex::add_record`]: how the index's memory changed during the
+/// write. The net memory delta is `mem_growth - mem_freed`; callers maintaining a running
+/// size stat (e.g. `spec->stats.invertedSize`) must apply both.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
 pub struct AddRecordOutcome {
-    /// Number of bytes the inverted index's memory usage grew by.
+    /// Number of bytes the inverted index's memory usage grew by (buffer growth + any
+    /// `Arc<IndexBlock>` / pending-slot allocation from a roll-over).
     pub mem_growth: u32,
+    /// Number of bytes freed if this write also folded `pending` into `sealed`
+    /// (see [`InvertedIndex::fold_pending_into_sealed`]): the collapsed per-block `Arc`
+    /// refcount headers + the drained `pending` Vec heap. `0` when no fold occurred.
+    pub mem_freed: u32,
     /// Number of new index blocks this write created.
     pub blocks_added: u32,
 }
@@ -134,6 +142,13 @@ pub(crate) const ARC_HEADER_BYTES: usize = std::mem::size_of::<usize>() * 2;
 /// that's tracked separately because `Vec::push` grows by amortized capacity, not
 /// one slot at a time. See [`InvertedIndex::add_record`].
 pub(crate) const PER_ROLLOVER_HEAP_BYTES: usize = IndexBlock::STACK_SIZE + ARC_HEADER_BYTES;
+
+/// Floor on `pending.len()` before the write path will fold `pending`→`sealed` (see
+/// [`InvertedIndex::maybe_fold_pending`]). Combined with the geometric "fold once pending
+/// has grown to at least `sealed.len()`" rule, this keeps small indexes from paying a
+/// fold and bounds total fold work across a load to O(n) (`sealed` roughly doubles each
+/// fold: 64 → 128 → 256 → …).
+const FOLD_MIN_PENDING_BLOCKS: usize = 64;
 
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
@@ -418,14 +433,103 @@ impl<E: Encoder> InvertedIndex<E> {
             self.flags |= IndexFlags_Index_HasMultiValue;
         }
 
+        // Fold accumulated `pending` blocks into the contiguous `sealed` region once they
+        // are worth compacting. Without this, a pure-insert index (no deletes/updates)
+        // never triggers fork-GC — its `deletedOrUpdatedDocsFromLastRun` stays 0 — so all
+        // its blocks live forever as scattered `Arc<IndexBlock>` in `pending`, which reads
+        // with worse locality (and more per-snapshot refcount work) than master's single
+        // contiguous vector. Only checked on a rollover (when `pending` actually grew).
+        //
+        // The fold reallocates `sealed` and moves M+N block structs, so it must stay on a
+        // geometric schedule (amortized O(n)) regardless of snapshots. But the per-block
+        // *COW clone* only fires when a live snapshot pins the region; with no snapshot
+        // (`strong_count == 1`) the fold is all cheap moves, so we fold more eagerly — at ¼
+        // of `sealed` rather than 1× — to keep `pending` small (better read locality)
+        // without paying the copy cost. Still geometric (~1.25× growth), so still O(n).
+        let mut mem_freed: usize = 0;
+        let unpinned = Arc::strong_count(&self.sealed) == 1;
+        let ratio_reached = if unpinned {
+            self.pending.len() >= self.sealed.len() >> 2
+        } else {
+            self.pending.len() >= self.sealed.len()
+        };
+        if rollovers_into_pending > 0
+            && self.pending.len() >= FOLD_MIN_PENDING_BLOCKS
+            && ratio_reached
+        {
+            mem_freed = self.fold_pending_into_sealed();
+        }
+
         debug_assert!(
             mem_growth <= u32::MAX as usize,
             "AddRecordOutcome::mem_growth overflowed u32 ({mem_growth} bytes in one add)"
         );
         Ok(AddRecordOutcome {
             mem_growth: mem_growth as u32,
+            mem_freed: mem_freed as u32,
             blocks_added,
         })
+    }
+
+    /// Fold every `pending` block into a fresh contiguous `sealed` [`Arc<[IndexBlock]>`],
+    /// leaving `in_progress` (the single active tail) untouched. No-op when `pending` is
+    /// empty. Blocks are moved out of their old allocations when no reader snapshot pins
+    /// them, and deep-copied (copy-on-write) when one does — mirroring `apply_gc`.
+    ///
+    /// Replaces `self.sealed` with a new `Arc`, so readers detect the change via
+    /// `Arc::ptr_eq` and revalidate. Callers must invoke this rarely (geometric schedule —
+    /// see [`FOLD_MIN_PENDING_BLOCKS`]) so concurrent readers aren't forced to re-seek on
+    /// every write.
+    /// Returns the number of bytes freed by the fold (0 if it was a no-op): the M per-block
+    /// `Arc` refcount headers that collapse into the single `sealed` `Arc`, plus the drained
+    /// `pending` Vec heap. The blocks' stack bytes and buffer capacities are unchanged —
+    /// they move from `pending` into `sealed`, not freed — so this is the exact
+    /// `memory_usage()` decrease.
+    fn fold_pending_into_sealed(&mut self) -> usize {
+        if self.pending.is_empty() {
+            return 0;
+        }
+        let freed = self.pending.len() * ARC_HEADER_BYTES + self.pending.mem_usage();
+        let new_len = self.sealed.len() + self.pending.len();
+        let mut new_sealed: Arc<[MaybeUninit<IndexBlock>]> = Arc::new_uninit_slice(new_len);
+        // Uniquely owned right after allocation — `get_mut` is `Some`.
+        let slots = Arc::get_mut(&mut new_sealed).expect("freshly allocated Arc is uniquely owned");
+        let mut write_idx = 0usize;
+
+        // `sealed`: move each block out via a placeholder swap when unpinned; deep-copy
+        // when a live reader snapshot still shares the region (`Arc<[IndexBlock]>` can't be
+        // `try_unwrap`'d, so `get_mut` gates the move).
+        let mut old_sealed = std::mem::replace(&mut self.sealed, empty_sealed());
+        match Arc::get_mut(&mut old_sealed) {
+            Some(blocks) => {
+                for slot in blocks.iter_mut() {
+                    slots[write_idx].write(std::mem::replace(slot, IndexBlock::new(0)));
+                    write_idx += 1;
+                }
+            }
+            None => {
+                for b in old_sealed.iter() {
+                    slots[write_idx].write(b.clone());
+                    write_idx += 1;
+                }
+            }
+        }
+        drop(old_sealed);
+
+        // `pending`: each block is its own `Arc` — move it out when unique, clone when a
+        // snapshot pins it.
+        for arc in std::mem::take(&mut self.pending) {
+            let block = Arc::try_unwrap(arc).unwrap_or_else(|shared| (*shared).clone());
+            slots[write_idx].write(block);
+            write_idx += 1;
+        }
+
+        debug_assert_eq!(write_idx, new_len, "must fill exactly new_len sealed slots");
+        // SAFETY: the loops wrote exactly `new_len` initialized blocks into slots
+        // `0..new_len`, and `new_sealed` is still uniquely owned (no snapshot taken since
+        // allocation), so promoting the uninit slice is sound.
+        self.sealed = unsafe { new_sealed.assume_init() };
+        freed
     }
 
     /// Returns the last document ID in the index, if any.
