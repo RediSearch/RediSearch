@@ -72,7 +72,12 @@ install_from_tarball() {
 link_tools_for_fresh_shells() {
     local bindir="${INSTALL_DIR}/bin"
     local tool target
-    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" ld.lld llvm-config; do
+    # ld.lld-${LLVM_VER} matters beyond fresh shells: once lld-${LLVM_VER} is
+    # on PATH, build.sh links with -fuse-ld=lld-${LLVM_VER}, and clang
+    # resolves that name by looking for an executable literally called
+    # ld.lld-${LLVM_VER} — distro packages ship one, the tarball only ships
+    # unversioned ld.lld.
+    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}" ld.lld llvm-config; do
         # The tarball ships some of these only under their unversioned
         # names; resolve to whichever exists.
         target="${bindir}/${tool}"
@@ -168,8 +173,12 @@ install_llvm() {
         apt_get_cmd "$MODE" update -qq
 
         # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        # llvm-${LLVM_VER} supplies llvm-ar/llvm-ranlib, which CMake's IPO
+        # (LTO) archive rules need; with --no-install-recommends
+        # clang-${LLVM_VER} doesn't pull it in.
         if apt_get_cmd "$MODE" install -y --no-install-recommends \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                "llvm-${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed clang-${LLVM_VER} from native apt repos"
         else
             # 2) Fall back to apt.llvm.org third-party repo.
