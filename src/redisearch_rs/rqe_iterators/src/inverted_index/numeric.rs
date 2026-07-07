@@ -14,7 +14,6 @@ use crate::{
     SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
-    interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
 use ffi::{
@@ -644,13 +643,7 @@ pub unsafe fn build_numeric_filter_iterator(
 
     let children: Vec<CRQEIterator> = variants
         .into_iter()
-        .map(|variant| {
-            let ptr = RQEIteratorWrapper::boxed_new(variant);
-            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-            let ptr = unsafe { NonNull::new_unchecked(ptr) };
-            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-            unsafe { CRQEIterator::new(ptr) }
-        })
+        .map(CRQEIterator::from_rust_leaf)
         .collect();
 
     // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both

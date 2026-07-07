@@ -15,8 +15,8 @@ use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
 use inverted_index::NumericFilter;
 
 use crate::{
-    NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index, union_opaque::build_union,
+    NumericIteratorVariant, c2rust::CRQEIterator, open_numeric_or_geo_index,
+    union_opaque::build_union,
 };
 
 /// Error returned by [`build_geo_numeric_filters`] when the caller supplies
@@ -224,15 +224,7 @@ pub unsafe fn build_geo_range_iterator(
 
     let children: Vec<CRQEIterator> = groups
         .into_iter()
-        .flat_map(|(_, variants)| {
-            variants.into_iter().map(move |variant| {
-                let ptr = RQEIteratorWrapper::boxed_new(variant);
-                // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-                let ptr = unsafe { NonNull::new_unchecked(ptr) };
-                // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-                unsafe { CRQEIterator::new(ptr) }
-            })
-        })
+        .flat_map(|(_, variants)| variants.into_iter().map(CRQEIterator::from_rust_leaf))
         .collect();
 
     // SAFETY: `q_str` is `None` and `node_type` is `Geo`, union-compatible,
