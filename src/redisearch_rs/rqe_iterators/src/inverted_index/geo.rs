@@ -207,6 +207,7 @@ pub unsafe fn build_geo_range_iterator(
     min_union_iter_heap: usize,
     compress: bool,
 ) -> Option<NonNull<QueryIterator>> {
+    debug_assert!(!gf.fieldSpec.is_null(), "geo filter must have a field spec");
     // Read fieldSpec.index before the mutable borrow in `new_geo_range_iterator`.
     // SAFETY: precondition (2) — `gf.fieldSpec` is valid and non-null.
     let field_index = unsafe { (*gf.fieldSpec).index };
