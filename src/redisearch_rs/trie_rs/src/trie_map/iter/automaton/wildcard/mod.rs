@@ -114,19 +114,19 @@
 //!
 //! # Backend dispatch
 //!
-//! [`WildcardSpecializedIter`] picks the most efficient backend for the
+//! [`WildcardIter`] picks the most efficient backend for the
 //! pattern's atom count at iterator-construction time:
 //!
 //! - ≤ 63 atoms → [`WildcardNfa<u64>`].
 //! - 64..=127 atoms → [`WildcardNfa<u128>`].
-//! - ≥ 128 atoms → the filter-based [`WildcardIter`] (a per-key matcher
+//! - ≥ 128 atoms → the filter-based [`WildcardFilterIter`] (a per-key matcher
 //!   that uses SIMD `memcmp` over each literal token). Wider bitsets and
 //!   a sparse-set automaton were prototyped for this range and lost on
 //!   every real workload — per-byte NFA overhead grows with state width
 //!   while the filter's per-key `memcmp` cost stays roughly flat in
 //!   literal length.
 //!
-//! The dispatch is a single branch per [`WildcardSpecializedIter`]
+//! The dispatch is a single branch per [`WildcardIter`]
 //! method call.
 //!
 //! # Layout
@@ -152,22 +152,22 @@ pub use nfa::WildcardNfa;
 pub use nfa_bit_set::NfaBitSet;
 
 use super::AutomatonIter;
-use crate::trie_map::iter::wildcard::WildcardIter;
+use crate::trie_map::iter::wildcard::WildcardFilterIter;
 use lending_iterator::prelude::*;
 use rqe_wildcard::WildcardPattern;
 
 /// Wildcard iterator that auto-selects the most efficient backend for a
 /// given pattern. See the module documentation for the selection criteria.
-pub enum WildcardSpecializedIter<'tm, 'p, Data> {
+pub enum WildcardIter<'tm, 'p, Data> {
     /// `u64`-backed NFA — pattern has ≤ 63 atoms.
     U64(AutomatonIter<'tm, Data, WildcardNfa<u64>>),
     /// `u128`-backed NFA — pattern has 64..=127 atoms.
     U128(AutomatonIter<'tm, Data, WildcardNfa<u128>>),
     /// Filter-based fallback — pattern has ≥ 128 atoms.
-    Filter(WildcardIter<'tm, 'p, Data>),
+    Filter(WildcardFilterIter<'tm, 'p, Data>),
 }
 
-impl<'tm, 'p, Data> WildcardSpecializedIter<'tm, 'p, Data> {
+impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         match self {
             Self::U64(it) => it.advance(),
@@ -194,7 +194,7 @@ pub enum WildcardBackend {
     /// Filter-based fallback — patterns with ≥ 128 atoms. The NFA's
     /// per-byte overhead at wider state sizes outweighs the trie's
     /// prefix-sharing advantage versus the per-key filter, so we hand
-    /// these patterns to [`WildcardIter`] directly.
+    /// these patterns to [`WildcardFilterIter`] directly.
     Filter,
 }
 
@@ -216,7 +216,7 @@ impl WildcardBackend {
     }
 }
 
-impl<'tm, 'p, Data> Iterator for WildcardSpecializedIter<'tm, 'p, Data> {
+impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
     type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -225,19 +225,17 @@ impl<'tm, 'p, Data> Iterator for WildcardSpecializedIter<'tm, 'p, Data> {
     }
 }
 
-/// Lending-iterator wrapper for [`WildcardSpecializedIter`].
-pub struct WildcardSpecializedLendingIter<'tm, 'p, Data>(WildcardSpecializedIter<'tm, 'p, Data>);
+/// Lending-iterator wrapper for [`WildcardIter`].
+pub struct WildcardLendingIter<'tm, 'p, Data>(WildcardIter<'tm, 'p, Data>);
 
-impl<'tm, 'p, Data> From<WildcardSpecializedIter<'tm, 'p, Data>>
-    for WildcardSpecializedLendingIter<'tm, 'p, Data>
-{
-    fn from(iter: WildcardSpecializedIter<'tm, 'p, Data>) -> Self {
+impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>> for WildcardLendingIter<'tm, 'p, Data> {
+    fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {
         Self(iter)
     }
 }
 
 #[gat]
-impl<'tm, 'p, Data> LendingIterator for WildcardSpecializedLendingIter<'tm, 'p, Data> {
+impl<'tm, 'p, Data> LendingIterator for WildcardLendingIter<'tm, 'p, Data> {
     type Item<'next>
     where
         Self: 'next,
