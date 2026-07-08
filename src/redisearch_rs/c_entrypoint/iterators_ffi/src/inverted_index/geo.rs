@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 use ffi::{GeoFilter, RSGlobalConfig};
 use rqe_iterators::{IteratorsConfig, build_geo_range_iterator};
@@ -46,4 +46,5 @@ pub unsafe extern "C" fn NewGeoRangeIterator(
 
     // SAFETY: preconditions 1–3 map directly to those of `build_geo_range_iterator`.
     unsafe { build_geo_range_iterator(sctx, geo, min_union_iter_heap, compress) }
+        .map_or(ptr::null_mut(), NonNull::as_ptr)
 }

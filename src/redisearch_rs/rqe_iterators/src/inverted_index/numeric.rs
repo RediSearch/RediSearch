@@ -588,7 +588,7 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
 }
 
 /// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
-/// field's [`NumericRangeTree`], returning a C-ABI [`QueryIterator`] pointer.
+/// field's [`NumericRangeTree`].
 ///
 /// Opens the field's range tree, collects one iterator per matching sub-range
 /// (a [`NumericIteratorVariant`] each), and combines them with
@@ -596,8 +596,9 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
 /// the union is [`Numeric`](QueryNodeType::Numeric) or [`Geo`](QueryNodeType::Geo)
 /// depending on the filter.
 ///
-/// Returns NULL when the index does not exist for the field (nothing indexed
-/// yet) or when no sub-range matches the filter.
+/// Returns [`None`] — an empty (matchless) result, not an error — when the index
+/// does not exist for the field (nothing indexed yet) or when no sub-range
+/// matches the filter.
 ///
 /// # Safety
 ///
@@ -612,7 +613,7 @@ pub unsafe fn build_numeric_filter_iterator(
     flt: &NumericFilter,
     min_union_iter_heap: usize,
     field_ctx: &field::FieldFilterContext,
-) -> *mut QueryIterator {
+) -> Option<NonNull<QueryIterator>> {
     // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
     let compress = unsafe { RSGlobalConfig.numericCompress };
 
@@ -629,16 +630,14 @@ pub unsafe fn build_numeric_filter_iterator(
     // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
     // is the right type. We never create the tree here (`create_if_missing` is
     // false), so the `fs.tree` ownership precondition is trivially upheld.
-    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
-        return std::ptr::null_mut();
-    };
+    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }?;
 
     // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
     // index (3).
     let variants =
         unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
     if variants.is_empty() {
-        return std::ptr::null_mut();
+        return None;
     }
 
     let children: Vec<CRQEIterator> = variants
@@ -648,7 +647,8 @@ pub unsafe fn build_numeric_filter_iterator(
 
     // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
     // union-compatible, satisfying the requirements of `build_union`.
-    unsafe {
+    let iter = unsafe {
         crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, None, 1.0)
-    }
+    };
+    Some(iter)
 }

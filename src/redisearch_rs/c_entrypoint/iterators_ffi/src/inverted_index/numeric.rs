@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
@@ -87,4 +87,5 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     unsafe {
         rqe_iterators::build_numeric_filter_iterator(sctx, flt_ref, min_union_iter_heap, field_ctx)
     }
+    .map_or(ptr::null_mut(), NonNull::as_ptr)
 }

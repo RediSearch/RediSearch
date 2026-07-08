@@ -594,7 +594,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
         .collect();
 
     // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
-    let result_ptr = unsafe {
+    let iter = unsafe {
         build_union(
             children,
             quick_exit,
@@ -605,7 +605,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
         )
     };
 
-    Evaluated::RustCompound(NonNull::new(result_ptr).expect("union iterator must not be null"))
+    Evaluated::RustCompound(iter)
 }
 
 /// `QN_NUMERIC` — a numeric range filter on a numeric field.
@@ -671,10 +671,10 @@ fn eval_numeric<'index>(
     // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
     //    (well-formed numeric node).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
-    let ptr =
+    let iter =
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
-    NonNull::new(ptr).map(Evaluated::RustCompound)
+    iter.map(Evaluated::RustCompound)
 }
 
 /// `QN_GEO` — a geo-radius filter on a geo field.
@@ -710,7 +710,7 @@ fn eval_geo<'index>(
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.
-    let ptr = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, compress) };
+    let iter = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, compress) };
 
-    NonNull::new(ptr).map(Evaluated::RustCompound)
+    iter.map(Evaluated::RustCompound)
 }

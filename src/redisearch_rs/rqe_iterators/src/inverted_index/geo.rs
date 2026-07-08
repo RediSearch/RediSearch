@@ -182,15 +182,15 @@ pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
     }
 }
 
-/// Build a geo-radius iterator over all geohash sub-ranges matching `gf`,
-/// returning a C-ABI [`QueryIterator`] pointer.
+/// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.
 ///
 /// A radius query maps to up to [`GEO_RANGE_COUNT`] contiguous geohash ranges;
 /// each is queried via the field's numeric range tree (with per-record distance
 /// filtering) and the results are combined with [`build_union`].
 ///
-/// Returns NULL when `gf`'s parameters are invalid, the geo index has not been
-/// created yet, or no entries match.
+/// Returns [`None`] — an empty (matchless) result, not an error — when `gf`'s
+/// parameters are invalid, the geo index has not been created yet, or no entries
+/// match.
 ///
 /// # Safety
 ///
@@ -206,7 +206,7 @@ pub unsafe fn build_geo_range_iterator(
     gf: &mut GeoFilter,
     min_union_iter_heap: usize,
     compress: bool,
-) -> *mut QueryIterator {
+) -> Option<NonNull<QueryIterator>> {
     // Read fieldSpec.index before the mutable borrow in `new_geo_range_iterator`.
     // SAFETY: precondition (2) — `gf.fieldSpec` is valid and non-null.
     let field_index = unsafe { (*gf.fieldSpec).index };
@@ -217,9 +217,7 @@ pub unsafe fn build_geo_range_iterator(
 
     // SAFETY: preconditions (1)–(3) map directly to those of
     // `new_geo_range_iterator`.
-    let Ok(groups) = (unsafe { new_geo_range_iterator(sctx, gf, &field_ctx, compress) }) else {
-        return std::ptr::null_mut();
-    };
+    let groups = unsafe { new_geo_range_iterator(sctx, gf, &field_ctx, compress) }.ok()?;
 
     let children: Vec<CRQEIterator> = groups
         .into_iter()
@@ -228,7 +226,7 @@ pub unsafe fn build_geo_range_iterator(
 
     // SAFETY: `q_str` is `None` and `node_type` is `Geo`, union-compatible,
     // satisfying the requirements of `build_union`.
-    unsafe {
+    let iter = unsafe {
         build_union(
             children,
             true,
@@ -237,5 +235,6 @@ pub unsafe fn build_geo_range_iterator(
             None,
             1.0,
         )
-    }
+    };
+    Some(iter)
 }
