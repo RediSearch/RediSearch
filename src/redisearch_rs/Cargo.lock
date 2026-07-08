@@ -2067,6 +2067,7 @@ dependencies = [
  "min-max-heap",
  "priority-queue",
  "query_error",
+ "rand 0.10.1",
  "redis_mock",
  "redisearch_rs",
  "reducers",

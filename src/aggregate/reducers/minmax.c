@@ -7,64 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
-#include "value_ffi.h"
-#include <float.h>
+#include "reducers_ffi.h"
 
-typedef struct {
-  double val;
-} minmaxCtx;
-
-static int minAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  minmaxCtx *m = ctx;
-  double val;
-  RSValue *v = RLookupRow_Get(r->srckey, srcrow);
-  if (RSValue_ToNumber(v, &val)) {
-    m->val = MIN(m->val, val);
-  }
-  return 1;
-}
-
-static int maxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  minmaxCtx *m = ctx;
-  double val;
-  RSValue *v = RLookupRow_Get(r->srckey, srcrow);
-  if (RSValue_ToNumber(v, &val)) {
-    m->val = MAX(m->val, val);
-  }
-  return 1;
-}
-
-static void *minmaxNewInstance(Reducer *r) {
-  minmaxCtx *m = BlkAlloc_Alloc(&r->alloc, sizeof(*m), 1024);
-  m->val = r->Add == maxAdd ? -INFINITY : INFINITY;
-  return m;
-}
-
-static RSValue *minmaxFinalize(Reducer *parent, void *instance) {
-  minmaxCtx *ctx = instance;
-  return RSValue_NewNumber(ctx->val);
-}
-
-typedef int (*ReducerAddFunc)(Reducer *, void *, const RLookupRow *);
-
-static Reducer *newMinMax(const ReducerOptions *options, ReducerAddFunc modeAdd) {
-  Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    rm_free(r);
+static Reducer *newMinMax(const ReducerOptions *options, bool isMax) {
+  const RLookupKey *srckey;
+  if (!ReducerOpts_GetKey(options, &srckey)) {
     return NULL;
   }
-  r->NewInstance = minmaxNewInstance;
-  r->Add = modeAdd;
-  r->Finalize = minmaxFinalize;
-  r->Free = Reducer_GenericFree;
-  r->reducerId = modeAdd == minAdd ? REDUCER_T_MIN : REDUCER_T_MAX;
-  return r;
+  return MinMaxReducer_Create(srckey, isMax);
 }
 
 Reducer *RDCRMin_New(const ReducerOptions *options) {
-  return newMinMax(options, minAdd);
+  return newMinMax(options, false);
 }
 
 Reducer *RDCRMax_New(const ReducerOptions *options) {
-  return newMinMax(options, maxAdd);
+  return newMinMax(options, true);
 }

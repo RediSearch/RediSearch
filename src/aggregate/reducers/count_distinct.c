@@ -9,77 +9,21 @@
 #include "aggregate/reducer.h"
 #include "value_ffi.h"
 #include "util/block_alloc.h"
-#include "util/khash.h"
-#include "fnv_ffi.h"
 #include "hll/hll.h"
+#include "reducers_ffi.h"
 
 #define HLL_PRECISION_BITS 8
-#define INSTANCE_BLOCK_NUM 1024
 
 // Also used as the FNV seed in hll.c and the hyperloglog Rust crate.
 // (the choice of this specific seed is lost in time)
 #define STABLE_SEED 0x5f61767a
 
-static const int khid = 35;
-KHASH_SET_INIT_INT64(khid);
-
-typedef struct {
-  size_t count;
-  khash_t(khid) * dedup;
-} distinctCounter;
-
-static void *distinctNewInstance(Reducer *r) {
-  BlkAlloc *ba = &r->alloc;
-  distinctCounter *ctr =
-      BlkAlloc_Alloc(ba, sizeof(*ctr), INSTANCE_BLOCK_NUM * sizeof(*ctr));  // malloc(sizeof(*ctr));
-  ctr->count = 0;
-  ctr->dedup = kh_init(khid);
-  return ctr;
-}
-
-static int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  distinctCounter *ctr = ctx;
-  const RSValue *val = RLookupRow_Get(r->srckey, srcrow);
-  if (!val || val == RSValue_NullStatic()) {
-    return 1;
-  }
-
-  uint64_t hval = RSValue_Hash(val, 0);
-
-  khiter_t k = kh_get(khid, ctr->dedup, hval);  // first have to get ieter
-  if (k == kh_end(ctr->dedup)) {
-    ctr->count++;
-    int ret;
-    kh_put(khid, ctr->dedup, hval, &ret);
-  }
-  return 1;
-}
-
-static RSValue *distinctFinalize(Reducer *parent, void *ctx) {
-  distinctCounter *ctr = ctx;
-  return RSValue_NewNumber(ctr->count);
-}
-
-static void distinctFreeInstance(Reducer *r, void *p) {
-  distinctCounter *ctr = p;
-  // we only destroy the hash table. The object itself is allocated from a block and needs no
-  // freeing
-  kh_destroy(khid, ctr->dedup);
-}
-
 Reducer *RDCRCountDistinct_New(const ReducerOptions *options) {
-  Reducer *r = rm_calloc(1, sizeof(*r));
-  if (!ReducerOpts_GetKey(options, &r->srckey)) {
-    rm_free(r);
+  const RLookupKey *srckey;
+  if (!ReducerOpts_GetKey(options, &srckey)) {
     return NULL;
   }
-  r->Add = distinctAdd;
-  r->Finalize = distinctFinalize;
-  r->Free = Reducer_GenericFree;
-  r->FreeInstance = distinctFreeInstance;
-  r->NewInstance = distinctNewInstance;
-  r->reducerId = REDUCER_T_DISTINCT;
-  return r;
+  return CountDistinctReducer_Create(srckey);
 }
 
 typedef struct {

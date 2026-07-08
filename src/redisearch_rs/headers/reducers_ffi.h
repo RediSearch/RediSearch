@@ -40,6 +40,60 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Create a COUNT reducer; free it with [`countFree`].
+ */
+Reducer *CountReducer_Create(void);
+
+/**
+ * Create an exact COUNT_DISTINCT reducer; free it with [`distinctFree`].
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CountDistinctReducer_Create(const RLookupKey *srckey);
+
+/**
+ * Create a STDDEV reducer; free it with [`stddevFree`].
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *StdDevReducer_Create(const RLookupKey *srckey);
+
+/**
+ * Create a TOLIST reducer; free it with [`tolistFree`].
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *ToListReducer_Create(const RLookupKey *srckey);
+
+/**
+ * Create a MIN (`is_max == false`) or MAX (`is_max == true`) reducer;
+ * free it with [`minmaxFree`].
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *MinMaxReducer_Create(const RLookupKey *srckey, bool is_max);
+
+/**
  * Create a SUM (`is_avg == false`) or AVG (`is_avg == true`) reducer;
  * free it with [`sumFree`].
  *
@@ -51,6 +105,44 @@ extern "C" {
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *SumReducer_Create(const RLookupKey *srckey, bool is_avg);
+
+/**
+ * Create a RANDOM_SAMPLE reducer keeping up to `len` values; free it with
+ * [`sampleFree`]. The caller is responsible for bounding `len`
+ * (`MAX_SAMPLE_SIZE`).
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *RandomSampleReducer_Create(const RLookupKey *srckey, size_t len);
+
+/**
+ * Create a FIRST_VALUE reducer; free it with [`fvFree`].
+ *
+ * # Safety
+ *
+ * 1. `retkey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ * 2. `sortkey` is either null (no `BY` clause) or a [valid] pointer to an
+ *    [`RLookupKey`] that remains alive for the lifetime of the returned
+ *    reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *FirstValueReducer_Create(const RLookupKey *retkey, const RLookupKey *sortkey, bool ascending);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CountReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *countNewInstance(Reducer *r);
 
 /**
  * Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
@@ -74,6 +166,51 @@ Reducer *SumReducer_Create(const RLookupKey *srckey, bool is_avg);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t field_keys_len, const RLookup *srclookup, const RLookupKey *const *sort_keys, size_t sort_keys_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool is_internal, bool distinct);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `StdDevReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *stddevNewInstance(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `CountCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int countAdd(Reducer *_r, void *ctx, const RLookupRow *_srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `ToListReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *tolistNewInstance(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CountDistinctReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *distinctNewInstance(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `MinMaxReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *minmaxNewInstance(Reducer *r);
 
 /**
  * # Safety
@@ -104,6 +241,68 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *con
 /**
  * # Safety
  *
+ * 1. `r` must point to a [valid] `RandomSampleReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *sampleNewInstance(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `FirstValueReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *fvNewInstance(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `StdDevReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `StdDevCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `ToListReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `ToListCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int tolistAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CountDistinctReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `CountDistinctCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int distinctAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `MinMaxReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `MinMaxCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int minmaxAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
  * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`.
  * 2. `ctx` must point to a [valid] `SumCtx` masquerading as a void pointer.
  * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
@@ -115,12 +314,107 @@ int sumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
 /**
  * # Safety
  *
+ * 1. `ctx` must point to a [valid] `CountCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *countFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `RandomSampleReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `RandomSampleCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int sampleAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `FirstValueReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `FirstValueCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int fvAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CountReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`CountReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void countFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `StdDevCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *stddevFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `ToListCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *tolistFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `CountDistinctCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *distinctFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `MinMaxCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *minmaxFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
  * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`.
  * 2. `ctx` must point to a [valid] `SumCtx` masquerading as a void pointer.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RSValue *sumFinalize(Reducer *r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `RandomSampleCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *sampleFinalize(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `FirstValueCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *fvFinalize(Reducer *_r, void *ctx);
 
 /**
  * Creates a new per-group shard collect reducer instance.
@@ -144,12 +438,68 @@ bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 /**
  * # Safety
  *
+ * 1. `r` must point to a [valid] `StdDevReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`StdDevReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void stddevFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `ToListCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void tolistFreeInstance(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `CountDistinctCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void distinctFreeInstance(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `MinMaxReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`MinMaxReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void minmaxFree(Reducer *r);
+
+/**
+ * # Safety
+ *
  * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`,
  *    originally created by [`SumReducer_Create`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void sumFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `RandomSampleCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void sampleFreeInstance(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `ctx` must point to a [valid] `FirstValueCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void fvFreeInstance(Reducer *_r, void *ctx);
 
 /**
  * # Safety
@@ -170,6 +520,46 @@ void *collectLocalNewInstance(Reducer *r);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void collectRemoteFreeInstance(Reducer *_r, void *ctx);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `ToListReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`ToListReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void tolistFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `CountDistinctReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`CountDistinctReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void distinctFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `RandomSampleReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`RandomSampleReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void sampleFree(Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `FirstValueReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`FirstValueReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void fvFree(Reducer *r);
 
 /**
  * # Safety

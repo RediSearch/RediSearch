@@ -7,128 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
-#include "value_ffi.h"
-
-typedef struct {
-  const RLookupKey *retprop;   // The key to return
-  const RLookupKey *sortprop;  // The key to sort by
-  RSValue *value;              // Value to return
-  RSValue *sortval;            // Top sorted value
-  int ascending;
-} fvCtx;
-
-typedef struct {
-  Reducer base;
-  const RLookupKey *sortprop;  // The property the value is sorted by
-  int ascending;
-} FVReducer;
-
-static void *fvNewInstance(Reducer *rbase) {
-  FVReducer *parent = (FVReducer *)rbase;
-  BlkAlloc *ba = &parent->base.alloc;
-  fvCtx *fv = BlkAlloc_Alloc(ba, sizeof(*fv), 1024 * sizeof(*fv));  // malloc(sizeof(*ctr));
-  fv->retprop = parent->base.srckey;
-  fv->sortprop = parent->sortprop;
-  fv->ascending = parent->ascending;
-
-  fv->value = NULL;
-  fv->sortval = NULL;
-  return fv;
-}
-
-static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  fvCtx *fvx = ctx;
-  if (fvx->value) {
-    return 1;
-  }
-
-  RSValue *val = RLookupRow_Get(fvx->retprop, srcrow);
-  if (!val) val = RSValue_NullStatic();
-  fvx->value = RSValue_IncrRef(val);
-  return 1;
-}
-
-static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
-  fvCtx *fvx = ctx;
-  RSValue *val = RLookupRow_Get(fvx->retprop, srcrow);
-  if (!val) val = RSValue_NullStatic();
-
-  RSValue *curSortval = RLookupRow_Get(fvx->sortprop, srcrow);
-  if (!curSortval) curSortval = RSValue_NullStatic();
-
-  if (!fvx->sortval) {
-    // This is the first value we see
-    fvx->value = RSValue_IncrRef(val);
-    fvx->sortval = RSValue_IncrRef(curSortval);
-  } else if (RSValue_IsNull(curSortval)) {
-    // If the current value is null, we don't need to do anything
-  } else if (RSValue_IsNull(fvx->sortval)) {
-    // If the best value is null, replace it with the current value (which is not null)
-    RSValue_Replace(&fvx->sortval, curSortval);
-  } else {
-    // If both values are not null, compare them and replace if necessary
-    int rc = RSValue_Cmp(curSortval, fvx->sortval, NULL);
-    if (fvx->ascending ? rc < 0 : rc > 0) {
-      RSValue_Replace(&fvx->sortval, curSortval);
-      RSValue_Replace(&fvx->value, val);
-    }
-  }
-
-  return 1;
-}
-
-static RSValue *fvFinalize(Reducer *parent, void *ctx) {
-  fvCtx *fvx = ctx;
-  if (fvx->value) {
-    return RSValue_IncrRef(fvx->value);
-  } else {
-    return RSValue_NullStatic();
-  }
-}
-
-static void fvFreeInstance(Reducer *parent, void *p) {
-  fvCtx *fvx = p;
-  if (fvx->value) {
-    RSValue_DecrRef(fvx->value);
-  };
-  if (fvx->sortval) {
-    RSValue_DecrRef(fvx->sortval);
-  };
-}
+#include "reducers_ffi.h"
 
 Reducer *RDCRFirstValue_New(const ReducerOptions *options) {
-  FVReducer *fvr = rm_calloc(1, sizeof(*fvr));
-  fvr->ascending = 1;
-
-  if (!ReducerOpts_GetKey(options, &fvr->base.srckey)) {
-    rm_free(fvr);
+  const RLookupKey *retkey;
+  if (!ReducerOpts_GetKey(options, &retkey)) {
     return NULL;
   }
 
+  const RLookupKey *sortkey = NULL;
+  bool ascending = true;
   if (AC_AdvanceIfMatch(options->args, "BY")) {
-    // Get the next field...
-    if (!ReducerOptions_GetKey(options, &fvr->sortprop)) {
-      rm_free(fvr);
+    if (!ReducerOptions_GetKey(options, &sortkey)) {
       return NULL;
     }
     if (AC_AdvanceIfMatch(options->args, "ASC")) {
-      fvr->ascending = 1;
+      ascending = true;
     } else if (AC_AdvanceIfMatch(options->args, "DESC")) {
-      fvr->ascending = 0;
+      ascending = false;
     }
   }
 
   if (!ReducerOpts_EnsureArgsConsumed(options)) {
-    rm_free(fvr);
     return NULL;
   }
 
-  Reducer *rbase = &fvr->base;
-
-  rbase->Add = fvr->sortprop ? fvAdd_sort : fvAdd_noSort;
-  rbase->Finalize = fvFinalize;
-  rbase->Free = Reducer_GenericFree;
-  rbase->FreeInstance = fvFreeInstance;
-  rbase->NewInstance = fvNewInstance;
-  return rbase;
+  return FirstValueReducer_Create(retkey, sortkey, ascending);
 }

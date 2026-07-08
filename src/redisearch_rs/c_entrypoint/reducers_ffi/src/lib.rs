@@ -8,4 +8,11 @@
 */
 
 pub mod collect;
+pub mod count;
+pub mod count_distinct;
+pub mod first_value;
+pub mod minmax;
+pub mod random_sample;
+pub mod stddev;
 pub mod sum;
+pub mod to_list;

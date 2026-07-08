@@ -8,9 +8,16 @@
 */
 
 pub mod collect;
+pub mod count;
+pub mod count_distinct;
+pub mod first_value;
+pub mod minmax;
+pub mod random_sample;
 mod reducer;
 mod reducer_options;
+pub mod stddev;
 pub mod sum;
+pub mod to_list;
 
 pub use reducer::Reducer;
 pub use reducer_options::ReducerOptions;
