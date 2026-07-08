@@ -26,10 +26,6 @@
 //! - for each suffix:
 //!   - insert borrowed term under the suffix key
 //!
-//! [`OwnedTerm`] uses:
-//! - the first two bytes (the size of u16) as header to store the string length
-//! - the remaining bytes as the string
-//!
 
 use std::{
     alloc::{Layout, alloc, dealloc, handle_alloc_error},
@@ -39,14 +35,9 @@ use std::{
 use thin_vec::{AlignedU32, ThinVec};
 use trie_rs::TrieMap;
 
-/// [`OwnedTerm`] header length
-const TERM_LEN_PREFIX: usize = size_of::<u16>();
-
-/// Layout of a tag term allocation: length prefix followed by the term bytes,
-/// aligned for the `u16` prefix.
-fn tag_term_layout(len: usize) -> Layout {
+/// Layout of a tag term allocation.
+fn tag_term_layout(size: usize) -> Layout {
     let align = align_of::<u16>();
-    let size = TERM_LEN_PREFIX + len;
 
     // `align` is not 0 and power of two
     // `size` is less than isize::MAX
@@ -61,42 +52,61 @@ fn tag_term_layout(len: usize) -> Layout {
 struct OwnedTerm(NonNull<u8>);
 
 impl OwnedTerm {
-    /// Copy `term` into a fresh length-prefixed allocation.
+    /// Copy `term` into a fresh allocation.
+    ///
+    /// # Safety
+    /// 1. term is NULL terminated and cannot contain NULL inside
+    /// 2. term is not empty (it contains at least the null)
     ///
     /// # Panics
     /// - the method panics if the `term` is longer than [`u16::MAX`] bytes.
-    fn new(term: &[u8]) -> Self {
+    unsafe fn new(term: &[u8]) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(!term.is_empty(), "term shouldn't be empty");
+            debug_assert_eq!(
+                *term.last().expect("term shouldn't be empty"),
+                0,
+                "term should be NULL terminated"
+            );
+        }
+
         let len = u16::try_from(term.len()).expect("caller rejects terms longer than u16::MAX");
 
         let layout = tag_term_layout(len as usize);
 
-        // SAFETY: `layout` has non-zero size (the prefix alone is 2 bytes).
+        // SAFETY: `layout` has non-zero size (guarantee 2)
         let ptr = unsafe { alloc(layout) };
         let Some(ptr) = NonNull::new(ptr) else {
             handle_alloc_error(layout);
         };
 
-        // SAFETY: the allocation is at least `TERM_LEN_PREFIX` bytes and
-        // aligned for u16, so the prefix write is in bounds.
-        unsafe { ptr.cast::<u16>().write(len) };
-
-        // SAFETY: ptr + TERM_LEN_PREFIX is still in bounds.
-        let dst = unsafe { ptr.as_ptr().add(TERM_LEN_PREFIX) };
-
         // SAFETY: source and destination are valid for `term.len()` bytes
         // and cannot overlap because `dst` is a freshly allocated block.
-        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), dst, term.len()) };
+        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), len as usize) };
 
         Self(ptr)
+    }
+
+    /// Full allocation size in bytes (term bytes + the trailing NUL).
+    ///
+    /// # Safety
+    /// `self` is built by [`OwnedTerm::new`]
+    const unsafe fn alloc_size(&self) -> usize {
+        // This cast doesn't change size, we care about only the NULL
+        let ptr = self.0.as_ptr().cast::<std::ffi::c_char>().cast_const();
+        // SAFETY: guarantee 1 of [`OwnedTerm::new`]
+        unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_bytes_with_nul()
+            .len()
     }
 }
 
 impl Drop for OwnedTerm {
     fn drop(&mut self) {
-        // SAFETY: the allocation is alive (ownership is unique and this is
-        // the owner's drop) and its length prefix was initialized by
-        // `OwnedTerm::new`.
-        let len = usize::from(unsafe { self.0.cast::<u16>().read() });
+        // SAFETY: `self` is allocated using new method.
+        let len = unsafe { self.alloc_size() };
+
         // SAFETY: `self.0` came from `OwnedTerm::new` with exactly this
         // layout, and this is the only deallocation.
         unsafe { dealloc(self.0.as_ptr(), tag_term_layout(len)) };
@@ -129,39 +139,38 @@ pub struct TagSuffixIndex {
 mod tests {
     use super::*;
 
-    /// Read back the bytes stored in an [`OwnedTerm`], mirroring its in-memory
-    /// format (`u16` length prefix at offset 0, then the term bytes).
+    /// Read back the bytes stored in an [`OwnedTerm`].
     ///
     /// # Safety
     /// `t` must be a live [`OwnedTerm`] produced by [`OwnedTerm::new`].
     unsafe fn read_back(t: &OwnedTerm) -> Vec<u8> {
-        // SAFETY: the prefix was initialized by `OwnedTerm::new`.
-        let len = usize::from(unsafe { t.0.cast::<u16>().read() });
-        // SAFETY: `ptr + TERM_LEN_PREFIX` is in bounds and holds `len` bytes.
-        let src = unsafe { t.0.as_ptr().add(TERM_LEN_PREFIX) };
+        // SAFETY: guaranteed by Safety rule
+        let len = unsafe { t.alloc_size() };
+
         // SAFETY: `src` is valid for `len` initialized bytes.
-        unsafe { std::slice::from_raw_parts(src, len) }.to_vec()
+        unsafe { std::slice::from_raw_parts(t.0.as_ptr(), len) }.to_vec()
     }
 
     #[test]
     fn roundtrip() {
-        let term = OwnedTerm::new(b"hello");
+        let term = unsafe { OwnedTerm::new(b"hello\0") };
         // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"hello");
+        assert_eq!(unsafe { read_back(&term) }, b"hello\0");
         // `term` drops here; miri checks the alloc/dealloc layout match.
     }
 
     #[test]
     fn empty_term() {
-        let term = OwnedTerm::new(b"");
+        let term = unsafe { OwnedTerm::new(b"\0") };
         // SAFETY: `term` is live and built by `OwnedTerm::new`.
-        assert_eq!(unsafe { read_back(&term) }, b"");
+        assert_eq!(unsafe { read_back(&term) }, b"\0");
     }
 
     #[test]
     fn larger_term() {
-        let expected = vec![0xABu8; 300];
-        let term = OwnedTerm::new(&expected);
+        let mut expected = vec![0xABu8; 300];
+        expected.push(0);
+        let term = unsafe { OwnedTerm::new(&expected) };
         // SAFETY: `term` is live and built by `OwnedTerm::new`.
         assert_eq!(unsafe { read_back(&term) }, expected);
     }
@@ -170,7 +179,8 @@ mod tests {
     #[should_panic(expected = "caller rejects terms longer than u16::MAX")]
     fn too_long_panics() {
         // The panic fires at `u16::try_from` before any allocation happens.
-        let term = vec![0u8; u16::MAX as usize + 1];
-        let _ = OwnedTerm::new(&term);
+        let mut term = vec![1u8; u16::MAX as usize + 1];
+        term.push(0);
+        let _ = unsafe { OwnedTerm::new(&term) };
     }
 }
