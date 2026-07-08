@@ -357,11 +357,13 @@ impl TestContext {
     /// tree holding the given `(doc_id, lon, lat)` points.
     ///
     /// Geo fields are stored as sorted numeric geohash scores, so each point is
-    /// encoded to its geohash score before being indexed. A point whose
-    /// coordinates are outside WGS-84 bounds is skipped.
+    /// encoded to its geohash score before being indexed.
     ///
     /// # Arguments
     /// * `points` - An iterator over `(doc_id, lon, lat)` points to be indexed.
+    ///
+    /// # Panics
+    /// Panics if any point's coordinates are outside WGS-84 bounds.
     pub fn geo<I>(points: I) -> Self
     where
         I: Iterator<Item = (DocId, f64, f64)>,
@@ -398,9 +400,8 @@ impl TestContext {
         .expect("NumericRangeTree should not be None");
 
         for (doc_id, lon, lat) in points {
-            let Ok(coords) = geo::hash::WGS84Coordinates::from_f64(lon, lat) else {
-                continue;
-            };
+            let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
+                .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
             let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
             numeric_range_tree.add(doc_id, score, false, 0);
         }
