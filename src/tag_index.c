@@ -24,7 +24,6 @@
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
-#include <string.h>
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -161,21 +160,6 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   return REDISMODULE_OK;
 }
 
-static void TagIndex_DeduplicatePreprocessedData(char **tags) {
-  for (uint32_t ii = 0; ii < array_len(tags); ++ii) {
-    if (!tags[ii]) continue;
-
-    for (uint32_t jj = ii + 1; jj < array_len(tags);) {
-      if (tags[jj] && strcmp(tags[ii], tags[jj]) == 0) {
-        rm_free(tags[jj]);
-        tags = array_del(tags, jj);
-      } else {
-        ++jj;
-      }
-    }
-  }
-}
-
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata) {
   arrayof(char*) arr = array_new(char *, 4);
   const char *str;
@@ -204,7 +188,6 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     RS_ABORT("nope")
     break;
   }
-  TagIndex_DeduplicatePreprocessedData(arr);
   fdata->tags = arr;
   return ret;
 }
@@ -226,12 +209,16 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  IndexStats *stats) {
+                                  IndexStats *stats, size_t *numRecords) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
+  uint32_t numDocs = InvertedIndex_NumDocs(iv);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  if (InvertedIndex_NumDocs(iv) > numDocs) {
+    (*numRecords)++;
+  }
   IndexStats_BlockCountAdd(stats, r.blocks_added);
   return r.mem_growth + sz;
 }
@@ -242,12 +229,14 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
                                      t_docId docId, IndexStats *stats) {
   if (!values) return;
+  size_t numRecords = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats, &numRecords);
     }
   }
+  stats->numRecords += numRecords;
 }
 
 /* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
@@ -259,7 +248,8 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
  *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
- * Both modes populate `idx->suffix` and bump `stats->numRecords` once per unique tag posting.
+ * Both modes populate `idx->suffix`; memory mode already bumped `stats->numRecords`
+ * for the actual postings written by `TagIndex_WritePostings`.
  * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;
@@ -276,7 +266,9 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
       addSuffixTrieMap(idx->suffix, tok, len);
     }
   }
-  stats->numRecords += numRecords;
+  if (idx->diskSpec) {
+    stats->numRecords += numRecords;
+  }
 }
 
 /* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag

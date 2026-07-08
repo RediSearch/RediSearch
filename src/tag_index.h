@@ -192,7 +192,6 @@ arrayof(char *)
                                       struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
-   and remove duplicate normalized tags for this document.
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise
  */
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata);
@@ -225,7 +224,8 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHand
  * postings have already been written, so the trie insert is skipped (existing
  * `InvertedIndex*` values are preserved).
  *
- * Both modes populate `idx->suffix` and bump `stats->numRecords` once per unique tag posting. */
+ * Both modes populate `idx->suffix`; memory mode already bumped `stats->numRecords`
+ * for the actual postings written by `TagIndex_Index`. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
