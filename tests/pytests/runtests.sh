@@ -448,6 +448,14 @@ PARALLEL=${PARALLEL:-1}
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
 		parallel="$(nproc)"
+		# macOS x86_64 CI runs in a VM on old 6-core Intel Macs; nproc reports 12
+		# logical CPUs. Running 12 workers, each spawning a 3-shard cluster,
+		# oversubscribes the box and churns TCP connections — causing both per-test
+		# timeouts and ephemeral-port exhaustion (EADDRNOTAVAIL). Cap the worker
+		# count to match the (reliable) Linux x86_64 concurrency.
+		if [[ "$(uname -s)" == Darwin && "$(uname -m)" == x86_64 && $parallel -gt 6 ]]; then
+			parallel=6
+		fi
 	else
 		parallel=$PARALLEL
 	fi
