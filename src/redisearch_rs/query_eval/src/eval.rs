@@ -697,6 +697,8 @@ fn eval_geo<'index>(
 
     let sctx = NonNull::from(ctx.sctx());
     let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
+    let compress = unsafe { ffi::RSGlobalConfig.numericCompress };
 
     // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
     // `&mut` is sound.
@@ -708,7 +710,7 @@ fn eval_geo<'index>(
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.
-    let ptr = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap) };
+    let ptr = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, compress) };
 
     NonNull::new(ptr).map(Evaluated::RustCompound)
 }

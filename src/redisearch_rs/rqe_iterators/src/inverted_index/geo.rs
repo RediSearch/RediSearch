@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GeoDistance, GeoFilter, QueryIterator, QueryNodeType, RSGlobalConfig, RedisSearchCtx};
+use ffi::{GeoDistance, GeoFilter, QueryIterator, QueryNodeType, RedisSearchCtx};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
 use inverted_index::NumericFilter;
@@ -205,9 +205,8 @@ pub unsafe fn build_geo_range_iterator(
     sctx: NonNull<RedisSearchCtx>,
     gf: &mut GeoFilter,
     min_union_iter_heap: usize,
+    compress: bool,
 ) -> *mut QueryIterator {
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
     // Read fieldSpec.index before the mutable borrow in `new_geo_range_iterator`.
     // SAFETY: precondition (2) — `gf.fieldSpec` is valid and non-null.
     let field_index = unsafe { (*gf.fieldSpec).index };
