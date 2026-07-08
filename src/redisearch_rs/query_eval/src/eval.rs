@@ -654,6 +654,8 @@ fn eval_numeric<'index>(
     };
 
     let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
+    let compress = unsafe { ffi::RSGlobalConfig.numericCompress };
 
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
@@ -661,8 +663,9 @@ fn eval_numeric<'index>(
     // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
     //    (well-formed numeric node).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
-    let iter =
-        unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
+    let iter = unsafe {
+        build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx, compress)
+    };
 
     iter.map(Evaluated::RustCompound)
 }

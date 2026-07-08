@@ -18,7 +18,7 @@ use crate::{
 };
 use ffi::{
     FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
-    QueryNodeType, RSGlobalConfig, RedisSearchCtx,
+    QueryNodeType, RedisSearchCtx,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -613,10 +613,8 @@ pub unsafe fn build_numeric_filter_iterator(
     flt: &NumericFilter,
     min_union_iter_heap: usize,
     field_ctx: &field::FieldFilterContext,
+    compress: bool,
 ) -> Option<NonNull<QueryIterator>> {
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
-
     let node_type = if flt.is_numeric_filter() {
         QueryNodeType::Numeric
     } else {
