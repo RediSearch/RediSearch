@@ -15,13 +15,14 @@ mod utils;
 
 use crate::trie_map::{
     iter::{
-        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
-        WildcardIter, filter::VisitAll,
+        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
+        RangeFilter, RangeIter, Values, WildcardBackend, WildcardIter, WildcardNfa,
+        WildcardSpecializedIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
 };
-use rqe_wildcard::WildcardPattern;
+use rqe_wildcard::{Token, WildcardPattern};
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -216,6 +217,53 @@ impl<Data> TrieMap<Data> {
         pattern: WildcardPattern<'p>,
     ) -> WildcardIter<'tm, 'p, Data> {
         WildcardIter::new(self.root.as_ref(), pattern)
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern,
+    /// auto-selecting the most efficient backend for the pattern's atom
+    /// count.
+    pub fn wildcard_specialized_iter<'tm, 'p>(
+        &'tm self,
+        pattern: &WildcardPattern<'p>,
+    ) -> WildcardSpecializedIter<'tm, 'p, Data> {
+        match WildcardBackend::for_pattern(pattern) {
+            WildcardBackend::U64 => {
+                let nfa = WildcardNfa::<u64>::compile(pattern);
+                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
+                WildcardSpecializedIter::U64(iter)
+            }
+            WildcardBackend::U128 => {
+                let nfa = WildcardNfa::<u128>::compile(pattern);
+                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
+                WildcardSpecializedIter::U128(iter)
+            }
+            WildcardBackend::Filter => {
+                WildcardSpecializedIter::Filter(self.wildcard_iter(pattern.clone()))
+            }
+        }
+    }
+
+    fn automaton_iter_with_prefix_shortcut<A: Automaton>(
+        &self,
+        tokens: &[Token<'_>],
+        automaton: A,
+    ) -> AutomatonIter<'_, Data, A> {
+        let Some(root) = self.root.as_ref() else {
+            return AutomatonIter::empty(automaton);
+        };
+        // If the pattern starts with a literal, jump straight to the subtree
+        // containing every key with that prefix and let the iterator pick up
+        // from there.
+        if let Some(Token::Literal(lit)) = tokens.first() {
+            match root.find_root_for_prefix(lit) {
+                Some((subroot, subroot_prefix)) => {
+                    AutomatonIter::new(Some(subroot), subroot_prefix, automaton)
+                }
+                None => AutomatonIter::empty(automaton),
+            }
+        } else {
+            AutomatonIter::new(Some(root), Vec::new(), automaton)
+        }
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.
