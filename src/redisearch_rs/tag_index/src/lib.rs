@@ -110,6 +110,17 @@
 
 mod suffix;
 
+// Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
+// Rust FFI functions that the linked C code (`libredisearch_all`) calls back into, and
+// stub any remaining Redis module C symbols the tests pull in. Without the `extern crate`
+// reference the umbrella rlib is dropped as unused and those symbols go undefined at link
+// time. Mirrors `numeric_range_tree`/`query_eval`/`top_k`.
+#[cfg(test)]
+extern crate redisearch_rs;
+
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 use std::ptr::NonNull;
 
 use ffi::{RedisSearchDiskIndexSpec, t_fieldIndex};

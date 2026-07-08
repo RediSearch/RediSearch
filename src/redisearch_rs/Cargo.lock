@@ -2886,8 +2886,12 @@ dependencies = [
 name = "tag_index"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
+ "tag_index",
  "thin_vec",
  "trie_rs",
  "workspace_hack",
