@@ -14,7 +14,7 @@ use criterion::{
 use lending_iterator::LendingIterator;
 use rqe_wildcard::WildcardPattern;
 use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
-use trie_rs::iter::{ContainsLendingIter, LendingIter};
+use trie_rs::iter::{ContainsLendingIter, LendingIter, WildcardSpecializedLendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 
 use crate::RustTrieMap;
@@ -166,12 +166,17 @@ impl OperationBencher {
     }
 
     /// Benchmark the wildcard iterator.
-    ///
-    /// The benchmark group will be marked with the given label.
     pub fn wildcard_group(&self, c: &mut Criterion, target: &str) {
-        let label = format!("Wildcard [{target}]");
-        let mut group = self.benchmark_group_immutable(c, &label);
-        wildcard_rust_benchmark(&mut group, &self.map, target);
+        self.wildcard_group_labeled(c, target, target);
+    }
+
+    /// Like [`Self::wildcard_group`] but separates the bench label from the
+    /// pattern bytes — useful when the pattern is long enough to be unwieldy
+    /// in the bench group title.
+    pub fn wildcard_group_labeled(&self, c: &mut Criterion, label: &str, pattern: &str) {
+        let group_label = format!("Wildcard [{label}]");
+        let mut group = self.benchmark_group_immutable(c, &group_label);
+        wildcard_rust_benchmark(&mut group, &self.map, pattern);
         group.finish();
     }
 
@@ -259,6 +264,16 @@ fn wildcard_rust_benchmark<M: Measurement>(
         b.iter(|| {
             let filter = WildcardPattern::parse(black_box(pattern.as_bytes()));
             let mut iter: LendingIter<'_, _, _> = map.wildcard_iter(filter).into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+    c.bench_function("Rust-Specialized", |b| {
+        b.iter(|| {
+            let pattern = WildcardPattern::parse(black_box(pattern.as_bytes()));
+            let mut iter: WildcardSpecializedLendingIter<_> =
+                map.wildcard_specialized_iter(&pattern).into();
             while let Some(entry) = LendingIterator::next(&mut iter) {
                 black_box(entry);
             }
