@@ -116,6 +116,8 @@ def test_search():
 @skip(redis_less_than="7.0.0")
 def test_search_sortby_limit_offset():
     env = Env(protocol=3)
+    if not env.isCluster():
+        env.skip()
     conn = getConnectionByEnv(env)
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
@@ -130,6 +132,8 @@ def test_search_sortby_limit_offset():
 @skip(redis_less_than="7.0.0")
 def test_search_knn_limit_count():
     env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+    if not env.isCluster():
+        env.skip()
     conn = getConnectionByEnv(env)
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',

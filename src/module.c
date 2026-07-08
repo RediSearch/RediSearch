@@ -3110,6 +3110,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
   size_t replyOffset = rCtx->searchCtx->offset;
   size_t replyEnd = replyOffset + rCtx->searchCtx->limit;
+  replyEnd = MIN(replyEnd, (size_t)req->requestedResultsCount);
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
