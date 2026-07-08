@@ -294,7 +294,7 @@ const fn number_type_vs_unconvertible(
 /// Numbers are returned directly, strings are parsed with [`str_to_float`], trios
 /// recurse into their left element, and references are transparently followed.
 /// All other types (null, array, map, undefined) yield `None`.
-fn try_value_as_number(v: &Value) -> Option<f64> {
+pub fn try_value_as_number(v: &Value) -> Option<f64> {
     match v {
         Value::Ref(r) => try_value_as_number(r),
         Value::Number(n) => Some(*n),

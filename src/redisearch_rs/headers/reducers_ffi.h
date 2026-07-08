@@ -40,6 +40,19 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Create a SUM (`is_avg == false`) or AVG (`is_avg == true`) reducer;
+ * free it with [`sumFree`].
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`] that remains
+ *    alive for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *SumReducer_Create(const RLookupKey *srckey, bool is_avg);
+
+/**
  * Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
  * returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
  *
@@ -63,6 +76,15 @@ extern "C" {
 Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t field_keys_len, const RLookup *srclookup, const RLookupKey *const *sort_keys, size_t sort_keys_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool is_internal, bool distinct);
 
 /**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void *sumNewInstance(Reducer *r);
+
+/**
  * Create a local COLLECT reducer; free it with [`collectLocalFree`].
  *
  * # Safety
@@ -78,6 +100,27 @@ Reducer *CollectReducer_CreateRemote(const RLookupKey *const *field_keys, size_t
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *const *field_names, size_t field_names_len, bool load_all, const char *const *sort_names, size_t sort_names_len, uint64_t sort_asc_map, bool has_limit, uint64_t limit_offset, uint64_t limit_count, bool distinct);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `SumCtx` masquerading as a void pointer.
+ * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int sumAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`.
+ * 2. `ctx` must point to a [valid] `SumCtx` masquerading as a void pointer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+RSValue *sumFinalize(Reducer *r, void *ctx);
 
 /**
  * Creates a new per-group shard collect reducer instance.
@@ -97,6 +140,16 @@ void *collectRemoteNewInstance(Reducer *r);
  *    [`CollectReducer_CreateLocal`].
  */
 bool CollectReducer_IsLocalLoadAll(const Reducer *r);
+
+/**
+ * # Safety
+ *
+ * 1. `r` must point to a [valid] `SumReducer` masquerading as a `ffi::Reducer`,
+ *    originally created by [`SumReducer_Create`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void sumFree(Reducer *r);
 
 /**
  * # Safety

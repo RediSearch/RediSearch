@@ -8,3 +8,4 @@
 */
 
 pub mod collect;
+pub mod sum;

@@ -10,6 +10,7 @@
 pub mod collect;
 mod reducer;
 mod reducer_options;
+pub mod sum;
 
 pub use reducer::Reducer;
 pub use reducer_options::ReducerOptions;
