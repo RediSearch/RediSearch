@@ -569,29 +569,18 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
 PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                        t_fieldId ftId) {
   RS_ASSERT(disk && index);
-  // The disk layer may not implement per-field metrics yet; treat an absent
-  // callback as "no metrics" rather than crashing.
-  if (!disk->metrics.getTextFieldMetrics) {
-    return (PerFieldTextDiskMetrics){0};
-  }
   return disk->metrics.getTextFieldMetrics(index, ftId);
 }
 
 PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                    t_fieldIndex fieldIndex) {
   RS_ASSERT(disk && index);
-  if (!disk->metrics.getCfFieldMetrics) {
-    return (PerFieldCfDiskMetrics){0};
-  }
   return disk->metrics.getCfFieldMetrics(index, fieldIndex);
 }
 
 PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
                                                        const char* fieldName, size_t fieldNameLen) {
   RS_ASSERT(disk && index);
-  if (!disk->metrics.getVectorFieldMetrics) {
-    return (PerFieldCfDiskMetrics){0};
-  }
   return disk->metrics.getVectorFieldMetrics(index, fieldName, fieldNameLen);
 }
 
