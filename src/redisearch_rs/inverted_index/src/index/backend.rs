@@ -11,7 +11,7 @@
 //!
 //! An [`IndexBackend`] captures everything the rest of the module needs from an inverted
 //! index — writes, reads, GC, and introspection — independent of *how* the blocks are
-//! stored or read. Today the only implementor is the in-place index ([`InvertedIndex`],
+//! stored or read. Today the only implementer is the in-place index ([`InvertedIndex`],
 //! aliased [`InPlaceInvertedIndex`]): a single mutable block vector, in-place GC repair,
 //! and lock-held reads. A future copy-on-write / snapshot backend can implement the same
 //! trait, letting callers (and the FFI) be written once against the contract and select the
@@ -27,7 +27,7 @@ use crate::{
     debug::{BlockSummary, Summary},
 };
 
-/// Operations every inverted-index backend provides. Implementors differ in block storage,
+/// Operations every inverted-index backend provides. Implementers differ in block storage,
 /// read strategy, and GC mechanism, but present this one contract so the FFI layer and query
 /// engine are backend-agnostic.
 ///
