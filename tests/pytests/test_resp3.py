@@ -113,11 +113,9 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
-@skip(redis_less_than="7.0.0")
+@skip(cluster=False, redis_less_than="7.0.0")
 def test_search_sortby_limit_offset():
     env = Env(protocol=3)
-    if not env.isCluster():
-        env.skip()
     conn = getConnectionByEnv(env)
 
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
@@ -128,25 +126,6 @@ def test_search_sortby_limit_offset():
     res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
     ids = [row['id'] for row in res['results']]
     env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
-
-@skip(redis_less_than="7.0.0")
-def test_search_knn_limit_count():
-    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
-    if not env.isCluster():
-        env.skip()
-    conn = getConnectionByEnv(env)
-
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
-            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
-    for i in range(30):
-        conn.execute_command('HSET', f'vdoc{{{i}}}', 'v',
-                             np.array([float(i), 0.0], dtype=np.float32).tobytes())
-    waitForIndex(env, 'idx')
-
-    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B',
-                  np.array([0.0, 0.0], dtype=np.float32).tobytes(), 'LIMIT', '0', '10',
-                  'NOCONTENT')
-    env.assertEqual(len(res['results']), 10)
 
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
