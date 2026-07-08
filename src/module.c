@@ -3175,7 +3175,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    for (int i = 0; i < qlen && i < num; ++i) {
+    for (size_t i = req->offset; i < qlen && i < num; ++i) {
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 

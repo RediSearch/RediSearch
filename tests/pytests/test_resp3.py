@@ -114,6 +114,20 @@ def test_search():
     env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(redis_less_than="7.0.0")
+def test_search_sortby_limit_offset():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
+    for i in range(30):
+        conn.execute_command('HSET', f'cdoc{{{i}}}', 'count', i)
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
+    ids = [row['id'] for row in res['results']]
+    env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
+
+@skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
     env = Env(protocol=3, moduleArgs=f'DEFAULT_DIALECT 2 MAXPREFIXEXPANSIONS {num_range} TIMEOUT 1')
