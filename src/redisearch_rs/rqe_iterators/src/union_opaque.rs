@@ -335,6 +335,38 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 /// [`QueryIterator`]. Always succeeds: an empty child set reduces to an
 /// [`Empty`](crate::empty::Empty) iterator rather than a NULL pointer.
 ///
+/// This variant stores no borrowed data in the returned iterator, so it has no
+/// caller preconditions and is safe. To attach a query string for profiling
+/// output, use [`build_union_with_q_str`].
+///
+/// See [`build_union_with_q_str`] for the reduction and variant-selection logic.
+pub fn build_union(
+    children: Vec<CRQEIterator>,
+    quick_exit: bool,
+    min_union_iter_heap: usize,
+    type_: QueryNodeType,
+    weight: f64,
+) -> NonNull<QueryIterator> {
+    // SAFETY: `q_str` is `None`, so no borrow is stored in the returned
+    // iterator; the `build_union_with_q_str` precondition is vacuously satisfied.
+    unsafe {
+        build_union_with_q_str_opt(
+            children,
+            quick_exit,
+            min_union_iter_heap,
+            type_,
+            None,
+            weight,
+        )
+    }
+}
+
+/// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]
+/// children, attaching `q_str` as the query string shown in profiling output.
+/// Returns an owning [`NonNull`] pointer to the C-ABI [`QueryIterator`]; always
+/// succeeds (an empty child set reduces to an [`Empty`](crate::empty::Empty)
+/// iterator rather than a NULL pointer).
+///
 /// Applies the union reduction and variant-selection logic of
 /// [`new_union_iterator`](crate::union_reducer::new_union_iterator): empty
 /// children are removed, a single surviving child
@@ -343,18 +375,44 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 /// [`union_profile_children`] callback so the still-C-driven profiler can
 /// recurse into the children.
 ///
-/// Shared by the FFI `NewUnionIterator` constructor and the Rust `query_eval`
-/// dispatcher so both build the identical C-boundary shape.
+/// Callers with no query string should use the safe [`build_union`] instead.
 ///
 /// # Safety
 ///
-/// `q_str`, when [`Some`], must stay live and unchanged for as long as the
-/// returned iterator exists. The borrow is stored in the [`UnionOpaque`] and
-/// read back when the C-driven profiler prints the iterator, but its
-/// `'index` lifetime is erased once the iterator is leaked to a raw
-/// `*mut QueryIterator`, so the borrow checker cannot enforce this — the
-/// caller must guarantee the string outlives the returned iterator.
-pub unsafe fn build_union(
+/// `q_str` must stay live and unchanged for as long as the returned iterator
+/// exists. The borrow is stored in the [`UnionOpaque`] and read back when the
+/// C-driven profiler prints the iterator, but its `'index` lifetime is erased
+/// once the iterator is leaked to a raw `*mut QueryIterator`, so the borrow
+/// checker cannot enforce this — the caller must guarantee the string outlives
+/// the returned iterator.
+pub unsafe fn build_union_with_q_str(
+    children: Vec<CRQEIterator>,
+    quick_exit: bool,
+    min_union_iter_heap: usize,
+    type_: QueryNodeType,
+    q_str: &CStr,
+    weight: f64,
+) -> NonNull<QueryIterator> {
+    // SAFETY: the caller guarantees `q_str` outlives the returned iterator.
+    unsafe {
+        build_union_with_q_str_opt(
+            children,
+            quick_exit,
+            min_union_iter_heap,
+            type_,
+            Some(q_str),
+            weight,
+        )
+    }
+}
+
+/// Shared implementation of [`build_union`] and [`build_union_with_q_str`].
+///
+/// # Safety
+///
+/// `q_str`, when [`Some`], must outlive the returned iterator (see
+/// [`build_union_with_q_str`]). `None` imposes no preconditions.
+unsafe fn build_union_with_q_str_opt(
     children: Vec<CRQEIterator>,
     quick_exit: bool,
     min_union_iter_heap: usize,

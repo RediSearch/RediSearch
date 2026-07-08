@@ -225,17 +225,6 @@ pub unsafe fn build_geo_range_iterator(
         .flat_map(|(_, variants)| variants.into_iter().map(CRQEIterator::from_rust_leaf))
         .collect();
 
-    // SAFETY: `q_str` is `None` and `node_type` is `Geo`, union-compatible,
-    // satisfying the requirements of `build_union`.
-    let iter = unsafe {
-        build_union(
-            children,
-            true,
-            min_union_iter_heap,
-            QueryNodeType::Geo,
-            None,
-            1.0,
-        )
-    };
+    let iter = build_union(children, true, min_union_iter_heap, QueryNodeType::Geo, 1.0);
     Some(iter)
 }

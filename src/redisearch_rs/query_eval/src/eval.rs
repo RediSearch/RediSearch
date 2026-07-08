@@ -593,17 +593,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
         })
         .collect();
 
-    // SAFETY: `q_str` is `None`, satisfying the requirements of `build_union`.
-    let iter = unsafe {
-        build_union(
-            children,
-            quick_exit,
-            min_union_iter_heap,
-            node_type,
-            None,
-            weight,
-        )
-    };
+    let iter = build_union(children, quick_exit, min_union_iter_heap, node_type, weight);
 
     Evaluated::RustCompound(iter)
 }

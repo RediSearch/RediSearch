@@ -645,10 +645,7 @@ pub unsafe fn build_numeric_filter_iterator(
         .map(CRQEIterator::from_rust_leaf)
         .collect();
 
-    // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
-    // union-compatible, satisfying the requirements of `build_union`.
-    let iter = unsafe {
-        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, None, 1.0)
-    };
+    let iter =
+        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
     Some(iter)
 }
