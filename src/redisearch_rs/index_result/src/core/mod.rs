@@ -439,6 +439,8 @@ impl<'a> RSIndexResult<'a> {
     pub const unsafe fn into_suspended_in_place(
         slot: *mut Self,
     ) -> *mut RawIndexResult<'a, Suspended> {
+        debug_assert!(!slot.is_null());
+
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
@@ -538,6 +540,8 @@ impl<'query> RawIndexResult<'query, Suspended> {
     where
         'query: 'a,
     {
+        debug_assert!(!slot.is_null());
+
         // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
         // moves the value out without dropping, leaving the slot logically uninit
         // until the `write` below re-initializes it.
