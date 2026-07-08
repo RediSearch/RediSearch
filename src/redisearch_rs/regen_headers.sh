@@ -86,6 +86,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --package=search_result \
     --package=query_flags \
     --package=query_node_type \
+    --package=query_eval \
     --config=cheadergen.toml \
     --output-dir=headers \
     --input-dir=c_entrypoint

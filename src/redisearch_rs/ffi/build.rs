@@ -157,6 +157,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["specDict_g", "specIdDict_g"],
     },
     HeaderAllowlist {
+        path: "src/info/index_error.h",
+        fns: &["IndexError_GlobalCleanup"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/iterators/hybrid_reader.h",
         fns: &[
             "HybridIterator_GetChild",
@@ -557,6 +563,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
     "varint_ffi.h",
+    // `src/ext/default.h` includes `query_eval.h` for the scorer- and
+    // expander-name macros (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`,
+    // ...), whose single source of truth is the Rust `query_eval` crate. These
+    // are string `#define`s, so a forward declaration isn't applicable.
+    "query_eval.h",
 ];
 
 /// Types defined in Rust (re-exported from their owning crate in

@@ -14,10 +14,13 @@
 
 use std::ptr::NonNull;
 
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
+use inverted_index::NumericFilter;
+use query_error::QueryErrorCode;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable,
+    Empty, RQEIteratorPrintable, build_numeric_filter_iterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -27,6 +30,7 @@ use rqe_iterators::{
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
     union_opaque::build_union,
 };
+use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
 
@@ -165,6 +169,7 @@ pub fn eval_node<'index>(
         QueryNode::Not => Some(eval_not(ctx, node)),
         QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
         QueryNode::Union => Some(eval_union(ctx, node)),
+        QueryNode::Numeric { nf } => eval_numeric(ctx, nf),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -422,6 +427,12 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
     let child = eval_child_iterator(ctx, &child_node);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
+    // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
+    // outlives every timeout context derived from `ctx`, and the returned context
+    // is handed straight to `new_not_iterator` below (never retained past this
+    // query), so it cannot be used after the `AREQ` is freed.
+    let timeout_ctx = unsafe { ctx.build_timeout_context() };
+
     // SAFETY: the preconditions of `new_not_iterator` map to
     // `QueryEvalContext::new` invariants:
     // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
@@ -437,7 +448,7 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
             child,
             ctx.max_doc_id(),
             node.opts().weight,
-            ctx.build_timeout_context(),
+            timeout_ctx,
             ctx.as_non_null(),
         )
     };
@@ -594,4 +605,73 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
     };
 
     Evaluated::RustCompound(NonNull::new(result_ptr).expect("union iterator must not be null"))
+}
+
+/// `QN_NUMERIC` — a numeric range filter on a numeric field.
+///
+/// When the spec is backed by an on-disk index, delegates to the enterprise
+/// numeric iterator via [`SearchDiskHandle::new_numeric_iterator`]. Otherwise
+/// opens the field's numeric range tree and builds a union over the matching
+/// sub-ranges. Returns `None` when the field has no numeric index yet,
+/// no sub-range matches, or the disk iterator not be created
+/// (in which case the failure is reported via [`status`](QueryEvalContext::status)).
+fn eval_numeric<'index>(
+    ctx: &'index mut QueryEvalContext,
+    nf: &NumericFilter,
+) -> Option<Evaluated<'index>> {
+    // The numeric node always carries a field spec; the filter targets that
+    // single field by index.
+    assert!(
+        !nf.field_spec.is_null(),
+        "numeric node must have a non-null field spec"
+    );
+    // SAFETY: a well-formed numeric node has a valid, non-null `field_spec`,
+    // so reading its `index` is sound.
+    let field_index = unsafe { (*nf.field_spec).index };
+
+    // Disk-index path: when the spec is backed by an on-disk index, delegate to
+    // the enterprise numeric iterator instead of opening the in-memory range
+    // tree.
+    //
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
+    // `RedisSearchDiskIndexSpec` that stays valid for `'index`
+    // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
+    // for the null (in-memory) case.
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+            .expect("query.sctx.diskSnapshot is null for a disk-backed numeric query");
+        // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
+        // invariants 1/2) and single-threaded query evaluation gives us the only
+        // live reference to it; the enterprise iterators are registered whenever
+        // a disk index is in use; `field_index` belongs to the numeric node's
+        // field spec; `snapshot` is the disk snapshot taken at query start.
+        return match unsafe { disk.new_numeric_iterator(nf, field_index, snapshot) } {
+            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            Err(err) => {
+                // Surface the failure via `status` so the query aborts with an
+                // error rather than silently returning empty results.
+                ctx.status()
+                    .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+                None
+            }
+        };
+    }
+
+    let field_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+
+    // SAFETY: `build_numeric_filter_iterator` preconditions hold:
+    // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
+    //    `QueryEvalContext` invariants (1)/(2).
+    // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
+    //    (well-formed numeric node).
+    // 3. `field_ctx.field` is a field index, built as `Index` just above.
+    let ptr =
+        unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
+
+    NonNull::new(ptr).map(Evaluated::RustCompound)
 }

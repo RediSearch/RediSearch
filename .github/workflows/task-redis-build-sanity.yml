@@ -33,6 +33,8 @@ on:
         default: 120
 
 env:
+  REDISEARCH_CI_SYSTEM_PATH: >-
+    /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin
   SETUP_RETRY_LOOP: |
     SUCCESS=0
     for i in 1 2 3 4 5; do
@@ -87,7 +89,7 @@ jobs:
       contents: read
     defaults:
       run:
-        shell: bash -l -eo pipefail {0}
+        shell: /bin/bash -l -eo pipefail {0}
     steps:
       - name: Install bash
         if: startsWith(needs.get-config.outputs.container, 'alpine:')
@@ -150,22 +152,41 @@ jobs:
             fi
           }
 
+          ensure_curl() {
+            command -v curl >/dev/null 2>&1 && return 0
+
+            if command -v dnf >/dev/null 2>&1; then
+              run_pkg dnf install -y curl-minimal || run_pkg dnf install -y curl
+            elif command -v yum >/dev/null 2>&1; then
+              run_pkg yum install -y curl
+            elif command -v tdnf >/dev/null 2>&1; then
+              run_pkg tdnf install -y --noplugins curl
+            elif command -v apk >/dev/null 2>&1; then
+              run_pkg apk add --no-cache curl
+            elif command -v apt-get >/dev/null 2>&1; then
+              run_pkg apt-get install -y --no-install-recommends curl
+            fi
+
+            command -v curl >/dev/null 2>&1
+          }
+
           if command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
             run_pkg apt-get update
-            run_pkg apt-get install -y --no-install-recommends bash ca-certificates curl git make
+            run_pkg apt-get install -y --no-install-recommends bash ca-certificates curl findutils gawk git make
           elif command -v dnf >/dev/null 2>&1; then
-            run_pkg dnf install -y bash ca-certificates curl git gzip make tar
+            run_pkg dnf install -y bash ca-certificates findutils gawk git gzip make tar
           elif command -v yum >/dev/null 2>&1; then
-            run_pkg yum install -y bash ca-certificates curl git gzip make tar
+            run_pkg yum install -y bash ca-certificates findutils gawk git gzip make tar
           elif command -v apk >/dev/null 2>&1; then
-            run_pkg apk add --no-cache bash ca-certificates curl git make
+            run_pkg apk add --no-cache bash ca-certificates curl findutils gawk git make
           elif command -v tdnf >/dev/null 2>&1; then
-            run_pkg tdnf install -y --noplugins bash ca-certificates curl git gzip make tar
+            run_pkg tdnf install -y --noplugins bash ca-certificates findutils gawk git gzip make tar
           elif command -v brew >/dev/null 2>&1; then
             brew list git >/dev/null 2>&1 || brew install git
           fi
 
+          ensure_curl
           git config --global --add safe.directory '*'
 
       - name: Checkout Redis
@@ -215,29 +236,42 @@ jobs:
             show && count >= 5 { show = 0 }
           ' "$MANIFEST_FILE"
 
-      - name: Run Redis modules build flow
+      - name: Run make modules-update redisearch
         timeout-minutes: ${{ inputs.test-timeout }}
         working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
         run: |
-          echo "::group::make modules-update redisearch"
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
           make modules-update redisearch
-          echo "::endgroup::"
 
-          echo "::group::make bootstrap redisearch"
+      # Bootstrap may install toolchains and persist them through GITHUB_PATH/GITHUB_ENV.
+      # Keep build in a later step so those updates are visible.
+      - name: Run make bootstrap redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
           make bootstrap redisearch
-          echo "::endgroup::"
 
-          echo "::group::make build redisearch"
-          make build redisearch
-          echo "::endgroup::"
+      - name: Run make build redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+          REDISEARCH_LTO: ${{ needs.get-config.outputs.enable_lto }}
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          make build redisearch LTO="$REDISEARCH_LTO"
 
       - name: Verify make run loads RediSearch
         working-directory: redis
         env:
           MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
         run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
           python3 - <<'PY'
           import os
           import socket
@@ -268,7 +302,7 @@ jobs:
                       [cli, "-h", "127.0.0.1", "-p", str(port), "PING"],
                       stdout=subprocess.PIPE,
                       stderr=subprocess.DEVNULL,
-                      text=True,
+                      universal_newlines=True,
                       check=False,
                   )
                   if ping.stdout.strip() == "PONG":
@@ -281,7 +315,7 @@ jobs:
                   [cli, "-h", "127.0.0.1", "-p", str(port), "--raw", "COMMAND", "INFO", "FT.SEARCH"],
                   stdout=subprocess.PIPE,
                   stderr=subprocess.STDOUT,
-                  text=True,
+                  universal_newlines=True,
                   check=True,
               )
               if "ft.search" not in command_info.stdout.lower():

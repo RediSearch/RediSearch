@@ -26,7 +26,7 @@ use serde::Serialize as _;
 // from the C library. That symbol is unavailable in pure-Rust test binaries, so we
 // provide a stub that always returns `false` (every doc treated as absent).
 #[unsafe(no_mangle)]
-unsafe extern "C" fn DocTable_Exists(_: *const ffi::DocTable, _: ffi::t_docId) -> bool {
+unsafe extern "C" fn DocTable_Exists(_: *const ffi::DocTable, _: rqe_core::DocId) -> bool {
     false
 }
 

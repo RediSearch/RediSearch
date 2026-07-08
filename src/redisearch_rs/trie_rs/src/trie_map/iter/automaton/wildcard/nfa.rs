@@ -190,10 +190,7 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     /// Compile a pattern into an NFA backed by `S`.
     ///
     /// Callers should match the width to the atom count: `S = u64` for
-    /// ≤ 63 atoms, `S = u128` for ≤ 127. Past 127 the NFA backends lose
-    /// to the per-key filter fallback, so route
-    /// through [`super::WildcardSpecializedIter`] — it picks the right
-    /// backend automatically.
+    /// ≤ 63 atoms, `S = u128` for ≤ 127.
     ///
     /// # Panics
     ///
@@ -203,12 +200,12 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     /// in [`NfaBitSet::singleton`] / [`NfaBitSet::insert`] would shift
     /// past the backend's width and silently corrupt the active set in
     /// release builds (the underlying shift wraps modulo the type width
-    /// in Rust). Going through [`super::WildcardSpecializedIter`]
+    /// in Rust). Going through [`super::WildcardIter`]
     /// guarantees this never fires.
-    pub fn compile(pattern: &WildcardPattern<'_>) -> Self {
+    pub(crate) fn compile(pattern: &WildcardPattern<'_>) -> Self {
         assert!(
             pattern.atom_count() < S::CAPACITY,
-            "WildcardNfa backend has capacity {} but pattern needs {} atoms; route through WildcardSpecializedIter for automatic backend selection",
+            "WildcardNfa backend has capacity {} but pattern needs {} atoms; route through WildcardIter for automatic backend selection",
             S::CAPACITY,
             pattern.atom_count(),
         );

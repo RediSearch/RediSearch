@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, ResumableReader, SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
 use index_result::RSIndexResult;
@@ -78,6 +80,24 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
             inner,
         }
     }
+}
+
+/// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
+/// only the inner reader switches modes.
+impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
+    type Suspended = FilterGeoReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterGeoReader<RS>` resumes to
+/// `FilterGeoReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
+/// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
+/// the resumed core reader provides.
+impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
+where
+    for<'a> Self: 'static,
+    for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {

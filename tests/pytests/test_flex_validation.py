@@ -48,6 +48,8 @@ def test_invalid_field_type(env):
         .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
+        .error().contains('NUMERIC fields are not supported in Flex indexes')
 
 
 @skip(cluster=True)
@@ -158,14 +160,6 @@ def test_unsupported_schema_options(env):
     env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
         .error().contains('Disk index does not support INDEXMISSING fields')
 
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
-def test_missing_skip_initial_scan(env):
-    """Test that SKIPINITIALSCAN is required when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Flex index requires SKIPINITIALSCAN argument')
 
 
 @skip(cluster=True)

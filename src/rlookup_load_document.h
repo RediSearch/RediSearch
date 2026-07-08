@@ -24,6 +24,14 @@ typedef struct {
   /* Needed for rule filter where dmd does not exist */
   const char *keyPtr;
 
+  /* Optional already-open, pinned key handle (e.g. the value pinned for an
+   * AsyncScan callback). When set and the document is a hash, the loader
+   * reuses it instead of reopening `keyPtr` by name, and never closes it (the
+   * handle is borrowed, owned by the caller). NULL means open by name as
+   * before. JSON ignores this: its value is fetched via a separate RedisJSON
+   * handle opened by name, so the borrowed RedisModuleKey does not apply. */
+  RedisModuleKey *openKey;
+
   DocumentType type;
 
   /** Keys to load. If present, then loadNonCached and loadAllFields is ignored */

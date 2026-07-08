@@ -9,7 +9,7 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader};
+use super::{IndexReader, IndexReaderCore, NumericReader, ResumableReader, SuspendableReader};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
@@ -103,6 +103,24 @@ impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
     pub const fn new(filter: NumericFilter, inner: IR) -> Self {
         Self { filter, inner }
     }
+}
+
+/// `FilterNumericReader<IR>` suspends to `FilterNumericReader<IR::Suspended>`
+/// — only the inner reader switches modes.
+impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
+    type Suspended = FilterNumericReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterNumericReader<RS>` resumes to
+/// `FilterNumericReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
+/// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
+/// the resumed core reader provides.
+impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
+where
+    for<'a> Self: 'static,
+    for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
 }
 
 impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {

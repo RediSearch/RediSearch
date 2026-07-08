@@ -12,10 +12,15 @@ use std::{f64, ptr::NonNull};
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
+    c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
+    interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
-use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags};
+use ffi::{
+    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
+    QueryNodeType, RSGlobalConfig, RedisSearchCtx,
+};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
@@ -580,5 +585,77 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
                 map.kv_long_long(c"Estimated number of matches", it.num_estimated() as i64);
             }
         }
+    }
+}
+
+/// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
+/// field's [`NumericRangeTree`], returning a C-ABI [`QueryIterator`] pointer.
+///
+/// Opens the field's range tree, collects one iterator per matching sub-range
+/// (a [`NumericIteratorVariant`] each), and combines them with
+/// [`build_union`](crate::union_opaque::build_union). The node type recorded on
+/// the union is [`Numeric`](QueryNodeType::Numeric) or [`Geo`](QueryNodeType::Geo)
+/// depending on the filter.
+///
+/// Returns NULL when the index does not exist for the field (nothing indexed
+/// yet) or when no sub-range matches the filter.
+///
+/// # Safety
+///
+/// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
+///    and its spec must remain valid for the lifetime of the returned iterator.
+/// 2. `flt.field_spec` must be a valid non-null pointer to a [`FieldSpec`](ffi::FieldSpec)
+///    for a numeric or geo field, remaining valid for the lifetime of the
+///    returned iterator.
+/// 3. `field_ctx.field` must be a field index (not a field mask).
+pub unsafe fn build_numeric_filter_iterator(
+    sctx: &RedisSearchCtx,
+    flt: &NumericFilter,
+    min_union_iter_heap: usize,
+    field_ctx: &field::FieldFilterContext,
+) -> *mut QueryIterator {
+    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
+
+    let node_type = if flt.is_numeric_filter() {
+        QueryNodeType::Numeric
+    } else {
+        QueryNodeType::Geo
+    };
+
+    // SAFETY: precondition (1) — `sctx.spec` is valid and non-null.
+    let spec = unsafe { &mut *sctx.spec };
+    // SAFETY: precondition (2) — `flt.field_spec` is valid and non-null.
+    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
+    // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
+    // is the right type. We never create the tree here (`create_if_missing` is
+    // false), so the `fs.tree` ownership precondition is trivially upheld.
+    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
+        return std::ptr::null_mut();
+    };
+
+    // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
+    // index (3).
+    let variants =
+        unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
+    if variants.is_empty() {
+        return std::ptr::null_mut();
+    }
+
+    let children: Vec<CRQEIterator> = variants
+        .into_iter()
+        .map(|variant| {
+            let ptr = RQEIteratorWrapper::boxed_new(variant);
+            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+            let ptr = unsafe { NonNull::new_unchecked(ptr) };
+            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
+            unsafe { CRQEIterator::new(ptr) }
+        })
+        .collect();
+
+    // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
+    // union-compatible, satisfying the requirements of `build_union`.
+    unsafe {
+        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, None, 1.0)
     }
 }

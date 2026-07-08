@@ -25,11 +25,12 @@ use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
-use ::inverted_index::FieldMask;
+use ::inverted_index::{FieldMask, NumericFilter};
 use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod config;
 pub mod deferred;
@@ -50,6 +51,7 @@ pub mod optional_optimized;
 pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
+pub mod resume_outcome;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -59,6 +61,10 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
+    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+};
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
@@ -67,9 +73,10 @@ pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
-    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
-    open_numeric_or_geo_index,
+    build_geo_numeric_filters, build_numeric_filter_iterator, extract_geo_unit_factor,
+    new_geo_range_iterator, open_numeric_or_geo_index,
 };
+pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
@@ -366,8 +373,8 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        filter: &ffi::NumericFilter,
-        field_index: ffi::t_fieldIndex,
+        filter: &NumericFilter,
+        field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }
