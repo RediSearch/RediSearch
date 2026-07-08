@@ -191,14 +191,14 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MAXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['MAXPREFIXEXPANSIONS'][0], '200')
     env.assertEqual(res_dict['DEFAULT_SCORER'][0], 'BM25STD')
-    env.assertContains(res_dict['TIMEOUT'][0], ['500', '0'])
+    env.assertContains(res_dict['TIMEOUT'][0], ['5000', '0'])
     env.assertEqual(res_dict['WORKERS'][0], '0')
     env.assertEqual(res_dict['MIN_OPERATION_WORKERS'][0], '4')
     env.assertEqual(res_dict['TIERED_HNSW_BUFFER_LIMIT'][0], '1024')
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'fail')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -578,7 +578,7 @@ numericConfigs = [
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
     ('search-multi-text-slop', 'MULTI_TEXT_SLOP', 100, 1, UINT32_MAX, True, False),
     ('search-tiered-hnsw-buffer-limit', 'TIERED_HNSW_BUFFER_LIMIT', 1024, 0, LLONG_MAX, True, False),
-    ('search-timeout', 'TIMEOUT', 500, 1, LLONG_MAX, False, False),
+    ('search-timeout', 'TIMEOUT', 5000, 1, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, UINT32_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', min(MAX_WORKER_THREADS, os.cpu_count()), 0, 16, False, False),
@@ -1169,7 +1169,7 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return'])
+        .equal(['search-on-timeout', 'fail'])
 
     # Test search-on-timeout - valid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
