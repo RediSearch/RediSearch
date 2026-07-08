@@ -46,6 +46,7 @@ static void *allocDocumentContext(void) {
   // See if there's one in the pool?
   RSAddDocumentCtx *aCtx = rm_calloc(1, sizeof(*aCtx));
   aCtx->sv = RSSortingVector_Empty();
+  aCtx->disk.openKey = NULL;
   return aCtx;
 }
 
@@ -198,6 +199,7 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->disk.batch = NULL;
   aCtx->disk.oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
+  aCtx->disk.openKey = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -263,6 +265,7 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
    * that a new document ID needs to be assigned, and as a consequence, all
    * fields must be reindexed.
    */
+  RS_ASSERT(!SearchDisk_IsEnabled());
   int rv = REDISMODULE_ERR;
   QueryError status = QueryError_Default();
   Document_Clear(aCtx->doc);
@@ -271,9 +274,9 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   DocumentType ruleType = sctx->spec->rule->type;
   if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, NULL, &status);
   } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, &status);
+    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, NULL, &status);
   }
   if (rv != REDISMODULE_OK) {
     // Add error to the spec global stats
@@ -985,8 +988,10 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 cleanup:
   if (ourRv != REDISMODULE_OK) {
     // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey);
+    // to prevent mismatch of index and hash. Reuse the caller's pinned handle
+    // (set by the async scan path) so cleanup does not reopen the key by name —
+    // inside the async scan the key is not addressable by name.
+    IndexSpec_DeleteDoc_Unsafe(aCtx->spec, RSDummyContext, doc->docKey, aCtx->disk.openKey);
 
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_GENERIC);
     AddDocumentCtx_Finish(aCtx);
