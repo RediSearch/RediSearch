@@ -73,8 +73,8 @@ pub use id_list::IdList;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
-    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
-    open_numeric_or_geo_index,
+    build_geo_numeric_filters, build_numeric_filter_iterator, extract_geo_unit_factor,
+    new_geo_range_iterator, open_numeric_or_geo_index,
 };
 pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
