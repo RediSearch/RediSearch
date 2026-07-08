@@ -20,7 +20,7 @@ dbconfig:
   - dataset_load_timeout_secs: 1800
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
-    - '"FT.CREATE" "idx:entity_events" "ON" "HASH" "PREFIX" "1" "entity:" "SCHEMA" "recordId" "NUMERIC" "SORTABLE" "entityName" "TEXT" "SORTABLE" "event_id" "AS" "eventId" "NUMERIC" "SORTABLE" "event_type" "AS" "type" "TAG" "event_target" "AS" "target" "TAG" "event_hasNotes" "AS" "hasNotes" "TAG" "event_processed" "AS" "processed" "TAG" "event_dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "event_payload" "AS" "payload" "TEXT" "NOINDEX"'
+    - '"FT.CREATE" "idx:entity_events" "ON" "HASH" "PREFIX" "1" "entity:" "SCHEMA" "recordId" "NUMERIC" "SORTABLE" "entityName" "TEXT" "SORTABLE" "event_id" "AS" "eventId" "NUMERIC" "SORTABLE" "event_type" "AS" "type" "TAG" "event_target" "AS" "target" "TAG" "SORTABLE" "event_hasNotes" "AS" "hasNotes" "TAG" "event_processed" "AS" "processed" "TAG" "event_dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "event_payload" "AS" "payload" "TEXT" "NOINDEX"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64

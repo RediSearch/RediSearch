@@ -20,7 +20,7 @@ dbconfig:
   - dataset_load_timeout_secs: 1800
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
-    - '"FT.CREATE" "idx:entity_events" "ON" "JSON" "PREFIX" "1" "entity:" "SCHEMA" "$.recordId" "AS" "recordId" "NUMERIC" "SORTABLE" "$.entityName" "AS" "entityName" "TEXT" "SORTABLE" "$.event.id" "AS" "eventId" "NUMERIC" "SORTABLE" "$.event.type" "AS" "type" "TAG" "$.event.target" "AS" "target" "TAG" "$.event.hasNotes" "AS" "hasNotes" "TAG" "$.event.processed" "AS" "processed" "TAG" "$.event.dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "$.event.payload" "AS" "payload" "TEXT" "NOINDEX"'
+    - '"FT.CREATE" "idx:entity_events" "ON" "JSON" "PREFIX" "1" "entity:" "SCHEMA" "$.recordId" "AS" "recordId" "NUMERIC" "SORTABLE" "$.entityName" "AS" "entityName" "TEXT" "SORTABLE" "$.event.id" "AS" "eventId" "NUMERIC" "SORTABLE" "$.event.type" "AS" "type" "TAG" "$.event.target" "AS" "target" "TAG" "SORTABLE" "$.event.hasNotes" "AS" "hasNotes" "TAG" "$.event.processed" "AS" "processed" "TAG" "$.event.dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "$.event.payload" "AS" "payload" "TEXT" "NOINDEX"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
