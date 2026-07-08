@@ -26,7 +26,13 @@ pub enum ResumeOutcome<I> {
     /// Resumed at the same position.
     Ok(I),
     /// Resumed, but the position moved forward (the previous `last_doc_id` was
-    /// deleted or otherwise no longer present); query `current` on the iterator.
+    /// deleted or otherwise no longer present).
+    ///
+    /// The move may have landed on a live document or run off the end. Check
+    /// `at_eof()` first: if it is not at EOF, `current()` holds the new
+    /// position; if it is at EOF, `current()` is meaningless — like the real
+    /// iterators, it keeps returning `Some` even past the end, so it must not
+    /// be trusted once `at_eof()` is true.
     Moved(I),
     /// Unrecoverable: no active iterator is produced and the suspended iterator
     /// was dropped.
