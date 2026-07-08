@@ -24,9 +24,6 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   } else if (rc != AC_OK) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
     return false;
-  } else if (count == 0) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Explicitly specifying %s requires at least one argument, argument count must be positive", clause);
-    return false;
   } else if (count % 2 != 0) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
     return false;
