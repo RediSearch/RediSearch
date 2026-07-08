@@ -56,6 +56,22 @@ pub enum RawAggregateResult<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSAggregateResult<'a> = RawAggregateResult<Active<'a>>;
 
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawAggregateResult` are layout-identical. Only `size_of`/`align_of` are
+// checked: `offset_of!` cannot address `#[repr(u8)]` enum variant fields. Each
+// variant stores its children behind a `SmallThinVec` pointer, so the inline
+// layout is pointer-sized regardless of `R`; the child `RawIndexResult<R>`
+// read through that pointer is guarded by the `core/mod.rs` block. Part of the
+// recursive net backing the conversions on `RawIndexResult`.
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, size_of};
+    type A = RawAggregateResult<Active<'static>>;
+    type S = RawAggregateResult<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 // Manual (rather than derived) because the `Borrowed` variant stores
 // `SharedPtr<R, RawIndexResult<R>>`, which only implements `PartialEq` in `Active`
 // mode. Restricted to the `Active` alias accordingly.

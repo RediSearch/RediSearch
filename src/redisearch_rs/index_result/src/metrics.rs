@@ -44,6 +44,24 @@ pub struct RawMetricEntry<R: Ref> {
 #[cheadergen::config(export)]
 pub type MetricEntry<'a> = RawMetricEntry<Active<'a>>;
 
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawMetricEntry` are layout-identical. `R` enters only through the
+// `#[repr(transparent)]` `SharedPtr<R, RLookupKey>` in `key`. Entries live
+// behind the `RawMetricsVec` allocation, so they are read as the `Suspended`
+// type through that pointer after an active/suspended `transmute` — hence they
+// need the same guarantee. Part of the recursive net backing the conversions
+// on `RawIndexResult` (see `core/mod.rs`).
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawMetricEntry<Active<'static>>;
+    type S = RawMetricEntry<Suspended>;
+    assert!(offset_of!(A, key) == offset_of!(S, key));
+    assert!(offset_of!(A, value) == offset_of!(S, value));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<R: Ref> Copy for RawMetricEntry<R> {}
 
 impl<R: Ref> Clone for RawMetricEntry<R> {
@@ -120,6 +138,22 @@ pub struct RawMetricsVec<R: Ref> {
 
 /// The [`Active`] instantiation of [`RawMetricsVec`].
 pub type MetricsVec<'a> = RawMetricsVec<Active<'a>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawMetricsVec` are layout-identical. The type is `#[repr(transparent)]` over
+// a single `ThinVec` pointer, so `R` only affects the element type behind the
+// allocation (guarded by the `RawMetricEntry` block above); the inline layout
+// is a bare pointer either way. Part of the recursive net backing the
+// conversions on `RawIndexResult` (see `core/mod.rs`).
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawMetricsVec<Active<'static>>;
+    type S = RawMetricsVec<Suspended>;
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<R: Ref> Clone for RawMetricsVec<R> {
     fn clone(&self) -> Self {

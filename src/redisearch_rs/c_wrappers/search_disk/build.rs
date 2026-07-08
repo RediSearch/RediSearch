@@ -6,19 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#![cfg_attr(miri, allow(dead_code, unused_imports))]
 
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-extern crate redisearch_rs;
-
-mod ids;
-mod missing;
-mod not;
-mod null;
-mod numeric;
-mod optional;
-mod phrase;
-mod qast_iterate;
-mod union;
-mod util;
-mod wildcard;
+fn main() {
+    #[cfg(feature = "unittest")]
+    build_utils::bind_foreign_c_symbols();
+}

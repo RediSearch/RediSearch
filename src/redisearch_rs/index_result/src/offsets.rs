@@ -37,6 +37,23 @@ pub struct RawOffsetSlice<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSOffsetSlice<'a> = RawOffsetSlice<Active<'a>>;
 
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawOffsetSlice` are layout-identical. `R` enters only through the
+// `#[repr(transparent)]` `SharedPtr<R, u8>` in `data`, so the two layouts must
+// match; this block makes a future divergence a build failure. Part of the
+// recursive layout-compatibility net backing the `transmute`-based
+// active/suspended conversions on `RawIndexResult` (see `core/mod.rs`).
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, offset_of, size_of};
+    type A = RawOffsetSlice<Active<'static>>;
+    type S = RawOffsetSlice<Suspended>;
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+    assert!(offset_of!(A, len) == offset_of!(S, len));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<R: Ref> Copy for RawOffsetSlice<R> {}
 
 impl<R: Ref> Clone for RawOffsetSlice<R> {
