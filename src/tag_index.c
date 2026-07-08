@@ -242,12 +242,15 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
  *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
- * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
+ * Both modes populate `idx->suffix` and bump `stats->numRecords` once per tag posting.
+ * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;
+  size_t numRecords = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (!tok) continue;
+    numRecords++;
     size_t len = strlen(tok);
     if (idx->diskSpec) {
       TrieMap_Add(idx->values, tok, len, NULL, NULL);
@@ -256,7 +259,7 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
       addSuffixTrieMap(idx->suffix, tok, len);
     }
   }
-  stats->numRecords++;
+  stats->numRecords += numRecords;
 }
 
 /* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag
