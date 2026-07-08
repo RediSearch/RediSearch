@@ -224,7 +224,12 @@ mod suspend_resume {
         let mock_ctx = MockContext::new(0, 0);
         let calls = Rc::new(Cell::new(0));
         let mut it = MetricLazySortedById::new(
-            producer(vec![2, 5, 8], Some(vec![0.2, 0.5, 0.8]), false, calls.clone()),
+            producer(
+                vec![2, 5, 8],
+                Some(vec![0.2, 0.5, 0.8]),
+                false,
+                calls.clone(),
+            ),
             42,
             MetricType::VectorDistance,
         );

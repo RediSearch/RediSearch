@@ -9,19 +9,18 @@
 
 //! Supporting types for [`MetricLazy`].
 
+use crate::{
+    IteratorType, Metric, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    deferred::{ProducedResults, Producer},
+    metric::{MetricType, RawMetric, SuspendedMetric},
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+};
 use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use ref_mode::Suspended;
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
-
-use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    deferred::{ProducedResults, Producer},
-    metric::{Metric, MetricType, RawMetric},
-    profile_print::{ProfilePrint, ProfilePrintCtx},
-};
 
 /// A lazily-populated metric iterator sorted by document id.
 pub type MetricLazySortedById<'index> = MetricLazy<'index, true>;
@@ -39,25 +38,42 @@ pub type MetricLazySortedByScore<'index> = MetricLazy<'index, false>;
 /// metric value is yielded against the same key.
 ///
 /// `#[repr(C)]` so it is layout-compatible with its suspended counterpart
-/// [`MetricLazySuspended`], enabling the allocation-preserving whole-struct
+/// [`SuspendedMetricLazy`], enabling the allocation-preserving whole-struct
 /// cast in [`RQEIteratorBoxed::suspend`].
 #[repr(C)]
-pub struct MetricLazy<'index, const SORTED_BY_ID: bool> {
+pub struct RawMetricLazy<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     /// The wrapped metric iterator, empty until [`producer`](Self::producer) runs.
-    inner: Metric<'index, SORTED_BY_ID>,
+    inner: RawMetric<'query, Rf, SORTED_BY_ID>,
     /// The deferred producer. Run once on the first read/skip_to (guarded by
     /// [`produced`](Self::produced)) but **retained** so any state it owns lives as long as this
     /// iterator (see [`Producer`]).
-    ///
-    /// `'static` rather than `'index`: the deferred producer captures only raw C pointers and C
-    /// function pointers (never Rust references — see the `NewLazyVectorRangeIterator` FFI
-    /// constructor), so it borrows nothing tied to `'index`.
     producer: Producer<'static>,
     /// Whether [`producer`](Self::producer) has already run.
     produced: bool,
     /// Upper-bound estimate reported while the producer is still pending.
     num_estimated_hint: usize,
 }
+
+pub type MetricLazy<'index, const SORTED: bool> = RawMetricLazy<'index, Active<'index>, SORTED>;
+pub type SuspendedMetricLazy<'query, const SORTED: bool> = RawMetricLazy<'query, Suspended, SORTED>;
+
+// Compile-time proof that the `MetricLazy` and its suspended counterpart are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    const SORTED: bool = true;
+    type A<'a> = MetricLazy<'a, SORTED>;
+    type S<'a> = SuspendedMetricLazy<'a, SORTED>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(offset_of!(A, producer) == offset_of!(S, producer));
+    assert!(offset_of!(A, produced) == offset_of!(S, produced));
+    assert!(offset_of!(A, num_estimated_hint) == offset_of!(S, num_estimated_hint));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     /// Create a lazy metric iterator. `num_estimated_hint` is the estimate reported until the
@@ -105,6 +121,17 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     }
 }
 
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetricLazy<'query, Rf, SORTED_BY_ID> {
+    #[inline(always)]
+    fn _num_estimated(&self) -> usize {
+        if self.produced {
+            self.inner._num_estimated()
+        } else {
+            self.num_estimated_hint
+        }
+    }
+}
+
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index, SORTED_BY_ID> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -131,11 +158,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        if self.produced {
-            self.inner.num_estimated()
-        } else {
-            self.num_estimated_hint
-        }
+        self._num_estimated()
     }
 
     #[inline(always)]
@@ -179,45 +202,35 @@ impl<const SORTED_BY_ID: bool> ProfilePrint for MetricLazy<'_, SORTED_BY_ID> {
     }
 }
 
-/// Suspended counterpart of [`MetricLazy`], used as its
-/// [`RQEIteratorBoxed::Suspended`] type.
-///
-/// Layout-compatible with [`MetricLazy`] — both are `#[repr(C)]` with the same
-/// field order. The only differing field is the inner iterator: the active
-/// `RawMetric<Active, _>` is layout-compatible with `RawMetric<Suspended, _>`
-/// (see [`Metric`]'s [`RQEIteratorBoxed::suspend`]). The `producer`, `produced`,
-/// and `num_estimated_hint` fields are identical — in particular the producer is
-/// `Producer<'static>` on both sides (it captures only raw C pointers and C
-/// function pointers, never Rust references — see the `NewLazyVectorRangeIterator`
-/// FFI constructor), so the whole-struct cast touches no lifetime.
-#[repr(C)]
-pub struct MetricLazySuspended<'query, const SORTED_BY_ID: bool> {
-    inner: RawMetric<'query, Suspended, SORTED_BY_ID>,
-    producer: Producer<'static>,
-    produced: bool,
-    num_estimated_hint: usize,
-}
-
-impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for MetricLazy<'index, SORTED_BY_ID> {
-    type Suspended = MetricLazySuspended<'index, SORTED_BY_ID>;
+impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
+    for MetricLazy<'index, SORTED_BY_ID>
+{
+    type Suspended = SuspendedMetricLazy<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `MetricLazy` and `MetricLazySuspended` are both `#[repr(C)]`
-        // with identical field layout: the inner `RawMetric<Active, _>` is
-        // layout-compatible with `RawMetric<Suspended, _>` (see `Metric::suspend`),
-        // the `producer` field is `Producer<'static>` on both sides, and
-        // `produced`/`num_estimated_hint` carry no lifetime. Casting the box's heap
-        // pointer preserves the allocation, so any interior pointers into the inner
-        // metric's result stay valid across the suspend/resume cycle. The active
-        // `Drop` impl (`key_handle` nullification) does not run on these bytes —
-        // ownership of the allocation transfers to the suspended box.
-        unsafe { Box::from_raw(raw as *mut MetricLazySuspended<'index, SORTED_BY_ID>) }
+        let active = Box::into_raw(self);
+
+        // Suspend the wrapped metric's base id list `result` field in place, leaving the
+        // outer allocation (and the `Rf`-independent `producer`) untouched.
+        //
+        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
+        // preserving `active`'s provenance over the whole allocation for the outer
+        // cast below.
+        let inner_slot = unsafe { &raw mut (*active).inner };
+        // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
+        // unaliased (this function owns `self`). Suspending is a safe widening conversion.
+        let _ = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(inner_slot) };
+
+        // SAFETY: `MetricLazy` and `SuspendedMetricLazy` are both `#[repr(C)]` with identical
+        // field layout: `inner` is now the suspended metric, `producer` is `Producer<'static>` in
+        // both variants, and `produced`/`num_estimated_hint` carry no lifetime. `Box::from_raw`
+        // reuses the same heap allocation as `Box::into_raw`, so the address is unchanged.
+        unsafe { Box::from_raw(active.cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()) }
     }
 }
 
 impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
-    for MetricLazySuspended<'query, SORTED_BY_ID>
+    for SuspendedMetricLazy<'query, SORTED_BY_ID>
 {
     type Resumed<'index>
         = MetricLazy<'index, SORTED_BY_ID>
@@ -231,24 +244,48 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let raw = Box::into_raw(self);
-        // SAFETY: layout-compatible — see `suspend`. The inner metric owns all its
-        // pointee data (the `OwnedSlice`s), and the virtual result has no aliased
-        // pointers, so promoting it back to `Active<'index>` is unconditionally sound
-        // (the `'query: 'index` bound keeps any retained query-pipeline pointers valid).
-        // `Box::from_raw` reuses the same heap allocation as `suspend`'s
-        // `Box::into_raw`.
-        let active = unsafe { Box::from_raw(raw as *mut MetricLazy<'index, SORTED_BY_ID>) };
-        Ok(ResumeOutcome::Ok(active))
+        let suspended = Box::into_raw(self);
+
+        // Promote the wrapped metric's base id list `result` field in place, leaving the
+        // outer allocation (and the `Rf`-independent `producer`) untouched.
+        //
+        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
+        // preserving `suspended`'s provenance over the whole allocation for the
+        // outer cast below.
+        let inner_slot = unsafe { &raw mut (*suspended).inner };
+        // SAFETY: `resume_in_place`'s contract is met — `inner_slot` is initialized and
+        // unaliased (this function owns `self`). We reclaim the outer allocation via `suspended`
+        // in either branch, so the inner pointer it returns is not needed.
+        match unsafe {
+            SuspendedMetric::<'query, SORTED_BY_ID>::resume_in_place::<'index>(inner_slot)
+        } {
+            Ok(_) => {
+                // SAFETY: layout-compatible — see `suspend`. `inner`'s base `result` is now valid
+                // at the active type for `'index`; the remaining fields carry no `Rf`.
+                // `Box::from_raw` reuses the same heap allocation as `suspend`'s `Box::into_raw`,
+                // so the address is unchanged.
+                let active =
+                    unsafe { Box::from_raw(suspended.cast::<MetricLazy<'index, SORTED_BY_ID>>()) };
+                Ok(ResumeOutcome::Ok(active))
+            }
+            Err(_) => {
+                // `resume_in_place` left the inner metric untouched (the stored result kind was
+                // neither metric nor virtual), so the outer allocation is still a valid
+                // `SuspendedMetricLazy`.
+                // SAFETY: `suspended` came from `Box::into_raw` above and was not mutated; reclaim
+                // ownership so it is dropped.
+                drop(unsafe { Box::from_raw(suspended) });
+                Ok(ResumeOutcome::Aborted)
+            }
+        }
     }
 
+    #[inline(always)]
     fn last_doc_id(&self) -> DocId {
-        self.inner.suspended_result_doc_id()
+        self.inner.last_doc_id()
     }
 
     fn num_estimated(&self) -> usize {
-        // Snapshot from construction; the real count is only known once the
-        // producer has run. Acceptable for the FFI display-only consumer.
-        self.num_estimated_hint
+        self._num_estimated()
     }
 }
