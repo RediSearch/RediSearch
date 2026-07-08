@@ -479,12 +479,31 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for Mock<'_, N> 
 /// pointer relabel (see [`Mock`]).
 #[repr(C)]
 pub struct MockSuspended<const N: usize> {
-    _result: RSIndexResult<'static>,
-    _doc_ids: [DocId; N],
-    _positions: Option<[u8; N]>,
-    _next_index: usize,
-    _data: MockData,
+    result: RSIndexResult<'static>,
+    doc_ids: [DocId; N],
+    positions: Option<[u8; N]>,
+    next_index: usize,
+    data: MockData,
 }
+
+// Compile-time proof that the `Mock` and `MockSuspended` are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    const SIZE: usize = 5;
+    type A<'a> = Mock<'a, SIZE>;
+    type S = MockSuspended<SIZE>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, doc_ids) == offset_of!(S, doc_ids));
+    assert!(offset_of!(A, positions) == offset_of!(S, positions));
+    assert!(offset_of!(A, next_index) == offset_of!(S, next_index));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'index, N> {
     type Suspended = MockSuspended<N>;
@@ -511,33 +530,33 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
         let revalidate_result = {
-            let mut data = self._data.0.borrow_mut();
+            let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
             data.revalidate_result
         };
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
-                if self._next_index < N {
+                if self.next_index < N {
                     // Rebuild the full result (doc_id + offsets for positioned
                     // mocks), mirroring `Mock::set_result` on the legacy
                     // `revalidate` path. Without this, positioned mocks would
                     // carry stale offsets after a resume-driven move.
-                    let index = self._next_index;
-                    let doc_id = self._doc_ids[index];
-                    if let Some(positions) = self._positions {
+                    let index = self.next_index;
+                    let doc_id = self.doc_ids[index];
+                    if let Some(positions) = self.positions {
                         let pos_byte = [positions[index]];
                         let offsets = RSOffsetSlice::from_slice(&pos_byte).to_owned();
-                        self._result = RSIndexResult::build_term()
+                        self.result = RSIndexResult::build_term()
                             .doc_id(doc_id)
                             .weight(1.)
                             .field_mask(RS_FIELDMASK_ALL)
                             .owned_record(None, offsets)
                             .build();
                     } else {
-                        self._result.doc_id = doc_id;
+                        self.result.doc_id = doc_id;
                     }
-                    self._next_index += 1;
+                    self.next_index += 1;
                 }
                 true
             }
@@ -558,11 +577,11 @@ impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
         // Mirror the active `Mock::last_doc_id`, which returns `result.doc_id`.
         // Suspend copies `result` into `_result`, so this matches exactly;
         // composite resume compares children via this value.
-        self._result.doc_id
+        self.result.doc_id
     }
 
     fn num_estimated(&self) -> usize {
-        self._doc_ids.len()
+        self.doc_ids.len()
     }
 }
 
@@ -747,11 +766,28 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
 /// pointer relabel (see [`Mock`]).
 #[repr(C)]
 pub struct MockVecSuspended {
-    _result: RSIndexResult<'static>,
-    _doc_ids: Vec<DocId>,
-    _next_index: usize,
-    _data: MockData,
+    result: RSIndexResult<'static>,
+    doc_ids: Vec<DocId>,
+    next_index: usize,
+    data: MockData,
 }
+
+// Compile-time proof that the `MockVec` and `MockVecSuspended` are layout-identical.
+const _: () = {
+    use std::mem::offset_of;
+
+    type A<'a> = MockVec<'a>;
+    type S = MockVecSuspended;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, doc_ids) == offset_of!(S, doc_ids));
+    assert!(offset_of!(A, next_index) == offset_of!(S, next_index));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
     type Suspended = MockVecSuspended;
@@ -777,19 +813,19 @@ impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
         let revalidate_result = {
-            let mut data = self._data.0.borrow_mut();
+            let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
             data.revalidate_result
         };
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
-                if self._next_index < self._doc_ids.len() {
+                if self.next_index < self.doc_ids.len() {
                     // Mirror `MockVec::revalidate`'s Move path: advance to the
                     // next doc id. `MockVec` results are always virtual (no
                     // offsets), so setting `doc_id` alone is sufficient.
-                    self._result.doc_id = self._doc_ids[self._next_index];
-                    self._next_index += 1;
+                    self.result.doc_id = self.doc_ids[self.next_index];
+                    self.next_index += 1;
                 }
                 true
             }
@@ -808,10 +844,10 @@ impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
 
     fn last_doc_id(&self) -> DocId {
         // Mirror the active `MockVec::last_doc_id`, which returns `result.doc_id`.
-        self._result.doc_id
+        self.result.doc_id
     }
 
     fn num_estimated(&self) -> usize {
-        self._doc_ids.len()
+        self.doc_ids.len()
     }
 }
