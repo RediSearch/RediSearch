@@ -43,7 +43,10 @@ jobs:
     with:
       platform: 'macos-26,alpine:3.23,intel'
       architecture: all
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      # TODO: revert to `${{ needs.get-latest-redis-tag.outputs.tag }}` once Redis 8.10 is
+      # released. Pinned to a redis/redis unstable commit because the module requires
+      # RedisModule_GetClusterNodeSlotRanges (MOD-15868), which is not in any release yet.
+      redis-ref: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
       options: skip-tests,fail-fast
       rejson-branch: master
 
@@ -60,7 +63,10 @@ jobs:
     with:
       platform: ubuntu:noble
       architecture: x86_64
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      # TODO: revert to `${{ needs.get-latest-redis-tag.outputs.tag }}` once Redis 8.10 is
+      # released. Pinned to a redis/redis unstable commit because the module requires
+      # RedisModule_GetClusterNodeSlotRanges (MOD-15868), which is not in any release yet.
+      redis-ref: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       options: unit-tests,coordinator,standalone,rejson,fail-fast
       separate-coordinator-job: true
