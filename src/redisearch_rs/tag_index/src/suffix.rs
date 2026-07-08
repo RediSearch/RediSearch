@@ -59,7 +59,8 @@ impl OwnedTerm {
     /// 2. term is not empty (it contains at least the null)
     ///
     /// # Panics
-    /// - the method panics if the `term` is longer than [`u16::MAX`] bytes.
+    /// - the method panics if the tag key (the `term` excluding its trailing
+    ///   NUL) is longer than [`u16::MAX`] bytes.
     unsafe fn new(term: &[u8]) -> Self {
         #[cfg(debug_assertions)]
         {
@@ -71,9 +72,13 @@ impl OwnedTerm {
             );
         }
 
-        let len = u16::try_from(term.len()).expect("caller rejects terms longer than u16::MAX");
+        // Only the content (excluding the trailing NUL) must fit in `tm_len_t`
+        // (`u16`); the allocation still includes the NUL, so a maximum-size
+        // 65_535-byte key is stored as a 65_536-byte buffer.
+        u16::try_from(term.len() - 1).expect("caller rejects terms longer than u16::MAX");
 
-        let layout = tag_term_layout(len as usize);
+        let size = term.len();
+        let layout = tag_term_layout(size);
 
         // SAFETY: `layout` has non-zero size (guarantee 2)
         let ptr = unsafe { alloc(layout) };
@@ -83,7 +88,7 @@ impl OwnedTerm {
 
         // SAFETY: source and destination are valid for `term.len()` bytes
         // and cannot overlap because `dst` is a freshly allocated block.
-        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), len as usize) };
+        unsafe { std::ptr::copy_nonoverlapping(term.as_ptr(), ptr.as_ptr(), size) };
 
         Self(ptr)
     }
@@ -176,9 +181,21 @@ mod tests {
     }
 
     #[test]
+    fn max_len_term() {
+        // A key of exactly `u16::MAX` content bytes (plus its NUL) is the
+        // largest `tm_len_t` key and must be accepted, not rejected.
+        let mut expected = vec![0xABu8; u16::MAX as usize];
+        expected.push(0);
+        let term = unsafe { OwnedTerm::new(&expected) };
+        // SAFETY: `term` is live and built by `OwnedTerm::new`.
+        assert_eq!(unsafe { read_back(&term) }, expected);
+    }
+
+    #[test]
     #[should_panic(expected = "caller rejects terms longer than u16::MAX")]
     fn too_long_panics() {
         // The panic fires at `u16::try_from` before any allocation happens.
+        // The content (excluding the trailing NUL) exceeds `u16::MAX`.
         let mut term = vec![1u8; u16::MAX as usize + 1];
         term.push(0);
         let _ = unsafe { OwnedTerm::new(&term) };
