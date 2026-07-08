@@ -223,7 +223,9 @@ def testTagMultiValueNumRecordsAfterGC(env):
                't', 'TAG', 'SEPARATOR', ',').ok()
 
     def tags_value(doc_id, offset):
-        return ','.join(f'tag{doc_id + offset + tag_id}' for tag_id in range(tags_per_doc))
+        tags = [f'tag{doc_id + offset + tag_id}' for tag_id in range(tags_per_doc)]
+        tags.append(tags[0].upper())
+        return ','.join(tags)
 
     for doc_id in range(n_docs):
         conn.execute_command('HSET', f'doc:{doc_id}', 't', tags_value(doc_id, 0))

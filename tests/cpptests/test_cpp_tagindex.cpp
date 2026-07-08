@@ -217,6 +217,10 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     const char *e[] = {"hello", "world"};
     checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "Hello,World", e, 2);
   }
+  {
+    const char *e[] = {"foo", "bar", "baz"};
+    checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "Foo,foo,BAR,bar,baz", e, 3);
+  }
 
   // --- normal separator, case-insensitive, lowercase needs MORE bytes ---
   // 'İ' (U+0130, 2 bytes) lowercases to 'i' + combining dot above (3 bytes),
@@ -270,6 +274,16 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     const char *vals[] = {"red,green", "blue"};
     df.multiVal = (char **)vals;
     df.arrayLen = 2;
+    const char *e[] = {"red", "green", "blue"};
+    checkPreprocess(fs, df, /*expectedRet=*/1, e, 3);
+  }
+  {
+    FieldSpec fs = makeTagFieldSpec(',', (TagFieldFlags)0, (FieldSpecOptions)0);
+    DocumentField df{};
+    df.unionType = FLD_VAR_T_ARRAY;
+    const char *vals[] = {"red,green", "RED,blue", "green"};
+    df.multiVal = (char **)vals;
+    df.arrayLen = 3;
     const char *e[] = {"red", "green", "blue"};
     checkPreprocess(fs, df, /*expectedRet=*/1, e, 3);
   }

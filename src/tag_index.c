@@ -24,6 +24,7 @@
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
+#include <string.h>
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -160,6 +161,21 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   return REDISMODULE_OK;
 }
 
+static void TagIndex_DeduplicatePreprocessedData(char **tags) {
+  for (uint32_t ii = 0; ii < array_len(tags); ++ii) {
+    if (!tags[ii]) continue;
+
+    for (uint32_t jj = ii + 1; jj < array_len(tags);) {
+      if (tags[jj] && strcmp(tags[ii], tags[jj]) == 0) {
+        rm_free(tags[jj]);
+        tags = array_del(tags, jj);
+      } else {
+        ++jj;
+      }
+    }
+  }
+}
+
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata) {
   arrayof(char*) arr = array_new(char *, 4);
   const char *str;
@@ -188,6 +204,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     RS_ABORT("nope")
     break;
   }
+  TagIndex_DeduplicatePreprocessedData(arr);
   fdata->tags = arr;
   return ret;
 }
@@ -242,7 +259,7 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
  *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
- * Both modes populate `idx->suffix` and bump `stats->numRecords` once per tag posting.
+ * Both modes populate `idx->suffix` and bump `stats->numRecords` once per unique tag posting.
  * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;
