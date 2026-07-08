@@ -104,7 +104,7 @@ mod property_based {
             }
             let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
-            prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
+            prop_assert_eq!(&f, &s, "reference vs specialized, pattern=`{}`", pattern);
         }
 
         /// Patterns with literals — exercise the prefix-shortcut path.
@@ -121,7 +121,7 @@ mod property_based {
             }
             let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
-            prop_assert_eq!(&f, &s, "filter vs specialized, pattern=`{}`", pattern);
+            prop_assert_eq!(&f, &s, "reference vs specialized, pattern=`{}`", pattern);
         }
 
         /// Patterns with no `*` — the dispatcher still routes by atom count,
@@ -138,7 +138,7 @@ mod property_based {
             }
             let f = matches_reference(&trie, &pattern);
             let s = matches_specialized(&trie, &pattern);
-            prop_assert_eq!(&f, &s, "filter vs specialized (fixed), pattern=`{}`", pattern);
+            prop_assert_eq!(&f, &s, "reference vs specialized (fixed), pattern=`{}`", pattern);
         }
     }
 }
@@ -160,11 +160,11 @@ fn long_literal_patterns_route_to_u128() {
 
     let f = matches_reference(&trie, &pattern_long_literal);
     let s = matches_specialized(&trie, &pattern_long_literal);
-    assert_eq!(f, s, "filter vs specialized, long literal + `*`");
+    assert_eq!(f, s, "reference vs specialized, long literal + `*`");
 
     let f = matches_reference(&trie, &pattern_long_fixed);
     let s = matches_specialized(&trie, &pattern_long_fixed);
-    assert_eq!(f, s, "filter vs specialized, long literal alone");
+    assert_eq!(f, s, "reference vs specialized, long literal alone");
 }
 
 /// Patterns past 127 atoms route to the filter-based fallback in the
@@ -197,7 +197,7 @@ fn long_patterns_route_to_filter_specialized() {
         assert_eq!(
             f,
             s,
-            "filter vs specialized → Filter, pattern (len={})",
+            "reference vs specialized → Filter, pattern (len={})",
             pattern.len(),
         );
     }
@@ -219,5 +219,5 @@ fn many_any_atoms_route_to_filter() {
 
     let f = matches_reference(&trie, &pattern);
     let s = matches_specialized(&trie, &pattern);
-    assert_eq!(f, s, "filter vs specialized, many-`Any` pattern");
+    assert_eq!(f, s, "reference vs specialized, many-`Any` pattern");
 }
