@@ -3108,8 +3108,8 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
   searchRequestCtx *req = rCtx->searchCtx;
 
-  // Number of results to actually return
-  size_t num = req->requestedResultsCount;
+  size_t replyOffset = rCtx->searchCtx->offset;
+  size_t replyEnd = replyOffset + rCtx->searchCtx->limit;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
@@ -3175,7 +3175,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    for (size_t i = req->offset; i < qlen && i < num; ++i) {
+    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < replyEnd; ++i) {
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 
@@ -3223,7 +3223,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < replyEnd; pos++) {
       searchResult *res = results[pos];
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
