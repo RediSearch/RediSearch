@@ -329,6 +329,50 @@ function linePanel(series, xlabels, opts) {
   svg.appendChild(hit);
   return svg;
 }
+// numeric log-x scatter: points = {x (linear value), y, color, tooltip[]}
+function scatterPanelLogX(points, opts) {
+  const W = opts.width || 340, plotH = 190, axB = 22, axT = 12, axL = 50, axR = 26;
+  const H = plotH + axB + axT;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img" });
+  const lx = v => Math.log10(v);
+  const xs = points.map(p => lx(p.x));
+  const xMin = Math.floor(Math.min(...xs)), xMax = Math.ceil(Math.max(...xs));
+  const X = v => axL + (lx(v) - xMin) / (xMax - xMin || 1) * (W - axL - axR);
+  const maxV = Math.max(...points.map(p => p.y), 1e-9);
+  const ticks = niceTicks(maxV);
+  const yMax = ticks[ticks.length - 1] * 1.02;
+  const Y = v => axT + plotH - (v / yMax) * plotH;
+  ticks.forEach(t => {
+    svg.appendChild(el("line", { x1: axL, x2: W - axR, y1: Y(t), y2: Y(t),
+      stroke: t === 0 ? css("--baseline") : css("--grid"), "stroke-width": 1 }));
+    const tx = el("text", { x: axL - 6, y: Y(t) + 3.5, "text-anchor": "end" });
+    tx.textContent = fmt(t, t >= 10 ? 0 : undefined); svg.appendChild(tx);
+  });
+  for (let d = xMin; d <= xMax; d++) {
+    const v = Math.pow(10, d);
+    svg.appendChild(el("line", { x1: X(v), x2: X(v), y1: axT, y2: axT + plotH,
+      stroke: css("--grid"), "stroke-width": 1 }));
+    const tx = el("text", { x: X(v), y: H - 6, "text-anchor": "middle" });
+    tx.textContent = v >= 1e6 ? (v / 1e6) + "M" : v >= 1000 ? (v / 1000) + "K" : String(v);
+    svg.appendChild(tx);
+  }
+  // connect points in |matches| order with a recessive line (one curve across sizes)
+  const sorted = [...points].sort((a, b) => a.x - b.x);
+  svg.appendChild(el("path", { fill: "none", stroke: css("--baseline"), "stroke-width": 1,
+    d: sorted.map((p, i) => (i ? "L" : "M") + X(p.x) + "," + Y(p.y)).join(" ") }));
+  sorted.forEach(p => {
+    const dot = el("circle", { cx: X(p.x), cy: Y(p.y), r: 4.5, fill: p.color,
+      stroke: css("--surface-1"), "stroke-width": 2, tabindex: "0" });
+    const hit = el("circle", { cx: X(p.x), cy: Y(p.y), r: 12, fill: "transparent" });
+    [dot, hit].forEach(elm => {
+      elm.addEventListener("pointermove", e => showTip(e, p.tooltip));
+      elm.addEventListener("pointerleave", hideTip);
+    });
+    svg.appendChild(dot); svg.appendChild(hit);
+  });
+  return svg;
+}
+
 function panelBox(container, title, sub) {
   const p = document.createElement("div"); p.className = "panel";
   const t = document.createElement("div"); t.className = "ptitle"; t.textContent = title;
@@ -466,22 +510,21 @@ function renderSweep() {
     `Merger overhead C vs |matches| — window, size and selectivity varied independently — workers=${S.meta.workers}, fields=${S.meta.fields}`;
   document.getElementById("sweep-sub").textContent =
     `C = hybrid mean − max(search, vsim) (dedicated sweep, ${S.meta.n_timed} reps/cell). ` +
-    `Each panel holds WINDOW fixed; x = text-match fraction of the corpus, one line per size ` +
-    `(absolute |matches| in the tooltip — it spans ~50× within a panel). Checks whether C is ` +
-    `connected to the scenario (selectivity, size) or set by WINDOW alone.`;
+    `Each panel holds WINDOW fixed; x = measured |matches| of the text query (log scale). ` +
+    `Point color = corpus size. Points from different sizes falling on one curve ⇒ C follows ` +
+    `absolute |matches|, not corpus size.`;
   legend("legend-s", SSIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
   const box = document.getElementById("chart-sweep"); box.textContent = "";
   SWINDOWS.forEach(w => {
-    const series = SSIZES.map((s, i) => ({
-      name: sizeName(s), color: css(SIZE_V[i]),
-      values: FRACS.map(f => {
-        const r = S.results.find(x => x.size === s && x.window === w && x.match_frac === f);
-        return r ? r.C_ms : null;
-      }),
-    }));
-    // tooltip augmentation: linePanel shows values; absolute matches carried via name lookup
-    const p = panelBox(box, `WINDOW=${w} — C (ms)`, "");
-    p.appendChild(linePanel(series, FRACS.map(f => (100 * f) + "%"), { xname: "match frac", unit: " ms" }));
+    const points = S.results.filter(r => r.window === w).map(r => ({
+      x: r.matches_mean, y: r.C_ms,
+      color: css(SIZE_V[SSIZES.indexOf(r.size)]),
+      tooltip: [{ text: `C = ${fmt(r.C_ms)} ms` },
+                { text: sizeName(r.size) + " docs", color: css(SIZE_V[SSIZES.indexOf(r.size)]) },
+                { text: `|matches|≈${fmt(r.matches_mean, 0)} (${Math.round(100 * r.match_frac)}% of corpus) · W=${w}` },
+                { text: `hybrid ${fmt(r.hybrid_mean_ms)} · search ${fmt(r.search_mean_ms)} · vsim ${fmt(r.vsim_mean_ms)} ms` }] }));
+    const p = panelBox(box, `WINDOW=${w} — C (ms) vs |matches|`, "");
+    p.appendChild(scatterPanelLogX(points, {}));
   });
 }
 
