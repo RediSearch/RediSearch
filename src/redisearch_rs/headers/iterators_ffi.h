@@ -323,6 +323,19 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
 void Profile_AddIters(QueryIterator * *root);
 
 /**
+ * Creates a new metric iterator sorted by score.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
+ * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ */
+QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+
+/**
  * Create a new intersection iterator.
  *
  * Takes ownership of both the `its` array and all child iterators it contains.
@@ -343,19 +356,6 @@ void Profile_AddIters(QueryIterator * *root);
  * 3. Null entries in `its` are treated as empty iterators.
  */
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
-
-/**
- * Creates a new metric iterator sorted by score.
- *
- * # Safety
- *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
- * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
- * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that these pointers were allocated in a compatible manner.
- */
-QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
 /**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.

@@ -15,8 +15,9 @@ use std::rc::Rc;
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, SkipToOutcome,
     deferred::{ProducedResults, Producer},
-    id_list::IdListLazy,
-    metric::{MetricLazySortedById, MetricType},
+    id_list_lazy::IdListLazy,
+    metric::MetricType,
+    metric_lazy::MetricLazySortedById,
 };
 
 /// Build a [`Producer`] closure yielding `ids`/`metrics` (or a timeout), incrementing `calls`
