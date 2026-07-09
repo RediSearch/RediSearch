@@ -249,7 +249,7 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
-  if (sctx->flags != RS_CTX_UNSET) {
+  if (sctx->lock_state != SPEC_LOCK_UNSET) {
     return false;
   }
 

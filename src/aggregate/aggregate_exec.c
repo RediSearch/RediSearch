@@ -1193,6 +1193,7 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_EndReply(reply);
   // Release the spec read lock before dropping our reference to `req`.
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
 
@@ -1260,6 +1261,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  // The lock state must be clean from the previous cycle before this one may take it.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   // Check if timed out while in the job queue.
   if (AREQ_TimedOut(req)) {
@@ -1347,6 +1350,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
 error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
+  // Both jumps here explicitly unlocked, and `req` is still owned by BCRctx.
+  // The success paths are checked inside AREQ_Execute / runCursor, where the
+  // request is still alive (it may already be freed once we reach `cleanup`).
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
@@ -2169,6 +2176,9 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
+  // Below this point the cursor (and with it `req`) may be freed, paused, or
+  // handed off, so the lock must be released here, on this worker thread.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   if (req->useReplyCallback) {
     if (req->syncCtx.aggregateResultsClaimLost) {
@@ -2297,6 +2307,9 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // reply and park/free the cursor before the timeout callback replies.
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
+  // A paused cursor must have released the spec lock at the end of the
+  // previous read cycle.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
   if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
