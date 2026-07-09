@@ -85,8 +85,13 @@ th.l, td.l { text-align: left; }
   <div class="meta" id="meta"></div>
   <div class="tiles" id="tiles"></div>
 
+  <div class="filters">
+    <span class="flabel">Workers</span><span class="seg" id="f-workers"></span>
+    <span class="flabel" id="w-note"></span>
+  </div>
+
   <div class="card">
-    <h2>Merger overhead — C as % of max(search, vsim) — workers=6</h2>
+    <h2 id="merger-title">Merger overhead — C as % of max(search, vsim)</h2>
     <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (|matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: keys only; right: with document loading.</p>
     <div class="legend" id="legend-c"></div>
     <div class="panels" id="chart-c-top"></div>
@@ -107,7 +112,7 @@ th.l, td.l { text-align: left; }
 
   <div class="card">
     <h2>All results</h2>
-    <p class="sub">The full table view — every number reachable without hover.</p>
+    <p class="sub" id="table-sub"></p>
     <table id="results-table"></table>
   </div>
 </div>
@@ -129,7 +134,21 @@ const WORKERS = [...new Set(DATA.results.map(r => r.workers))].sort((a, b) => a 
 const FIELDS = [...new Set(DATA.results.map(r => r.fields))].sort();
 const SIZE_V = ["--sz-1", "--sz-2", "--sz-3"];
 const css = v => getComputedStyle(document.body).getPropertyValue(v).trim();
-const state = { workers: 6, fields: "none" };  // pinned: branches overlap at w=6, so max() is the right reference
+// Default view: the highest workers setting only. workers=0 (sequential) is opt-in.
+const state = { workers: Math.max(...WORKERS) };
+function segControl(el, options, get, set) {
+  options.forEach(o => {
+    const b = document.createElement("button");
+    b.textContent = o.name; b.dataset.v = o.value;
+    b.addEventListener("click", () => { set(o.value); render(); });
+    el.appendChild(b);
+  });
+  return () => { [...el.children].forEach(b => b.classList.toggle("on", String(get()) === b.dataset.v)); };
+}
+const syncW = segControl(document.getElementById("f-workers"),
+  [...WORKERS].sort((a, b) => b - a).map(w => ({ name: String(w), value: String(w) })),
+  () => state.workers, v => state.workers = Number(v));
+document.getElementById("w-note").textContent = "(0 = sequential depletion, opt-in)";
 const rows = f => DATA.results.filter(r => Object.entries(f).every(([k, v]) => r[k] === v));
 const row1 = f => rows(f)[0];
 const fmt = (x, d) => x >= 1000 ? Math.round(x).toLocaleString("en-US")
@@ -159,17 +178,18 @@ function cOf(size, window, workers, fields) {
   }
   const tiles = document.getElementById("tiles");
   const big = SIZES[SIZES.length - 1], wBig = WINDOWS[WINDOWS.length - 1];
-  const c6 = cOf(big, wBig, 6, "none");
-  if (c6) {
-    tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(c6.c, 1) + " ms",
-      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=6, fields=none`));
-    tiles.appendChild(tile("C vs slowest branch", fmt(100 * c6.c / c6.maxBr, 0) + "%",
-      `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=6`));
+  const WMAX = Math.max(...WORKERS);
+  const cx = cOf(big, wBig, WMAX, "none");
+  if (cx) {
+    tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(cx.c, 1) + " ms",
+      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=${WMAX}, fields=none`));
+    tiles.appendChild(tile("C vs slowest branch", fmt(100 * cx.c / cx.maxBr, 0) + "%",
+      `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=${WMAX}`));
   }
   const h0 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 0, fields: "none" });
-  const h6 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 6, fields: "none" });
-  if (h0 && h6) tiles.appendChild(tile("Parallelism gain", "×" + fmt(h0.p50_ms / h6.p50_ms, 2),
-    `hybrid p50 w0/w6 at WINDOW=${wBig} — ceiling 2×, Amdahl-capped by C`));
+  const hx = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: WMAX, fields: "none" });
+  if (h0 && hx) tiles.appendChild(tile("Parallelism gain", "×" + fmt(h0.p50_ms / hx.p50_ms, 2),
+    `hybrid p50 w0/w${WMAX} at WINDOW=${wBig} — ceiling 2×, Amdahl-capped by C`));
 })();
 
 /* ---------- filters / tooltip / panels (shared helpers) ---------- */
@@ -318,13 +338,15 @@ function matchesOf(size, window) {
   return r ? r.matches_mean : null;
 }
 function renderMerger() {
+  document.getElementById("merger-title").textContent =
+    `Merger overhead — C as % of max(search, vsim) — workers=${state.workers}`;
   legend("legend-c", SIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
   const top = document.getElementById("chart-c-top"); top.textContent = "";
   FIELDS.forEach(fields => {
     const groups = WINDOWS.map(w => ({
       label: "W=" + w,
       cols: SIZES.map((s, i) => {
-        const c = cOf(s, w, 6, fields);
+        const c = cOf(s, w, state.workers, fields);
         if (!c) return { value: 0, color: css(SIZE_V[i]), tooltip: [{ text: "no data" }] };
         const pct = 100 * c.c / c.maxBr;
         const mm = matchesOf(s, w);
@@ -343,7 +365,7 @@ function renderMerger() {
 
 
 function renderMain() {
-  document.getElementById("t2").textContent = "p50 latency by contender — workers=6";
+  document.getElementById("t2").textContent = `p50 latency by contender — workers=${state.workers}`;
   legend("legend-m", CONTENDERS);
   const box = document.getElementById("chart-main"); box.textContent = "";
   FIELDS.forEach(fields => {
@@ -359,12 +381,12 @@ function renderMain() {
       const groups = SIZES.map(size => ({
         label: sizeName(size) + " docs",
         cols: CONTENDERS.map(c => {
-          const r = row1({ contender: c.key, size, window: w, workers: 6, fields });
+          const r = row1({ contender: c.key, size, window: w, workers: state.workers, fields });
           if (!r) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
           return { value: r.p50_ms, color: css(c.v),
             dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
             tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
-                      { text: `${sizeName(size)} docs · W=${w} · workers=6 · fields=${fields}` },
+                      { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · fields=${fields}` },
                       { text: `|matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
         }),
       }));
@@ -398,13 +420,14 @@ function td(tr, txt, cls) { const c = document.createElement("td"); if (cls) c.c
   });
 })();
 
-(function resultsTable() {
+function renderTable() {
   const t = document.getElementById("results-table");
+  t.textContent = "";
   const hr = document.createElement("tr");
   ["contender", "size", "K/W", "workers", "fields", "QPS", "mean ms", "p50", "p90", "p99", "p99.9"].forEach((h, i) => th(hr, h, i < 5 ? "l" : ""));
   t.appendChild(hr);
   const nameOf = k => (CONTENDERS.find(c => c.key === k) || { name: k }).name;
-  [...DATA.results].sort((a, b) =>
+  [...DATA.results].filter(r => r.workers === state.workers).sort((a, b) =>
     a.size - b.size || a.window - b.window || a.workers - b.workers ||
     String(a.fields).localeCompare(String(b.fields)) ||
     CONTENDERS.findIndex(c => c.key === a.contender) - CONTENDERS.findIndex(c => c.key === b.contender))
@@ -416,9 +439,14 @@ function td(tr, txt, cls) { const c = document.createElement("td"); if (cls) c.c
       td(tr, fmt(r.p90_ms)); td(tr, fmt(r.p99_ms)); td(tr, fmt(r.p999_ms));
       t.appendChild(tr);
     });
-})();
+}
 
-function render() { renderMerger(); renderMain(); }
+function render() {
+  syncW();
+  document.getElementById("table-sub").textContent =
+    `The full table view (workers=${state.workers}) — every number reachable without hover.`;
+  renderMerger(); renderMain(); renderTable();
+}
 render();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 </script>
