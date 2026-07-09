@@ -16,7 +16,7 @@ use std::{marker::PhantomData, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-use rqe_iterators::{IdList, RQEIterator, RQEIteratorError};
+use rqe_iterators::{Empty, IdList, RQEIterator, RQEIteratorError, TypeErasedRQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
 use top_k::Ascending;
 use top_k::{
@@ -24,8 +24,8 @@ use top_k::{
     mock::MockScoreSource,
 };
 
-fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
-    Box::new(IdList::<true>::new(ids))
+fn make_child<'a>(ids: Vec<DocId>) -> TypeErasedRQEIterator<'a> {
+    TypeErasedRQEIterator::new(Box::new(IdList::<true>::new(ids)))
 }
 
 /// A `ScoreSource` that remembers how it was called, so tests can check it.
@@ -38,6 +38,8 @@ struct CallCountingScoreSource {
     rerank: bool,
     rerank_calls: u32,
 }
+
+impl top_k::TopKSourceProfile for CallCountingScoreSource {}
 
 impl ScoreSource for CallCountingScoreSource {
     fn release_index_handles(&mut self) {
@@ -160,7 +162,25 @@ impl<'index> ErrOnSecondRead<'index> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for ErrOnSecondRead<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"ERR-ON-SECOND-READ", map);
+    }
+}
+
 impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
+    // These tests never release the read lock mid-query, so the stub is never
+    // suspended; any `RQESuspendedIterator` satisfies the associated type.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        unreachable!("this stub is never suspended")
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         // Later reads fail rather than report depletion, so this stub never
         // advances past its single document once it has been read.
@@ -214,7 +234,7 @@ impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
 
 #[test]
 fn end_adhoc_runs_when_child_errors_midscan() {
-    let child: Box<dyn RQEIterator<'_>> = Box::new(ErrOnSecondRead::new());
+    let child = TypeErasedRQEIterator::new(Box::new(ErrOnSecondRead::new()));
     let mut it = TopKIterator::new_with_mode(
         CallCountingScoreSource::default(),
         Some(child),
@@ -261,7 +281,7 @@ fn rerank_skipped_on_timeout() {
         rerank: true,
         ..Default::default()
     };
-    let child: Box<dyn RQEIterator<'_>> = Box::new(ErrOnSecondRead::new());
+    let child = TypeErasedRQEIterator::new(Box::new(ErrOnSecondRead::new()));
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(child),

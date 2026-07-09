@@ -16,7 +16,7 @@ use inverted_index::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
     ResumeOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     interop::RQEIteratorWrapper,
@@ -25,7 +25,7 @@ use rqe_iterators::{
 };
 
 /// Suspended counterpart of [`TagIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// Retains the `'query` lifetime so query-attached borrows stay valid across
 /// the suspend/resume cycle.
@@ -42,10 +42,14 @@ use rqe_iterators::{
 )]
 pub(super) enum TagIteratorSuspended<'query> {
     Encoded(
-        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIterator<
+            'query,
+        >>::Suspended,
     ),
     Raw(
-        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIterator<
+            'query,
+        >>::Suspended,
     ),
 }
 
@@ -57,37 +61,10 @@ const _: () = {
     use rqe_iterators::boxed::assert_layout_compatible;
     type Encoded = Tag<'static, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>;
     type Raw = Tag<'static, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>;
-    assert_layout_compatible::<Encoded, <Encoded as RQEIteratorBoxed<'static>>::Suspended>();
-    assert_layout_compatible::<Raw, <Raw as RQEIteratorBoxed<'static>>::Suspended>();
+    assert_layout_compatible::<Encoded, <Encoded as RQEIterator<'static>>::Suspended>();
+    assert_layout_compatible::<Raw, <Raw as RQEIterator<'static>>::Suspended>();
     assert_layout_compatible::<TagIterator<'static>, TagIteratorSuspended<'static>>();
 };
-
-impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
-    type Suspended = TagIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
-        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
-        // owned; the borrow only reaches the live payload and ends with the match.
-        let variant = unsafe { raw.as_mut() };
-        match variant {
-            TagIterator::Encoded(t) => {
-                // SAFETY: `t` is the valid, exclusively-owned payload; the slot is
-                // relabelled as its suspended form below.
-                unsafe { suspend_child_slot_in_place(t as *mut _) }
-            }
-            TagIterator::Raw(t) => {
-                // SAFETY: as above.
-                unsafe { suspend_child_slot_in_place(t as *mut _) }
-            }
-        }
-        // SAFETY: the payload now holds its suspended form at the same offset and
-        // the tag is unchanged, so the allocation is a valid
-        // `TagIteratorSuspended` (layout proof above). `Box::from_raw` reuses the
-        // allocation, keeping the result's address.
-        unsafe { Box::from_raw(raw.cast::<TagIteratorSuspended<'index>>().as_ptr()) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
     type Resumed<'a>
@@ -198,6 +175,31 @@ macro_rules! tag_it_dispatch {
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let variant = unsafe { raw.as_mut() };
+        match variant {
+            TagIterator::Encoded(t) => {
+                // SAFETY: `t` is the valid, exclusively-owned payload; the slot is
+                // relabelled as its suspended form below.
+                unsafe { suspend_child_slot_in_place(t as *mut _) }
+            }
+            TagIterator::Raw(t) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(t as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its suspended form at the same offset and
+        // the tag is unchanged, so the allocation is a valid
+        // `TagIteratorSuspended` (layout proof above). `Box::from_raw` reuses the
+        // allocation, keeping the result's address.
+        unsafe { Box::from_raw(raw.cast::<TagIteratorSuspended<'index>>().as_ptr()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         tag_it_dispatch!(self, current)

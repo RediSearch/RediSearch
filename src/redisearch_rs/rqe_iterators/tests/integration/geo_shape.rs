@@ -424,7 +424,7 @@ fn skip_to_onto_expired_target_does_not_leak_at_eof() {
 /// nothing to re-derive: it must resume in place and pick up where it left off.
 #[test]
 fn suspend_and_resume_preserve_position() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators::{RQESuspendedIterator, ResumeOutcome};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mut it = Box::new(plain(vec![1, 2, 3]));

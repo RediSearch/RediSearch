@@ -300,10 +300,23 @@ fn lower_bound(ids: &[DocId], doc_id: DocId) -> usize {
 
 impl<'index, T, E, M> crate::RQEIterator<'index> for GeoShape<'index, T, E, M>
 where
-    T: TimeoutContext,
-    E: ExpirationChecker,
-    M: MemTracker,
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
 {
+    type Suspended = SuspendedGeoShape<T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `GeoShape<'index, T, E, M>` and `GeoShape<'static, T, E, M>`
+        // are layout-identical (`'index` is phantom: the only borrow it
+        // constrains is `result`, an `RSIndexResult<'index>`, whose
+        // `'index`-dependent state lives entirely behind raw pointers — see
+        // [`RSIndexResult`]), and `SuspendedGeoShape` is `#[repr(transparent)]`
+        // over the latter. `Box::from_raw` reuses the same allocation.
+        unsafe { Box::from_raw(raw.cast::<SuspendedGeoShape<T, E, M>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
@@ -420,26 +433,6 @@ impl<T, E, M: MemTracker> ProfilePrint for GeoShape<'_, T, E, M> {
 impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
-    }
-}
-
-impl<'index, T, E, M> crate::RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
-where
-    T: TimeoutContext + 'static,
-    E: ExpirationChecker + 'static,
-    M: MemTracker + 'static,
-{
-    type Suspended = SuspendedGeoShape<T, E, M>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `GeoShape<'index, T, E, M>` and `GeoShape<'static, T, E, M>`
-        // are layout-identical (`'index` is phantom: the only borrow it
-        // constrains is `result`, an `RSIndexResult<'index>`, whose
-        // `'index`-dependent state lives entirely behind raw pointers — see
-        // [`RSIndexResult`]), and `SuspendedGeoShape` is `#[repr(transparent)]`
-        // over the latter. `Box::from_raw` reuses the same allocation.
-        unsafe { Box::from_raw(raw.cast::<SuspendedGeoShape<T, E, M>>()) }
     }
 }
 

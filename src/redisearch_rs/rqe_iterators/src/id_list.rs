@@ -16,8 +16,8 @@ use rqe_core::DocId;
 use std::cmp::Ordering;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -282,6 +282,20 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
+    type Suspended = SuspendedIdList<'index, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let active: *mut Self = Box::into_raw(self);
+
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
+        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
+        let suspended_ptr = unsafe { IdList::<'index, SORTED_BY_ID>::suspend_in_place(active) };
+
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // address is unchanged and every field is now valid at the suspended type.
+        unsafe { Box::from_raw(suspended_ptr) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
@@ -450,22 +464,6 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
 
         slot.cast::<SuspendedIdList<'index, SORTED>>()
-    }
-}
-
-impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {
-    type Suspended = SuspendedIdList<'index, SORTED>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active: *mut Self = Box::into_raw(self);
-
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
-        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
-        let suspended_ptr = unsafe { IdList::<'index, SORTED>::suspend_in_place(active) };
-
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
-        // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr) }
     }
 }
 

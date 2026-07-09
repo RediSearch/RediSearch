@@ -212,9 +212,9 @@ macro_rules! union_common_tests {
             let mut union_iter = ContractChecker::new(Union::new(children));
 
             // Record the pointer (address) of each child before any reads.
-            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+            let ptrs_before: Vec<*const TypeErasedRQEIterator<'static>> = (0..3)
                 .map(|i| {
-                    union_iter.inner().child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                    union_iter.inner().child_at(i).unwrap() as *const TypeErasedRQEIterator<'static>
                 })
                 .collect();
 
@@ -225,7 +225,7 @@ macro_rules! union_common_tests {
             union_iter.rewind();
             for i in 0..3 {
                 let ptr_after = union_iter.inner().child_at(i).unwrap()
-                    as *const dyn RQEIterator<'static>;
+                    as *const TypeErasedRQEIterator<'static>;
                 assert!(
                     std::ptr::addr_eq(ptrs_before[i], ptr_after),
                     "child_at({i}) should return the same child after rewind"
@@ -1332,10 +1332,7 @@ macro_rules! union_common_tests {
 
         /// Erase `it` so unions of either mode, and children of different
         /// concrete types, can share one type.
-        fn erase<'index, I>(it: I) -> TypeErasedRQEIterator<'index>
-        where
-            I: rqe_iterators::RQEIteratorBoxed<'index> + rqe_iterators::profile_print::ProfilePrint + 'index,
-        {
+        fn erase<'index, I: RQEIterator<'index> + 'index>(it: I) -> TypeErasedRQEIterator<'index> {
             TypeErasedRQEIterator::new(Box::new(it))
         }
 

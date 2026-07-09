@@ -168,7 +168,7 @@ mod not_miri {
     /// its estimate fall back to the construction-time count across an unlock.
     #[test]
     fn missing_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+        use rqe_iterators::RQESuspendedIterator;
 
         let test = MissingRevalidateTest::new(10);
         let it = Box::new(test.create_iterator());
@@ -226,7 +226,7 @@ mod not_miri {
             .expect_ok();
         // The garbage collector only runs while the read lock is released, by which time the
         // iterator is suspended.
-        let suspended = rqe_iterators::RQEIteratorBoxed::suspend(Box::new(it));
+        let suspended = RQEIterator::suspend(Box::new(it));
 
         // Simulate the missing-field inverted index being garbage collected and
         // recreated by replacing the dict entry with a new inverted index.
@@ -276,7 +276,7 @@ mod not_miri {
             .expect_ok();
         // The garbage collector only runs while the read lock is released, by which time the
         // iterator is suspended.
-        let suspended = rqe_iterators::RQEIteratorBoxed::suspend(Box::new(it));
+        let suspended = RQEIterator::suspend(Box::new(it));
 
         // Simulate the garbage collector removing the missing-field index
         // by deleting the dict entry.

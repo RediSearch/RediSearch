@@ -12,7 +12,7 @@ use std::{mem::MaybeUninit, ptr::NonNull};
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    NewWildcardIterator, RQEIterator, RQESuspendedIterator, ResumeOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
@@ -58,6 +58,30 @@ impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
 
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
+    type Suspended = NotIteratorEnumSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        match unsafe { raw.as_mut() } {
+            Self::Not(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload; the slot is
+                // relabelled as its suspended form below.
+                unsafe { suspend_child_slot_in_place(it as *mut _) }
+            }
+            Self::NotOptimized(it) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its suspended form at the same offset and
+        // the tag is unchanged, so the allocation is a valid
+        // `NotIteratorEnumSuspended` (layout proof next to it). `Box::from_raw`
+        // reuses the allocation, keeping the result's address.
+        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {
@@ -159,7 +183,7 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 }
 /// Suspended counterpart of [`NotIteratorEnum`].
 ///
-/// Variants hold the [`RQEIteratorBoxed::Suspended`] counterparts of each active
+/// Variants hold the [`RQEIterator::Suspended`] counterparts of each active
 /// variant.
 ///
 /// `#[repr(C, u8)]`, like [`NotIteratorEnum`], so the two enums share their tag
@@ -177,8 +201,8 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
     reason = "only ever produced by relabelling a `NotIteratorEnum` in place, never constructed by name"
 )]
 enum NotIteratorEnumSuspended<'query> {
-    Not(<NotFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
-    NotOptimized(<NotOptimizedFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    Not(<NotFfi<'query> as RQEIterator<'query>>::Suspended),
+    NotOptimized(<NotOptimizedFfi<'query> as RQEIterator<'query>>::Suspended),
 }
 
 // Compile-time proof that the in-place retyping in suspend/resume is sound: the
@@ -191,39 +215,24 @@ enum NotIteratorEnumSuspended<'query> {
 const _: () = {
     use rqe_iterators::boxed::assert_layout_compatible;
     assert_layout_compatible::<NotIteratorEnum<'static>, NotIteratorEnumSuspended<'static>>();
-    assert_layout_compatible::<
-        NotFfi<'static>,
-        <NotFfi<'static> as RQEIteratorBoxed<'static>>::Suspended,
-    >();
+    assert_layout_compatible::<NotFfi<'static>, <NotFfi<'static> as RQEIterator<'static>>::Suspended>(
+    );
     assert_layout_compatible::<
         NotOptimizedFfi<'static>,
-        <NotOptimizedFfi<'static> as RQEIteratorBoxed<'static>>::Suspended,
+        <NotOptimizedFfi<'static> as RQEIterator<'static>>::Suspended,
     >();
 };
 
-impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
-    type Suspended = NotIteratorEnumSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
-        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
-        // owned; the borrow only reaches the live payload and ends with the match.
-        match unsafe { raw.as_mut() } {
-            Self::Not(it) => {
-                // SAFETY: `it` is the valid, exclusively-owned payload; the slot is
-                // relabelled as its suspended form below.
-                unsafe { suspend_child_slot_in_place(it as *mut _) }
-            }
-            Self::NotOptimized(it) => {
-                // SAFETY: as above.
-                unsafe { suspend_child_slot_in_place(it as *mut _) }
-            }
+impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnumSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::Not(it) => it.print_profile(map, ctx),
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
         }
-        // SAFETY: the payload now holds its suspended form at the same offset and
-        // the tag is unchanged, so the allocation is a valid
-        // `NotIteratorEnumSuspended` (layout proof next to it). `Box::from_raw`
-        // reuses the allocation, keeping the result's address.
-        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
     }
 }
 
@@ -370,19 +379,6 @@ pub unsafe extern "C" fn NewNotIterator(
         }
         NewNotIterator::NotOptimized(iter) => {
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter))
-        }
-    }
-}
-
-impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnumSuspended<'_> {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
-    ) {
-        match self {
-            Self::Not(it) => it.print_profile(map, ctx),
-            Self::NotOptimized(it) => it.print_profile(map, ctx),
         }
     }
 }

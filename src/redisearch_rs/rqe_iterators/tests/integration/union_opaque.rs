@@ -20,9 +20,8 @@ use std::ffi::CStr;
 
 use query_types::QueryNodeType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    TypeErasedRQEIterator, UnionFullFlat, UnionFullHeap, UnionOpaque, UnionQuickFlat,
-    UnionQuickHeap, UnionVariant,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
+    UnionFullFlat, UnionFullHeap, UnionOpaque, UnionQuickFlat, UnionQuickHeap, UnionVariant,
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 

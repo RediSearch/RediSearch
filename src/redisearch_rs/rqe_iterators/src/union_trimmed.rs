@@ -50,8 +50,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -75,7 +74,7 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// # Suspend and resume
 ///
-/// [`suspend`](RQEIteratorBoxed::suspend) is supported, since the pipeline suspends
+/// [`suspend`](RQEIterator::suspend) is supported, since the pipeline suspends
 /// the tree on every spec read-lock release, including the final one after the
 /// drain. [`resume`](RQESuspendedIterator::resume) always reports
 /// [`Aborted`](ResumeOutcome::Aborted): the iterator has no position to
@@ -118,7 +117,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionTrimmed<'static, Active<'static>, AChild>;
     type S = RawUnionTrimmed<'static, Suspended, SChild>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -258,6 +257,44 @@ impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Reached on the spec read-lock release that ends the partial-range
+        // drain: the sorter pulls every result while the lock is held, then the
+        // query iterator suspends the tree as it unlocks. Nothing is expected to
+        // resume it afterwards (see `resume`), but the transition itself must
+        // succeed.
+        const {
+            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
+        };
+        let raw = Box::into_raw(self);
+        // Walked through the buffer pointer, as in `UnionFlat::suspend`: each
+        // transition retypes a slot from `I` to `I::Suspended`. Every child is
+        // suspended, including those outside the trimmed window, since the
+        // whole buffer is relabelled below.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+            // for the rest of this function, so the children Vec is reachable
+            // and unaliased. The borrow only reaches the buffer pointer and
+            // length, and ends here.
+            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let child = unsafe { base.add(i) };
+            // SAFETY: `child` holds a valid, owned `I`; the helper leaves the
+            // slot holding a valid `I::Suspended`.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: every child slot now holds its suspended counterpart, and the
+        // two instantiations are layout-identical (the `const` proof above and
+        // the assertion at the top of this function). `Box::from_raw` reuses
+        // the same allocation.
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)
@@ -345,50 +382,7 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Reached on the spec read-lock release that ends the partial-range
-        // drain: the sorter pulls every result while the lock is held, then the
-        // query iterator suspends the tree as it unlocks. Nothing is expected to
-        // resume it afterwards (see `resume`), but the transition itself must
-        // succeed.
-        const {
-            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
-        };
-        let raw = Box::into_raw(self);
-        // Walked through the buffer pointer, as in `UnionFlat::suspend`: each
-        // transition retypes a slot from `I` to `I::Suspended`. Every child is
-        // suspended, including those outside the trimmed window, since the
-        // whole buffer is relabelled below.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-            // for the rest of this function, so the children Vec is reachable
-            // and unaliased. The borrow only reaches the buffer pointer and
-            // length, and ends here.
-            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
-        };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let child = unsafe { base.add(i) };
-            // SAFETY: `child` holds a valid, owned `I`; the helper leaves the
-            // slot holding a valid `I::Suspended`.
-            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
-        }
-        // SAFETY: every child slot now holds its suspended counterpart, and the
-        // two instantiations are layout-identical (the `const` proof above and
-        // the assertion at the top of this function). `Box::from_raw` reuses
-        // the same allocation.
-        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
-    }
-}
-
-/// Suspended counterpart of the [`RQEIteratorBoxed`] impl above. In practice a value
+/// Suspended counterpart of the [`RQEIterator`] impl above. In practice a value
 /// of it exists only between the final spec read-lock release and the iterator
 /// being freed, and a resume always aborts.
 impl<'query, S> RQESuspendedIterator<'query> for RawUnionTrimmed<'query, Suspended, S>

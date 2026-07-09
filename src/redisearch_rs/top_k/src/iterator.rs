@@ -18,8 +18,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    TypeErasedRQEIterator,
     boxed::{
         ResumeSlotOutcome, assert_layout_compatible, resume_child_slot_in_place,
         suspend_child_slot_in_place,
@@ -147,7 +147,7 @@ enum Phase {
 /// Parameterised over a [`Ref`] mode: [`TopKIterator`] is the [`Active`]
 /// instantiation that implements [`RQEIterator`], and
 /// `RawTopK<'query, Suspended, S, I::Suspended, O>` its suspended counterpart (see
-/// [`RQEIteratorBoxed::suspend`]).
+/// [`RQEIterator::suspend`]).
 ///
 /// # Invariants
 ///
@@ -158,7 +158,7 @@ enum Phase {
 ///    [`suspend_child_slot_in_place`]). Every other field has the *same* type in
 ///    both instantiations, and `Rf` is carried by the zero-sized `_marker`
 ///    alone. The `const` block below proves this for a representative
-///    instantiation, which is what lets [`suspend`](RQEIteratorBoxed::suspend)
+///    instantiation, which is what lets [`suspend`](RQEIterator::suspend)
 ///    and [`resume`](RQESuspendedIterator::resume) reinterpret the owning `Box`
 ///    in place rather than rebuilding it.
 /// 2. **The result buffers hold no index-backed payload.** `heap`, `results` and
@@ -224,7 +224,7 @@ pub struct RawTopK<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering = Ascend
     /// [`rewind`](RQEIterator::rewind). See invariant 4.
     source_stale: bool,
     /// The source's estimate capped by `k`, recorded by
-    /// [`suspend`](RQEIteratorBoxed::suspend) while the lock is still held, so
+    /// [`suspend`](RQEIterator::suspend) while the lock is still held, so
     /// the suspended [`num_estimated`](RQESuspendedIterator::num_estimated)
     /// never asks the source (invariant 4).
     suspended_estimate: usize,
@@ -237,7 +237,7 @@ pub struct RawTopK<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering = Ascend
 
 /// Alias for an [`Active`] [`RawTopK`] — the only instantiation with an
 /// [`RQEIterator`] impl.
-pub type TopKIterator<'index, S, C = Box<dyn RQEIterator<'index> + 'index>, O = Ascending> =
+pub type TopKIterator<'index, S, C = TypeErasedRQEIterator<'index>, O = Ascending> =
     RawTopK<'index, Active<'index>, S, C, O>;
 
 /// Child-filter slot for [`RawTopK`].
@@ -392,7 +392,7 @@ const _: () = {
     }
 
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawTopK<'static, Active<'static>, ProofSource, AChild>;
     type S = RawTopK<'static, Suspended, ProofSource, SChild>;
 
@@ -418,7 +418,7 @@ const _: () = {
 };
 
 impl<'index, S: ScoreSource + 'index, O: ScoreOrdering>
-    TopKIterator<'index, S, Box<dyn RQEIterator<'index> + 'index>, O>
+    TopKIterator<'index, S, TypeErasedRQEIterator<'index>, O>
 {
     /// Create a new unfiltered [`TopKIterator`] (no child filter).
     ///
@@ -812,9 +812,69 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     }
 }
 
-impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreOrdering>
-    RQEIterator<'index> for TopKIterator<'index, S, C, O>
+impl<'index, S, C, O> RQEIterator<'index> for TopKIterator<'index, S, C, O>
+where
+    S: ScoreSource + TopKSourceProfile + 'index,
+    C: RQEIterator<'index> + 'index,
+    O: ScoreOrdering + 'index,
 {
+    type Suspended = RawTopK<'index, Suspended, S, C::Suspended, O>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // The `const _` proof of invariant 1 covers only a representative
+        // instantiation; these fire at the generics actually used. The child
+        // check is not left to `suspend_child_slot_in_place` because an
+        // unfiltered top-k never calls it, yet `TopKChild<C>` still sizes with
+        // `C`.
+        const { assert_layout_compatible::<Self, Self::Suspended>() };
+        const { assert_layout_compatible::<C, C::Suspended>() };
+
+        // The source is the one part of us the `Ref` split does not describe: it
+        // is carried across identically, so anything index-backed inside it
+        // would outlive the read guard it was made under. Hand it the chance to
+        // let go before the lock drops.
+        self.suspended_estimate = self.k.get().min(self.source.num_estimated());
+        self.source.release_index_handles();
+
+        // Nothing else is touched: the yield position (`phase`, `results`,
+        // `yield_pos`, `direct_batch`) is what `resume` must preserve, and the
+        // buffered records carry no index-backed payload (invariant 2), so they
+        // survive the lock release untouched.
+        // Weakening a borrow is sound whatever the buffers hold, so this is an
+        // early warning, not a guard: the release-mode guarantee is the same
+        // check at the resume boundary, which is where the borrows are
+        // re-narrowed and where a violation would actually be unsound.
+        debug_assert!(
+            self.buffers_carry_no_index_borrows(),
+            "a record parked for yielding borrows index data, or the heap \
+             survived collection (invariants 2/3): it cannot survive the lock \
+             release this suspend is preparing for",
+        );
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned), so `&raw mut` can form a pointer to
+        // the child slot without creating a reference to the whole value.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is valid and exclusively owned, so `&mut` is a
+        // sound unique borrow of the slot.
+        if let Some(child) = unsafe { &mut *child_slot }.as_mut() {
+            // Route the transition through the trait: a dyn-erased child swaps
+            // its vtable, which a byte reinterpretation of the slot would not.
+            //
+            // SAFETY: `child` is a valid, exclusively-owned `C`; the helper
+            // leaves the slot holding a valid `C::Suspended`.
+            unsafe { suspend_child_slot_in_place(child as *mut C) };
+        }
+        // SAFETY: the child slot (if occupied) now holds `C::Suspended` and
+        // `TopKChild::Absent` is `C`-free, so the allocation is a valid
+        // `RawTopK<'index, Suspended, S, C::Suspended, O>` — layout-identical to the
+        // active form by invariant 1, checked for this instantiation by the
+        // `const` assertions at the top of this function. `Box::from_raw` reuses
+        // the same allocation, so every interior address survives the cycle.
+        unsafe { Box::from_raw(raw.cast::<RawTopK<'index, Suspended, S, C::Suspended, O>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         // Every yield path — filtered (stored record) and unfiltered (source-built)
@@ -908,77 +968,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     }
 }
 
-impl<
-    'index,
-    S: ScoreSource + TopKSourceProfile + 'index,
-    I: RQEIteratorBoxed<'index>,
-    O: ScoreOrdering + 'index,
-> RQEIteratorBoxed<'index> for TopKIterator<'index, S, I, O>
-{
-    type Suspended = RawTopK<'index, Suspended, S, I::Suspended, O>;
-
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // The `const _` proof of invariant 1 covers only a representative
-        // instantiation; these fire at the generics actually used. The child
-        // check is not left to `suspend_child_slot_in_place` because an
-        // unfiltered top-k never calls it, yet `TopKChild<I>` still sizes with
-        // `I`.
-        const { assert_layout_compatible::<Self, Self::Suspended>() };
-        const { assert_layout_compatible::<I, I::Suspended>() };
-
-        // The source is the one part of us the `Ref` split does not describe: it
-        // is carried across identically, so anything index-backed inside it
-        // would outlive the read guard it was made under. Hand it the chance to
-        // let go before the lock drops.
-        self.suspended_estimate = self.k.get().min(self.source.num_estimated());
-        self.source.release_index_handles();
-
-        // Nothing else is touched: the yield position (`phase`, `results`,
-        // `yield_pos`, `direct_batch`) is what `resume` must preserve, and the
-        // buffered records carry no index-backed payload (invariant 2), so they
-        // survive the lock release untouched.
-        // Weakening a borrow is sound whatever the buffers hold, so this is an
-        // early warning, not a guard: the release-mode guarantee is the same
-        // check at the resume boundary, which is where the borrows are
-        // re-narrowed and where a violation would actually be unsound.
-        debug_assert!(
-            self.buffers_carry_no_index_borrows(),
-            "a record parked for yielding borrows index data, or the heap \
-             survived collection (invariants 2/3): it cannot survive the lock \
-             release this suspend is preparing for",
-        );
-
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned), so `&raw mut` can form a pointer to
-        // the child slot without creating a reference to the whole value.
-        let child_slot = unsafe { &raw mut (*raw).child };
-        // SAFETY: `child_slot` is valid and exclusively owned, so `&mut` is a
-        // sound unique borrow of the slot.
-        if let Some(child) = unsafe { &mut *child_slot }.as_mut() {
-            // Route the transition through the trait: a dyn-erased child swaps
-            // its vtable, which a byte reinterpretation of the slot would not.
-            //
-            // SAFETY: `child` is a valid, exclusively-owned `I`; the helper
-            // leaves the slot holding a valid `I::Suspended`.
-            unsafe { suspend_child_slot_in_place(child as *mut I) };
-        }
-        // SAFETY: the child slot (if occupied) now holds `I::Suspended` and
-        // `TopKChild::Absent` is `I`-free, so the allocation is a valid
-        // `RawTopK<'index, Suspended, S, I::Suspended, O>` — layout-identical to the
-        // active form by invariant 1, checked for this instantiation by the
-        // `const` assertions at the top of this function. `Box::from_raw` reuses
-        // the same allocation, so every interior address survives the cycle.
-        unsafe { Box::from_raw(raw.cast::<RawTopK<'index, Suspended, S, I::Suspended, O>>()) }
-    }
-}
-
-impl<
-    'query,
+impl<'query, S, IS, O> RQESuspendedIterator<'query> for RawTopK<'query, Suspended, S, IS, O>
+where
     S: ScoreSource + TopKSourceProfile + 'query,
     IS: RQESuspendedIterator<'query>,
     O: ScoreOrdering + 'query,
-> RQESuspendedIterator<'query> for RawTopK<'query, Suspended, S, IS, O>
 {
     type Resumed<'index>
         = RawTopK<'index, Active<'index>, S, IS::Resumed<'index>, O>
@@ -1309,9 +1303,9 @@ impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
 /// Source-side profile rendering. The blanket [`ProfilePrint`] impl below
 /// forwards [`TopKIterator`] profile output to the source.
 ///
-/// A suspended [`TopKIterator`] must print its profile too, so every source it
-/// is built over needs this. The default renders a plain `VECTOR` leaf, which
-/// suffices for sources that never reach `FT.PROFILE`.
+/// [`ProfilePrint`] is a supertrait of [`RQEIterator`], so every source a
+/// [`TopKIterator`] is built over needs this. The default renders a plain
+/// `VECTOR` leaf, which suffices for sources that never reach `FT.PROFILE`.
 pub trait TopKSourceProfile {
     /// Render this source's profile entry.
     ///

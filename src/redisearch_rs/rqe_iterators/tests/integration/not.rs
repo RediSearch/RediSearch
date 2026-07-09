@@ -765,7 +765,7 @@ fn revalidate_child_moved_after_skip_to_with_child_ahead() {
 /// rebuilt box would dangle them.
 #[test]
 fn resume_preserves_box_address() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -800,7 +800,7 @@ fn resume_preserves_box_address() {
 /// this one (also run under miri) can.
 #[test]
 fn suspend_resume_with_type_erased_child_survives() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -828,7 +828,7 @@ fn suspend_resume_with_type_erased_child_survives() {
 /// error), mirroring `Optional::resume`.
 #[test]
 fn resume_aborts_when_result_no_longer_virtual() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -857,7 +857,7 @@ fn resume_aborts_when_result_no_longer_virtual() {
 /// only shows up here — and only under miri.
 #[test]
 fn resume_propagates_child_error() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -881,7 +881,7 @@ fn resume_propagates_child_error() {
 /// `Box<dyn …>` rather than an inline child.
 #[test]
 fn resume_propagates_type_erased_child_error() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -910,7 +910,7 @@ fn resume_propagates_type_erased_child_error() {
 /// held rather than a default or the child's own view.
 #[test]
 fn suspended_accessors_report_the_pre_suspend_position_and_estimate() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -946,7 +946,7 @@ fn suspended_accessors_report_the_pre_suspend_position_and_estimate() {
 /// concrete-child abort test.
 #[test]
 fn abort_of_type_erased_child_reuses_the_allocation() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
@@ -999,7 +999,7 @@ fn abort_of_type_erased_child_reuses_the_allocation() {
 /// child would surface only on a second cycle.
 #[test]
 fn resume_over_an_already_empty_child_slot() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let guard = mock_ctx.spec_read();
