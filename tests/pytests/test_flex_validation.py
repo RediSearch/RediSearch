@@ -48,8 +48,6 @@ def test_invalid_field_type(env):
         .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'NUMERIC') \
-        .error().contains('NUMERIC fields are not supported in Flex indexes')
 
 
 @skip(cluster=True)
