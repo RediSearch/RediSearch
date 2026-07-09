@@ -75,25 +75,11 @@ th.l, td.l { text-align: left; }
   <div class="meta" id="meta"></div>
   <div class="tiles" id="tiles"></div>
 
-  <div class="filters">
-    <span class="flabel">Workers</span><span class="seg" id="f-workers"></span>
-    <span class="flabel">Fields</span><span class="seg" id="f-fields"></span>
-  </div>
-
   <div class="card">
-    <h2 id="merger-title">Merger overhead C</h2>
-    <p class="sub" id="c-sub"></p>
+    <h2>Merger overhead — C as % of max(search, vsim) — workers=6</h2>
+    <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (|matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: keys only; right: with document loading.</p>
     <div class="legend" id="legend-c"></div>
     <div class="panels" id="chart-c-top"></div>
-    <p class="sub" id="c-sub2" style="margin-top:14px"></p>
-    <div class="panels" id="chart-c-matches"></div>
-  </div>
-
-  <div class="card">
-    <h2 id="tail-title">Tail latency vs selectivity</h2>
-    <p class="sub" id="tail-sub"></p>
-    <div class="legend" id="legend-t"></div>
-    <div class="panels" id="chart-tail"></div>
   </div>
 
   <div class="card">
@@ -101,12 +87,6 @@ th.l, td.l { text-align: left; }
     <p class="sub">One panel per WINDOW, grouped by dataset size. Branches are calibrated to equal latency per (size, window) — the hybrid bar above them is branch work + C.</p>
     <div class="legend" id="legend-m"></div>
     <div class="panels" id="chart-main"></div>
-  </div>
-
-  <div class="card">
-    <h2>Parallelism gain — p50(workers=0) / p50(workers=6)</h2>
-    <p class="sub">Uses both workers settings (the Workers filter does not apply here; Fields does). Hairlines at 1× and 2×: mirrors are single queries (≈1×); hybrids' ceiling with equal overlapping branches is 2×, Amdahl-capped by C.</p>
-    <div class="panels" id="chart-gain"></div>
   </div>
 
   <div class="card">
@@ -139,7 +119,7 @@ const WORKERS = [...new Set(DATA.results.map(r => r.workers))].sort((a, b) => a 
 const FIELDS = [...new Set(DATA.results.map(r => r.fields))].sort();
 const SIZE_V = ["--sz-1", "--sz-2", "--sz-3"];
 const css = v => getComputedStyle(document.body).getPropertyValue(v).trim();
-const state = { workers: WORKERS[0], fields: FIELDS[0] };
+const state = { workers: 6, fields: "none" };  // pinned: branches overlap at w=6, so max() is the right reference
 const rows = f => DATA.results.filter(r => Object.entries(f).every(([k, v]) => r[k] === v));
 const row1 = f => rows(f)[0];
 const fmt = (x, d) => x >= 1000 ? Math.round(x).toLocaleString("en-US")
@@ -150,9 +130,8 @@ function cOf(size, window, workers, fields) {
   const g = k => row1({ contender: k, size, window, workers, fields });
   const hy = g("hybrid_linear"), se = g("search_branch"), vs = g("vsim_branch");
   if (!hy || !se || !vs) return null;
-  const branch = workers === 0 ? se.mean_ms + vs.mean_ms : Math.max(se.mean_ms, vs.mean_ms);
-  return { c: hy.mean_ms - branch, hy: hy.mean_ms, branch,
-           maxBr: Math.max(se.mean_ms, vs.mean_ms), fused: window + (row1({size,window,workers,fields,contender:"hybrid_linear"})||{}).k };
+  const maxBr = Math.max(se.mean_ms, vs.mean_ms);
+  return { c: hy.mean_ms - maxBr, hy: hy.mean_ms, maxBr };
 }
 
 /* ---------- meta + tiles ---------- */
@@ -170,12 +149,10 @@ function cOf(size, window, workers, fields) {
   }
   const tiles = document.getElementById("tiles");
   const big = SIZES[SIZES.length - 1], wBig = WINDOWS[WINDOWS.length - 1];
-  const c6 = cOf(big, wBig, 6, "none"), c0 = cOf(big, wBig, 0, "none");
-  if (c6 && c0) {
+  const c6 = cOf(big, wBig, 6, "none");
+  if (c6) {
     tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(c6.c, 1) + " ms",
-      `serial fusion overhead (${sizeName(big)}-doc corpus, workers=6, fields=none); w0 derivation agrees: ${fmt(c0.c, 1)} ms`));
-    tiles.appendChild(tile("C per fused doc", fmt(1000 * c6.c / (wBig + wBig / 2), 1) + " µs",
-      `C / (WINDOW+K) at WINDOW=${wBig}`));
+      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=6, fields=none`));
     tiles.appendChild(tile("C vs slowest branch", fmt(100 * c6.c / c6.maxBr, 0) + "%",
       `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=6`));
   }
@@ -186,20 +163,6 @@ function cOf(size, window, workers, fields) {
 })();
 
 /* ---------- filters / tooltip / panels (shared helpers) ---------- */
-function segControl(el, options, get, set) {
-  options.forEach(o => {
-    const b = document.createElement("button");
-    b.textContent = o.name; b.dataset.v = o.value;
-    b.addEventListener("click", () => { set(o.value); render(); });
-    el.appendChild(b);
-  });
-  return () => { [...el.children].forEach(b => b.classList.toggle("on", String(get()) === b.dataset.v)); };
-}
-const syncW = segControl(document.getElementById("f-workers"),
-  WORKERS.map(w => ({ name: String(w), value: String(w) })), () => state.workers, v => state.workers = Number(v));
-const syncF = segControl(document.getElementById("f-fields"),
-  FIELDS.map(f => ({ name: f, value: f })), () => state.fields, v => state.fields = v);
-
 const tip = document.getElementById("tooltip");
 function showTip(evt, lines) {
   tip.textContent = "";
@@ -345,125 +308,61 @@ function matchesOf(size, window) {
   return r ? r.matches_mean : null;
 }
 function renderMerger() {
-  document.getElementById("merger-title").textContent =
-    `Merger overhead C — workers=${state.workers}, fields=none (pinned)`;
-  document.getElementById("c-sub").textContent =
-    `C = what FT.HYBRID pays on top of its branches: hybrid mean − ` +
-    `${state.workers === 0 ? "(search + vsim), branches run sequentially at workers=0" : "max(search, vsim), branches overlap at workers=6"}. ` +
-    `Checked here: (left) how C varies with WINDOW; (right) C relative to the slowest branch (hairline = 100%).`;
-  legend("legend-c", SIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })), true);
-
+  legend("legend-c", SIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
   const top = document.getElementById("chart-c-top"); top.textContent = "";
-  const series = SIZES.map((s, i) => ({
-    name: sizeName(s), color: css(SIZE_V[i]),
-    values: WINDOWS.map(w => { const c = cOf(s, w, state.workers, "none"); return c ? c.c : null; }),
-  }));
-  let p = panelBox(top, "C by WINDOW (ms) — one line per corpus size", "");
-  p.appendChild(linePanel(series, WINDOWS.map(String), { xname: "WINDOW", unit: " ms" }));
-
-  const groups = WINDOWS.map(w => ({
-    label: "W=" + w,
-    cols: SIZES.map((s, i) => {
-      const c = cOf(s, w, state.workers, "none");
-      if (!c) return { value: 0, color: css(SIZE_V[i]), tooltip: [{ text: "no data" }] };
-      const pct = 100 * c.c / c.maxBr;
-      return { value: pct, color: css(SIZE_V[i]),
-        tooltip: [{ text: fmt(pct, 0) + "% of the slowest branch" },
-                  { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
-                  { text: `C ${fmt(c.c)} ms vs slowest branch ${fmt(c.maxBr)} ms · W=${w}` }] };
-    }),
-  }));
-  p = panelBox(top, "C as % of max(search, vsim)", "");
-  p.appendChild(columnPanel(groups, { refLines: [100] }));
-
-  document.getElementById("c-sub2").textContent =
-    "Below: the same C at a FIXED window while the text query's |matches| varies with the corpus — " +
-    "checks whether C depends on selectivity or only on the fused-set size (WINDOW+K).";
-  const bot = document.getElementById("chart-c-matches"); bot.textContent = "";
-  WINDOWS.forEach(w => {
-    const pts = SIZES.map((s, i) => ({ s, i, m: matchesOf(s, w), c: cOf(s, w, state.workers, "none") }))
-      .filter(x => x.m != null && x.c != null)
-      .sort((a, b) => a.m - b.m);
-    const pb = panelBox(bot, `WINDOW=${w} — C (ms) vs |matches|`, "");
-    pb.appendChild(linePanel(
-      [{ name: "C", color: css("--s-hyblin"), values: pts.map(x => x.c.c) }],
-      pts.map(x => fmt(x.m, 0)),
-      { xname: "|matches|", unit: " ms" }));
-  });
-}
-
-function renderTail() {
-  document.getElementById("tail-title").textContent =
-    `Tail inflation (p99 / p50) at fixed WINDOW — workers=${state.workers}, fields=${state.fields}`;
-  document.getElementById("tail-sub").textContent =
-    "Each panel holds WINDOW fixed while |matches| varies with the corpus — checks whether " +
-    "selectivity affects FT.HYBRID's tail inflation at a fixed window. SEARCH branch shown as the " +
-    "no-merger reference.";
-  legend("legend-t", [CONTENDERS[0], CONTENDERS[2]]);
-  const box = document.getElementById("chart-tail"); box.textContent = "";
-  WINDOWS.forEach(w => {
-    const p = panelBox(box, `WINDOW=${w}`, "");
-    const groups = SIZES.map(size => ({
-      label: sizeName(size) + " (" + fmt(matchesOf(size, w) || 0, 0) + ")",
-      cols: ["hybrid_linear", "search_branch"].map(key => {
-        const c = CONTENDERS.find(x => x.key === key);
-        const r = row1({ contender: key, size, window: w, workers: state.workers, fields: state.fields });
-        if (!r) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
-        const ratio = r.p99_ms / r.p50_ms;
-        return { value: ratio, color: css(c.v),
-          tooltip: [{ text: `p99/p50 = ${fmt(ratio, 2)}` }, { text: c.name, color: css(c.v) },
-                    { text: `p50 ${fmt(r.p50_ms)} · p99 ${fmt(r.p99_ms)} ms · ${sizeName(size)} docs · W=${w}` }] };
+  FIELDS.forEach(fields => {
+    const groups = WINDOWS.map(w => ({
+      label: "W=" + w,
+      cols: SIZES.map((s, i) => {
+        const c = cOf(s, w, 6, fields);
+        if (!c) return { value: 0, color: css(SIZE_V[i]), tooltip: [{ text: "no data" }] };
+        const pct = 100 * c.c / c.maxBr;
+        const mm = matchesOf(s, w);
+        return { value: pct, color: css(SIZE_V[i]),
+          dlabel: s === SIZES[SIZES.length - 1] ? fmt(pct, 0) + "%" : null,
+          tooltip: [{ text: fmt(pct, 0) + "% of the slowest branch" },
+                    { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
+                    { text: `C ${fmt(c.c)} ms · slowest branch ${fmt(c.maxBr)} ms · hybrid ${fmt(c.hy)} ms` },
+                    { text: `W=${w} · fields=${fields} · |matches|≈${fmt(mm || 0, 0)}` }] };
       }),
     }));
-    p.appendChild(columnPanel(groups, { refLines: [1] }));
+    const p = panelBox(top, `fields=${fields}`, "");
+    p.appendChild(columnPanel(groups, { refLines: [100], width: 420 }));
   });
 }
+
 
 function renderMain() {
-  document.getElementById("t2").textContent =
-    `p50 latency by contender — workers=${state.workers}, fields=${state.fields}`;
+  document.getElementById("t2").textContent = "p50 latency by contender — workers=6";
   legend("legend-m", CONTENDERS);
   const box = document.getElementById("chart-main"); box.textContent = "";
-  WINDOWS.forEach(w => {
-    const cal = DATA.meta.calibration.filter(c => c.window === w)
-      .map(c => `${sizeName(c.size)}: ratio ${c.balance_ratio}${c.balanced ? "" : " (unbalanced)"}`).join(" · ");
-    const p = panelBox(box, `WINDOW=${w}`, cal);
-    const groups = SIZES.map(size => ({
-      label: sizeName(size) + " docs",
-      cols: CONTENDERS.map(c => {
-        const r = row1({ contender: c.key, size, window: w, workers: state.workers, fields: state.fields });
-        if (!r) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
-        return { value: r.p50_ms, color: css(c.v),
-          dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
-          tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
-                    { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · fields=${state.fields}` },
-                    { text: `|matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
-      }),
-    }));
-    p.appendChild(columnPanel(groups, {}));
+  FIELDS.forEach(fields => {
+    const hdr = document.createElement("div");
+    hdr.style.flexBasis = "100%";
+    hdr.style.cssText += "color:var(--ink-2);font-size:12.5px;font-weight:600;margin:8px 0 0";
+    hdr.textContent = `fields=${fields}`;
+    box.appendChild(hdr);
+    WINDOWS.forEach(w => {
+      const cal = DATA.meta.calibration.filter(c => c.window === w)
+        .map(c => `${sizeName(c.size)}: ratio ${c.balance_ratio}${c.balanced ? "" : " (unbalanced)"}`).join(" · ");
+      const p = panelBox(box, `WINDOW=${w}`, cal);
+      const groups = SIZES.map(size => ({
+        label: sizeName(size) + " docs",
+        cols: CONTENDERS.map(c => {
+          const r = row1({ contender: c.key, size, window: w, workers: 6, fields });
+          if (!r) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
+          return { value: r.p50_ms, color: css(c.v),
+            dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
+            tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
+                      { text: `${sizeName(size)} docs · W=${w} · workers=6 · fields=${fields}` },
+                      { text: `|matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
+        }),
+      }));
+      p.appendChild(columnPanel(groups, {}));
+    });
   });
 }
 
-function renderGain() {
-  const box = document.getElementById("chart-gain"); box.textContent = "";
-  WINDOWS.forEach(w => {
-    const p = panelBox(box, `WINDOW=${w}`, "");
-    const groups = SIZES.map(size => ({
-      label: sizeName(size) + " docs",
-      cols: CONTENDERS.map(c => {
-        const a = row1({ contender: c.key, size, window: w, workers: 0, fields: state.fields });
-        const b = row1({ contender: c.key, size, window: w, workers: 6, fields: state.fields });
-        if (!a || !b) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
-        const gain = a.p50_ms / b.p50_ms;
-        return { value: gain, color: css(c.v),
-          dlabel: c.key === "hybrid_linear" ? "×" + fmt(gain, 2) : null,
-          tooltip: [{ text: `×${fmt(gain, 2)} faster with workers` }, { text: c.name, color: css(c.v) },
-                    { text: `${sizeName(size)} docs · W=${w} · fields=${state.fields}` }] };
-      }),
-    }));
-    p.appendChild(columnPanel(groups, { refLines: [1, 2] }));
-  });
-}
 
 /* ---------- tables ---------- */
 function th(tr, txt, cls) { const c = document.createElement("th"); if (cls) c.className = cls; c.textContent = txt; tr.appendChild(c); }
@@ -509,7 +408,7 @@ function td(tr, txt, cls) { const c = document.createElement("td"); if (cls) c.c
     });
 })();
 
-function render() { syncW(); syncF(); renderMerger(); renderMain(); renderTail(); renderGain(); }
+function render() { renderMerger(); renderMain(); }
 render();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 </script>
