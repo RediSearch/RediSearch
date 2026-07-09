@@ -81,10 +81,19 @@ th.l, td.l { text-align: left; }
   </div>
 
   <div class="card">
-    <h2>C — serial overhead vs WINDOW</h2>
+    <h2 id="merger-title">Merger overhead C</h2>
     <p class="sub" id="c-sub"></p>
     <div class="legend" id="legend-c"></div>
-    <div class="panels" id="chart-c"></div>
+    <div class="panels" id="chart-c-top"></div>
+    <p class="sub" id="c-sub2" style="margin-top:14px"></p>
+    <div class="panels" id="chart-c-matches"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="tail-title">Tail latency vs selectivity</h2>
+    <p class="sub" id="tail-sub"></p>
+    <div class="legend" id="legend-t"></div>
+    <div class="panels" id="chart-tail"></div>
   </div>
 
   <div class="card">
@@ -166,9 +175,9 @@ function cOf(size, window, workers, fields) {
     tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(c6.c, 1) + " ms",
       `serial fusion overhead (${sizeName(big)}-doc corpus, workers=6, fields=none); w0 derivation agrees: ${fmt(c0.c, 1)} ms`));
     tiles.appendChild(tile("C per fused doc", fmt(1000 * c6.c / (wBig + wBig / 2), 1) + " µs",
-      "≈ stable across sizes and windows — the merger's unit cost"));
-    tiles.appendChild(tile("C vs one branch", fmt(100 * c6.c / c6.maxBr, 0) + "%",
-      `at WINDOW=${wBig} the fusion stage costs ~one entire subquery`));
+      `C / (WINDOW+K) at WINDOW=${wBig}`));
+    tiles.appendChild(tile("C vs slowest branch", fmt(100 * c6.c / c6.maxBr, 0) + "%",
+      `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=6`));
   }
   const h0 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 0, fields: "none" });
   const h6 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 6, fields: "none" });
@@ -331,24 +340,83 @@ function legend(elId, items, line) {
 }
 
 /* ---------- charts ---------- */
-function renderC() {
+function matchesOf(size, window) {
+  const r = row1({ size, window, contender: "hybrid_linear", workers: 0, fields: "none" });
+  return r ? r.matches_mean : null;
+}
+function renderMerger() {
+  document.getElementById("merger-title").textContent =
+    `Merger overhead C — workers=${state.workers}, fields=none (pinned)`;
   document.getElementById("c-sub").textContent =
-    `fields=none (pinned). C = hybrid mean − ${state.workers === 0 ? "(search + vsim)" : "max(search, vsim)"} at workers=${state.workers}. ` +
-    `Left: absolute ms. Right: normalized per fused doc (WINDOW + K) — flat ⇒ the merger's cost is per-document.`;
+    `C = what FT.HYBRID pays on top of its branches: hybrid mean − ` +
+    `${state.workers === 0 ? "(search + vsim), branches run sequentially at workers=0" : "max(search, vsim), branches overlap at workers=6"}. ` +
+    `Checked here: (left) how C varies with WINDOW; (right) C relative to the slowest branch (hairline = 100%).`;
   legend("legend-c", SIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })), true);
-  const box = document.getElementById("chart-c"); box.textContent = "";
-  const mk = norm => SIZES.map((s, i) => ({
+
+  const top = document.getElementById("chart-c-top"); top.textContent = "";
+  const series = SIZES.map((s, i) => ({
     name: sizeName(s), color: css(SIZE_V[i]),
-    values: WINDOWS.map(w => {
+    values: WINDOWS.map(w => { const c = cOf(s, w, state.workers, "none"); return c ? c.c : null; }),
+  }));
+  let p = panelBox(top, "C by WINDOW (ms) — one line per corpus size", "");
+  p.appendChild(linePanel(series, WINDOWS.map(String), { xname: "WINDOW", unit: " ms" }));
+
+  const groups = WINDOWS.map(w => ({
+    label: "W=" + w,
+    cols: SIZES.map((s, i) => {
       const c = cOf(s, w, state.workers, "none");
-      if (!c) return null;
-      return norm ? 1000 * c.c / (w + w / 2) : c.c;
+      if (!c) return { value: 0, color: css(SIZE_V[i]), tooltip: [{ text: "no data" }] };
+      const pct = 100 * c.c / c.maxBr;
+      return { value: pct, color: css(SIZE_V[i]),
+        tooltip: [{ text: fmt(pct, 0) + "% of the slowest branch" },
+                  { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
+                  { text: `C ${fmt(c.c)} ms vs slowest branch ${fmt(c.maxBr)} ms · W=${w}` }] };
     }),
   }));
-  let p = panelBox(box, "C (ms)", "");
-  p.appendChild(linePanel(mk(false), WINDOWS.map(String), { xname: "WINDOW", unit: " ms" }));
-  p = panelBox(box, "C per fused doc (µs)", "");
-  p.appendChild(linePanel(mk(true), WINDOWS.map(String), { xname: "WINDOW", unit: " µs" }));
+  p = panelBox(top, "C as % of max(search, vsim)", "");
+  p.appendChild(columnPanel(groups, { refLines: [100] }));
+
+  document.getElementById("c-sub2").textContent =
+    "Below: the same C at a FIXED window while the text query's |matches| varies with the corpus — " +
+    "checks whether C depends on selectivity or only on the fused-set size (WINDOW+K).";
+  const bot = document.getElementById("chart-c-matches"); bot.textContent = "";
+  WINDOWS.forEach(w => {
+    const pts = SIZES.map((s, i) => ({ s, i, m: matchesOf(s, w), c: cOf(s, w, state.workers, "none") }))
+      .filter(x => x.m != null && x.c != null)
+      .sort((a, b) => a.m - b.m);
+    const pb = panelBox(bot, `WINDOW=${w} — C (ms) vs |matches|`, "");
+    pb.appendChild(linePanel(
+      [{ name: "C", color: css("--s-hyblin"), values: pts.map(x => x.c.c) }],
+      pts.map(x => fmt(x.m, 0)),
+      { xname: "|matches|", unit: " ms" }));
+  });
+}
+
+function renderTail() {
+  document.getElementById("tail-title").textContent =
+    `Tail inflation (p99 / p50) at fixed WINDOW — workers=${state.workers}, fields=${state.fields}`;
+  document.getElementById("tail-sub").textContent =
+    "Each panel holds WINDOW fixed while |matches| varies with the corpus — checks whether " +
+    "selectivity affects FT.HYBRID's tail inflation at a fixed window. SEARCH branch shown as the " +
+    "no-merger reference.";
+  legend("legend-t", [CONTENDERS[0], CONTENDERS[2]]);
+  const box = document.getElementById("chart-tail"); box.textContent = "";
+  WINDOWS.forEach(w => {
+    const p = panelBox(box, `WINDOW=${w}`, "");
+    const groups = SIZES.map(size => ({
+      label: sizeName(size) + " (" + fmt(matchesOf(size, w) || 0, 0) + ")",
+      cols: ["hybrid_linear", "search_branch"].map(key => {
+        const c = CONTENDERS.find(x => x.key === key);
+        const r = row1({ contender: key, size, window: w, workers: state.workers, fields: state.fields });
+        if (!r) return { value: 0, color: css(c.v), tooltip: [{ text: "no data" }] };
+        const ratio = r.p99_ms / r.p50_ms;
+        return { value: ratio, color: css(c.v),
+          tooltip: [{ text: `p99/p50 = ${fmt(ratio, 2)}` }, { text: c.name, color: css(c.v) },
+                    { text: `p50 ${fmt(r.p50_ms)} · p99 ${fmt(r.p99_ms)} ms · ${sizeName(size)} docs · W=${w}` }] };
+      }),
+    }));
+    p.appendChild(columnPanel(groups, { refLines: [1] }));
+  });
 }
 
 function renderMain() {
@@ -441,7 +509,7 @@ function td(tr, txt, cls) { const c = document.createElement("td"); if (cls) c.c
     });
 })();
 
-function render() { syncW(); syncF(); renderC(); renderMain(); renderGain(); }
+function render() { syncW(); syncF(); renderMerger(); renderMain(); renderTail(); renderGain(); }
 render();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 </script>
