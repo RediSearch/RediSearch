@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+data.npz
+redis-*.log
+run_all.log
+run_balanced.log
+nohup.out
+shot_*.png
