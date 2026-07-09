@@ -20,8 +20,8 @@ use crate::union::{
     result_is_borrowed_union,
 };
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -129,7 +129,7 @@ where
 ///    [`RawIndexResult`], so `RawUnionFlat<Active, I>` and
 ///    `RawUnionFlat<Suspended, I::Suspended>` are layout-identical given that
 ///    each child `I` and its `I::Suspended` are. This is what lets
-///    [`suspend`](RQEIteratorBoxed::suspend) / [`resume`](RQESuspendedIterator::resume)
+///    [`suspend`](RQEIterator::suspend) / [`resume`](RQESuspendedIterator::resume)
 ///    reuse the union's allocation and its children buffer across the cycle.
 #[repr(C)]
 pub struct RawUnionFlat<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
@@ -162,7 +162,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionFlat<'static, Active<'static>, AChild, false>;
     type S = RawUnionFlat<'static, Suspended, SChild, false>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -809,6 +809,30 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionFlat<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let inner_of = |elem: NonNull<IndexedChild<I>>| {
+            // SAFETY: `suspend_children_in_place` passes a valid element.
+            let inner = unsafe { &raw mut (*elem.as_ptr()).inner };
+            NonNull::new(inner).expect("child slot is non-null")
+        };
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. `inner_of`
+        // projects each element onto its child. 3. The cast below relabels
+        // every slot as `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, inner_of) };
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
+        // (now byte-rewritten with `I::Suspended` payloads) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -878,36 +902,6 @@ where
             self.children.len().max(1) as f64
         } else {
             1.0
-        }
-    }
-}
-
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionFlat<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let inner_of = |elem: NonNull<IndexedChild<I>>| {
-            // SAFETY: `suspend_children_in_place` passes a valid element.
-            let inner = unsafe { &raw mut (*elem.as_ptr()).inner };
-            NonNull::new(inner).expect("child slot is non-null")
-        };
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
-        // the rest of this function.
-        let children = unsafe { NonNull::from(&mut (*raw).children) };
-        // SAFETY: 1. `children` is valid and unaliased, as above. 2. `inner_of`
-        // projects each element onto its child. 3. The cast below relabels
-        // every slot as `I::Suspended`.
-        unsafe { crate::boxed::suspend_children_in_place(children, inner_of) };
-        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
-        // (now byte-rewritten with `I::Suspended` payloads) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe {
-            Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>)
         }
     }
 }

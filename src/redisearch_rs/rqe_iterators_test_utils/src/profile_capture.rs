@@ -12,7 +12,7 @@
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{MapBuilder, RedisModuleCtx, Replier};
 use rqe_iterators::{
-    RQEIteratorBoxed,
+    RQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use std::ptr::NonNull;
@@ -54,7 +54,7 @@ pub fn profile_of(it: &impl ProfilePrint) -> ReplyValue {
 #[track_caller]
 pub fn assert_suspended_prints_as_active<'index, I>(it: Box<I>) -> ReplyValue
 where
-    I: RQEIteratorBoxed<'index> + ProfilePrint,
+    I: RQEIterator<'index> + ProfilePrint,
 {
     let active = profile_of(&*it);
     let suspended = profile_of(&*it.suspend());

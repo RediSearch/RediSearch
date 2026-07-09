@@ -138,7 +138,7 @@ mod not_miri {
     /// suspended must not see its estimate fall back to the construction-time count.
     #[test]
     fn wildcard_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+        use rqe_iterators::RQESuspendedIterator;
 
         let test = WildcardRevalidateTest::new(10);
         let it = Box::new(test.create_iterator());

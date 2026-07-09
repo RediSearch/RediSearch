@@ -16,8 +16,8 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -163,6 +163,15 @@ impl Blocked<'_> {
 }
 
 impl<'index> RQEIterator<'index> for Blocked<'index> {
+    type Suspended = BlockedSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Blocked` and `BlockedSuspended` are layout-identical, and the result is
+        // virtual, borrowing nothing for `'index`.
+        unsafe { Box::from_raw(raw.cast::<BlockedSuspended>()) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.position().map(|_| &mut self.result)
     }
@@ -300,17 +309,6 @@ const _: () = {
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
-
-impl<'index> RQEIteratorBoxed<'index> for Blocked<'index> {
-    type Suspended = BlockedSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `Blocked` and `BlockedSuspended` are layout-identical, and the result is
-        // virtual, borrowing nothing for `'index`.
-        unsafe { Box::from_raw(raw.cast::<BlockedSuspended>()) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for BlockedSuspended {
     type Resumed<'index>

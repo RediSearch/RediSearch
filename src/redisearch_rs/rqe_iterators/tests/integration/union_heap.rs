@@ -23,8 +23,8 @@ use crate::utils::{Mock, MockIteratorError, MockRevalidateResult, create_mock_2,
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    TypeErasedRQEIterator, UnionFullHeap, UnionQuickHeap,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
+    UnionFullHeap, UnionQuickHeap,
 };
 use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
 
@@ -148,9 +148,9 @@ fn into_trimmed_quick_heap_trims_desc() {
 #[test]
 fn union_full_heap_upholds_current_contract() {
     use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
-    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-        Box::new(Mock::new([1u64, 3])),
-        Box::new(Mock::new([2u64, 4])),
+    let children: Vec<TypeErasedRQEIterator<'static>> = vec![
+        TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 3]))),
+        TypeErasedRQEIterator::new(Box::new(Mock::new([2u64, 4]))),
     ];
     let mut it = ContractChecker::new(UnionFullHeap::new(children));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
@@ -739,7 +739,7 @@ fn children_settling_back_onto_100<'index>() -> Vec<TypeErasedRQEIterator<'index
 #[track_caller]
 fn assert_settling_back_keeps_the_metrics<'index, U>(mut union: Box<U>)
 where
-    U: RQEIteratorBoxed<'index>,
+    U: RQEIterator<'index>,
 {
     let first = union.read().expect("read failed").expect("doc 100");
     assert_eq!(first.doc_id, 100);

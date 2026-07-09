@@ -26,6 +26,7 @@ index_result.workspace = true
 index_spec.workspace = true
 rand.workspace = true
 redis_mock.workspace = true
+redis_reply.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators = { workspace = true }

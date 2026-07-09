@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rqe_core::DocId;
-use rqe_iterators::{NoOpChecker, RQEIterator, RQEIteratorError};
+use rqe_iterators::{NoOpChecker, RQEIterator, RQEIteratorError, TypeErasedRQEIterator};
 use top_k::{Ascending, ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
 use vector_score_source::test_utils::{
@@ -38,7 +38,7 @@ const FILTERED: DocId = 20;
 type FarFilterTopK<'index> = TopKIterator<
     'index,
     VectorScoreSource<'index, NoOpChecker>,
-    Box<dyn RQEIterator<'index> + 'index>,
+    TypeErasedRQEIterator<'index>,
     Ascending,
 >;
 

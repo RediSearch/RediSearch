@@ -50,8 +50,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -79,7 +78,7 @@ use index_spec::IndexSpecReadGuard;
 /// never reads it after releasing the lock. It has no position to re-derive
 /// anyway, since it yields out of doc-id order.
 ///
-/// [`suspend`](RQEIteratorBoxed::suspend) is supported for the lock release
+/// [`suspend`](RQEIterator::suspend) is supported for the lock release
 /// that ends the drain. [`resume`](RQESuspendedIterator::resume) always reports
 /// [`Aborted`](ResumeOutcome::Aborted), as a panic would abort the server across
 /// the C ABI. Aborting an undrained union would silently truncate the results,
@@ -122,7 +121,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionTrimmed<'static, Active<'static>, AChild>;
     type S = RawUnionTrimmed<'static, Suspended, SChild>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -260,6 +259,28 @@ impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        const {
+            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
+        };
+        let raw = Box::into_raw(self);
+        // Children outside the trimmed window are suspended too: the whole
+        // buffer is relabelled below.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { std::ptr::NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. Each
+        // element is the child itself. 3. The cast below relabels every slot as
+        // `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, |child| child) };
+        // SAFETY: every child slot now holds its suspended counterpart, and the
+        // two instantiations are layout-identical (both `const` proofs).
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)
@@ -344,33 +365,6 @@ where
         } else {
             1.0
         }
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        const {
-            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
-        };
-        let raw = Box::into_raw(self);
-        // Children outside the trimmed window are suspended too: the whole
-        // buffer is relabelled below.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
-        // the rest of this function.
-        let children = unsafe { std::ptr::NonNull::from(&mut (*raw).children) };
-        // SAFETY: 1. `children` is valid and unaliased, as above. 2. Each
-        // element is the child itself. 3. The cast below relabels every slot as
-        // `I::Suspended`.
-        unsafe { crate::boxed::suspend_children_in_place(children, |child| child) };
-        // SAFETY: every child slot now holds its suspended counterpart, and the
-        // two instantiations are layout-identical (both `const` proofs).
-        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
     }
 }
 

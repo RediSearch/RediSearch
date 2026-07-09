@@ -55,12 +55,8 @@ fn not_optional_and_wrappers_report_score_bounds() {
     assert!(!optional.reports_score_bounds());
 
     // Wrappers pass the answer through.
-    assert!(
-        Profile::new(MaybeEmpty::new(Box::new(Blocked::single([1], 1.0)))).reports_score_bounds()
-    );
-    assert!(
-        !Profile::new(MaybeEmpty::new(Box::new(IdListSorted::new(vec![1])))).reports_score_bounds()
-    );
+    assert!(Profile::new(MaybeEmpty::new(Blocked::single([1], 1.0))).reports_score_bounds());
+    assert!(!Profile::new(MaybeEmpty::new(IdListSorted::new(vec![1]))).reports_score_bounds());
 }
 
 #[test]
@@ -98,7 +94,7 @@ fn wrappers_forward_every_hook() {
     let leaf = Blocked::new(vec![Block::loose(&[(1, 2.5), (2, 2.5)], 3.0)]);
     let log = leaf.log();
 
-    let mut it = Profile::new(MaybeEmpty::new(Box::new(leaf)));
+    let mut it = Profile::new(MaybeEmpty::new(leaf));
     let doc = it
         .read_with_threshold(min_score(1.25))
         .expect("read failed")

@@ -23,7 +23,7 @@ use index_result::RSIndexResult;
 use rqe_core::DocId;
 
 use crate::{
-    RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     profile_print::ProfilePrint, score_bound::MinCompetitiveScore,
 };
 
@@ -55,7 +55,7 @@ use crate::{
 #[repr(C)]
 pub struct RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     // The iterator header.
     // It *must* appear first for C-Rust interoperability to work as expected.
@@ -75,7 +75,7 @@ pub(crate) enum InnerState<'a, A, S> {
 /// Whether an [`RQEIteratorWrapper`]'s iterator is active or suspended.
 enum WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     Active(Box<I>),
     Suspended(Box<I::Suspended>),
@@ -85,7 +85,7 @@ where
 
 impl<'index, I> WrapperState<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the active iterator. Panics otherwise.
     fn active_ref(&self) -> &I {
@@ -137,7 +137,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     /// Borrow the iterator. Panics if it is suspended.
     pub fn inner(&self) -> &I {
@@ -233,7 +233,7 @@ where
 
 impl<'index, I> RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+    I: RQEIterator<'index> + ProfilePrint + 'index,
     I::Suspended: RQESuspendedIterator<'index, Resumed<'index> = I>,
 {
     /// Heap-allocate a wrapper with the given `ProfileChildren` callback.
@@ -336,7 +336,7 @@ where
 ///
 /// This trait will be removed when the C code that accesses iterator internals
 /// (profile printing, optimizer, mutation) is ported to Rust.
-pub trait ProfileChildren<'index>: RQEIteratorBoxed<'index> + Sized + 'index {
+pub trait ProfileChildren<'index>: RQEIterator<'index> + Sized + 'index {
     /// Profile all children, preserving the concrete iterator type.
     fn profile_children(self) -> Self;
 }
@@ -380,7 +380,7 @@ unsafe fn wrapper_from_callback<'a, 'index, I>(
     base: *mut QueryIterator,
 ) -> &'a mut RQEIteratorWrapper<'index, I>
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(!base.is_null());
     // SAFETY: Guaranteed by 1., which rules out null.
@@ -391,7 +391,7 @@ where
 
 extern "C" fn read<'index, I>(base: *mut QueryIterator) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -401,7 +401,7 @@ where
     publish_read(&mut wrapper.header, outcome)
 }
 
-extern "C" fn read_with_threshold<'index, I: RQEIteratorBoxed<'index> + 'index>(
+extern "C" fn read_with_threshold<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
     min_competitive_score: f64,
 ) -> IteratorStatus {
@@ -448,7 +448,7 @@ fn publish_read(
 
 extern "C" fn skip_to<'index, I>(base: *mut QueryIterator, doc_id: DocId) -> IteratorStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -502,7 +502,7 @@ pub fn mock_revalidate_timeout() -> bool {
 /// `Suspend` C callback, called right before the spec read lock is released.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -513,7 +513,7 @@ where
         return;
     }
     let active = wrapper.state.take_active();
-    let suspended = <I as RQEIteratorBoxed>::suspend(active);
+    let suspended = <I as RQEIterator>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
     // The result may point into index data freed while the lock is released, so a stray read
     // must fail loudly.
@@ -527,7 +527,7 @@ extern "C" fn revalidate<'index, I>(
     spec: *mut ffi::IndexSpec,
 ) -> ValidateStatus
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
     I::Suspended: RQESuspendedIterator<'index, Resumed<'index> = I>,
 {
     debug_assert!(base.is_aligned());
@@ -547,7 +547,7 @@ where
         // Not every unlock site calls `Suspend`, and the borrows may have gone stale while the
         // lock was released: run the whole cycle rather than trust them.
         let active = wrapper.state.take_active();
-        wrapper.state = WrapperState::Suspended(<I as RQEIteratorBoxed>::suspend(active));
+        wrapper.state = WrapperState::Suspended(<I as RQEIterator>::suspend(active));
     }
 
     // SAFETY: spec is a valid pointer (guaranteed by C caller).
@@ -597,7 +597,7 @@ fn debug_assert_resumed_in_place<S, I>(suspended_at: *const S, resumed: &I) {
 
 extern "C" fn rewind<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
@@ -612,7 +612,7 @@ where
 /// been suspended at the unlock site.
 extern "C" fn num_estimated<'index, I>(base: *const QueryIterator) -> usize
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     debug_assert!(base.is_aligned());
     // SAFETY: 1. and 2. by invariant 1. of [`RQEIteratorWrapper`]. 3. C frees the iterator
@@ -628,7 +628,7 @@ where
     }
 }
 
-extern "C" fn reports_score_bounds<'index, I: RQEIteratorBoxed<'index> + 'index>(
+extern "C" fn reports_score_bounds<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
 ) -> bool {
     debug_assert!(base.is_aligned());
@@ -642,7 +642,7 @@ extern "C" fn reports_score_bounds<'index, I: RQEIteratorBoxed<'index> + 'index>
     wrapper.state.active_ref().reports_score_bounds()
 }
 
-extern "C" fn current_max_score<'index, I: RQEIteratorBoxed<'index> + 'index>(
+extern "C" fn current_max_score<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
 ) -> f64 {
     debug_assert!(base.is_aligned());
@@ -658,7 +658,7 @@ extern "C" fn current_max_score<'index, I: RQEIteratorBoxed<'index> + 'index>(
 
 /// Panics while the iterator is suspended, like [`num_estimated`]: an intersection reads its
 /// children's weights only while it is being built, and a child being built into a tree is active.
-extern "C" fn intersection_sort_weight<'index, I: RQEIteratorBoxed<'index> + 'index>(
+extern "C" fn intersection_sort_weight<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
     prioritize_union_children: bool,
 ) -> f64 {
@@ -676,7 +676,7 @@ extern "C" fn intersection_sort_weight<'index, I: RQEIteratorBoxed<'index> + 'in
         .intersection_sort_weight(prioritize_union_children)
 }
 
-extern "C" fn current_block_bound<'index, I: RQEIteratorBoxed<'index> + 'index>(
+extern "C" fn current_block_bound<'index, I: RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
     last_doc_id: *mut DocId,
     max_score: *mut f64,
@@ -757,7 +757,7 @@ where
 
 extern "C" fn free_iterator<'index, I>(base: *mut QueryIterator)
 where
-    I: RQEIteratorBoxed<'index> + 'index,
+    I: RQEIterator<'index> + 'index,
 {
     if !base.is_null() {
         debug_assert!(base.is_aligned());
@@ -777,7 +777,7 @@ where
 ///   with inner type `I`.
 /// - `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
 /// - `ctx` must be a valid pointer to a [`ProfilePrintCtx`](crate::profile_print::ProfilePrintCtx).
-unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIteratorBoxed<'index> + 'index>(
+unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIterator<'index> + 'index>(
     base: *const QueryIterator,
     map: *mut ffi::RsMapBuilder,
     ctx: *mut ffi::RsProfilePrintCtx,

@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+    NewWildcardIterator, RQEIterator, RQESuspendedIterator, ResumeOutcome,
     boxed::{finish_resume_in_place, resume_child_slot_in_place, suspend_child_slot_in_place},
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
@@ -62,6 +62,26 @@ impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnum<'_> {
 
 // Delegate `RQEIterator` to the inner variant.
 impl<'index> RQEIterator<'index> for NotIteratorEnum<'index> {
+    type Suspended = NotIteratorEnumSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        match unsafe { raw.as_mut() } {
+            Self::Not(it) => {
+                // SAFETY: `it` is the exclusively-owned payload, relabelled below.
+                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
+            }
+            Self::NotOptimized(it) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
+            }
+        }
+        // SAFETY: with the payload suspended and the tag unchanged, the
+        // allocation is a valid `NotIteratorEnumSuspended` (proof below).
+        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         match self {
@@ -173,9 +193,9 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 )]
 pub enum NotIteratorEnumSuspended<'query> {
     /// Suspended form of [`NotIteratorEnum::Not`].
-    Not(<NotFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    Not(<NotFfi<'query> as RQEIterator<'query>>::Suspended),
     /// Suspended form of [`NotIteratorEnum::NotOptimized`].
-    NotOptimized(<NotOptimizedFfi<'query> as RQEIteratorBoxed<'query>>::Suspended),
+    NotOptimized(<NotOptimizedFfi<'query> as RQEIterator<'query>>::Suspended),
 }
 
 // The relabels below need each arm to resume to its own payload type, and the
@@ -187,25 +207,16 @@ const _: () = {
     assert_layout_compatible::<NotIteratorEnum<'static>, NotIteratorEnumSuspended<'static>>();
 };
 
-impl<'index> RQEIteratorBoxed<'index> for NotIteratorEnum<'index> {
-    type Suspended = NotIteratorEnumSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
-        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
-        match unsafe { raw.as_mut() } {
-            Self::Not(it) => {
-                // SAFETY: `it` is the exclusively-owned payload, relabelled below.
-                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
-            }
-            Self::NotOptimized(it) => {
-                // SAFETY: as above.
-                unsafe { suspend_child_slot_in_place(NonNull::from(it)) }
-            }
+impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnumSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::Not(it) => it.print_profile(map, ctx),
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
         }
-        // SAFETY: with the payload suspended and the tag unchanged, the
-        // allocation is a valid `NotIteratorEnumSuspended` (proof above).
-        unsafe { Box::from_raw(raw.cast::<NotIteratorEnumSuspended<'index>>().as_ptr()) }
     }
 }
 
@@ -328,19 +339,6 @@ pub unsafe extern "C" fn NewNotIterator(
         }
         NewNotIterator::NotOptimized(iter) => {
             RQEIteratorWrapper::boxed_new_compound(NotIteratorEnum::NotOptimized(iter)).as_ptr()
-        }
-    }
-}
-
-impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnumSuspended<'_> {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
-    ) {
-        match self {
-            Self::Not(it) => it.print_profile(map, ctx),
-            Self::NotOptimized(it) => it.print_profile(map, ctx),
         }
     }
 }

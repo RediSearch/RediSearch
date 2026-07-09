@@ -232,7 +232,7 @@ fn profile_revalidate() {
 /// box address survives both transitions.
 #[test]
 fn profile_resume_preserves_box_address() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = Wildcard::new(10, 1.0);
@@ -275,7 +275,7 @@ fn profile_resume_preserves_box_address() {
 /// happens to be sound.
 #[test]
 fn profile_over_type_erased_child_round_trips() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = TypeErasedRQEIterator::new(Box::new(Wildcard::new(10, 1.0)));
@@ -314,7 +314,7 @@ fn profile_over_type_erased_child_round_trips() {
 /// the moved-from child in that path is what this guards against.
 #[test]
 fn profile_resume_aborts_when_child_validation_fails() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = Mock::new([1, 2, 3]);
@@ -341,7 +341,7 @@ fn profile_resume_aborts_when_child_validation_fails() {
 /// iterator rather than a concrete one.
 #[test]
 fn profile_over_type_erased_child_aborts_on_validation_failure() {
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let mock = Mock::new([1, 2, 3]);

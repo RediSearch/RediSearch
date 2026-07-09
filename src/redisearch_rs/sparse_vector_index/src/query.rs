@@ -26,8 +26,8 @@ use ref_mode::Ref;
 use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome, UnionFullFlat, UnionFullHeap,
+    IteratorType, NoOpChecker, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, UnionFullFlat, UnionFullHeap,
     boxed::{
         ResumeSlotOutcome, finish_resume_in_place, resume_child_slot_in_place,
         suspend_child_slot_in_place,
@@ -42,7 +42,7 @@ type PostingListIterator<'index> =
     InvIndIterator<'index, IndexReaderCore<'index, NumericFloatCompression>, NoOpChecker>;
 
 type SuspendedPostingListIterator<'query> =
-    <PostingListIterator<'query> as RQEIteratorBoxed<'query>>::Suspended;
+    <PostingListIterator<'query> as RQEIterator<'query>>::Suspended;
 
 /// A [`DimensionIterator`] in either mode: `P` is the posting-list iterator's
 /// active or suspended form.
@@ -162,6 +162,29 @@ impl<'index> DimensionIterator<'index> {
 }
 
 impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
+    type Suspended = SuspendedDimensionIterator<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let slot = unsafe { &raw mut (*raw).it };
+        // SAFETY: `slot` is an initialized field of the exclusively owned
+        // allocation, rewritten below; a panic in between leaks the allocation,
+        // as only `raw` owns it, rather than dropping the moved-from slot.
+        let it = unsafe { slot.read() };
+        let suspended = it.suspend();
+        // SAFETY: `slot` is aligned and in bounds, and `Box` is pointer-sized
+        // whatever its pointee, so the suspended box fits it.
+        unsafe {
+            slot.cast::<Box<SuspendedPostingListIterator<'index>>>()
+                .write(suspended)
+        };
+        // SAFETY: `it` now holds its suspended form, and `index` and `dim_id`
+        // carry no mode: by invariant 1 on `RawDimensionIterator` the
+        // allocation is a valid `SuspendedDimensionIterator`.
+        unsafe { Box::from_raw(raw.cast::<SuspendedDimensionIterator<'index>>()) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
     }
@@ -199,31 +222,6 @@ impl<'index> RQEIterator<'index> for DimensionIterator<'index> {
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.it.intersection_sort_weight(prioritize_union_children)
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for DimensionIterator<'index> {
-    type Suspended = SuspendedDimensionIterator<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
-        let slot = unsafe { &raw mut (*raw).it };
-        // SAFETY: `slot` is an initialized field of the exclusively owned
-        // allocation, rewritten below; a panic in between leaks the allocation,
-        // as only `raw` owns it, rather than dropping the moved-from slot.
-        let it = unsafe { slot.read() };
-        let suspended = it.suspend();
-        // SAFETY: `slot` is aligned and in bounds, and `Box` is pointer-sized
-        // whatever its pointee, so the suspended box fits it.
-        unsafe {
-            slot.cast::<Box<SuspendedPostingListIterator<'index>>>()
-                .write(suspended)
-        };
-        // SAFETY: `it` now holds its suspended form, and `index` and `dim_id`
-        // carry no mode: by invariant 1 on `RawDimensionIterator` the
-        // allocation is a valid `SuspendedDimensionIterator`.
-        unsafe { Box::from_raw(raw.cast::<SuspendedDimensionIterator<'index>>()) }
     }
 }
 
@@ -299,9 +297,9 @@ pub enum DimensionUnion<'index> {
 #[repr(C, u8)]
 pub enum SuspendedDimensionUnion<'query> {
     /// The suspended [`Flat`](DimensionUnion::Flat) union.
-    Flat(<UnionFullFlat<'query, DimensionIterator<'query>> as RQEIteratorBoxed<'query>>::Suspended),
+    Flat(<UnionFullFlat<'query, DimensionIterator<'query>> as RQEIterator<'query>>::Suspended),
     /// The suspended [`Heap`](DimensionUnion::Heap) union.
-    Heap(<UnionFullHeap<'query, DimensionIterator<'query>> as RQEIteratorBoxed<'query>>::Suspended),
+    Heap(<UnionFullHeap<'query, DimensionIterator<'query>> as RQEIterator<'query>>::Suspended),
 }
 
 macro_rules! dispatch {
@@ -501,6 +499,32 @@ impl<'index> SparseVectorIterator<'index> {
 }
 
 impl<'index> RQEIterator<'index> for SparseVectorIterator<'index> {
+    type Suspended = SuspendedSparseVectorIterator<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
+        match unsafe { &mut (*raw).union } {
+            // SAFETY: the payload is valid and exclusively owned, and is read as
+            // its suspended form from here on.
+            DimensionUnion::Flat(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
+            // SAFETY: as above.
+            DimensionUnion::Heap(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
+        }
+        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
+        let result = NonNull::new(unsafe { &raw mut (*raw).result })
+            .expect("a field of a non-null allocation is non-null");
+        // SAFETY: 1. `result` is aligned and points to an initialized field.
+        // 2. It is unaliased: `raw` exclusively owns the allocation, and no
+        // reference into it is live.
+        unsafe { RSIndexResult::into_suspended_in_place(result) };
+        // SAFETY: the union payload and the result now hold their suspended forms,
+        // the union tag encodes the same arm in both enums, and the other fields
+        // carry no index borrows: by invariant 1 on `RawSparseVectorIterator`
+        // the allocation is a valid `SuspendedSparseVectorIterator`.
+        unsafe { Box::from_raw(raw.cast::<SuspendedSparseVectorIterator<'index>>()) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.at_eof() {
             None
@@ -563,34 +587,6 @@ impl<'index> RQEIterator<'index> for SparseVectorIterator<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for SparseVectorIterator<'index> {
-    type Suspended = SuspendedSparseVectorIterator<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw`; the borrow ends with the match.
-        match unsafe { &mut (*raw).union } {
-            // SAFETY: the payload is valid and exclusively owned, and is read as
-            // its suspended form from here on.
-            DimensionUnion::Flat(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
-            // SAFETY: as above.
-            DimensionUnion::Heap(u) => unsafe { suspend_child_slot_in_place(NonNull::from(u)) },
-        }
-        // SAFETY: `raw` came from `Box::into_raw`, so the projection is in bounds.
-        let result = NonNull::new(unsafe { &raw mut (*raw).result })
-            .expect("a field of a non-null allocation is non-null");
-        // SAFETY: 1. `result` is aligned and points to an initialized field.
-        // 2. It is unaliased: `raw` exclusively owns the allocation, and no
-        // reference into it is live.
-        unsafe { RSIndexResult::into_suspended_in_place(result) };
-        // SAFETY: the union payload and the result now hold their suspended forms,
-        // the union tag encodes the same arm in both enums, and the other fields
-        // carry no index borrows: by invariant 1 on `RawSparseVectorIterator`
-        // the allocation is a valid `SuspendedSparseVectorIterator`.
-        unsafe { Box::from_raw(raw.cast::<SuspendedSparseVectorIterator<'index>>()) }
     }
 }
 
