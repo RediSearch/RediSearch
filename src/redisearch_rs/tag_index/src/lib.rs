@@ -128,14 +128,16 @@ use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 pub use suffix::TagSuffixIndex;
 use trie_rs::TrieMap;
 
+/// Identifies the way the data is stored
 enum TagIndexMode {
+    /// If the postings (doc_ids) are kept in memory
     InMemory {
-        /// tag value → postings. Tag postings only need document ids, so the
-        /// inverted indexes always use the [`DocIdsOnly`] encoding.
+        /// tag value → document ids.
         values: TrieMap<InvertedIndex<DocIdsOnly>>,
     },
+    /// If the postings (doc_ids) are kept on disk
     Disk {
-        /// tag value → (). Is it used only to know whether a tag is there
+        /// tag value → (). It is used only to know whether a tag is there
         values: TrieMap<()>,
         /// Field id
         field_id: t_fieldIndex,
