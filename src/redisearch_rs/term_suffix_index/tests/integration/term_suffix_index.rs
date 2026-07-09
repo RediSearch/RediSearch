@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use term_suffix_index::TermSuffixIndex;
+use term_suffix_index::{TIMEOUT_COUNTER_LIMIT, TermSuffixIndex};
 
 #[test]
 fn add_promotes_existing_suffix_only_node_to_full_term() {
@@ -197,7 +197,10 @@ fn iter_wildcard_end_token_uses_suffix_semantics() {
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
-    let actual = collect_set(sut.iter_wildcard("*cat").expect("'cat' is anchorable"));
+    let actual = collect_set(
+        sut.iter_wildcard("*cat", || false)
+            .expect("'cat' is anchorable"),
+    );
 
     let expected = HashSet::from(["concat".to_string(), "scat".to_string(), "cat".to_string()]);
     assert_eq!(actual, expected);
@@ -212,7 +215,7 @@ fn iter_wildcard_middle_tokens_anchor_on_best_literal() {
     let sut = build_index(&corpus);
 
     let actual = collect_set(
-        sut.iter_wildcard("ab*cd")
+        sut.iter_wildcard("ab*cd", || false)
             .expect("'ab' and 'cd' are anchorable"),
     );
 
@@ -228,7 +231,10 @@ fn iter_wildcard_multibyte_anchor_matches() {
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
-    let actual = collect_set(sut.iter_wildcard("*本語").expect("two codepoints anchor"));
+    let actual = collect_set(
+        sut.iter_wildcard("*本語", || false)
+            .expect("two codepoints anchor"),
+    );
 
     let expected = HashSet::from(["日本語".to_string(), "本語".to_string()]);
     assert_eq!(actual, expected);
@@ -246,7 +252,10 @@ fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
-    let actual = collect_set(sut.iter_wildcard("ab*c?").expect("'ab' is anchorable"));
+    let actual = collect_set(
+        sut.iter_wildcard("ab*c?", || false)
+            .expect("'ab' is anchorable"),
+    );
 
     // The ASCII-tailed term matches; the `é`-tailed one is missed.
     assert_eq!(actual, HashSet::from(["abxcd".to_string()]));
@@ -263,7 +272,10 @@ fn iter_wildcard_question_mark_outside_anchor_is_honored() {
     // The `?b` token cannot anchor (contains `?`), so `cd` is chosen;
     // the full-pattern filter must still enforce that `?` consumes
     // exactly one character.
-    let actual = collect_set(sut.iter_wildcard("?b*cd").expect("'cd' is anchorable"));
+    let actual = collect_set(
+        sut.iter_wildcard("?b*cd", || false)
+            .expect("'cd' is anchorable"),
+    );
 
     let expected = HashSet::from(["abcd".to_string(), "zbxcd".to_string()]);
     assert_eq!(actual, expected);
@@ -277,7 +289,10 @@ fn iter_wildcard_trailing_star_uses_contains_semantics() {
         .collect::<Vec<_>>();
     let sut = build_index(&corpus);
 
-    let actual = collect_set(sut.iter_wildcard("*cat*").expect("'cat' is anchorable"));
+    let actual = collect_set(
+        sut.iter_wildcard("*cat*", || false)
+            .expect("'cat' is anchorable"),
+    );
 
     let expected = HashSet::from(["scatter".to_string(), "category".to_string()]);
     assert_eq!(actual, expected);
@@ -291,10 +306,49 @@ fn iter_wildcard_without_anchorable_token_reports_none() {
     // lookup. (Single-char tokens can, now that the floor is gone.)
     for pattern in ["*", "a?c", "??*", ""] {
         assert!(
-            sut.iter_wildcard(pattern).is_none(),
+            sut.iter_wildcard(pattern, || false).is_none(),
             "pattern={pattern:?} must request the fallback scan"
         );
     }
+}
+
+#[test]
+fn iter_wildcard_does_not_poll_within_the_first_window() {
+    // Fewer candidates than one polling window: the predicate is never
+    // consulted, so even an always-stop request yields every match.
+    let small = (0..TIMEOUT_COUNTER_LIMIT / 2)
+        .map(|i| format!("cat{i:03}"))
+        .collect::<Vec<_>>();
+    let sut = build_index(&small);
+
+    let actual = collect_set(sut.iter_wildcard("cat*", || true).expect("'cat' anchors"));
+
+    assert_eq!(
+        actual.len(),
+        small.len(),
+        "no candidate within the first window triggers a poll"
+    );
+}
+
+#[test]
+fn iter_wildcard_abandons_scan_once_stop_fires() {
+    // More candidates than one window: the first poll fires mid-scan, so
+    // an always-stop request abandons it with only a prefix of the matches.
+    let large = (0..TIMEOUT_COUNTER_LIMIT * 5 / 2)
+        .map(|i| format!("cat{i:03}"))
+        .collect::<Vec<_>>();
+    let sut = build_index(&large);
+
+    let stopped = collect_set(sut.iter_wildcard("cat*", || true).expect("'cat' anchors"));
+    let full = collect_set(sut.iter_wildcard("cat*", || false).expect("'cat' anchors"));
+
+    assert_eq!(full.len(), large.len(), "never stopping yields every match");
+    assert!(
+        !stopped.is_empty() && stopped.len() < full.len(),
+        "always stopping abandons the scan partway: {} of {}",
+        stopped.len(),
+        full.len()
+    );
 }
 
 #[test]
@@ -361,7 +415,10 @@ fn iter_wildcard_is_case_insensitive() {
 
     // An uppercased pattern is lowercased before matching the
     // (lowercased) stored terms.
-    let actual = collect_set(sut.iter_wildcard("*CAT").expect("'cat' is anchorable"));
+    let actual = collect_set(
+        sut.iter_wildcard("*CAT", || false)
+            .expect("'cat' is anchorable"),
+    );
 
     let expected = HashSet::from(["concat".to_string(), "scat".to_string(), "cat".to_string()]);
     assert_eq!(actual, expected);
@@ -451,7 +508,7 @@ mod fuzz {
             // `None` requests the fallback scan — out of scope here. The
             // oracle uses the same byte-wise matcher iter_wildcard does, so
             // this pins the anchor-selection logic, not the matcher itself.
-            if let Some(matches) = sut.iter_wildcard(&pattern) {
+            if let Some(matches) = sut.iter_wildcard(&pattern, || false) {
                 let parsed = WildcardPattern::parse(pattern.as_bytes());
                 let expected = corpus
                     .iter()
