@@ -39,8 +39,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -343,10 +343,24 @@ fn lower_bound(ids: &[DocId], doc_id: DocId) -> usize {
 
 impl<'index, T, E, M> RQEIterator<'index> for GeoShape<'index, T, E, M>
 where
-    T: TimeoutContext,
-    E: ExpirationChecker,
-    M: MemTracker,
+    T: TimeoutContext + 'index,
+    E: ExpirationChecker + 'index,
+    M: MemTracker + 'index,
 {
+    type Suspended = SuspendedGeoShape<'index, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let slot = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY:
+        // 1. `slot` came from a `Box` this function owns.
+        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
+        let suspended = unsafe {
+            suspend_owned_result_in_place::<_, Self::Suspended>(slot, |it| &mut it.result)
+        };
+        // SAFETY: the same allocation, now valid at `Self::Suspended`.
+        unsafe { Box::from_raw(suspended.as_ptr()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
@@ -463,27 +477,6 @@ impl<Rf: Ref, T, E, M: MemTracker> ProfilePrint for RawGeoShape<'_, Rf, T, E, M>
 impl<Rf: Ref, T, E, M: MemTracker> Drop for RawGeoShape<'_, Rf, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
-    }
-}
-
-impl<'index, T, E, M> RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
-where
-    T: TimeoutContext + 'index,
-    E: ExpirationChecker + 'index,
-    M: MemTracker + 'index,
-{
-    type Suspended = SuspendedGeoShape<'index, T, E, M>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let slot = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
-        // SAFETY:
-        // 1. `slot` came from a `Box` this function owns.
-        // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
-        let suspended = unsafe {
-            suspend_owned_result_in_place::<_, Self::Suspended>(slot, |it| &mut it.result)
-        };
-        // SAFETY: the same allocation, now valid at `Self::Suspended`.
-        unsafe { Box::from_raw(suspended.as_ptr()) }
     }
 }
 

@@ -12,7 +12,7 @@
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, UnionFullFlat,
+    RQEIterator, UnionFullFlat,
     profile::ProfileCounters,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -71,7 +71,7 @@ fn print_with_counters<I: ProfilePrint>(
 ///
 /// `FT.PROFILE` prints the tree after the query has suspended it, so the suspended form must
 /// report what the active one did.
-fn print_active_and_suspended<'index, I: RQEIteratorBoxed<'index> + ProfilePrint>(
+fn print_active_and_suspended<'index, I: RQEIterator<'index> + ProfilePrint>(
     replier: &mut Replier,
     iter: Box<I>,
 ) -> ReplyValue {
@@ -685,8 +685,6 @@ fn numeric_variant_geo() {
 /// profile is the backend's, before and after a suspend.
 #[test]
 fn disk_wildcard_prints_its_backend() {
-    use rqe_iterators::RQEIteratorBoxed;
-
     let mut replier = init();
     let backend = rqe_iterators::id_list::IdListSorted::new(vec![1, 2, 3]);
     let expected = print(&mut replier, &backend, false);

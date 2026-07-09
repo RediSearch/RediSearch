@@ -16,8 +16,7 @@ use index_result::RSIndexResult;
 use iterators_ffi::not::{NotFfi, NotIteratorEnum, NotOptimizedFfi};
 use rqe_core::DocId;
 use rqe_iterators::{
-    NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome,
+    NewWildcardIterator, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     utils::{AnyTimeoutContext, NoTimeoutChecker},

@@ -16,8 +16,8 @@ use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm};
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome, TypeErasedRQEIterator,
+    IdList, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    TypeErasedRQEIterator,
 };
 use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 use top_k::{Ascending, BatchStrategy, TopKIterator, TopKMode, mock::MockScoreSource};
@@ -99,6 +99,13 @@ impl rqe_iterators::profile_print::ProfilePrint for SteerableChild<'_> {
 }
 
 impl<'index> RQEIterator<'index> for SteerableChild<'index> {
+    type Suspended = Self;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Nothing to weaken: the held record is a virtual sentinel.
+        self
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.positioned {
             Some(&mut self.current)
@@ -153,15 +160,6 @@ impl<'index> RQEIterator<'index> for SteerableChild<'index> {
 
     fn intersection_sort_weight(&self, _: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for SteerableChild<'index> {
-    type Suspended = Self;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Nothing to weaken: the held record is a virtual sentinel.
-        self
     }
 }
 

@@ -16,7 +16,7 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, test_utils::TermRecordCompare};
 use numeric_range_tree::NumericIndex;
 use rqe_core::{DocId, FieldMask};
-use rqe_iterators::{RQEIterator, RQEIteratorBoxed, SkipToOutcome, TypeErasedRQEIterator};
+use rqe_iterators::{RQEIterator, SkipToOutcome, TypeErasedRQEIterator};
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 use std::collections::HashSet;
 
@@ -491,7 +491,7 @@ impl RevalidateTest {
 /// test basic revalidation functionality - the resume reports `Ok` when the index is valid
 pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
 where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     let guard = test.context.spec_read();
     let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
@@ -506,7 +506,7 @@ where
 /// test revalidation functionality when iterator is at EOF
 pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
 where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     // Read all documents to reach EOF
     while let Some(_record) = it.read().expect("failed to read") {}
@@ -530,7 +530,7 @@ pub fn revalidate_at_eof_after_gc<'a, I, E: Encoder + DecodedBy>(
     mut it: Box<I>,
     ii: &mut InvertedIndex<E>,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     // Read all documents to reach EOF
     while let Some(_record) = it.read().expect("failed to read") {}
@@ -566,7 +566,7 @@ pub fn revalidate_numeric_at_eof_after_gc<'a, I>(
     it: Box<I>,
     ii: &mut NumericIndex,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     match ii {
         NumericIndex::Uncompressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
@@ -580,7 +580,7 @@ pub fn revalidate_numeric_after_document_deleted<'a, I>(
     it: Box<I>,
     ii: &mut NumericIndex,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     match ii {
         NumericIndex::Uncompressed(ii) => {
@@ -596,7 +596,7 @@ pub fn revalidate_after_document_deleted<'a, I, E: Encoder + DecodedBy>(
     it: Box<I>,
     ii: &mut InvertedIndex<E>,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
 {
     let guard = test.context.spec_read();
     let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
@@ -701,7 +701,7 @@ pub fn revalidate_after_block_buffer_moved<'a, I, E, F>(
     ii: &mut InvertedIndex<E>,
     make_record: F,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
     E: Encoder + DecodedBy,
     F: Fn(DocId) -> RSIndexResult<'static>,
 {
@@ -716,7 +716,7 @@ pub fn revalidate_after_block_buffer_moved_and_gc<'a, I, E, F>(
     ii: &mut InvertedIndex<E>,
     make_record: F,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
     E: Encoder + DecodedBy,
     F: Fn(DocId) -> RSIndexResult<'static>,
 {
@@ -730,7 +730,7 @@ fn block_buffer_moved<'a, I, E, F>(
     make_record: F,
     interleave_gc: bool,
 ) where
-    I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
+    I: RQEIterator<'a> + 'a,
     E: Encoder + DecodedBy,
     F: Fn(DocId) -> RSIndexResult<'static>,
 {

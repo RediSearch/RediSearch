@@ -21,8 +21,8 @@ use crate::union::{
 };
 use crate::utils::{DocIdMinHeap, HeapEntry};
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -79,7 +79,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionHeap<'static, Active<'static>, AChild, false>;
     type S = RawUnionHeap<'static, Suspended, SChild, false>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -632,6 +632,26 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionHeap<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function.
+        let children = unsafe { NonNull::from(&mut (*raw).children) };
+        // SAFETY: 1. `children` is valid and unaliased, as above. 2. Each
+        // element is the child itself. 3. The cast below relabels every slot as
+        // `I::Suspended`.
+        unsafe { crate::boxed::suspend_children_in_place(children, |child| child) };
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -718,32 +738,6 @@ where
             self.children.len().max(1) as f64
         } else {
             1.0
-        }
-    }
-}
-
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionHeap<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
-        // the rest of this function.
-        let children = unsafe { NonNull::from(&mut (*raw).children) };
-        // SAFETY: 1. `children` is valid and unaliased, as above. 2. Each
-        // element is the child itself. 3. The cast below relabels every slot as
-        // `I::Suspended`.
-        unsafe { crate::boxed::suspend_children_in_place(children, |child| child) };
-        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
-        // rewritten as `Vec<I::Suspended>` contents), `result:
-        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
-        // a heap of plain doc-ids/indices (no `Rf` in its types).
-        unsafe {
-            Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>)
         }
     }
 }
