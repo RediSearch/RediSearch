@@ -745,7 +745,7 @@ mod variant {
     }
 }
 
-/// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIteratorBoxed`
+/// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIterator`
 /// and `RQESuspendedIterator` impls on the variant enum itself, as opposed to the
 /// `Numeric` leaf instantiation that `NumericBuilder` produces.
 ///
@@ -777,9 +777,7 @@ mod variant_resume {
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, NumericFilter, RepairContext};
     use numeric_range_tree::{NumericIndex, NumericRangeTree};
     use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
-    use rqe_iterators::{
-        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
-    };
+    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQESuspendedIterator, ResumeOutcome};
     use rqe_iterators_test_utils::MockContext;
 
     use super::variant::make_expiration_checker;

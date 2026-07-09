@@ -24,8 +24,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -184,9 +184,26 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 
 impl<'index, R, E> RQEIterator<'index> for Term<'index, R, E>
 where
-    R: TermReader<'index>,
-    E: ExpirationChecker,
+    R: TermReader<'index> + SuspendableReader + 'index,
+    E: ExpirationChecker + 'static,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
 {
+    // Reader weakens `R -> R::Suspended`; the frozen `RA` slot stays `R` (the
+    // active reader) so the inner iterator's dispatch pointers are unchanged.
+    type Suspended = RawTerm<'index, Suspended, R::Suspended, E, R>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is a `#[repr(C)]` newtype over the inner
+        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
+        // [`RawInvIndIterator`] (const proof there): `reader` weakens `R ->
+        // R::Suspended` (given the reader's own layout invariant) while the
+        // frozen `RA = R` slot keeps the dispatch pointers unchanged.
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTerm<'index, Suspended, R::Suspended, E, R>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -235,9 +252,8 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Term<'index, R, E>
+impl<'query, Rf: Ref, R, E, RA> ProfilePrint for RawTerm<'query, Rf, R, E, RA>
 where
-    R: inverted_index::TermReader<'index>,
     E: crate::expiration_checker::ExpirationChecker,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
@@ -487,29 +503,6 @@ pub unsafe fn build_term_iterator<'index>(
     // SAFETY: `reader` was just built from the valid `idx`; preconditions (2)/(3)
     // uphold the remaining `Term::new` requirements (valid `sctx`, owned `term`).
     unsafe { Term::new(reader, sctx, term, weight, expiration_checker) }
-}
-
-impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
-where
-    R: TermReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader + PointsToOpaqueIndex,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    // Reader weakens `R -> R::Suspended`; the frozen `RA` slot stays `R` (the
-    // active reader) so the inner iterator's dispatch pointers are unchanged.
-    type Suspended = RawTerm<'index, Suspended, R::Suspended, E, R>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTerm` is a `#[repr(C)]` newtype over the inner
-        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
-        // [`RawInvIndIterator`] (const proof there): `reader` weakens `R ->
-        // R::Suspended` (given the reader's own layout invariant) while the
-        // frozen `RA = R` slot keeps the dispatch pointers unchanged.
-        // `Box::from_raw` reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawTerm<'index, Suspended, R::Suspended, E, R>) }
-    }
 }
 
 impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawTerm<'query, Suspended, RS, E, RA>

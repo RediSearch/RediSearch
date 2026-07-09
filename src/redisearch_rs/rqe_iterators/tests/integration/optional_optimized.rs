@@ -598,7 +598,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
     }
 }
 
-/// Revalidation driven through [`RQEIteratorBoxed::suspend`] and
+/// Revalidation driven through [`RQEIterator::suspend`] and
 /// [`RQESuspendedIterator::resume`] rather than [`RQEIterator::revalidate`]: the
 /// scenarios of
 /// [`optional_optimized_iterator_revalidate_tests`](super::optional_optimized_iterator_revalidate_tests),
@@ -606,7 +606,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
 /// exhibit.
 mod via_resume {
     use super::*;
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;

@@ -21,12 +21,12 @@ use std::num::NonZeroUsize;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm};
-use index_spec::IndexSpecReadGuard;
 use rand::{SeedableRng as _, seq::SliceRandom as _};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, Intersection, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    Empty, IdList, Intersection, RQEIterator, RQEIteratorError, SkipToOutcome,
+    TypeErasedRQEIterator,
 };
 use top_k::{Ascending, BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
@@ -195,8 +195,9 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![], source_docs.clone(), |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
-                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    let child = TypeErasedRQEIterator::new(Box::new(
+                        rqe_iterators::IdList::<true>::new(child_ids.clone()),
+                    ));
                     (source, child)
                 },
                 |(source, child)| {
@@ -220,8 +221,9 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
                     let source = MockScoreSource::new(vec![source_docs.clone()], vec![], |_, _| {
                         BatchStrategy::Continue
                     });
-                    let child: Box<dyn RQEIterator> =
-                        Box::new(rqe_iterators::IdList::<true>::new(child_ids.clone()));
+                    let child = TypeErasedRQEIterator::new(Box::new(
+                        rqe_iterators::IdList::<true>::new(child_ids.clone()),
+                    ));
                     (source, child)
                 },
                 |(source, child)| {
@@ -266,7 +268,25 @@ impl TermLeaf<'_> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for TermLeaf<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"TERM-LEAF", map);
+    }
+}
+
 impl<'index> RQEIterator<'index> for TermLeaf<'index> {
+    // The benchmarks never release the read lock mid-query, so a leaf is never
+    // suspended; any `RQESuspendedIterator` satisfies the associated type.
+    type Suspended = Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        unreachable!("benchmark leaves are never suspended")
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.ids.current()?;
         Some(&mut self.result)
@@ -297,13 +317,6 @@ impl<'index> RQEIterator<'index> for TermLeaf<'index> {
         } else {
             SkipToOutcome::NotFound(&mut self.result)
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        _: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     fn rewind(&mut self) {
@@ -365,8 +378,9 @@ fn bench_captured_term_records(c: &mut Criterion) {
                                 .iter()
                                 .map(|term| TermLeaf::new(child_ids.clone(), term))
                                 .collect();
-                            let child: Box<dyn RQEIterator> =
-                                Box::new(Intersection::new(leaves, 1.0, false));
+                            let child = TypeErasedRQEIterator::new(Box::new(Intersection::new(
+                                leaves, 1.0, false,
+                            )));
                             (source, child)
                         },
                         |(source, child)| {

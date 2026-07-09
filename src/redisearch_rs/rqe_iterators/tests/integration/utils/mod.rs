@@ -52,6 +52,16 @@ impl FieldMaskMock<'_> {
 }
 
 impl<'index> RQEIterator<'index> for FieldMaskMock<'index> {
+    type Suspended = FieldMaskMockSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `FieldMaskMock<'index>` and `FieldMaskMockSuspended` have
+        // identical layout (proven above), and `Box::from_raw` reuses the same
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut FieldMaskMockSuspended) }
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.next == past_end_cursor(self.doc_ids.len()) {
             return None;
@@ -145,18 +155,6 @@ const _: () = {
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
-
-impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for FieldMaskMock<'index> {
-    type Suspended = FieldMaskMockSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `FieldMaskMock<'index>` and `FieldMaskMockSuspended` have
-        // identical layout (proven above), and `Box::from_raw` reuses the same
-        // heap allocation.
-        unsafe { Box::from_raw(raw as *mut FieldMaskMockSuspended) }
-    }
-}
 
 impl<'query> rqe_iterators::RQESuspendedIterator<'query> for FieldMaskMockSuspended {
     type Resumed<'a>
@@ -274,4 +272,24 @@ pub(crate) fn create_union_children(
         })
         .collect();
     (children, expected.into_iter().collect())
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for FieldMaskMock<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"FIELD MASK MOCK");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for FieldMaskMockSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"FIELD MASK MOCK");
+    }
 }

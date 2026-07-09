@@ -19,8 +19,8 @@ use crate::union::{
     result_is_borrowed_union,
 };
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -128,7 +128,7 @@ where
 ///    [`RawIndexResult`], so `RawUnionFlat<Active, I>` and
 ///    `RawUnionFlat<Suspended, I::Suspended>` are layout-identical given that
 ///    each child `I` and its `I::Suspended` are. This is what lets
-///    [`suspend`](RQEIteratorBoxed::suspend) / [`resume`](RQESuspendedIterator::resume)
+///    [`suspend`](RQEIterator::suspend) / [`resume`](RQESuspendedIterator::resume)
 ///    reuse the union's allocation and its children buffer across the cycle.
 #[repr(C)]
 pub struct RawUnionFlat<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
@@ -161,7 +161,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionFlat<'static, Active<'static>, AChild, false>;
     type S = RawUnionFlat<'static, Suspended, SChild, false>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -806,6 +806,50 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionFlat<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator))
+        // correctly transitions its vtable. For concrete-typed `I` this is
+        // the same whole-box cast that would otherwise happen at the outer
+        // level, just per-child.
+        //
+        // Walked through the buffer pointer rather than `iter_mut`, as `resume`
+        // does: each transition retypes a slot from `I` to `I::Suspended`, so a
+        // typed `IterMut<IndexedChild<I>>` would still be describing the buffer
+        // as `IndexedChild<I>` after the first one. Nothing here re-reads a
+        // transitioned slot, so that iterator would not actually be misused —
+        // but the borrow claims something that stops being true half way
+        // through, and every other caller of the slot helper already hands it a
+        // raw pointer.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+            // for the rest of this function, so the children Vec is reachable
+            // and unaliased. The borrow is used only to reach the buffer pointer
+            // and length, and ends here.
+            let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let elem = unsafe { base.add(i) };
+            // SAFETY: `elem` addresses a valid `IndexedChild`; `&raw mut` forms
+            // a pointer to its `inner` slot without going through a reference.
+            let inner = unsafe { &raw mut (*elem).inner };
+            // SAFETY: `inner` holds a valid, owned `I`; the helper leaves the
+            // slot holding a valid `I::Suspended`.
+            unsafe { crate::boxed::suspend_child_slot_in_place(inner) };
+        }
+        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
+        // (now byte-rewritten with `I::Suspended` payloads) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -875,56 +919,6 @@ where
             self.children.len().max(1) as f64
         } else {
             1.0
-        }
-    }
-}
-
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionFlat<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator))
-        // correctly transitions its vtable. For concrete-typed `I` this is
-        // the same whole-box cast that would otherwise happen at the outer
-        // level, just per-child.
-        //
-        // Walked through the buffer pointer rather than `iter_mut`, as `resume`
-        // does: each transition retypes a slot from `I` to `I::Suspended`, so a
-        // typed `IterMut<IndexedChild<I>>` would still be describing the buffer
-        // as `IndexedChild<I>` after the first one. Nothing here re-reads a
-        // transitioned slot, so that iterator would not actually be misused —
-        // but the borrow claims something that stops being true half way
-        // through, and every other caller of the slot helper already hands it a
-        // raw pointer.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-            // for the rest of this function, so the children Vec is reachable
-            // and unaliased. The borrow is used only to reach the buffer pointer
-            // and length, and ends here.
-            let children: &mut Vec<IndexedChild<I>> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
-        };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let elem = unsafe { base.add(i) };
-            // SAFETY: `elem` addresses a valid `IndexedChild`; `&raw mut` forms
-            // a pointer to its `inner` slot without going through a reference.
-            let inner = unsafe { &raw mut (*elem).inner };
-            // SAFETY: `inner` holds a valid, owned `I`; the helper leaves the
-            // slot holding a valid `I::Suspended`.
-            unsafe { crate::boxed::suspend_child_slot_in_place(inner) };
-        }
-        // SAFETY: `RawUnionFlat` is `#[repr(C)]` over `Vec<IndexedChild<I>>`
-        // (now byte-rewritten with `I::Suspended` payloads) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe {
-            Box::from_raw(raw as *mut RawUnionFlat<'index, Suspended, I::Suspended, QUICK_EXIT>)
         }
     }
 }
@@ -1197,5 +1191,20 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             is_eof: self.is_eof,
             result: self.result,
         }
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `RQEIterator: ProfilePrint` supertrait and is not reached in practice.
+impl<Rf: Ref, I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
+    for RawUnionFlat<'_, Rf, I, QUICK_EXIT>
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }

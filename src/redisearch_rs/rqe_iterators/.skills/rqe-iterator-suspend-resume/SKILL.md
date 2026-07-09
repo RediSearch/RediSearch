@@ -14,11 +14,11 @@ implementation. Use it as a checklist when doing either, or when reviewing a PR
 that touches this machinery.
 
 > Scope: the `Box<Self>`-based suspend/resume design in `boxed.rs`, which
-> supersedes the legacy `RQEIterator::revalidate`. During the transition
-> `RQEIteratorBoxed` is a **subtrait** of `RQEIterator` (adds `type Suspended` +
-> `fn suspend`); a later phase folds the read/skip surface in and renames it
-> back to `RQEIterator`. Legacy `revalidate` returns `RQEValidateStatus`; the new
-> `resume` mirrors it with `ResumeOutcome`.
+> supersedes the legacy `RQEIterator::revalidate`. `RQEIterator` itself carries
+> `type Suspended` + `fn suspend` next to the read/skip surface, so it is not
+> dyn-safe: trait objects go through `RQEDynIterator` (wrapped in
+> `TypeErasedRQEIterator`). Legacy `revalidate` returned `RQEValidateStatus`;
+> `resume` reports the same outcomes with `ResumeOutcome`.
 
 ## Mental model
 
@@ -26,7 +26,7 @@ An iterator exists in two forms that share one heap allocation:
 
 | Form | Trait | Typical type |
 |------|-------|--------------|
-| Active (holds live index refs) | `RQEIteratorBoxed<'index>` | `RawFoo<'index, Active<'index>, …>` |
+| Active (holds live index refs) | `RQEIterator<'index>` | `RawFoo<'index, Active<'index>, …>` |
 | Suspended (index refs weakened to raw pointers) | `RQESuspendedIterator<'query>` | `RawFoo<'query, Suspended, …>` |
 
 - **One `#[repr(C)]` struct, parametrized by a `ref_mode` marker** (`Active` /
@@ -94,7 +94,7 @@ on `RawInvIndIterator`.
 Examples: `Profile` (single child); `Optional` (single child + an owned virtual
 sentinel result); `MaybeEmpty` (child-or-`Empty`). `Not`, `Intersection`, and the
 `Union*` family are also wrappers over child collections. The child is a generic
-`I: RQEIteratorBoxed` (active) / `S: RQESuspendedIterator` (suspended), and in
+`I: RQEIterator` (active) / `S: RQESuspendedIterator` (suspended), and in
 practice is usually a **`TypeErasedRQEIterator`**.
 
 ### Pitfall: do NOT whole-box cast a generic child
@@ -250,7 +250,7 @@ suspended child via the trait associated type to keep it terse, e.g.:
 
 ```rust
 type AChild = Wildcard<'static>;
-type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
 type A = RawWrapper<Active<'static>, AChild>;
 type S = RawWrapper<Suspended, SChild>;
 assert!(offset_of!(A, child) == offset_of!(S, child));

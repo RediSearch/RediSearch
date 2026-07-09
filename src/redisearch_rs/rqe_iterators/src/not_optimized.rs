@@ -13,8 +13,8 @@ use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, WildcardIterator,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, WildcardIterator,
     boxed::suspend_child_slot_in_place,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -78,6 +78,13 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
 /// with an [`RQEIterator`] impl today.
 pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<'index, Active<'index>, W, I, TC>;
 
+impl<'query, Rf: Ref, W, I, TC> RawNotOptimized<'query, Rf, W, I, TC> {
+    /// Get a shared reference to the _child_ iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawNotOptimized`: for representative
 // concrete `wcii`/`child` types, the `Active` and `Suspended` instantiations are
 // layout-identical. The child slots' own compatibility is their invariant 1
@@ -89,7 +96,7 @@ const _: () = {
     use crate::utils::NoTimeoutChecker;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawNotOptimized<'static, Active<'static>, AChild, AChild, NoTimeoutChecker>;
     type S = RawNotOptimized<'static, Suspended, SChild, SChild, NoTimeoutChecker>;
     assert!(offset_of!(A, wcii) == offset_of!(S, wcii));
@@ -158,11 +165,6 @@ where
             return Ok(false);
         }
         Ok(true)
-    }
-
-    /// Get a shared reference to the _child_ iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Whether there is another result to yield: the iterator has not run past its
@@ -259,11 +261,46 @@ where
 
 impl<'index, W, I, TC> RQEIterator<'index> for NotOptimized<'index, W, I, TC>
 where
-    // Marker enforced at construction (`new`); only generic methods used here.
     W: RQEIterator<'index>,
     I: RQEIterator<'index>,
-    TC: TimeoutContext,
+    TC: TimeoutContext + 'index + 'static,
 {
+    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Dispatch each sub-iterator's own `suspend` in place. A whole-box cast
+        // alone is *not* enough: for a type-erased `wcii`/`child` the active and
+        // suspended forms carry different `dyn` vtables, so the transition must
+        // be dispatched through the child's own `suspend` (a no-op cast for
+        // concrete children, a vtable swap for erased ones). `child` is a
+        // `MaybeEmpty<I>`, itself an `RQEIterator` that walks its own
+        // `Some(I)` arm.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw mut` forms a field pointer to `wcii`.
+        let wcii = unsafe { &raw mut (*raw).wcii };
+        // SAFETY: `wcii` points at a valid, owned `W`; the helper dispatches its
+        // `suspend` and reinitialises the slot as a valid `W::Suspended`.
+        unsafe { suspend_child_slot_in_place(wcii) };
+        // SAFETY: `&raw mut` forms a field pointer to `child`.
+        let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
+        // dispatches its `suspend` and reinitialises the slot as a valid
+        // `MaybeEmpty<I::Suspended>`.
+        unsafe { suspend_child_slot_in_place(child) };
+        // SAFETY: both sub-iterators now hold their `Suspended` forms;
+        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
+        // remaining fields are `Rf`-free — so the allocation is a valid suspended
+        // `RawNotOptimized`, layout-identical to the active form by invariant 1
+        // (const proof above). `Box::from_raw` reuses the same heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
+            )
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end {
@@ -375,50 +412,6 @@ where
     }
 }
 
-impl<'index, W, I, TC> RQEIteratorBoxed<'index> for NotOptimized<'index, W, I, TC>
-where
-    // Marker enforced at construction (`new`), not on the suspend/resume path.
-    W: RQEIteratorBoxed<'index>,
-    I: RQEIteratorBoxed<'index>,
-    TC: TimeoutContext + 'index + 'static,
-{
-    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Dispatch each sub-iterator's own `suspend` in place. A whole-box cast
-        // alone is *not* enough: for a type-erased `wcii`/`child` the active and
-        // suspended forms carry different `dyn` vtables, so the transition must
-        // be dispatched through the child's own `suspend` (a no-op cast for
-        // concrete children, a vtable swap for erased ones). `child` is a
-        // `MaybeEmpty<I>`, itself an `RQEIteratorBoxed` that walks its own
-        // `Some(I)` arm.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
-        // exclusively owned); `&raw mut` forms a field pointer to `wcii`.
-        let wcii = unsafe { &raw mut (*raw).wcii };
-        // SAFETY: `wcii` points at a valid, owned `W`; the helper dispatches its
-        // `suspend` and reinitialises the slot as a valid `W::Suspended`.
-        unsafe { suspend_child_slot_in_place(wcii) };
-        // SAFETY: `&raw mut` forms a field pointer to `child`.
-        let child = unsafe { &raw mut (*raw).child };
-        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
-        // dispatches its `suspend` and reinitialises the slot as a valid
-        // `MaybeEmpty<I::Suspended>`.
-        unsafe { suspend_child_slot_in_place(child) };
-        // SAFETY: both sub-iterators now hold their `Suspended` forms;
-        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
-        // remaining fields are `Rf`-free — so the allocation is a valid suspended
-        // `RawNotOptimized`, layout-identical to the active form by invariant 1
-        // (const proof above). `Box::from_raw` reuses the same heap allocation.
-        unsafe {
-            Box::from_raw(
-                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
-            )
-        }
-    }
-}
-
 /// RAII guard used by [`RawNotOptimized`]'s `resume` while its two child slots
 /// are moved out into owned locals. It owns the leftover shell: on drop (an
 /// early return or a panic) it drops every field the shell still owns — the
@@ -515,7 +508,7 @@ where
         // aborts and the child is never driven at all. The still-suspended
         // `child` local drops by ownership on that early return. (`wcii` being a
         // wildcard is enforced at construction, not by the bounds here — see the
-        // [`RQEIteratorBoxed`] impl above.)
+        // [`RQEIterator`] impl above.)
         let (wcii, wcii_moved) = match Box::new(wcii).resume(guard)? {
             ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
             ResumeOutcome::Ok(w) => (w, false),
@@ -619,7 +612,7 @@ where
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::RQEIteratorBoxed<'index> + 'index,
+    W: crate::RQEIterator<'index> + 'index,
     TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
@@ -634,10 +627,9 @@ where
     }
 }
 
-impl<'index, W, I, TC> ProfilePrint for NotOptimized<'index, W, I, TC>
+impl<'query, Rf: Ref, W, I, TC> ProfilePrint for RawNotOptimized<'query, Rf, W, I, TC>
 where
-    W: crate::WildcardIterator<'index>,
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

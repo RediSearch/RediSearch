@@ -1004,9 +1004,7 @@ mod revalidate {
 mod resume_over_mocks {
     use super::*;
     use crate::utils::MockRevalidateResult;
-    use rqe_iterators::{
-        RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
-    };
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator};
 
     /// The lock guard every test here resumes under.
     fn mock_context() -> rqe_iterators_test_utils::MockContext {

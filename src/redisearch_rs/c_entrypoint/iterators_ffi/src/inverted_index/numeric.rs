@@ -14,27 +14,14 @@ use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, open_numeric_or_geo_index,
+    IteratorsConfig, NumericIteratorVariant, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, open_numeric_or_geo_index,
 };
 
 /// Suspended counterpart of [`NumericIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 pub(super) struct NumericIteratorSuspended<'query> {
-    iterator: <NumericIteratorVariant<'query> as RQEIteratorBoxed<'query>>::Suspended,
-}
-
-impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
-    type Suspended = NumericIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let Self { iterator } = *self;
-        Box::new(NumericIteratorSuspended {
-            iterator: *<NumericIteratorVariant<'index> as RQEIteratorBoxed<'index>>::suspend(
-                Box::new(iterator),
-            ),
-        })
-    }
+    iterator: <NumericIteratorVariant<'query> as RQEIterator<'query>>::Suspended,
 }
 
 impl<'query> RQESuspendedIterator<'query> for NumericIteratorSuspended<'query> {
@@ -91,7 +78,38 @@ impl<'index> NumericIterator<'index> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for NumericIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        rqe_iterators::profile_print::ProfilePrint::print_profile(&self.iterator, map, ctx);
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for NumericIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        rqe_iterators::profile_print::ProfilePrint::print_profile(&self.iterator, map, ctx);
+    }
+}
+
 impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let Self { iterator } = *self;
+        Box::new(NumericIteratorSuspended {
+            iterator: *<NumericIteratorVariant<'index> as RQEIterator<'index>>::suspend(Box::new(
+                iterator,
+            )),
+        })
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         self.iterator.current()

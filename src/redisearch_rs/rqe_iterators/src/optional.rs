@@ -14,8 +14,8 @@ use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -35,10 +35,10 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 ///    its only `Rf`-dependent field is `result: RawIndexResult<Rf>`, which is
 ///    layout-compatible across `Rf` (proven in `index_result`). Given that the
 ///    child `I` and its `I::Suspended` are layout-compatible (the
-///    [`RQEIteratorBoxed`] contract, preserved through the `#[repr(C)]`
+///    [`RQEIterator`] contract, preserved through the `#[repr(C)]`
 ///    [`OptionalChild`] slot), the `Active` and `Suspended` instantiations are
 ///    layout-identical. This is what lets
-///    [`suspend`](RQEIteratorBoxed::suspend) reinterpret the owning `Box` in
+///    [`suspend`](RQEIterator::suspend) reinterpret the owning `Box` in
 ///    place.
 #[repr(C)]
 pub struct RawOptional<'query, Rf: Ref, I> {
@@ -135,6 +135,14 @@ impl<I> OptionalChild<I> {
 /// [`RQEIterator`] impl today.
 pub type Optional<'index, I> = RawOptional<'index, Active<'index>, I>;
 
+impl<'query, Rf: Ref, I> RawOptional<'query, Rf, I> {
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawOptional`: for a representative
 // concrete child, the `Active` and `Suspended` instantiations are
 // layout-identical. The `result: RawIndexResult<Rf>` field's own cross-`Rf`
@@ -146,7 +154,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawOptional<'static, Active<'static>, AChild>;
     type S = RawOptional<'static, Suspended, SChild>;
     assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
@@ -184,12 +192,6 @@ where
         }
     }
 
-    /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Optional`] iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
-    }
-
     /// Whether this iterator owes no further result, recording it if the
     /// position has just reached `max_doc_id`.
     ///
@@ -214,6 +216,36 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawOptional<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the child in place (if present). A whole-box cast alone is
+        // *not* enough for a type-erased child: its active and suspended forms
+        // carry different `dyn` vtables, so the transition must be dispatched
+        // through the child's own `suspend` — which `suspend_child_slot_in_place`
+        // does (a no-op whole-box cast for concrete children, a vtable swap for
+        // erased ones). A `Gone` child has no payload to transition.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned). The `&mut` borrow of the child enum is confined to
+        // this `if let`; `c` is the valid, exclusively-owned active child payload.
+        if let OptionalChild::Present(c) = unsafe { &mut (*raw).child } {
+            // SAFETY: `c` points at a valid, exclusively-owned `I`; the helper
+            // reinitialises the slot as a valid `I::Suspended` in place.
+            unsafe { suspend_child_slot_in_place(c as *mut I) };
+        }
+        // SAFETY: the `Present` child (if any) now holds `I::Suspended` and `Gone`
+        // has no payload, so the allocation is a valid
+        // `RawOptional<Suspended, I::Suspended>`: layout-identical to the active
+        // form by invariant 1 on `RawOptional` (const proof above) —
+        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
+        // child slot's `I`/`I::Suspended` size/alignment match is statically
+        // enforced by `suspend_child_slot_in_place`. `Box::from_raw` reuses the
+        // same allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawOptional<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end {
@@ -340,41 +372,6 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for Optional<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawOptional<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Transition the child in place (if present). A whole-box cast alone is
-        // *not* enough for a type-erased child: its active and suspended forms
-        // carry different `dyn` vtables, so the transition must be dispatched
-        // through the child's own `suspend` — which `suspend_child_slot_in_place`
-        // does (a no-op whole-box cast for concrete children, a vtable swap for
-        // erased ones). A `Gone` child has no payload to transition.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
-        // exclusively owned). The `&mut` borrow of the child enum is confined to
-        // this `if let`; `c` is the valid, exclusively-owned active child payload.
-        if let OptionalChild::Present(c) = unsafe { &mut (*raw).child } {
-            // SAFETY: `c` points at a valid, exclusively-owned `I`; the helper
-            // reinitialises the slot as a valid `I::Suspended` in place.
-            unsafe { suspend_child_slot_in_place(c as *mut I) };
-        }
-        // SAFETY: the `Present` child (if any) now holds `I::Suspended` and `Gone`
-        // has no payload, so the allocation is a valid
-        // `RawOptional<Suspended, I::Suspended>`: layout-identical to the active
-        // form by invariant 1 on `RawOptional` (const proof above) —
-        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
-        // child slot's `I`/`I::Suspended` size/alignment match is statically
-        // enforced by `suspend_child_slot_in_place`. `Box::from_raw` reuses the
-        // same allocation, so the box address is preserved.
-        unsafe { Box::from_raw(raw as *mut RawOptional<'index, Suspended, I::Suspended>) }
     }
 }
 
@@ -541,9 +538,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Optional<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawOptional<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_single_child(c"OPTIONAL", self.child(), map);

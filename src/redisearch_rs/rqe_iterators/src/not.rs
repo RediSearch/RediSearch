@@ -13,8 +13,8 @@ use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -80,7 +80,7 @@ const _: () = {
     use crate::utils::NoTimeoutChecker;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawNot<'static, Active<'static>, AChild, NoTimeoutChecker>;
     type S = RawNot<'static, Suspended, SChild, NoTimeoutChecker>;
     assert!(offset_of!(A, child) == offset_of!(S, child));
@@ -159,8 +159,35 @@ impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {
 impl<'index, I, TC> RQEIterator<'index> for Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
-    TC: TimeoutContext,
+    TC: TimeoutContext + 'static,
 {
+    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the child in place. A whole-box cast alone is *not* enough
+        // for a type-erased child: its active and suspended forms carry different
+        // `dyn` vtables, so the transition must be dispatched through the child's
+        // own `suspend` — which `suspend_child_slot_in_place` does (a no-op
+        // whole-box cast for concrete children, a vtable swap for erased ones).
+        // The slot is a `MaybeEmpty<I>`, itself an `RQEIterator` that walks
+        // its own `Some(I)` arm.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw mut` forms a field pointer to `child`.
+        let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
+        // dispatches its `suspend` and reinitialises the slot as a valid
+        // `MaybeEmpty<I::Suspended>`.
+        unsafe { suspend_child_slot_in_place(child) };
+        // SAFETY: the child slot now holds its `Suspended` form;
+        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
+        // remaining fields are `Rf`-free — so the allocation is a valid suspended
+        // `RawNot`, layout-identical to the active form by invariant 1 (const
+        // proof above). `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end {
@@ -324,39 +351,6 @@ where
     }
 }
 
-impl<'index, I, TC> RQEIteratorBoxed<'index> for Not<'index, I, TC>
-where
-    I: RQEIteratorBoxed<'index>,
-    TC: TimeoutContext + 'static,
-{
-    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Transition the child in place. A whole-box cast alone is *not* enough
-        // for a type-erased child: its active and suspended forms carry different
-        // `dyn` vtables, so the transition must be dispatched through the child's
-        // own `suspend` — which `suspend_child_slot_in_place` does (a no-op
-        // whole-box cast for concrete children, a vtable swap for erased ones).
-        // The slot is a `MaybeEmpty<I>`, itself an `RQEIteratorBoxed` that walks
-        // its own `Some(I)` arm.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
-        // exclusively owned); `&raw mut` forms a field pointer to `child`.
-        let child = unsafe { &raw mut (*raw).child };
-        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
-        // dispatches its `suspend` and reinitialises the slot as a valid
-        // `MaybeEmpty<I::Suspended>`.
-        unsafe { suspend_child_slot_in_place(child) };
-        // SAFETY: the child slot now holds its `Suspended` form;
-        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
-        // remaining fields are `Rf`-free — so the allocation is a valid suspended
-        // `RawNot`, layout-identical to the active form by invariant 1 (const
-        // proof above). `Box::from_raw` reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
-    }
-}
-
 impl<'query, S, TC> RQESuspendedIterator<'query> for RawNot<'query, Suspended, S, TC>
 where
     S: RQESuspendedIterator<'query>,
@@ -501,9 +495,9 @@ where
     }
 }
 
-impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+impl<'query, Rf: Ref, I, TC> ProfilePrint for RawNot<'query, Rf, I, TC>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

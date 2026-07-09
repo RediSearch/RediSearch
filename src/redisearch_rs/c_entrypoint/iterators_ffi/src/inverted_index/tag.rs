@@ -16,7 +16,7 @@ use inverted_index::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
     ResumeOutcome,
     interop::RQEIteratorWrapper,
     inverted_index::{Tag, TagLookup},
@@ -24,32 +24,21 @@ use rqe_iterators::{
 };
 
 /// Suspended counterpart of [`TagIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// Retains the `'query` lifetime so query-attached borrows stay valid across
 /// the suspend/resume cycle.
 pub(super) enum TagIteratorSuspended<'query> {
     Encoded(
-        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIterator<
+            'query,
+        >>::Suspended,
     ),
     Raw(
-        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIterator<
+            'query,
+        >>::Suspended,
     ),
-}
-
-impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
-    type Suspended = TagIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        match *self {
-            TagIterator::Encoded(t) => Box::new(TagIteratorSuspended::Encoded(
-                *<Tag<'index, _, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
-            )),
-            TagIterator::Raw(t) => Box::new(TagIteratorSuspended::Raw(
-                *<Tag<'index, _, _, _> as RQEIteratorBoxed<'index>>::suspend(Box::new(t)),
-            )),
-        }
-    }
 }
 
 impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
@@ -137,6 +126,21 @@ macro_rules! tag_it_dispatch {
 }
 
 impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        match *self {
+            TagIterator::Encoded(t) => {
+                Box::new(TagIteratorSuspended::Encoded(
+                    *<Tag<'index, _, _, _> as RQEIterator<'index>>::suspend(Box::new(t)),
+                ))
+            }
+            TagIterator::Raw(t) => Box::new(TagIteratorSuspended::Raw(
+                *<Tag<'index, _, _, _> as RQEIterator<'index>>::suspend(Box::new(t)),
+            )),
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         tag_it_dispatch!(self, current)
@@ -346,5 +350,18 @@ impl profile_print::ProfilePrint for TagIterator<'_> {
         ctx: &mut profile_print::ProfilePrintCtx<'_>,
     ) {
         tag_it_dispatch!(self, print_profile, map, ctx);
+    }
+}
+
+impl profile_print::ProfilePrint for TagIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            TagIteratorSuspended::Encoded(t) => t.print_profile(map, ctx),
+            TagIteratorSuspended::Raw(t) => t.print_profile(map, ctx),
+        }
     }
 }

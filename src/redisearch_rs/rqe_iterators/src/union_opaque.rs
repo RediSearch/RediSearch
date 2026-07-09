@@ -31,8 +31,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, UnionFullFlat,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, UnionFullFlat,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -87,7 +87,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionVariant<'static, Active<'static>, AChild>;
     type S = RawUnionVariant<'static, Suspended, SChild>;
     assert!(size_of::<A>() == size_of::<S>());
@@ -162,7 +162,7 @@ macro_rules! delegate_variant_ref_mut {
 ///    and [`query_string`](Self::query_string). So
 ///    `RawUnionOpaque<Active, I>` and `RawUnionOpaque<Suspended, I::Suspended>`
 ///    are layout-identical, which is what lets
-///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`suspend`](RQEIterator::suspend) /
 ///    [`resume`](RQESuspendedIterator::resume) reuse the allocation.
 #[repr(C)]
 pub struct RawUnionOpaque<'query, Rf: Ref, I> {
@@ -187,7 +187,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawUnionOpaque<'static, Active<'static>, AChild>;
     type S = RawUnionOpaque<'static, Suspended, SChild>;
     assert!(offset_of!(A, variant) == offset_of!(S, variant));
@@ -256,7 +256,61 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     }
 }
 
-impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index, I> {
+impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    type Suspended = RawUnionOpaque<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // The const proof on `RawUnionOpaque` fixes a representative child; the
+        // whole-box cast below is generic over `I`, so check every instantiation.
+        const {
+            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
+        };
+
+        let raw = Box::into_raw(self);
+
+        // Each payload goes through the slot helper rather than being covered by
+        // the whole-box cast alone: the inner union's own `suspend` is what
+        // transitions its children. The tag is left untouched, so by invariant 1
+        // on `RawUnionVariant` the cast below lands on the same variant.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match, and each payload is a valid, exclusively-owned value that the
+        // helper leaves as its suspended counterpart at the same address.
+        match unsafe { &mut (*raw).variant } {
+            UnionVariant::FlatFull(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::FlatQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::HeapFull(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::HeapQuick(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            UnionVariant::Trimmed(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+
+        // SAFETY: the variant now holds its suspended form at the same offset
+        // under the same tag; the other fields are `Rf`-free. `Self` and
+        // `Self::Suspended` are layout-compatible per the guard above.
+        // `Box::from_raw` reuses the same allocation, so the box and every
+        // interior address survive the cycle.
+        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_variant_ref_mut!(self, current)
@@ -305,9 +359,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 }
 
-impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawUnionOpaque<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
@@ -516,62 +570,6 @@ unsafe fn build_union_with_q_str_opt(
     let ptr = RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children));
     // SAFETY: `boxed_new_inner` uses `Box::into_raw`, which is guaranteed non-null.
     unsafe { NonNull::new_unchecked(ptr) }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for UnionOpaque<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionOpaque<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // The const proof on `RawUnionOpaque` fixes a representative child; the
-        // whole-box cast below is generic over `I`, so check every instantiation.
-        const {
-            crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
-        };
-
-        let raw = Box::into_raw(self);
-
-        // Each payload goes through the slot helper rather than being covered by
-        // the whole-box cast alone: the inner union's own `suspend` is what
-        // transitions its children. The tag is left untouched, so by invariant 1
-        // on `RawUnionVariant` the cast below lands on the same variant.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned); the `&mut` borrow is confined to the
-        // match, and each payload is a valid, exclusively-owned value that the
-        // helper leaves as its suspended counterpart at the same address.
-        match unsafe { &mut (*raw).variant } {
-            UnionVariant::FlatFull(it) => {
-                // SAFETY: `it` is the valid, exclusively-owned payload.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            UnionVariant::FlatQuick(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            UnionVariant::HeapFull(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            UnionVariant::HeapQuick(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            UnionVariant::Trimmed(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-        }
-
-        // SAFETY: the variant now holds its suspended form at the same offset
-        // under the same tag; the other fields are `Rf`-free. `Self` and
-        // `Self::Suspended` are layout-compatible per the guard above.
-        // `Box::from_raw` reuses the same allocation, so the box and every
-        // interior address survive the cycle.
-        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<'index, Suspended, I::Suspended>) }
-    }
 }
 
 impl<'query, S> RQESuspendedIterator<'query> for RawUnionOpaque<'query, Suspended, S>

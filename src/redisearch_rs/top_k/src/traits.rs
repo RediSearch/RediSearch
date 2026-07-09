@@ -304,7 +304,7 @@ pub trait ScoreSource {
     /// continue.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
-    /// [`suspend`]: rqe_iterators::RQEIteratorBoxed::suspend
+    /// [`suspend`]: rqe_iterators::RQEIterator::suspend
     fn release_index_handles(&mut self);
 
     /// Whether this source can still collect after the index spec read lock

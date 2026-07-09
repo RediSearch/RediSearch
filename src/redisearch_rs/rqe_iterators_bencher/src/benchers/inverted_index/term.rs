@@ -35,7 +35,10 @@ pub struct TermBencher<E> {
 
 impl<E> TermBencher<E>
 where
-    E: Encoder + DecodedBy + OpaqueEncoding,
+    // `E: 'static` is required because `Term<'index>` (an `RQEIterator<'index>`)
+    // now carries an `'index` bound, which propagates a `E: 'index` requirement
+    // onto the encoder. All encoder marker types used here are `'static`.
+    E: Encoder + DecodedBy + OpaqueEncoding + 'static,
     E::Decoder: TermDecoder,
     E::Storage: HasInnerIndex<E>,
 {

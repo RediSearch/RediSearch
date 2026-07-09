@@ -11,8 +11,7 @@
 
 use crate::utils::{Mock, MockVec, create_mock_3, drain_doc_ids};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, TypeErasedRQEIterator,
-    UnionTrimmed,
+    IteratorType, RQEIterator, RQESuspendedIterator, TypeErasedRQEIterator, UnionTrimmed,
 };
 use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::MockContext;

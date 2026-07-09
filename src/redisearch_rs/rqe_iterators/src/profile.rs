@@ -16,8 +16,8 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
 };
 use index_result::RSIndexResult;
@@ -73,7 +73,7 @@ impl ProfileCounters {
 ///    `I::Suspended` are. That child-level compatibility is enforced at
 ///    monomorphization by [`suspend_child_slot_in_place`]; the wrapper's own
 ///    mode-independence is proven by the `const` block below. Together they let
-///    [`suspend`](RQEIteratorBoxed::suspend) reinterpret the owning `Box` in
+///    [`suspend`](RQEIterator::suspend) reinterpret the owning `Box` in
 ///    place.
 #[repr(C)]
 pub struct RawProfile<Rf: Ref, I> {
@@ -106,7 +106,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawProfile<Active<'static>, AChild>;
     type S = RawProfile<Suspended, SChild>;
     assert!(offset_of!(A, child) == offset_of!(S, child));
@@ -173,7 +173,45 @@ impl<Rf: Ref, I> RawProfile<Rf, I> {
     }
 }
 
-impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> {
+impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    type Suspended = RawProfile<Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Suspend the child in place and reuse this box's allocation, mirroring
+        // `resume`. A whole-box cast alone is *not* enough: for a type-erased
+        // child (`TypeErasedRQEIterator`) the active and suspended forms carry
+        // different `dyn` vtables, so the transition must be dispatched through
+        // the child's own `suspend` — reinterpreting the bytes would leave the
+        // active vtable in place and make the later `resume` dispatch through the
+        // wrong vtable (UB). `suspend_child_slot_in_place` performs that dispatch
+        // (a no-op whole-box cast for concrete children, a vtable swap for erased
+        // ones). Reusing the allocation also keeps the box (and child-slot)
+        // address stable, which Profile relies on because it delegates
+        // `current()` — and hence the FFI wrapper's cached `header.current`
+        // pointer — into the child's storage.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned). `&raw mut` forms a field pointer to
+        // the `child` slot without creating a reference.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` points at the valid, exclusively-owned active
+        // child. `suspend_child_slot_in_place` drives the child's own `suspend`
+        // and reinitialises the slot as a valid `I::Suspended` in place.
+        unsafe { suspend_child_slot_in_place(child_slot) };
+        // SAFETY: the child slot now holds a valid `I::Suspended`, so the
+        // allocation is a valid `RawProfile<Suspended, I::Suspended>`: the
+        // `Active` and `Suspended` forms are layout-identical by invariant 1 on
+        // `RawProfile` (const proof above) — `counters`/`wall_time` carry no `Rf`
+        // and `_marker` is a ZST, while the child slot's `I`/`I::Suspended`
+        // size/alignment match is statically enforced by
+        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
+        // allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.child.current()
@@ -235,54 +273,14 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
 use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
 
-impl<'index, I> ProfilePrint for Profile<'index, I>
+impl<Rf: Ref, I> ProfilePrint for RawProfile<Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let counters = self.counters();
         let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns(), self.estimated);
         self.child().print_profile(map, &mut child_ctx);
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for Profile<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawProfile<Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Suspend the child in place and reuse this box's allocation, mirroring
-        // `resume`. A whole-box cast alone is *not* enough: for a type-erased
-        // child (`TypeErasedRQEIterator`) the active and suspended forms carry
-        // different `dyn` vtables, so the transition must be dispatched through
-        // the child's own `suspend` — reinterpreting the bytes would leave the
-        // active vtable in place and make the later `resume` dispatch through the
-        // wrong vtable (UB). `suspend_child_slot_in_place` performs that dispatch
-        // (a no-op whole-box cast for concrete children, a vtable swap for erased
-        // ones). Reusing the allocation also keeps the box (and child-slot)
-        // address stable, which Profile relies on because it delegates
-        // `current()` — and hence the FFI wrapper's cached `header.current`
-        // pointer — into the child's storage.
-        let raw = Box::into_raw(self);
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned). `&raw mut` forms a field pointer to
-        // the `child` slot without creating a reference.
-        let child_slot = unsafe { &raw mut (*raw).child };
-        // SAFETY: `child_slot` points at the valid, exclusively-owned active
-        // child. `suspend_child_slot_in_place` drives the child's own `suspend`
-        // and reinitialises the slot as a valid `I::Suspended` in place.
-        unsafe { suspend_child_slot_in_place(child_slot) };
-        // SAFETY: the child slot now holds a valid `I::Suspended`, so the
-        // allocation is a valid `RawProfile<Suspended, I::Suspended>`: the
-        // `Active` and `Suspended` forms are layout-identical by invariant 1 on
-        // `RawProfile` (const proof above) — `counters`/`wall_time` carry no `Rf`
-        // and `_marker` is a ZST, while the child slot's `I`/`I::Suspended`
-        // size/alignment match is statically enforced by
-        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
-        // allocation, so the box address is preserved.
-        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
     }
 }
 

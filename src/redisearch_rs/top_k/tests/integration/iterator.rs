@@ -16,7 +16,8 @@ use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 use index_result::RSIndexResult;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
+    IdList, RQEIterator, RQEIteratorError, TypeErasedRQEIterator, c2rust::CRQEIterator,
+    interop::ProfileChildren,
 };
 use rqe_iterators_test_utils::ContractChecker;
 use top_k::Ascending;
@@ -32,6 +33,8 @@ use top_k::{
 struct PartialThenTimingOutSource {
     batches_served: usize,
 }
+
+impl top_k::TopKSourceProfile for PartialThenTimingOutSource {}
 
 impl ScoreSource for PartialThenTimingOutSource {
     fn release_index_handles(&mut self) {
@@ -105,6 +108,8 @@ struct TimingOutSource {
     next_batch_calls: usize,
 }
 
+impl top_k::TopKSourceProfile for TimingOutSource {}
+
 impl ScoreSource for TimingOutSource {
     fn release_index_handles(&mut self) {
         // Only a call counter; its batches are built in memory.
@@ -165,8 +170,8 @@ impl ScoreSource for TimingOutSource {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
-    Box::new(IdList::<true>::new(ids))
+fn make_child<'a>(ids: Vec<DocId>) -> TypeErasedRQEIterator<'a> {
+    TypeErasedRQEIterator::new(Box::new(IdList::<true>::new(ids)))
 }
 
 /// A child result carrying the scoring inputs a text match contributes —
@@ -412,7 +417,7 @@ fn failed_collection_is_not_restarted_on_every_read() {
 fn failed_collection_yields_what_it_collected() {
     let mut it = TopKIterator::new_with_mode(
         PartialThenTimingOutSource::default(),
-        None::<Box<dyn RQEIterator<'_>>>,
+        None::<TypeErasedRQEIterator<'_>>,
         NonZeroUsize::new(5).unwrap(),
         Ascending,
         TopKMode::Batches,
@@ -525,7 +530,7 @@ fn batches_multiple_batches() {
 fn batches_no_child(
     batches: Vec<Vec<(DocId, f64)>>,
     k: usize,
-) -> TopKIterator<'static, MockScoreSource, Box<dyn RQEIterator<'static>>> {
+) -> TopKIterator<'static, MockScoreSource, TypeErasedRQEIterator<'static>> {
     let source = MockScoreSource::new(batches, vec![], |_, _| BatchStrategy::Continue);
     TopKIterator::new_with_mode(
         source,
@@ -749,6 +754,8 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         batch_call: u32,
         rewind_count: u32,
     }
+
+    impl top_k::TopKSourceProfile for OnceErrorSource {}
 
     impl ScoreSource for OnceErrorSource {
         fn release_index_handles(&mut self) {
@@ -1008,6 +1015,8 @@ fn adhoc_timeout_propagated() {
     struct TimingOutAdhocSource {
         adhoc_calls: u32,
     }
+    impl top_k::TopKSourceProfile for TimingOutAdhocSource {}
+
     impl ScoreSource for TimingOutAdhocSource {
         fn release_index_handles(&mut self) {
             // Only a call counter; its batches are built in memory.
@@ -1139,7 +1148,7 @@ fn batches_preserves_child_scoring_fields() {
 
     let mut it = ContractChecker::new_unordered(TopKIterator::new(
         source,
-        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        TypeErasedRQEIterator::new(Box::new(child)),
         NonZeroUsize::new(10).unwrap(),
         Ascending,
     ));
@@ -1167,7 +1176,7 @@ fn batches_trim_deep_results_yields_metric_only() {
 
     let mut it = TopKIterator::new(
         source,
-        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        TypeErasedRQEIterator::new(Box::new(child)),
         NonZeroUsize::new(10).unwrap(),
         Ascending,
     )
@@ -1199,7 +1208,7 @@ fn adhoc_trim_deep_results_yields_metric_only() {
 
     let mut it = TopKIterator::new_with_mode(
         source,
-        Some(Box::new(child) as Box<dyn RQEIterator<'_> + '_>),
+        Some(TypeErasedRQEIterator::new(Box::new(child))),
         NonZeroUsize::new(10).unwrap(),
         Ascending,
         TopKMode::AdhocBF,
@@ -1232,7 +1241,7 @@ fn batches_trim_deep_results_preserves_child_metrics() {
 
     let mut it = TopKIterator::new(
         source,
-        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        TypeErasedRQEIterator::new(Box::new(child)),
         NonZeroUsize::new(10).unwrap(),
         Ascending,
     )
@@ -1272,7 +1281,7 @@ fn batches_trim_deep_results_payload_carries_source_score() {
 
     let mut it = TopKIterator::new(
         source,
-        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        TypeErasedRQEIterator::new(Box::new(child)),
         NonZeroUsize::new(10).unwrap(),
         Ascending,
     )

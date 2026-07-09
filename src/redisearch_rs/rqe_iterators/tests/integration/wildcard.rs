@@ -316,7 +316,7 @@ mod via_resume {
     };
     use rqe_core::{DocId, RS_FIELDMASK_ALL};
     use rqe_iterators::{
-        RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+        RQEIterator, RQESuspendedIterator, ResumeOutcome,
         inverted_index::Wildcard as InvIdxWildcard,
         wildcard::{OptimizedWildcard, OptimizedWildcardSuspended},
     };
@@ -595,8 +595,8 @@ mod via_resume {
 ///   type-checks.
 mod disk_via_resume {
     use rqe_iterators::{
-        NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-        ResumeOutcome, wildcard::new_wildcard_iterator_on_disk,
+        NewWildcardIterator, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+        wildcard::new_wildcard_iterator_on_disk,
     };
     use rqe_iterators_test_utils::MockContext;
 
@@ -806,8 +806,7 @@ mod disk_via_resume {
 /// the reused allocation without dropping the consumed payload.
 mod new_wildcard_via_resume {
     use rqe_iterators::{
-        Empty, NewWildcardIterator, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator,
-        ResumeOutcome,
+        Empty, NewWildcardIterator, RQEIterator, RQESuspendedIterator, ResumeOutcome,
         inverted_index::Wildcard as InvIdxWildcard,
         wildcard::{NewWildcardSuspended, OptimizedWildcard, Wildcard},
     };
