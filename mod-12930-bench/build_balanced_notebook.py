@@ -1,4 +1,4 @@
-"""Generate mod12930_balanced.ipynb — the balanced-branches addendum."""
+"""Generate mod12930_balanced.ipynb — the balanced FULL suite."""
 
 import nbformat as nbf
 
@@ -7,19 +7,21 @@ cells = []
 md = lambda s: cells.append(nbf.v4.new_markdown_cell(s))
 code = lambda s: cells.append(nbf.v4.new_code_cell(s))
 
-md("""# MOD-12930 addendum — balanced branches
+md("""# MOD-12930 — balanced full suite
 
-The main matrix never balances the two subqueries: text is either near-zero (selective)
-or dominant (broad). This addendum **calibrates text selectivity until the SEARCH mirror's
-p50 matches the VSIM mirror's** (±20%, geometric bisection on the target match count),
-then measures the same four contenders in that regime. fields=none, depth K/W=1000/2000,
-sizes 100K/500K (at 10K the text branch can't reach vector-branch latency even matching
-the whole corpus).
+Same contenders and axes as the main (imbalanced) suite, but the text query of every
+(size, depth) cell is **calibrated** so the SEARCH mirror's p50 matches the VSIM mirror's
+(±20%, geometric bisection on the target match count; the achieved ratio is recorded).
 
-**What this regime uniquely shows:**
-- **Parallelism gain** `t(w0)/t(w6)` — with equal branches, truly concurrent depletion
-  approaches 2×; anything well below that bounds what workers actually buy.
-- **ε with no dominant branch** — merger + YIELD overhead, not masked by branch skew.""")
+**Why balance:** with skewed branches, `hybrid ≈ max + C` and `hybrid ≈ sum + C'` fit the
+same measurement (sum − max = the small branch ≈ noise), so neither concurrency nor
+overhead is identifiable. Equal branches maximize sum − max, so the w0/w6 pair separates
+"branches overlap" from "serial overhead C" and yields C twice, independently.
+
+**Matrix:** size (10K/100K/500K) × depth K/W (10/20, 100/200, 1000/2000 — giving the
+C(WINDOW) curve) × workers (0/6) × fields (none/title+text) × 4 contenders.
+Note: at 10K × depth 1000/2000 balance is unreachable (text maxes out below the vector
+branch) — the cell runs anyway with `balanced=False` and its ratio recorded.""")
 
 code("""import json
 import pandas as pd
@@ -27,38 +29,49 @@ import bench_lib as B
 import balanced_lib as BAL
 
 titles, texts, emb, corpus_max = B.load_data()
-results, gates, meta = BAL.run_balanced(titles, texts, emb, corpus_max)
+results, gates, meta = BAL.run_balanced_full(titles, texts, emb, corpus_max)
 
-with open('results_balanced.json', 'w') as f:
+with open('results_balanced_full.json', 'w') as f:
     json.dump(dict(meta=meta, results=results, gates=gates), f, indent=2, default=str)
-print('saved results_balanced.json')""")
+pd.DataFrame(results).to_csv('results_balanced_full.csv', index=False)
+print('saved results_balanced_full.json / .csv')""")
 
-md("## Gates & calibration")
+md("## Calibration & gates\n\n`balance_ratio` = search p50 / vsim p50 at calibration "
+   "(1.0 = perfect balance; a cell counts as balanced within ±20%).")
 
-code("""print(json.dumps(meta['calibration'], indent=1))
-pd.DataFrame(gates)""")
+code("pd.DataFrame(gates)")
 
-md("## Results — p50 (ms) and parallelism gain\n\n"
-   "`gain = p50(workers=0) / p50(workers=6)` per contender. For the hybrids, the ceiling "
-   "with perfectly overlapping equal branches is ≈2× (minus merger/YIELD, which don't "
-   "parallelize); the mirrors are single queries, so their gain should be ≈1.")
+md("## p50 latency (ms)")
 
 code("""df = pd.DataFrame(results)
-p = df.pivot_table(index=['size', 'contender'], columns='workers', values='p50_ms', sort=False)
-p.columns = [f'w{c}_p50_ms' for c in p.columns]
-p['gain_w0/w6'] = (p['w0_p50_ms'] / p['w6_p50_ms']).round(2)
-order = ['hybrid_linear', 'hybrid_rrf', 'search_branch', 'vsim_branch']
-p = p.reindex([(s, c) for s in sorted(df['size'].unique()) for c in order])
+pivot = df.pivot_table(index=['size', 'window', 'workers', 'fields'], columns='contender',
+                       values='p50_ms', sort=False).round(2)
+pivot[['hybrid_linear', 'hybrid_rrf', 'search_branch', 'vsim_branch']]""")
+
+md("""## C — the serial overhead, and the C(WINDOW) curve
+
+fields=none. `C_w0 = hybrid − (search+vsim)`, `C_w6 = hybrid − max(search,vsim)`
+(mean latency). If depletion truly overlaps and C is genuinely serial, the two agree.
+`C/max` says how the overhead compares to running one entire branch.""")
+
+code("""m = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'workers'],
+        columns='contender', values='mean_ms', sort=False)
+mx = m[['search_branch', 'vsim_branch']].max(axis=1)
+sm = m[['search_branch', 'vsim_branch']].sum(axis=1)
+c = pd.DataFrame({'hybrid': m['hybrid_linear'], 'max_branch': mx, 'sum_branch': sm})
+c['C_ms'] = (c['hybrid'] - c['sum_branch']).where(
+    c.index.get_level_values('workers') == 0, c['hybrid'] - c['max_branch'])
+c['C_pct_of_max'] = (100 * c['C_ms'] / c['max_branch'])
+c['gain_hint'] = None
+c.round(2)""")
+
+md("### Parallelism gain per depth (`p50(w0)/p50(w6)`, fields=none)")
+
+code("""p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
+        columns='workers', values='p50_ms', sort=False)
+p.columns = [f'w{c}' for c in p.columns]
+p['gain'] = (p['w0'] / p['w6']).round(2)
 p.round(2)""")
-
-md("### ε in the balanced regime")
-
-code("""m = df.pivot_table(index=['size', 'workers'], columns='contender', values='mean_ms', sort=False)
-eps = m['hybrid_linear'] - m[['search_branch', 'vsim_branch']].max(axis=1)
-pd.DataFrame({'hybrid_mean_ms': m['hybrid_linear'].round(2),
-              'slowest_branch_ms': m[['search_branch', 'vsim_branch']].max(axis=1).round(2),
-              'sum_branches_ms': m[['search_branch', 'vsim_branch']].sum(axis=1).round(2),
-              'eps_vs_max_ms': eps.round(2)})""")
 
 nb["cells"] = cells
 nb["metadata"]["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
