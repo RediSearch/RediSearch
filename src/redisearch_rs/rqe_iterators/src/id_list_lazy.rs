@@ -34,7 +34,11 @@ pub struct IdListLazy<'index, const SORTED: bool> {
     /// The deferred producer. Run once on the first read/skip_to (guarded by
     /// [`produced`](Self::produced)) but **retained** so any state it owns lives as long as this
     /// iterator (see [`Producer`]).
-    producer: Producer<'index>,
+    ///
+    /// `'static` rather than `'index`: the deferred producer captures only raw C pointers and C
+    /// function pointers (never Rust references — see the `NewLazyVectorRangeIterator` FFI
+    /// constructor), so it borrows nothing tied to `'index`.
+    producer: Producer<'static>,
     /// Whether [`producer`](Self::producer) has already run.
     produced: bool,
     /// Upper-bound estimate reported while the producer is still pending (the real count is
@@ -46,7 +50,7 @@ impl<'index, const SORTED: bool> IdListLazy<'index, SORTED> {
     /// Create a lazy ID list. `result` is the reusable result object the inner list yields,
     /// and `num_estimated_hint` is the estimate reported until `producer` runs.
     pub fn new(
-        producer: Producer<'index>,
+        producer: Producer<'static>,
         num_estimated_hint: usize,
         result: RSIndexResult<'index>,
     ) -> Self {
