@@ -10,9 +10,9 @@
 #define __EXT_DEFAULT_H__
 #include "redisearch.h"
 // The scorer- and expander-name macros (TFIDF_SCORER_NAME, DEFAULT_EXPANDER_NAME,
-// ...) are the single source of truth in the Rust `query_eval` crate and
+// ...) are the single source of truth in the Rust `query_types` crate and
 // generated into this header by cheadergen.
-#include "query_eval.h"
+#include "query_types.h"
 
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
