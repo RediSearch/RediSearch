@@ -15,26 +15,31 @@ Same contenders and axes as the main (imbalanced) suite, but the text query of e
 
 **Why balance:** with skewed branches, `hybrid ≈ max + C` and `hybrid ≈ sum + C'` fit the
 same measurement (sum − max = the small branch ≈ noise), so neither concurrency nor
-overhead is identifiable. Equal branches maximize sum − max, so the w0/w6 pair separates
-"branches overlap" from "serial overhead C" and yields C twice, independently.
+overhead is identifiable. Equal branches maximize sum − max, so the workers-0/workers-N
+pair separates "branches overlap" from "serial overhead C" and yields C twice, independently.
 
-**Matrix:** size (10K/100K/500K) × depth K/W (10/20, 100/200, 1000/2000 — giving the
-C(WINDOW) curve) × workers (0/6) × fields (none/title+text) × 4 contenders.
-Note: at 10K × depth 1000/2000 balance is unreachable (text maxes out below the vector
-branch) — the cell runs anyway with `balanced=False` and its ratio recorded.""")
+**Matrix:** size (10K/100K/500K) × depth K/W (10/20, 50/100, 250/500 — giving the
+C(WINDOW) curve) × workers (0/4) × fields (none/title+text) × 4 contenders.
+A cell whose calibration cannot reach balance is recorded with `balanced=False`.""")
 
-code("""import json
+code("""import json, os
 import pandas as pd
-import bench_lib as B
-import balanced_lib as BAL
 
-titles, texts, emb, corpus_max = B.load_data()
-results, gates, meta = BAL.run_balanced_full(titles, texts, emb, corpus_max)
-
-with open('results_balanced_full.json', 'w') as f:
-    json.dump(dict(meta=meta, results=results, gates=gates), f, indent=2, default=str)
-pd.DataFrame(results).to_csv('results_balanced_full.csv', index=False)
-print('saved results_balanced_full.json / .csv')""")
+# Set REUSE_RESULTS=1 to re-render the tables from a previously saved run
+# without re-executing the benchmark.
+if os.environ.get('REUSE_RESULTS') and os.path.exists('results_balanced_full.json'):
+    d = json.load(open('results_balanced_full.json'))
+    results, gates, meta = d['results'], d['gates'], d['meta']
+    print('reusing saved results_balanced_full.json')
+else:
+    import bench_lib as B
+    import balanced_lib as BAL
+    titles, texts, emb, corpus_max = B.load_data()
+    results, gates, meta = BAL.run_balanced_full(titles, texts, emb, corpus_max)
+    with open('results_balanced_full.json', 'w') as f:
+        json.dump(dict(meta=meta, results=results, gates=gates), f, indent=2, default=str)
+    pd.DataFrame(results).to_csv('results_balanced_full.csv', index=False)
+    print('saved results_balanced_full.json / .csv')""")
 
 md("## Calibration & gates\n\n`balance_ratio` = search p50 / vsim p50 at calibration "
    "(1.0 = perfect balance; a cell counts as balanced within ±20%).")
@@ -65,12 +70,13 @@ c['C_pct_of_max'] = (100 * c['C_ms'] / c['max_branch'])
 c['gain_hint'] = None
 c.round(2)""")
 
-md("### Parallelism gain per depth (`p50(w0)/p50(w6)`, fields=none)")
+md("### Parallelism gain per depth (`p50(w0)/p50(w_max)`, fields=none)")
 
-code("""p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
+code("""wmax = df['workers'].max()
+p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
         columns='workers', values='p50_ms', sort=False)
 p.columns = [f'w{c}' for c in p.columns]
-p['gain'] = (p['w0'] / p['w6']).round(2)
+p['gain'] = (p['w0'] / p[f'w{wmax}']).round(2)
 p.round(2)""")
 
 nb["cells"] = cells
