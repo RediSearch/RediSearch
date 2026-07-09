@@ -248,8 +248,11 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
  *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
- * Both modes populate `idx->suffix`; memory mode already bumped `stats->numRecords`
- * for the actual postings written by `TagIndex_WritePostings`.
+ * Record accounting follows the phase that writes the posting:
+ *   - Memory mode writes postings inline in `TagIndex_WritePostings` and counts
+ *     only records accepted by the inverted index.
+ *   - Disk mode reaches this function after the batch commit, so committed tag
+ *     values are counted here while applying the matching in-memory metadata.
  * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;

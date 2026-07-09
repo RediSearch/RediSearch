@@ -224,8 +224,9 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHand
  * postings have already been written, so the trie insert is skipped (existing
  * `InvertedIndex*` values are preserved).
  *
- * Both modes populate `idx->suffix`; memory mode already bumped `stats->numRecords`
- * for the actual postings written by `TagIndex_Index`. */
+ * Record accounting follows the posting write: memory mode accounts accepted
+ * postings in `TagIndex_Index`, and disk mode accounts after the batch commit
+ * in `TagIndex_Commit`. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats);
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
