@@ -138,6 +138,17 @@ impl BuiltInScorer {
     }
 }
 
+/// Whether a node's phrase/slop options force term offsets on their own,
+/// regardless of the scorer.
+///
+/// A phrase/slop constraint — a non-negative `max_slop` or an `in_order`
+/// requirement — needs offsets to filter matches by term position. When this
+/// returns `false` the options impose no such requirement and the scorer alone
+/// decides (see [`BuiltInScorer::needs_offsets`]).
+pub const fn slop_forces_offsets(max_slop: i32, in_order: i32) -> bool {
+    max_slop >= 0 || in_order != 0
+}
+
 /// The scorer a query requested, before any default is applied.
 ///
 /// This reports the query's stated intent as-is; it never substitutes a

@@ -11,7 +11,9 @@
 
 use std::ffi::CString;
 
-use query_types::scorers::{DEFAULT_SCORER_NAME, Scorer, UnknownScorer};
+use query_types::scorers::{
+    BuiltInScorer, DEFAULT_SCORER_NAME, UnknownScorer, slop_forces_offsets,
+};
 use strum::VariantArray;
 
 #[test]
@@ -79,4 +81,21 @@ fn non_proximity_scorers_skip_offsets() {
     ] {
         assert!(!scorer.needs_offsets(), "{scorer:?} should skip offsets");
     }
+}
+
+#[test]
+fn slop_or_order_forces_offsets() {
+    // A non-negative `max_slop` or an `in_order` requirement forces offsets,
+    // regardless of the scorer.
+    assert!(slop_forces_offsets(0, 0));
+    assert!(slop_forces_offsets(5, 0));
+    assert!(slop_forces_offsets(-1, 1));
+    assert!(slop_forces_offsets(3, 0));
+}
+
+#[test]
+fn no_slop_or_order_does_not_force_offsets() {
+    // With no phrase/slop constraint (`max_slop < 0`, `in_order == 0`) the
+    // options impose nothing and the scorer alone decides.
+    assert!(!slop_forces_offsets(-1, 0));
 }
