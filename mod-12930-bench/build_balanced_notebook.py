@@ -19,7 +19,7 @@ overhead is identifiable. Equal branches maximize sum − max, so the workers-0/
 pair separates "branches overlap" from "serial overhead C" and yields C twice, independently.
 
 **Matrix:** size (10K/100K/500K) × depth K/W (10/20, 50/100, 250/500 — giving the
-C(WINDOW) curve) × workers (0/4) × fields (none/title+text) × 4 contenders.
+C(WINDOW) curve) × workers=2 × fields (none/title+text) × 4 contenders.
 A cell whose calibration cannot reach balance is recorded with `balanced=False`.""")
 
 code("""import json, os
@@ -78,6 +78,24 @@ p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
 p.columns = [f'w{c}' for c in p.columns]
 p['gain'] = (p['w0'] / p[f'w{wmax}']).round(2)
 p.round(2)""")
+
+md("""## Merger scenario sweep
+
+C = hybrid − max(search, vsim) with window, size and selectivity varied **independently**
+(the calibrated matrix above ties |matches| to the vector branch's latency). Grid:
+size × window × match-fraction (1% / 10% / 50% of corpus), fields=none.""")
+
+code("""if os.environ.get('REUSE_RESULTS') and os.path.exists('results_merger_sweep.json'):
+    sw = json.load(open('results_merger_sweep.json'))
+    sweep_results, sweep_meta = sw['results'], sw['meta']
+    print('reusing saved results_merger_sweep.json')
+else:
+    import bench_lib as B
+    from merger_sweep import run_sweep
+    sweep_results, sweep_meta = run_sweep(*B.load_data())
+
+sdf = pd.DataFrame(sweep_results)
+sdf.pivot_table(index='window', columns=['size', 'match_frac'], values='C_ms').round(2)""")
 
 nb["cells"] = cells
 nb["metadata"]["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}

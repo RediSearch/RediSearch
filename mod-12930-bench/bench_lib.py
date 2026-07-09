@@ -25,7 +25,7 @@ PORT = 6412
 IDX = "dbpedia"
 
 SIZES = [10_000, 100_000, 500_000]
-WORKERS_VALUES = [0, 4]
+WORKERS_VALUES = [2]
 SELECTIVITIES = ["selective", "medium", "broad"]
 OUT_K = 10  # final output size (LIMIT 0 OUT_K), constant across all cells
 # Per-selectivity retrieval depth: broader text queries get a proportionally deeper

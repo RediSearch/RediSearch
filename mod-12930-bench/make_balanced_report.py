@@ -162,7 +162,8 @@ function segControl(el, options, get, set) {
 const syncW = segControl(document.getElementById("f-workers"),
   [...WORKERS].sort((a, b) => b - a).map(w => ({ name: String(w), value: String(w) })),
   () => state.workers, v => state.workers = Number(v));
-document.getElementById("w-note").textContent = "(0 = sequential depletion, opt-in)";
+document.getElementById("w-note").textContent =
+  WORKERS.includes(0) ? "(0 = sequential depletion, opt-in)" : "";
 const rows = f => DATA.results.filter(r => Object.entries(f).every(([k, v]) => r[k] === v));
 const row1 = f => rows(f)[0];
 const fmt = (x, d) => x >= 1000 ? Math.round(x).toLocaleString("en-US")

@@ -17,7 +17,7 @@ import balanced_lib as BAL
 SIZES = [10_000, 100_000, 500_000]
 WINDOWS = [dict(k=10, window=20), dict(k=50, window=100), dict(k=250, window=500)]
 MATCH_FRACS = [0.01, 0.10, 0.50]
-WORKERS = 4
+WORKERS = 2
 N_WARMUP, N_TIMED = 200, 2000
 
 CONTENDERS = {
@@ -27,8 +27,7 @@ CONTENDERS = {
 }
 
 
-def main():
-    titles, texts, emb, corpus_max = B.load_data()
+def run_sweep(titles, texts, emb, corpus_max):
     q_emb = emb[corpus_max:]
     results = []
 
@@ -75,7 +74,8 @@ def main():
     with open("results_merger_sweep.json", "w") as f:
         json.dump(dict(meta=meta, results=results), f, indent=2)
     print("saved results_merger_sweep.json")
+    return results, meta
 
 
 if __name__ == "__main__":
-    main()
+    run_sweep(*B.load_data())
