@@ -34,6 +34,20 @@ use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
 
+/// Global configuration values consumed by the query evaluator.
+///
+/// These are snapshotted from the process-wide configuration once, at the FFI
+/// entry point, and threaded through evaluation as an explicit parameter rather
+/// than read from global state deep inside the dispatcher.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Config {
+    /// Whether numeric inverted indexes use the compressed on-disk encoding.
+    pub numeric_compress: bool,
+    /// Whether an intersection prioritizes its union children when ordering its
+    /// sub-iterators for evaluation.
+    pub prioritize_intersect_union_children: bool,
+}
+
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
@@ -149,8 +163,9 @@ impl<'index> Evaluated<'index> {
 pub fn qast_iterate<'index>(
     ctx: &'index mut QueryEvalContext,
     root: &QueryNodeRef,
+    config: Config,
 ) -> Evaluated<'index> {
-    eval_node(ctx, root).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
+    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -159,18 +174,19 @@ pub fn qast_iterate<'index>(
 pub fn eval_node<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     match node.as_enum() {
         QueryNode::Null => Some(eval_null()),
         QueryNode::Wildcard => Some(eval_wildcard(ctx, node)),
         QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
-        QueryNode::Optional => Some(eval_optional(ctx, node)),
-        QueryNode::Not => Some(eval_not(ctx, node)),
-        QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact),
-        QueryNode::Union => Some(eval_union(ctx, node)),
-        QueryNode::Numeric { nf } => eval_numeric(ctx, nf),
-        QueryNode::Geo { gf } => eval_geo(ctx, gf),
+        QueryNode::Optional => Some(eval_optional(ctx, node, config)),
+        QueryNode::Not => Some(eval_not(ctx, node, config)),
+        QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact, config),
+        QueryNode::Union => Some(eval_union(ctx, node, config)),
+        QueryNode::Numeric { nf } => eval_numeric(ctx, nf, config),
+        QueryNode::Geo { gf } => eval_geo(ctx, gf, config),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -202,8 +218,12 @@ fn eval_node_c<'index>(
 /// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
 /// reducer can apply its empty-child rules, since a missing child is
 /// equivalent to one that matches nothing.
-fn eval_child_iterator(ctx: &mut QueryEvalContext, child: &QueryNodeRef) -> CRQEIterator {
-    let ptr = match eval_node(&mut *ctx, child) {
+fn eval_child_iterator(
+    ctx: &mut QueryEvalContext,
+    child: &QueryNodeRef,
+    config: Config,
+) -> CRQEIterator {
+    let ptr = match eval_node(&mut *ctx, child, config) {
         Some(ev) => ev.into_c_iterator(),
         None => RQEIteratorWrapper::boxed_new(Empty),
     };
@@ -350,6 +370,7 @@ fn eval_missing<'index>(
 fn eval_optional<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
+    config: Config,
 ) -> Evaluated<'index> {
     debug_assert_eq!(
         node.num_children(),
@@ -361,7 +382,7 @@ fn eval_optional<'index>(
     // `new_optional_iterator` reduces to a wildcard fallback — an empty optional
     // matches every document as a virtual hit.
     let child_node = node.child(0);
-    let child = eval_child_iterator(ctx, &child_node);
+    let child = eval_child_iterator(ctx, &child_node, config);
 
     // SAFETY: the preconditions of `new_optional_iterator` map to
     // `QueryEvalContext::new` invariants:
@@ -407,7 +428,11 @@ fn eval_optional<'index>(
 
 /// `QN_NOT` — logical negation: matches every document *not* matched by its
 /// single child.
-fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> Evaluated<'index> {
+fn eval_not<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    config: Config,
+) -> Evaluated<'index> {
     debug_assert_eq!(
         node.num_children(),
         1,
@@ -425,7 +450,7 @@ fn eval_not<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> E
     // while the inner one is being evaluated and after it returns.
     let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
     let child_node = node.child(0);
-    let child = eval_child_iterator(ctx, &child_node);
+    let child = eval_child_iterator(ctx, &child_node, config);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
     // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
@@ -486,6 +511,7 @@ fn eval_phrase<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
     exact: bool,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     // Query evaluation is single-threaded and walks each AST node exactly once,
     // top-down, so we hold exclusive access to this phrase node and its
@@ -499,14 +525,11 @@ fn eval_phrase<'index>(
 
     let num_children = node.num_children();
     let node_mask = node.opts().field_mask;
-    // SAFETY: `RSGlobalConfig` is the process-wide config instance, read-only here.
-    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
-
     // A single-child intersection is just the child; return it directly.
     if num_children == 1 {
         let mut child = node.child_mut(0);
         child.and_field_mask(node_mask);
-        return eval_node(ctx, child.as_ref());
+        return eval_node(ctx, child.as_ref(), config);
     }
 
     let weight = node.opts().weight;
@@ -530,7 +553,7 @@ fn eval_phrase<'index>(
     for i in 0..num_children {
         let mut child = node.child_mut(i);
         child.and_field_mask(node_mask);
-        children.push(eval_child_iterator(ctx, child.as_ref()));
+        children.push(eval_child_iterator(ctx, child.as_ref(), config));
     }
 
     let result_ptr = match new_intersection_iterator(children) {
@@ -540,7 +563,7 @@ fn eval_phrase<'index>(
             let intersection = Intersection::new_with_slop_order(
                 cs,
                 weight,
-                prioritize_union_children,
+                config.prioritize_intersect_union_children,
                 max_slop,
                 in_order,
             );
@@ -561,7 +584,11 @@ fn eval_phrase<'index>(
 /// `quick_exit` is enabled when the union only needs the matching id set rather
 /// than per-child scores — i.e. inside a `NOT` subtree or when the node's weight
 /// is zero.
-fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) -> Evaluated<'index> {
+fn eval_union<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    config: Config,
+) -> Evaluated<'index> {
     // Parsers and expanders always create unions with 2+ children.
     debug_assert!(
         node.num_children() > 1,
@@ -589,7 +616,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
         .map(|i| {
             let mut child = node.child_mut(i);
             child.and_field_mask(node_mask);
-            eval_child_iterator(ctx, child.as_ref())
+            eval_child_iterator(ctx, child.as_ref(), config)
         })
         .collect();
 
@@ -609,6 +636,7 @@ fn eval_union<'index>(ctx: &'index mut QueryEvalContext, node: &QueryNodeRef) ->
 fn eval_numeric<'index>(
     ctx: &'index mut QueryEvalContext,
     nf: &NumericFilter,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     // The numeric node always carries a field spec; the filter targets that
     // single field by index.
@@ -654,9 +682,6 @@ fn eval_numeric<'index>(
     };
 
     let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { ffi::RSGlobalConfig.numericCompress };
-
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
@@ -664,7 +689,13 @@ fn eval_numeric<'index>(
     //    (well-formed numeric node).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
     let iter = unsafe {
-        build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx, compress)
+        build_numeric_filter_iterator(
+            ctx.sctx(),
+            nf,
+            min_union_iter_heap,
+            &field_ctx,
+            config.numeric_compress,
+        )
     };
 
     iter.map(Evaluated::RustCompound)
@@ -679,6 +710,7 @@ fn eval_numeric<'index>(
 fn eval_geo<'index>(
     ctx: &'index mut QueryEvalContext,
     gf: *mut ffi::GeoFilter,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     let status = ctx.status_ptr();
     // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
@@ -690,9 +722,6 @@ fn eval_geo<'index>(
 
     let sctx = NonNull::from(ctx.sctx());
     let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { ffi::RSGlobalConfig.numericCompress };
-
     // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
     // `&mut` is sound.
     let gf_ref = unsafe { &mut *gf };
@@ -703,7 +732,9 @@ fn eval_geo<'index>(
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.
-    let iter = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, compress) };
+    let iter = unsafe {
+        build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, config.numeric_compress)
+    };
 
     iter.map(Evaluated::RustCompound)
 }
