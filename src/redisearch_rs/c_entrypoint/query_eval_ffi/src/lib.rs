@@ -16,7 +16,28 @@ use ffi::{
     AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions,
     RedisSearchCtx,
 };
-use query_eval::{QueryEvalContext, QueryNodeRef, eval};
+use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+
+/// Snapshot the evaluator's configuration from the process-wide
+/// [`ffi::RSGlobalConfig`].
+///
+/// This is the single point where the query evaluator reads the global config;
+/// the resulting [`Config`] is threaded through evaluation as a parameter.
+fn eval_config() -> Config {
+    // SAFETY: `RSGlobalConfig` is the process-wide config instance, fully
+    // initialised before any query is evaluated, and read-only here. Each field
+    // is a `Copy` scalar read directly out of the static, without forming a
+    // reference to it.
+    let numeric_compress = unsafe { ffi::RSGlobalConfig.numericCompress };
+    // SAFETY: as above.
+    let prioritize_intersect_union_children =
+        unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+
+    Config {
+        numeric_compress,
+        prioritize_intersect_union_children,
+    }
+}
 
 /// Evaluate a single query AST node, producing the corresponding
 /// [`QueryIterator`].
@@ -47,7 +68,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // borrowed only for the duration of this call.
     let node = unsafe { QueryNodeRef::new(n) };
 
-    match eval::eval_node(&mut ctx, &node) {
+    match eval::eval_node(&mut ctx, &node, eval_config()) {
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
@@ -132,5 +153,5 @@ pub unsafe extern "C" fn QAST_Iterate(
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    eval::qast_iterate(&mut ctx, &node).into_c_iterator()
+    eval::qast_iterate(&mut ctx, &node, eval_config()).into_c_iterator()
 }

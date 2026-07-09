@@ -18,7 +18,7 @@ use rqe_core::DocId;
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection, profile_print,
+    intersection::Intersection, profile_print, profile_print::ProfilePrint,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -164,6 +164,24 @@ impl CRQEIterator {
             "The `Rewind` callback is a NULL function pointer"
         );
         self_
+    }
+
+    /// Lower a Rust leaf iterator to the C ABI and adopt it as a [`CRQEIterator`].
+    ///
+    /// Wraps `inner` via [`RQEIteratorWrapper::boxed_new`], so the resulting
+    /// iterator has no `ProfileChildren` callback. Compound iterators must be
+    /// lowered via [`RQEIteratorWrapper::boxed_new_compound`] instead, to keep
+    /// the callback that recurses into their children during profiling.
+    pub fn from_rust_leaf<'index, I>(inner: I) -> Self
+    where
+        I: RQEIterator<'index> + ProfilePrint + 'index,
+    {
+        let ptr = RQEIteratorWrapper::boxed_new(inner);
+        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator` with all
+        // required callbacks populated by `boxed_new`.
+        unsafe { CRQEIterator::new(ptr) }
     }
 
     /// Return a raw pointer to the underlying [`QueryIterator`].
@@ -446,15 +464,7 @@ impl CRQEIterator {
         );
         let profiled = self.profile_children();
         let profile_wrapper = crate::profile::Profile::new(profiled);
-        let ptr = RQEIteratorWrapper::boxed_new(profile_wrapper);
-        // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-        let ptr = unsafe { NonNull::new_unchecked(ptr) };
-        // SAFETY:
-        // 1. `ptr` is valid — `boxed_new` returns a `Box::into_raw` pointer.
-        // 2. Ownership transferred — no other handle exists.
-        // 3. `boxed_new` populates all required callbacks (Read, Free, Rewind, etc.).
-        // 4. Callbacks are implemented by `RQEIteratorWrapper` and are safe to call.
-        unsafe { CRQEIterator::new(ptr) }
+        CRQEIterator::from_rust_leaf(profile_wrapper)
     }
 }
 

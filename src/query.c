@@ -949,17 +949,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
-                                              double weight) {
-  RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
-
-  if (!GeoFilter_Validate(node->gn.gf, q->status)) {
-    return NULL;
-  }
-
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
-}
-
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
@@ -1396,6 +1385,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_PHRASE:
     case QN_UNION:
     case QN_NUMERIC:
+    case QN_GEO:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
@@ -1408,8 +1398,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
-    case QN_GEO:
-      return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:

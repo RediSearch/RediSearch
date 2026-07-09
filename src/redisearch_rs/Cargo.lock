@@ -1743,6 +1743,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "field",
+ "geo",
  "index_result",
  "inverted_index",
  "proptest",
@@ -2353,6 +2354,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field",
+ "geo",
  "index_result",
  "index_spec",
  "inverted_index",

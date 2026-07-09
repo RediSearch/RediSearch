@@ -29,6 +29,7 @@ thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+geo.workspace = true
 proptest = { workspace = true, features = ["std"] }
 query = { workspace = true, features = ["unittest"] }
 query_eval = { path = ".", features = ["unittest"] }

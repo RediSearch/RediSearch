@@ -22,6 +22,7 @@
 //! without going through a C FFI trampoline.
 
 use std::ffi::CStr;
+use std::ptr::NonNull;
 
 use ffi::{QueryIterator, QueryNodeType};
 use index_result::RSIndexResult;
@@ -330,7 +331,41 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 }
 
 /// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]
-/// children, returning a C-ABI [`QueryIterator`] pointer.
+/// children, returning an owning [`NonNull`] pointer to the C-ABI
+/// [`QueryIterator`]. Always succeeds: an empty child set reduces to an
+/// [`Empty`](crate::empty::Empty) iterator rather than a NULL pointer.
+///
+/// This variant stores no borrowed data in the returned iterator, so it has no
+/// caller preconditions and is safe. To attach a query string for profiling
+/// output, use [`build_union_with_q_str`].
+///
+/// See [`build_union_with_q_str`] for the reduction and variant-selection logic.
+pub fn build_union(
+    children: Vec<CRQEIterator>,
+    quick_exit: bool,
+    min_union_iter_heap: usize,
+    type_: QueryNodeType,
+    weight: f64,
+) -> NonNull<QueryIterator> {
+    // SAFETY: `q_str` is `None`, so no borrow is stored in the returned
+    // iterator; the `build_union_with_q_str` precondition is vacuously satisfied.
+    unsafe {
+        build_union_with_q_str_opt(
+            children,
+            quick_exit,
+            min_union_iter_heap,
+            type_,
+            None,
+            weight,
+        )
+    }
+}
+
+/// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]
+/// children, attaching `q_str` as the query string shown in profiling output.
+/// Returns an owning [`NonNull`] pointer to the C-ABI [`QueryIterator`]; always
+/// succeeds (an empty child set reduces to an [`Empty`](crate::empty::Empty)
+/// iterator rather than a NULL pointer).
 ///
 /// Applies the union reduction and variant-selection logic of
 /// [`new_union_iterator`](crate::union_reducer::new_union_iterator): empty
@@ -340,30 +375,60 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 /// [`union_profile_children`] callback so the still-C-driven profiler can
 /// recurse into the children.
 ///
-/// Shared by the FFI `NewUnionIterator` constructor and the Rust `query_eval`
-/// dispatcher so both build the identical C-boundary shape.
+/// Callers with no query string should use the safe [`build_union`] instead.
 ///
 /// # Safety
 ///
-/// `q_str`, when [`Some`], must stay live and unchanged for as long as the
-/// returned iterator exists. The borrow is stored in the [`UnionOpaque`] and
-/// read back when the C-driven profiler prints the iterator, but its
-/// `'index` lifetime is erased once the iterator is leaked to a raw
-/// `*mut QueryIterator`, so the borrow checker cannot enforce this — the
-/// caller must guarantee the string outlives the returned iterator.
-pub unsafe fn build_union(
+/// `q_str` must stay live and unchanged for as long as the returned iterator
+/// exists. The borrow is stored in the [`UnionOpaque`] and read back when the
+/// C-driven profiler prints the iterator, but its `'index` lifetime is erased
+/// once the iterator is leaked to a raw `*mut QueryIterator`, so the borrow
+/// checker cannot enforce this — the caller must guarantee the string outlives
+/// the returned iterator.
+pub unsafe fn build_union_with_q_str(
+    children: Vec<CRQEIterator>,
+    quick_exit: bool,
+    min_union_iter_heap: usize,
+    type_: QueryNodeType,
+    q_str: &CStr,
+    weight: f64,
+) -> NonNull<QueryIterator> {
+    // SAFETY: the caller guarantees `q_str` outlives the returned iterator.
+    unsafe {
+        build_union_with_q_str_opt(
+            children,
+            quick_exit,
+            min_union_iter_heap,
+            type_,
+            Some(q_str),
+            weight,
+        )
+    }
+}
+
+/// Shared implementation of [`build_union`] and [`build_union_with_q_str`].
+///
+/// # Safety
+///
+/// `q_str`, when [`Some`], must outlive the returned iterator (see
+/// [`build_union_with_q_str`]). `None` imposes no preconditions.
+unsafe fn build_union_with_q_str_opt(
     children: Vec<CRQEIterator>,
     quick_exit: bool,
     min_union_iter_heap: usize,
     type_: QueryNodeType,
     q_str: Option<&CStr>,
     weight: f64,
-) -> *mut QueryIterator {
+) -> NonNull<QueryIterator> {
     use crate::union_reducer::{NewUnionIterator, new_union_iterator};
 
     let variant = match new_union_iterator(children, quick_exit, min_union_iter_heap) {
-        NewUnionIterator::ReducedEmpty(empty) => return RQEIteratorWrapper::boxed_new(empty),
-        NewUnionIterator::ReducedSingle(child) => return child.into_raw().as_ptr(),
+        NewUnionIterator::ReducedEmpty(empty) => {
+            let ptr = RQEIteratorWrapper::boxed_new(empty);
+            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
+            return unsafe { NonNull::new_unchecked(ptr) };
+        }
+        NewUnionIterator::ReducedSingle(child) => return child.into_raw(),
         NewUnionIterator::Flat(flat) => UnionVariant::FlatFull(flat),
         NewUnionIterator::FlatQuick(flat) => UnionVariant::FlatQuick(flat),
         NewUnionIterator::Heap(heap) => UnionVariant::HeapFull(heap),
@@ -376,5 +441,7 @@ pub unsafe fn build_union(
         query_string: q_str.map(SharedPtr::from_ref),
     };
     dispatch.set_result_weight(weight);
-    RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
+    let ptr = RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children));
+    // SAFETY: `boxed_new_inner` uses `Box::into_raw`, which is guaranteed non-null.
+    unsafe { NonNull::new_unchecked(ptr) }
 }

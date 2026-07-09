@@ -160,6 +160,15 @@ QueryIterator *NewEmptyIterator(void);
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 
 /**
+ *
+ * # Safety
+ *
+ * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ */
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
+
+/**
  * Creates a new iterator over a list of sorted document IDs.
  *
  * # Safety
@@ -202,6 +211,27 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
 /**
+ * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
+ *
+ * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
+ * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
+ * Each range is queried via the numeric range tree; per-record distance filtering is applied
+ * by `FilterGeoReader` in the `inverted_index` crate.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+ *    lifetime of all returned iterators.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
+ * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
+ *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
+ *      freed by `GeoFilter_Free`.
+ * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
+ */
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
+
+/**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
@@ -236,27 +266,6 @@ bool IsWildcardIterator(const QueryIterator *it);
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
- * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
- *
- * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
- * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
- * Each range is queried via the numeric range tree; per-record distance filtering is applied
- * by `FilterGeoReader` in the `inverted_index` crate.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
- *    lifetime of all returned iterators.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
- * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
- *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
- *      freed by `GeoFilter_Free`.
- * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
- */
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -347,6 +356,31 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
  */
 QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+
+/**
+ * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+ *
+ * # Returns
+ *
+ * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+ *   for it yet).
+ * - `NULL` if no sub-ranges in the tree match the filter.
+ * - A single iterator if exactly one sub-range matches.
+ * - A union iterator over all matching sub-ranges otherwise.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ *    for the lifetime of the returned iterator.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+ *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+ *    returned iterator.
+ * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
+ * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ *    index (not a field mask).
+ */
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new union iterator, applying reduction rules and choosing between
@@ -444,15 +478,6 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
- *
- * # Safety
- *
- * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
- * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
- */
-NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
-
-/**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
  *
  * # Safety
@@ -538,31 +563,6 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *    that has been profile-wrapped via `Profile_AddIters`.
  */
 void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
-
-/**
- * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
- *
- * # Returns
- *
- * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
- *   for it yet).
- * - `NULL` if no sub-ranges in the tree match the filter.
- * - A single iterator if exactly one sub-range matches.
- * - A union iterator over all matching sub-ranges otherwise.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
- *    for the lifetime of the returned iterator.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
- * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
- *    index (not a field mask).
- */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new tag inverted index iterator.

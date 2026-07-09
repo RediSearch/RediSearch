@@ -16,6 +16,7 @@ workspace = true
 ffi.workspace = true
 rqe_core.workspace = true
 field.workspace = true
+geo.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
