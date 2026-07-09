@@ -272,6 +272,27 @@ def test_flex_gc_config_defaults_and_set(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_aggregate_config_defaults_are_disk_only(env):
+    """Simulated Flex validates disk syntax but does not lower aggregate caps."""
+    env.expect('CONFIG', 'GET', 'search-max-aggregate-results') \
+        .equal(['search-max-aggregate-results', str(1 << 31)])
+    env.expect('CONFIG', 'GET', 'search-max-aggregate-groups') \
+        .equal(['search-max-aggregate-groups', '1000000'])
+    env.expect(config_cmd(), 'GET', 'MAXAGGREGATERESULTS') \
+        .equal([['MAXAGGREGATERESULTS', 'unlimited']])
+    env.expect(config_cmd(), 'GET', 'MAX_AGGREGATE_GROUPS') \
+        .equal([['MAX_AGGREGATE_GROUPS', '1000000']])
+
+    env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '1000000').ok()
+    env.expect(config_cmd(), 'SET', 'MAX_AGGREGATE_GROUPS', '100000').ok()
+    env.expect('CONFIG', 'GET', 'search-max-aggregate-results') \
+        .equal(['search-max-aggregate-results', '1000000'])
+    env.expect('CONFIG', 'GET', 'search-max-aggregate-groups') \
+        .equal(['search-max-aggregate-groups', '100000'])
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(
     True,
     module_args='FORK_GC_RUN_INTERVAL 60 FORK_GC_CLEAN_THRESHOLD 500',
