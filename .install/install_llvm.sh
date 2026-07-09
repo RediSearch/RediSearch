@@ -71,7 +71,14 @@ install_from_tarball() {
 # Same pattern rocky_linux_8.sh uses for its gcc-toolset shims.
 link_tools_for_fresh_shells() {
     local bindir="${INSTALL_DIR}/bin"
+    local destdir="/usr/local/bin"
     local tool target
+
+    if ! $MODE mkdir -p "$destdir"; then
+        echo "ERROR: cannot create ${destdir}; rerun with sudo or add ${bindir} to PATH manually" >&2
+        return 1
+    fi
+
     # ld.lld-${LLVM_VER} matters beyond fresh shells: once lld-${LLVM_VER} is
     # on PATH, build.sh links with -fuse-ld=lld-${LLVM_VER}, and clang
     # resolves that name by looking for an executable literally called
@@ -82,8 +89,15 @@ link_tools_for_fresh_shells() {
         # names; resolve to whichever exists.
         target="${bindir}/${tool}"
         [[ -e "$target" ]] || target="${bindir}/${tool%-${LLVM_VER}}"
-        [[ -e "$target" ]] || continue
-        $MODE ln -sf "$target" "/usr/local/bin/${tool}" || true
+        if [[ ! -e "$target" ]]; then
+            echo "ERROR: expected LLVM tool '${tool}' not found under ${bindir}" >&2
+            return 1
+        fi
+
+        if ! $MODE ln -sf "$target" "${destdir}/${tool}"; then
+            echo "ERROR: failed to link ${destdir}/${tool} -> ${target}" >&2
+            return 1
+        fi
     done
 }
 
