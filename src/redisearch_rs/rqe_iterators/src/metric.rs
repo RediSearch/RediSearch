@@ -47,8 +47,8 @@ pub type MetricSortedByScore<'index> = Metric<'index, false>;
 /// the wrapped `RawIdList` (whose `result` field is `Rf`-typed); the metric
 /// data is owned and has no `Rf` dependency.
 #[repr(C)]
-pub struct RawMetric<Rf: Ref, const SORTED_BY_ID: bool> {
-    base: RawIdList<Rf, SORTED_BY_ID>,
+pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
+    base: RawIdList<'query, Rf, SORTED_BY_ID>,
     metric_data: OwnedSlice<f64>,
     type_: MetricType,
     own_key: *mut RLookupKey,
@@ -63,9 +63,9 @@ pub struct RawMetric<Rf: Ref, const SORTED_BY_ID: bool> {
 
 /// Alias for an [`Active`] [`RawMetric`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Metric<'index, const SORTED_BY_ID: bool> = RawMetric<Active<'index>, SORTED_BY_ID>;
+pub type Metric<'index, const SORTED_BY_ID: bool> = RawMetric<'index, Active<'index>, SORTED_BY_ID>;
 
-impl<Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<Rf, SORTED_BY_ID> {
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
     fn drop(&mut self) {
         if !self.key_handle.is_null() {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely

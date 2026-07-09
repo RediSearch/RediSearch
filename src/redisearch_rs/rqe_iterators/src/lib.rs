@@ -87,20 +87,20 @@ pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
 #[derive(Debug)]
 /// The outcome of [`RQEIterator::skip_to`], generic over the [`Ref`] mode.
-pub enum SkipToOutcomeRaw<'iterator, Rf: Ref> {
+pub enum SkipToOutcomeRaw<'iterator, 'query, Rf: Ref> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator mut RawIndexResult<Rf>),
+    Found(&'iterator mut RawIndexResult<'query, Rf>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator mut RawIndexResult<Rf>),
+    NotFound(&'iterator mut RawIndexResult<'query, Rf>),
 }
 
 /// Manual `PartialEq` impl with a transitive bound on
-/// `RawIndexResult<Rf>: PartialEq` — only [`Active`] satisfies this
+/// `RawIndexResult<'query, Rf>: PartialEq` — only [`Active`] satisfies this
 /// (see [`ref_mode`]).
-impl<'iterator, Rf: Ref> PartialEq for SkipToOutcomeRaw<'iterator, Rf>
+impl<'iterator, 'query, Rf: Ref> PartialEq for SkipToOutcomeRaw<'iterator, 'query, Rf>
 where
-    RawIndexResult<Rf>: PartialEq,
+    RawIndexResult<'query, Rf>: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -117,7 +117,7 @@ where
 /// [`SkipToOutcomeRaw`] exists so the iterator structs can store function
 /// pointers whose signatures are uniform across `Active`/`Suspended`
 /// instantiations.
-pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, Active<'index>>;
+pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, Active<'index>>;
 
 #[derive(Debug, Error)]
 /// An iterator failure indications

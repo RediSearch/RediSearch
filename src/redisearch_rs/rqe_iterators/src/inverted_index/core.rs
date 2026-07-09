@@ -39,7 +39,7 @@ use crate::{
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
-pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
+pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker> {
     /// The reader used to iterate over the inverted index.
     pub(super) reader: R,
     /// if we reached the end of the index.
@@ -47,7 +47,7 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
     /// the last document ID read by the iterator.
     last_doc_id: DocId,
     /// A reusable result object to avoid allocations on each `read` call.
-    pub(super) result: RawIndexResult<Rf>,
+    pub(super) result: RawIndexResult<'query, Rf>,
 
     /// The expiration checker used to determine if documents are expired.
     expiration_checker: E,
@@ -55,7 +55,7 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
-    read_impl: fn(&mut Self) -> Result<Option<&mut RawIndexResult<Rf>>, RQEIteratorError>,
+    read_impl: fn(&mut Self) -> Result<Option<&mut RawIndexResult<'query, Rf>>, RQEIteratorError>,
     /// The implementation of the [`skip_to`](RQEIterator::skip_to) method.
     #[expect(
         clippy::type_complexity,
@@ -63,12 +63,13 @@ pub struct RawInvIndIterator<Rf: Ref, R, E = NoOpChecker> {
                   would hide the Rf dependency that drives transmute soundness across modes."
     )]
     skip_to_impl:
-        fn(&mut Self, DocId) -> Result<Option<SkipToOutcomeRaw<'_, Rf>>, RQEIteratorError>,
+        fn(&mut Self, DocId) -> Result<Option<SkipToOutcomeRaw<'_, 'query, Rf>>, RQEIteratorError>,
 }
 
 /// Alias for an [`Active`] [`RawInvIndIterator`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type InvIndIterator<'index, R, E = NoOpChecker> = RawInvIndIterator<Active<'index>, R, E>;
+pub type InvIndIterator<'index, R, E = NoOpChecker> =
+    RawInvIndIterator<'index, Active<'index>, R, E>;
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where

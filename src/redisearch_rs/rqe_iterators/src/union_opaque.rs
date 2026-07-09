@@ -43,17 +43,17 @@ use index_spec::IndexSpecReadGuard;
 /// Enum holding all possible union iterator variants, parameterised over a
 /// [`Ref`] mode. See [`UnionVariant`] for the [`Active`] instantiation.
 #[repr(C)]
-pub enum RawUnionVariant<Rf: Ref, I> {
-    FlatFull(RawUnionFlat<Rf, I, false>),
-    FlatQuick(RawUnionFlat<Rf, I, true>),
-    HeapFull(RawUnionHeap<Rf, I, false>),
-    HeapQuick(RawUnionHeap<Rf, I, true>),
-    Trimmed(RawUnionTrimmed<Rf, I>),
+pub enum RawUnionVariant<'query, Rf: Ref, I> {
+    FlatFull(RawUnionFlat<'query, Rf, I, false>),
+    FlatQuick(RawUnionFlat<'query, Rf, I, true>),
+    HeapFull(RawUnionHeap<'query, Rf, I, false>),
+    HeapQuick(RawUnionHeap<'query, Rf, I, true>),
+    Trimmed(RawUnionTrimmed<'query, Rf, I>),
 }
 
 /// Alias for an [`Active`] [`RawUnionVariant`] — the only instantiation
 /// with a callable surface today.
-pub type UnionVariant<'index, I> = RawUnionVariant<Active<'index>, I>;
+pub type UnionVariant<'index, I> = RawUnionVariant<'index, Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionVariant<'index, I> {
     /// Converts this variant in place to [`UnionVariant::Trimmed`], switching
@@ -115,8 +115,8 @@ macro_rules! delegate_variant_ref_mut {
 /// Parameterised over a [`Ref`] mode — see [`UnionOpaque`] for the
 /// [`Active`] instantiation that implements [`RQEIterator`].
 #[repr(C)]
-pub struct RawUnionOpaque<Rf: Ref, I> {
-    pub variant: RawUnionVariant<Rf, I>,
+pub struct RawUnionOpaque<'query, Rf: Ref, I> {
+    pub variant: RawUnionVariant<'query, Rf, I>,
     pub query_node_type: QueryNodeType,
     /// Borrowed C string describing the query (e.g. the search term), or
     /// [`None`] when the union has no associated query string.
@@ -131,7 +131,7 @@ pub struct RawUnionOpaque<Rf: Ref, I> {
 
 /// Alias for an [`Active`] [`RawUnionOpaque`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type UnionOpaque<'index, I> = RawUnionOpaque<Active<'index>, I>;
+pub type UnionOpaque<'index, I> = RawUnionOpaque<'index, Active<'index>, I>;
 
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.

@@ -27,7 +27,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// Parameterised over a [`Ref`] mode — see [`Optional`] for the [`Active`]
 /// instantiation that implements [`RQEIterator`].
 #[repr(C)]
-pub struct RawOptional<Rf: Ref, I> {
+pub struct RawOptional<'query, Rf: Ref, I> {
     /// Inclusive upper bound on document identifiers to iterate over.
     /// Reads from the [`Optional::child`] beyond this bound are ignored.
     /// If the [`Optional::child`] ends before this bound, this [`Optional`] iterator yields virtual
@@ -43,7 +43,7 @@ pub struct RawOptional<Rf: Ref, I> {
     ///
     /// Only for actual virtual results do we return a reference to it in
     /// functions such as Read/SkipTo.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 
     /// The child [`RQEIterator`] provided at construction time.
     /// It is used while it can still produce results. Once exhausted,
@@ -106,7 +106,7 @@ impl<I> OptionalChild<I> {
 
 /// Alias for an [`Active`] [`RawOptional`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Optional<'index, I> = RawOptional<Active<'index>, I>;
+pub type Optional<'index, I> = RawOptional<'index, Active<'index>, I>;
 
 impl<'index, I> Optional<'index, I>
 where

@@ -45,14 +45,15 @@ use super::{InvIndIterator, core::RawInvIndIterator};
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
 #[repr(C)]
-pub struct RawTag<Rf: Ref, E, C = crate::expiration_checker::NoOpChecker> {
-    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>,
+pub struct RawTag<'query, Rf: Ref, E, C = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, C>,
     tag_index: NonNull<TagIndex>,
 }
 
 /// Alias for an [`Active`] [`RawTag`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Tag<'index, E, C = crate::expiration_checker::NoOpChecker> = RawTag<Active<'index>, E, C>;
+pub type Tag<'index, E, C = crate::expiration_checker::NoOpChecker> =
+    RawTag<'index, Active<'index>, E, C>;
 
 impl<'index, E, C> Tag<'index, E, C>
 where
