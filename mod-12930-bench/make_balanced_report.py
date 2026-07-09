@@ -2,11 +2,18 @@
 Separate artifact — does NOT touch mod12930_report.html (the imbalanced suite)."""
 
 import json
+import os
 
 with open("results_balanced_full.json") as f:
     data = json.load(f)
 
-payload = json.dumps({"meta": data["meta"], "results": data["results"], "gates": data["gates"]})
+sweep = None
+if os.path.exists("results_merger_sweep.json"):
+    with open("results_merger_sweep.json") as f:
+        sweep = json.load(f)
+
+payload = json.dumps({"meta": data["meta"], "results": data["results"], "gates": data["gates"],
+                      "sweep": sweep})
 
 html = r"""<!DOCTYPE html>
 <html lang="en">
@@ -95,6 +102,13 @@ th.l, td.l { text-align: left; }
     <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (|matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: keys only; right: with document loading.</p>
     <div class="legend" id="legend-c"></div>
     <div class="panels" id="chart-c-top"></div>
+  </div>
+
+  <div class="card" id="sweep-card" style="display:none">
+    <h2 id="sweep-title">Merger overhead C vs |matches|</h2>
+    <p class="sub" id="sweep-sub"></p>
+    <div class="legend" id="legend-s"></div>
+    <div class="panels" id="chart-sweep"></div>
   </div>
 
   <div class="card">
@@ -441,7 +455,38 @@ function renderTable() {
     });
 }
 
+function renderSweep() {
+  const S = DATA.sweep;
+  if (!S || !S.results || !S.results.length) return;
+  document.getElementById("sweep-card").style.display = "";
+  const FRACS = [...new Set(S.results.map(r => r.match_frac))].sort((a, b) => a - b);
+  const SWINDOWS = [...new Set(S.results.map(r => r.window))].sort((a, b) => a - b);
+  const SSIZES = [...new Set(S.results.map(r => r.size))].sort((a, b) => a - b);
+  document.getElementById("sweep-title").textContent =
+    `Merger overhead C vs |matches| — window, size and selectivity varied independently — workers=${S.meta.workers}, fields=${S.meta.fields}`;
+  document.getElementById("sweep-sub").textContent =
+    `C = hybrid mean − max(search, vsim) (dedicated sweep, ${S.meta.n_timed} reps/cell). ` +
+    `Each panel holds WINDOW fixed; x = text-match fraction of the corpus, one line per size ` +
+    `(absolute |matches| in the tooltip — it spans ~50× within a panel). Checks whether C is ` +
+    `connected to the scenario (selectivity, size) or set by WINDOW alone.`;
+  legend("legend-s", SSIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
+  const box = document.getElementById("chart-sweep"); box.textContent = "";
+  SWINDOWS.forEach(w => {
+    const series = SSIZES.map((s, i) => ({
+      name: sizeName(s), color: css(SIZE_V[i]),
+      values: FRACS.map(f => {
+        const r = S.results.find(x => x.size === s && x.window === w && x.match_frac === f);
+        return r ? r.C_ms : null;
+      }),
+    }));
+    // tooltip augmentation: linePanel shows values; absolute matches carried via name lookup
+    const p = panelBox(box, `WINDOW=${w} — C (ms)`, "");
+    p.appendChild(linePanel(series, FRACS.map(f => (100 * f) + "%"), { xname: "match frac", unit: " ms" }));
+  });
+}
+
 function render() {
+  renderSweep();
   syncW();
   document.getElementById("table-sub").textContent =
     `The full table view (workers=${state.workers}) — every number reachable without hover.`;
