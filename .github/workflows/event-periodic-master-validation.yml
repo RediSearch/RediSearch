@@ -155,6 +155,9 @@ jobs:
   get-latest-redis-tag:
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
     runs-on: ubuntu-slim
     outputs:
       tag: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
