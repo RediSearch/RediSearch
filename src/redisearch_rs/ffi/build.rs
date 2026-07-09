@@ -527,7 +527,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`.
-    "query_node_type.h",
+    "query_types.h",
     // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
     "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
@@ -594,7 +594,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
 const BLOCKLIST_FILES: &[&str] = &[
     ".*/document_rs.h",
     ".*/numeric_range_tree.h",
-    ".*/query_node_type.h",
+    ".*/query_types.h",
     ".*/query_term.h",
     ".*/query_term_ffi.h",
     ".*/rqe_iterator_type.h",

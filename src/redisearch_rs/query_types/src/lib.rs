@@ -14,7 +14,7 @@
 //! `QueryNodeType`, `QueryNodeFlags`, and `QASTValidationFlags` are the source
 //! of truth for query node type discriminants, per-node flags, and AST-level
 //! validation flags, shared between Rust and C. cheadergen generates the C
-//! header (`query_node_type.h`) from this crate, and the C headers
+//! header (`query_types.h`) from this crate, and the C headers
 //! `query_node.h` and `query.h` include it.
 //!
 //! If these types lived inside a larger crate, its generated header would need
@@ -23,7 +23,7 @@
 //! creating a circular include.
 //!
 //! By placing the enums in their own crate with their own header, we break
-//! the cycle: `query_node.h` includes `query_node_type.h` (tiny, no other
+//! the cycle: `query_node.h` includes `query_types.h` (tiny, no other
 //! includes), and other generated headers can include `query_node.h` without
 //! circularity.
 

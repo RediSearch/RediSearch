@@ -10,7 +10,7 @@
 //! Main query evaluation dispatcher.
 //!
 //! Converts a parsed query AST node into an executable iterator tree by
-//! dispatching on the [`QueryNodeType`](query_node_type::QueryNodeType) discriminant.
+//! dispatching on the [`QueryNodeType`](query_types::QueryNodeType) discriminant.
 
 use std::ptr::NonNull;
 
