@@ -3,6 +3,7 @@ import distro
 from includes import *
 import threading
 import random
+import os
 
 from vecsim_utils import *
 from common import (
@@ -27,6 +28,11 @@ from common import (
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
+
+def svs_pool_cap(workers):
+    """The shared SVS pool is capped at the CPUs available to the process (MOD-16610),
+    so the expected pool size for a WORKERS value is min(workers, available CPUs)."""
+    return min(workers, len(os.sched_getaffinity(0)))
 
     # Simple platform-agnostic check for Intel CPU.
 def is_intel_opt_supported():
@@ -274,6 +280,10 @@ def test_svs_threadpool_lazy_init():
     index attaches — so a server with no SVS index reports exactly 0.
     """
     workers = 4
+    if svs_pool_cap(workers) < 2:
+        # The pool is capped at the CPU count; with an effective size of 1 there are zero
+        # worker slots and no pool-tracked bytes, making the growth assertion vacuous.
+        raise SkipTest("needs at least 2 available CPUs")
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
 
     # A non-SVS (HNSW) index exercises FT.DEBUG VECSIM_INFO without involving SVS
@@ -378,9 +388,16 @@ def test_svs_shared_threadpool_memory_info():
     env.execute_command(config_cmd(), 'SET', 'WORKERS', grown_workers)
 
     after = measure()
-    env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
-                      message=f"SHARED_MEMORY should grow when workers go from "
-                              f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    # The pool is capped at the CPU count, so growth is only expected when the cap
+    # leaves room between the two sizes (e.g. on a 2-CPU runner 2 -> 4 is a no-op).
+    if svs_pool_cap(grown_workers) > svs_pool_cap(initial_workers):
+        env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                          message=f"SHARED_MEMORY should grow when workers go from "
+                                  f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    else:
+        env.assertEqual(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                        message=f"SHARED_MEMORY should not change when both {initial_workers} and "
+                                f"{grown_workers} workers are capped at the CPU count: before={before}, after={after}")
     assert_invariants('after resize', after)
 
     # Both FT.INFO and INFO MODULES vector memory grow by exactly the pool growth
@@ -528,10 +545,10 @@ def change_threads(initial_workers, final_workers):
     prev_last_reserved_num_threads = 0
     def verify_num_threads(expected_num_threads, expected_reserved_num_threads, message):
         nonlocal prev_last_reserved_num_threads
-        # zero workers is also considered as 1 thread
-        expected_num_threads = 1 if expected_num_threads == 0 else expected_num_threads
+        # zero workers is also considered as 1 thread; the pool is capped at the CPU count
+        expected_num_threads = 1 if expected_num_threads == 0 else svs_pool_cap(expected_num_threads)
         for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
-            expected_reserved_num_threads = 1 if expected_reserved_num_threads == 0 else expected_reserved_num_threads
+            expected_reserved_num_threads = 1 if expected_reserved_num_threads == 0 else svs_pool_cap(expected_reserved_num_threads)
             tiered_debug_info = get_tiered_backend_debug_info(con, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
             num_threads = tiered_debug_info['NUM_THREADS']
             last_reserved_num_threads = tiered_debug_info['LAST_RESERVED_NUM_THREADS']
@@ -570,6 +587,32 @@ def test_change_threads_turn_off():
     change_threads(4, 0)
 def test_change_threads_increase():
     change_threads(3, 5)
+
+@skip(cluster=True)
+def test_svs_pool_capped_at_cpu_count():
+    """CONFIG SET WORKERS above the process CPU count must cap the shared SVS pool at the
+    CPU count (MOD-16610): SVS threads are compute-bound, so threads beyond the core count
+    add no throughput, and physically resizing to oversubscribed sizes stalls the main
+    thread (booting threads busy-spin and starve each other's start-up handshakes)."""
+    cpus = len(os.sched_getaffinity(0))
+    requested = cpus + 1
+    if requested > 16:
+        # OSS caps WORKERS at MAX_WORKER_THREADS (16), so on machines with >= 16 available
+        # CPUs the cap can never bind. Run the suite under `taskset -c 0-3` to exercise it.
+        raise SkipTest("needs fewer than 16 available CPUs to request WORKERS > CPUs")
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
+    # Trigger the SVS backend (training) so NUM_THREADS is observable in the debug info.
+    set_up_database_with_vectors(env, 2, num_docs=DEFAULT_BLOCK_SIZE, alg='SVS-VAMANA')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                 message="trigger training before growing the pool")
+
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', requested)
+    # The config value itself is never clamped — only the SVS pool size is.
+    env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), requested)
+    tiered_debug_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(tiered_debug_info['NUM_THREADS'], cpus,
+                    message=f"SVS pool should be capped at {cpus} (available CPUs) "
+                            f"when WORKERS={requested}")
 
 @skip(cluster=True)
 def test_drop_index_memory():
