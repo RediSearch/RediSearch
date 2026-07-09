@@ -14,8 +14,8 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -423,6 +423,38 @@ impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait so
+        // dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator),
+        // whose active and suspended forms carry different vtables) correctly
+        // transitions. For concrete-typed `I` this is the same whole-box cast
+        // that the outer composite would otherwise have done, just per-child
+        // instead of per-composite. Either way the inner concrete iterator's
+        // heap address is preserved; only the wrapper bytes (which nothing
+        // external points at) are re-typed.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
+        // the rest of this function, so the children Vec field is reachable
+        // and not aliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for slot in children.iter_mut() {
+            // SAFETY: `slot` is a valid `&mut I`; the function leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
+        }
+        // SAFETY: `RawIntersection` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents — Vec metadata is
+        // identical) and `result: RawIndexResult<Rf>` (layout-compatible
+        // via `SharedPtr` transparency). The active aggregate's borrowed
+        // pointers into children's interiors are still valid because each
+        // child's inner concrete iterator heap was preserved by the
+        // per-child suspend above.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -540,43 +572,6 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait so
-        // dyn-erased `I` (e.g. [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator),
-        // whose active and suspended forms carry different vtables) correctly
-        // transitions. For concrete-typed `I` this is the same whole-box cast
-        // that the outer composite would otherwise have done, just per-child
-        // instead of per-composite. Either way the inner concrete iterator's
-        // heap address is preserved; only the wrapper bytes (which nothing
-        // external points at) are re-typed.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned for
-        // the rest of this function, so the children Vec field is reachable
-        // and not aliased.
-        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-        for slot in children.iter_mut() {
-            // SAFETY: `slot` is a valid `&mut I`; the function leaves it in
-            // a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
-        }
-        // SAFETY: `RawIntersection` is `#[repr(C)]` over `Vec<I>` (now byte-
-        // rewritten as `Vec<I::Suspended>` contents — Vec metadata is
-        // identical) and `result: RawIndexResult<Rf>` (layout-compatible
-        // via `SharedPtr` transparency). The active aggregate's borrowed
-        // pointers into children's interiors are still valid because each
-        // child's inner concrete iterator heap was preserved by the
-        // per-child suspend above.
-        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
     }
 }
 
@@ -714,9 +709,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Intersection<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawIntersection<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"INTERSECT");

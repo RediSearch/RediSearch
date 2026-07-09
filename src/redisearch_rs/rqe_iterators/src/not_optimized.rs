@@ -13,10 +13,9 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, WildcardIterator,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, WildcardIterator,
     maybe_empty::MaybeEmpty,
-    not::NotIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
 };
@@ -147,7 +146,7 @@ where
     /// Returns `Ok(true)` if a valid result was found (stored in
     /// `self.result.doc_id`), `Ok(false)` if EOF was reached.
     fn read_inner(&mut self) -> Result<bool, RQEIteratorError> {
-        if self.at_eof() {
+        if self.forced_eof || self.result.doc_id >= self.max_doc_id {
             self.forced_eof = true;
             return Ok(false);
         }
@@ -198,8 +197,25 @@ where
     // Marker enforced at construction (`new`); only generic methods used here.
     W: RQEIterator<'index>,
     I: RQEIterator<'index>,
-    TC: TimeoutContext,
+    TC: TimeoutContext + 'static,
 {
+    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNotOptimized` is `#[repr(C)]`. The only `Rf`-dependent
+        // field is `result: RawIndexResult<Rf>` (layout-compatible via
+        // `SharedPtr` transparency). `W`/`I` are layout-compatible with
+        // `W::Suspended`/`I::Suspended` by the [`RQEIterator`]
+        // contract; `MaybeEmpty<I>` likewise (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
+            )
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -291,31 +307,6 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
-    }
-}
-
-impl<'index, W, I, TC> RQEIteratorBoxed<'index> for NotOptimized<'index, W, I, TC>
-where
-    // Marker enforced at construction (`new`), not on the suspend/resume path.
-    W: RQEIteratorBoxed<'index>,
-    I: RQEIteratorBoxed<'index>,
-    TC: TimeoutContext + 'index + 'static,
-{
-    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNotOptimized` is `#[repr(C)]`. The only `Rf`-dependent
-        // field is `result: RawIndexResult<Rf>` (layout-compatible via
-        // `SharedPtr` transparency). `W`/`I` are layout-compatible with
-        // `W::Suspended`/`I::Suspended` by the [`RQEIteratorBoxed`]
-        // contract; `MaybeEmpty<I>` likewise (see [`MaybeEmpty::suspend`]).
-        // Box::from_raw reuses the same heap allocation.
-        unsafe {
-            Box::from_raw(
-                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
-            )
-        }
     }
 }
 
@@ -415,20 +406,10 @@ where
     }
 }
 
-impl<'index, W, TC> NotIterator<'index> for NotOptimized<'index, W, TypeErasedRQEIterator<'index>, TC>
-where
-    W: crate::WildcardIterator<'index>,
-    TC: TimeoutContext,
-{
-    fn child(&self) -> Option<&dyn RQEIterator<'index>> {
-        NotOptimized::child(self).map(|c| c as &dyn RQEIterator<'index>)
-    }
-}
-
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::RQEIteratorBoxed<'index> + 'index,
+    W: crate::RQEIterator<'index> + 'index,
     TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
@@ -443,10 +424,9 @@ where
     }
 }
 
-impl<'index, W, I, TC> ProfilePrint for NotOptimized<'index, W, I, TC>
+impl<'query, Rf: Ref, W, I, TC> ProfilePrint for RawNotOptimized<'query, Rf, W, I, TC>
 where
-    W: crate::WildcardIterator<'index>,
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

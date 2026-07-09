@@ -17,15 +17,15 @@ use index_result::RSIndexResult;
 use inverted_index::{RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
     interop::RQEIteratorWrapper, inverted_index::Wildcard, profile_print,
 };
 
 /// Suspended counterpart of [`WildcardIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C, u8)]` matches the layout of [`WildcardIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts between the two — see
 /// [`super::tag::TagIteratorSuspended`] for the heap-address
 /// preservation argument.
@@ -38,8 +38,8 @@ use rqe_iterators::{
     reason = "variants are constructed via the #[repr(C, u8)] whole-Box cast in `suspend`, never by name"
 )]
 pub(super) enum WildcardIteratorSuspended<'query> {
-    Encoded(<Wildcard<'query, DocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
-    Raw(<Wildcard<'query, RawDocIdsOnly> as RQEIteratorBoxed<'query>>::Suspended),
+    Encoded(<Wildcard<'query, DocIdsOnly> as RQEIterator<'query>>::Suspended),
+    Raw(<Wildcard<'query, RawDocIdsOnly> as RQEIterator<'query>>::Suspended),
 }
 
 /// Local 3-state outcome carrying the work done while still on the
@@ -50,15 +50,6 @@ enum WildcardResumeOutcome {
     NeedsReseek { last_doc_id: t_docId },
 }
 
-impl<'index> RQEIteratorBoxed<'index> for WildcardIterator<'index> {
-    type Suspended = WildcardIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
-        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended<'index>) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for WildcardIteratorSuspended<'query> {
     type Resumed<'a>
@@ -165,7 +156,15 @@ impl Debug for WildcardIterator<'_> {
     }
 }
 
-impl<'index> rqe_iterators::RQEIterator<'index> for WildcardIterator<'index> {
+impl<'index> RQEIterator<'index> for WildcardIterator<'index> {
+    type Suspended = WildcardIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible enums (see `WildcardIteratorSuspended`).
+        unsafe { Box::from_raw(raw as *mut WildcardIteratorSuspended<'index>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {
@@ -247,6 +246,21 @@ impl profile_print::ProfilePrint for WildcardIterator<'_> {
         match self {
             WildcardIterator::Encoded(w) => w.print_profile(map, ctx),
             WildcardIterator::Raw(w) => w.print_profile(map, ctx),
+        }
+    }
+}
+
+/// Suspended counterpart — required by the `RQESuspendedIterator: ProfilePrint`
+/// supertrait so `FT.PROFILE` can print a suspended tree.
+impl profile_print::ProfilePrint for WildcardIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            WildcardIteratorSuspended::Encoded(w) => w.print_profile(map, ctx),
+            WildcardIteratorSuspended::Raw(w) => w.print_profile(map, ctx),
         }
     }
 }

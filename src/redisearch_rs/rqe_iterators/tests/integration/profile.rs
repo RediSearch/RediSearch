@@ -154,21 +154,25 @@ fn profile_rewind() {
     assert_eq!(profile.counters().read, 3); // counter keeps incrementing
 }
 
-use ffi::ValidateStatus_VALIDATE_OK;
-use rqe_iterators_test_utils::revalidate_via_resume;
+use rqe_iterators::TypeErasedRQEIterator;
+use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
 #[test]
 fn profile_revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = Wildcard::new(10, 1.0);
-    let mut profile = Box::new(Profile::new(child));
+    let mut profile = Profile::new(child);
 
     let _ = profile.read(); // doc 1
     let _ = profile.read(); // doc 2
 
     // Revalidate (Wildcard returns OK)
-    let (mut profile, status) = revalidate_via_resume(profile, &mock_ctx.spec_read());
-    assert_eq!(status, ValidateStatus_VALIDATE_OK);
+    let mut profile = revalidate_via_resume(
+        TypeErasedRQEIterator::new(Box::new(profile)),
+        &mock_ctx.spec_read(),
+    )
+    .expect("resume should not fail")
+    .expect_ok();
 
     // Verify delegation still works
     assert_eq!(profile.last_doc_id(), 2);

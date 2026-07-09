@@ -23,8 +23,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -134,8 +134,8 @@ where
 
 impl<'index, E, C> Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
-    C: ExpirationChecker,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
+    C: ExpirationChecker + 'static,
 {
     /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] after a
     /// GC cycle invalidated the cached block offset. Used by enum-level
@@ -255,10 +255,22 @@ where
 
 impl<'index, E, C> RQEIterator<'index> for Tag<'index, E, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
+    type Suspended = RawTag<'index, Suspended, E, C>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTag` is `#[repr(C)]`. The `Rf`-dependent field is the
+        // inner `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`, whose
+        // layout is identical across modes (see [`InvIndIterator::suspend`]).
+        // `tag_index: NonNull<TagIndex>` carries no `Rf` and survives the
+        // cast unchanged. Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTag<'index, Suspended, E, C>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -307,13 +319,13 @@ where
     }
 }
 
-impl<'index, E, C> ProfilePrint for Tag<'index, E, C>
+impl<'query, Rf: Ref, E, C> ProfilePrint for RawTag<'query, Rf, E, C>
 where
     E: inverted_index::DecodedBy
         + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>
-        + 'index,
+        + 'static,
     <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
-    C: crate::expiration_checker::ExpirationChecker,
+    C: crate::expiration_checker::ExpirationChecker + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TAG");
@@ -321,26 +333,10 @@ where
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
-    }
-}
-
-impl<'index, E, C> RQEIteratorBoxed<'index> for Tag<'index, E, C>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker + 'static,
-{
-    type Suspended = RawTag<'index, Suspended, E, C>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTag` is `#[repr(C)]`. The `Rf`-dependent field is the
-        // inner `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>`, whose
-        // layout is identical across modes (see [`InvIndIterator::suspend`]).
-        // `tag_index: NonNull<TagIndex>` carries no `Rf` and survives the
-        // cast unchanged. Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawTag<'index, Suspended, E, C>) }
+        map.kv_long_long(
+            c"Estimated number of matches",
+            self.it.num_docs_field() as i64,
+        );
     }
 }
 

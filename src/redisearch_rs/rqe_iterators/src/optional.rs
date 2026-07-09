@@ -14,8 +14,8 @@ use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use index_spec::IndexSpecReadGuard;
@@ -27,7 +27,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// with the child stored as a [`TypeErasedRQEIterator`].
 pub trait OptionalIterator<'index>: RQEIterator<'index> {
     /// Returns a shared reference to the child iterator, if any.
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)>;
+    fn child(&self) -> Option<&(dyn crate::RQEDynIterator<'index> + 'index)>;
 
     /// Takes ownership of the child iterator, replacing it with an empty state.
     ///
@@ -47,8 +47,8 @@ pub trait OptionalIterator<'index>: RQEIterator<'index> {
 }
 
 impl<'index> OptionalIterator<'index> for Optional<'index, TypeErasedRQEIterator<'index>> {
-    fn child(&self) -> Option<&(dyn RQEIterator<'index> + 'index)> {
-        Optional::child(self).map(|c| c as &dyn RQEIterator<'index>)
+    fn child(&self) -> Option<&(dyn crate::RQEDynIterator<'index> + 'index)> {
+        Optional::child(self).map(|c| c as &dyn crate::RQEDynIterator<'index>)
     }
 
     fn take_child(&mut self) -> Option<TypeErasedRQEIterator<'index>> {
@@ -211,6 +211,18 @@ impl<'index, I> RQEIterator<'index> for Optional<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawOptional<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawOptional` is `#[repr(C)]`. The only `Rf`-dependent
+        // field is `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` via `SharedPtr` transparency. `Option<I>` ↔ `Option<I::Suspended>`
+        // are layout-compatible by the [`RQEIterator`] contract.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawOptional<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if let Some(child) = self.child.as_mut()
@@ -326,23 +338,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for Optional<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawOptional<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawOptional` is `#[repr(C)]`. The only `Rf`-dependent
-        // field is `result: RawIndexResult<Rf>`, layout-compatible across
-        // `Rf` via `SharedPtr` transparency. `Option<I>` ↔ `Option<I::Suspended>`
-        // are layout-compatible by the [`RQEIteratorBoxed`] contract.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawOptional<'index, Suspended, I::Suspended>) }
-    }
-}
-
 impl<'query, S> RQESuspendedIterator<'query> for RawOptional<'query, Suspended, S>
 where
     S: RQESuspendedIterator<'query>,
@@ -437,9 +432,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Optional<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawOptional<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_single_child(c"OPTIONAL", self.child(), map);

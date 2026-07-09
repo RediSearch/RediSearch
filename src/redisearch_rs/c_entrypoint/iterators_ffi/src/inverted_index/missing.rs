@@ -21,16 +21,16 @@ use inverted_index::{
 use rqe_core::FieldIndex;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    FieldExpirationChecker, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    FieldExpirationChecker, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
     interop::{InnerState, RQEIteratorWrapper},
     inverted_index::Missing,
 };
 
 /// Suspended counterpart of [`MissingIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C, u8)]` matches the layout of [`MissingIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts between the two — see
 /// [`super::tag::TagIteratorSuspended`] for the same argument and
 /// why the previous `match` + `Box::new` shape was unsound.
@@ -41,10 +41,10 @@ use rqe_iterators::{
 )]
 pub(super) enum MissingIteratorSuspended<'query> {
     Encoded(
-        <Missing<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Missing<'query, DocIdsOnly, FieldExpirationChecker> as RQEIterator<'query>>::Suspended,
     ),
     Raw(
-        <Missing<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+        <Missing<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIterator<'query>>::Suspended,
     ),
 }
 
@@ -57,20 +57,6 @@ enum MissingResumeOutcome {
     NeedsReseek { last_doc_id: t_docId },
 }
 
-impl<'index> RQEIteratorBoxed<'index> for MissingIterator<'index> {
-    type Suspended = MissingIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
-        // are both `#[repr(C, u8)]` with the same variant order and
-        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
-        // / `RawMissing<Suspended, E, C>` instantiations are
-        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
-        // `Box::from_raw` reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended<'index>) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for MissingIteratorSuspended<'query> {
     type Resumed<'a>
@@ -237,7 +223,35 @@ impl rqe_iterators::profile_print::ProfilePrint for MissingIterator<'_> {
     }
 }
 
-impl<'index> rqe_iterators::RQEIterator<'index> for MissingIterator<'index> {
+/// Suspended counterpart — required by the `RQESuspendedIterator: ProfilePrint`
+/// supertrait so `FT.PROFILE` can print a suspended tree.
+impl rqe_iterators::profile_print::ProfilePrint for MissingIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            MissingIteratorSuspended::Encoded(m) => m.print_profile(map, ctx),
+            MissingIteratorSuspended::Raw(m) => m.print_profile(map, ctx),
+        }
+    }
+}
+
+impl<'index> RQEIterator<'index> for MissingIterator<'index> {
+    type Suspended = MissingIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `MissingIterator<'index>` and `MissingIteratorSuspended`
+        // are both `#[repr(C, u8)]` with the same variant order and
+        // layout-compatible payloads (the underlying `RawMissing<Active, E, C>`
+        // / `RawMissing<Suspended, E, C>` instantiations are
+        // layout-compatible via `#[repr(C)]` + the `SharedPtr` argument).
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut MissingIteratorSuspended<'index>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         dispatch!(self, current)

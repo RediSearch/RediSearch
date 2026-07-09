@@ -30,8 +30,8 @@ use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, UnionFullFlat,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, UnionFullFlat,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -191,7 +191,53 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     }
 }
 
-impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index, I> {
+impl<'index, I> RQEIterator<'index> for UnionOpaque<'index, I>
+where
+    I: RQEIterator<'index>,
+{
+    type Suspended = RawUnionOpaque<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Per-variant dispatch: each inner Union variant (`UnionFlat`,
+        // `UnionHeap`, `UnionTrimmed`) walks its own children during
+        // `suspend`, correctly transitioning dyn-erased `I` via the vtable.
+        // A whole-box cast at this level alone would skip those per-variant
+        // walks and leave inner children's vtables stale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the variant field is reachable.
+        let variant_slot = unsafe { std::ptr::addr_of_mut!((*raw).variant) };
+        // SAFETY: `variant_slot` is a valid `*mut UnionVariant<...>`;
+        // `ptr::read` moves the value out, leaving the slot logically
+        // uninitialized until the matching `ptr::write` below.
+        let active_variant = unsafe { std::ptr::read(variant_slot) };
+        // The inner variant's own `RQEIterator::suspend` impl walks
+        // its children and produces the suspended form. Per-variant
+        // dispatch ensures dyn-erased `I` correctly transitions its vtable;
+        // a whole-box cast at this outer level alone would skip those walks.
+        let suspended_variant = match active_variant {
+            UnionVariant::FlatFull(it) => RawUnionVariant::FlatFull(*Box::new(it).suspend()),
+            UnionVariant::FlatQuick(it) => RawUnionVariant::FlatQuick(*Box::new(it).suspend()),
+            UnionVariant::HeapFull(it) => RawUnionVariant::HeapFull(*Box::new(it).suspend()),
+            UnionVariant::HeapQuick(it) => RawUnionVariant::HeapQuick(*Box::new(it).suspend()),
+            UnionVariant::Trimmed(it) => RawUnionVariant::Trimmed(*Box::new(it).suspend()),
+        };
+        // SAFETY: `variant_slot` has the same size and alignment as the
+        // suspended variant (both via `#[repr(C, u8)]` over layout-compatible
+        // payloads). Writing reinitialises the slot moved-from above.
+        unsafe {
+            std::ptr::write(
+                variant_slot as *mut RawUnionVariant<'index, Suspended, I::Suspended>,
+                suspended_variant,
+            );
+        }
+        // SAFETY: `RawUnionOpaque` is `#[repr(C)]` over `variant`
+        // (now byte-rewritten as Suspended form via the per-variant
+        // dispatch above), `query_node_type`, and `query_string`.
+        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         delegate_variant_ref_mut!(self, current)
@@ -240,9 +286,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 }
 
-impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawUnionOpaque<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
@@ -275,7 +321,14 @@ where
                 map.kv_simple_string(c"Query type", &value);
             }
             Some(q_str) => {
-                let q_str_rust = q_str.get().to_string_lossy();
+                // SAFETY: `query_string` points at the query AST's C string,
+                // which is query-pipeline data owned outside the index. It
+                // stays valid for `'query` in both the active and suspended
+                // modes (on resume it is promoted, not re-derived — see this
+                // type's `resume`), so reading it here through the
+                // mode-independent raw pointer is sound whether or not the
+                // iterator is currently suspended at the unlock site.
+                let q_str_rust = unsafe { &*q_str.as_raw() }.to_string_lossy();
                 let formatted = format!("{type_str} - {q_str_rust}");
                 // Use string_buffer (bulk string) instead of simple_string: the
                 // query string may contain \r\n which is invalid in RESP Simple
@@ -456,54 +509,6 @@ unsafe fn build_union_with_q_str_opt(
     let ptr = RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children));
     // SAFETY: `boxed_new_inner` uses `Box::into_raw`, which is guaranteed non-null.
     unsafe { NonNull::new_unchecked(ptr) }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for UnionOpaque<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionOpaque<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Per-variant dispatch: each inner Union variant (`UnionFlat`,
-        // `UnionHeap`, `UnionTrimmed`) walks its own children during
-        // `suspend`, correctly transitioning dyn-erased `I` via the vtable.
-        // A whole-box cast at this level alone would skip those per-variant
-        // walks and leave inner children's vtables stale.
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the variant field is reachable.
-        let variant_slot = unsafe { std::ptr::addr_of_mut!((*raw).variant) };
-        // SAFETY: `variant_slot` is a valid `*mut UnionVariant<...>`;
-        // `ptr::read` moves the value out, leaving the slot logically
-        // uninitialized until the matching `ptr::write` below.
-        let active_variant = unsafe { std::ptr::read(variant_slot) };
-        // The inner variant's own `RQEIteratorBoxed::suspend` impl walks
-        // its children and produces the suspended form. Per-variant
-        // dispatch ensures dyn-erased `I` correctly transitions its vtable;
-        // a whole-box cast at this outer level alone would skip those walks.
-        let suspended_variant = match active_variant {
-            UnionVariant::FlatFull(it) => RawUnionVariant::FlatFull(*Box::new(it).suspend()),
-            UnionVariant::FlatQuick(it) => RawUnionVariant::FlatQuick(*Box::new(it).suspend()),
-            UnionVariant::HeapFull(it) => RawUnionVariant::HeapFull(*Box::new(it).suspend()),
-            UnionVariant::HeapQuick(it) => RawUnionVariant::HeapQuick(*Box::new(it).suspend()),
-            UnionVariant::Trimmed(it) => RawUnionVariant::Trimmed(*Box::new(it).suspend()),
-        };
-        // SAFETY: `variant_slot` has the same size and alignment as the
-        // suspended variant (both via `#[repr(C, u8)]` over layout-compatible
-        // payloads). Writing reinitialises the slot moved-from above.
-        unsafe {
-            std::ptr::write(
-                variant_slot as *mut RawUnionVariant<'index, Suspended, I::Suspended>,
-                suspended_variant,
-            );
-        }
-        // SAFETY: `RawUnionOpaque` is `#[repr(C)]` over `variant`
-        // (now byte-rewritten as Suspended form via the per-variant
-        // dispatch above), `query_node_type`, and `query_string`.
-        unsafe { Box::from_raw(raw as *mut RawUnionOpaque<'index, Suspended, I::Suspended>) }
-    }
 }
 
 impl<'query, S> RQESuspendedIterator<'query> for RawUnionOpaque<'query, Suspended, S>

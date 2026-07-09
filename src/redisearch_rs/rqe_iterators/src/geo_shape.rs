@@ -16,9 +16,9 @@
 //! On top of the sorted-id-list behavior it provides three extra features:
 //!
 //! * **Field expiration** — skips documents whose queried field has expired,
-//!   using an [`ExpirationChecker`]. Applied on both the [`read`](RQEIterator::read)
-//!   and [`skip_to`](RQEIterator::skip_to) paths, so an expired document never
-//!   leaks even when the iterator is driven via [`skip_to`](RQEIterator::skip_to)
+//!   using an [`ExpirationChecker`]. Applied on both the [`read`](crate::RQEIterator::read)
+//!   and [`skip_to`](crate::RQEIterator::skip_to) paths, so an expired document never
+//!   leaks even when the iterator is driven via [`skip_to`](crate::RQEIterator::skip_to)
 //!   (e.g. as a non-leading intersection child). The checker is consulted on
 //!   every candidate; it self-gates the no-expiration case (e.g. a missing TTL
 //!   table) cheaply, so no cached flag is kept.
@@ -35,7 +35,7 @@ use index_result::RSIndexResult;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIteratorError, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{OwnedSlice, TimeoutContext},
@@ -94,8 +94,8 @@ pub struct GeoShape<'index, T, E, M: MemTracker> {
     ids: OwnedSlice<DocId>,
     /// Position of the next document ID to return. `offset == ids.len()` means EOF.
     offset: usize,
-    /// The last document ID returned by [`read`](Self::read) or
-    /// [`skip_to`](Self::skip_to). Reset to 0 on [`rewind`](Self::rewind).
+    /// The last document ID returned by [`read`](crate::RQEIterator::read) or
+    /// [`skip_to`](crate::RQEIterator::skip_to). Reset to 0 on [`rewind`](crate::RQEIterator::rewind).
     last_doc_id: DocId,
     /// Reusable result object, avoiding an allocation on every `read`.
     result: RSIndexResult<'index>,
@@ -264,12 +264,28 @@ fn lower_bound(ids: &[DocId], doc_id: DocId) -> usize {
     bottom
 }
 
-impl<'index, T, E, M> RQEIterator<'index> for GeoShape<'index, T, E, M>
+impl<'index, T, E, M> crate::RQEIterator<'index> for GeoShape<'index, T, E, M>
 where
-    T: TimeoutContext,
-    E: ExpirationChecker,
-    M: MemTracker,
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
 {
+    /// `GeoShape` owns its result data (the doc-id list is materialized
+    /// up front), so it has no `Rf`-dependent state to drop on suspend;
+    /// the Suspended counterpart is the same type.
+    type Suspended = GeoShape<'static, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `GeoShape<'index, T, E, M>` and
+        // `GeoShape<'static, T, E, M>` are layout-identical (`'index`
+        // is phantom: the only borrow it constrains is `result`, an
+        // `RSIndexResult<'index>`, whose `'index`-dependent state lives
+        // entirely behind raw pointers — see [`RSIndexResult`]). The
+        // round-trip identity is established by [`RQESuspendedIterator::resume`].
+        unsafe { Box::from_raw(raw.cast::<GeoShape<'static, T, E, M>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -382,29 +398,6 @@ impl<T, E, M: MemTracker> ProfilePrint for GeoShape<'_, T, E, M> {
 impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
-    }
-}
-
-impl<'index, T, E, M> crate::RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
-where
-    T: TimeoutContext + 'static,
-    E: ExpirationChecker + 'static,
-    M: MemTracker + 'static,
-{
-    /// `GeoShape` owns its result data (the doc-id list is materialized
-    /// up front), so it has no `Rf`-dependent state to drop on suspend;
-    /// the Suspended counterpart is the same type.
-    type Suspended = GeoShape<'static, T, E, M>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `GeoShape<'index, T, E, M>` and
-        // `GeoShape<'static, T, E, M>` are layout-identical (`'index`
-        // is phantom: the only borrow it constrains is `result`, an
-        // `RSIndexResult<'index>`, whose `'index`-dependent state lives
-        // entirely behind raw pointers — see [`RSIndexResult`]). The
-        // round-trip identity is established by [`RQESuspendedIterator::resume`].
-        unsafe { Box::from_raw(raw.cast::<GeoShape<'static, T, E, M>>()) }
     }
 }
 

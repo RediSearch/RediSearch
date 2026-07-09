@@ -23,7 +23,7 @@ pub use source::VectorScoreSource;
 use std::{cmp::Ordering, num::NonZeroUsize};
 
 use ffi::{VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES};
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{RQEIterator, TypeErasedRQEIterator};
 use top_k::{TopKIterator, TopKMode};
 
 /// A [`TopKIterator`] parameterised over [`VectorScoreSource`].
@@ -68,20 +68,20 @@ pub fn new_vector_top_k_filtered<'index>(
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
 ) -> VectorTopKIterator<'index> {
-    new_vector_top_k_filtered_boxed(source, Box::new(child), k)
+    new_vector_top_k_filtered_boxed(source, TypeErasedRQEIterator::new(Box::new(child)), k)
 }
 
 /// Construct a hybrid [`VectorTopKIterator`] with a boxed filter child.
 ///
-/// Accepts an already-boxed `Box<dyn RQEIterator>`, avoiding an extra
-/// allocation when the caller already holds one.
+/// Accepts an already-erased [`TypeErasedRQEIterator`], avoiding re-erasure
+/// when the caller already holds one.
 ///
 /// Delegates mode selection to source.
 ///
 /// [`VecSimIndex_PreferAdHocSearch`]: ffi::VecSimIndex_PreferAdHocSearch
 pub fn new_vector_top_k_filtered_boxed<'index>(
     source: VectorScoreSource<'index>,
-    child: Box<dyn RQEIterator<'index> + 'index>,
+    child: TypeErasedRQEIterator<'index>,
     k: NonZeroUsize,
 ) -> VectorTopKIterator<'index> {
     // The user pinned a policy via HYBRID_POLICY: honor it verbatim. HYBRID_BATCHES

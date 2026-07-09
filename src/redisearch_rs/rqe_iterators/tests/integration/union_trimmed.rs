@@ -10,11 +10,11 @@
 //! Integration tests for [`UnionTrimmed`].
 
 use crate::utils::{MockVec, create_mock_3, drain_doc_ids};
-use rqe_iterators::{BoxedRQEIterator, IteratorType, RQEIterator, UnionTrimmed};
+use rqe_iterators::{IteratorType, RQEIterator, TypeErasedRQEIterator, UnionTrimmed};
 
 /// Helper: create a vec of boxed MockVec children from doc_id slices.
 /// Each child's `num_estimated` equals the length of its slice.
-fn make_children(slices: &[&[u64]]) -> Vec<BoxedRQEIterator<'static>> {
+fn make_children(slices: &[&[u64]]) -> Vec<TypeErasedRQEIterator<'static>> {
     slices
         .iter()
         .map(|ids| MockVec::new_boxed(ids.to_vec()))
@@ -28,7 +28,7 @@ fn make_children(slices: &[&[u64]]) -> Vec<BoxedRQEIterator<'static>> {
 #[test]
 #[should_panic(expected = "UnionTrimmed requires at least 3 children, got 0")]
 fn new_panics_on_empty() {
-    UnionTrimmed::<BoxedRQEIterator<'static>>::new(vec![], usize::MAX, true);
+    UnionTrimmed::<TypeErasedRQEIterator<'static>>::new(vec![], usize::MAX, true);
 }
 
 #[test]

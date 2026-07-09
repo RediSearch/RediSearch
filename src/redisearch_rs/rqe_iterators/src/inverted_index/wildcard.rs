@@ -21,8 +21,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     expiration_checker::NoOpChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -93,7 +93,7 @@ where
     }
 }
 
-impl<'index, E: DecodedBy + 'index> Wildcard<'index, E> {
+impl<'index, E: DecodedBy + 'static> Wildcard<'index, E> {
     /// Forwarding shim: re-seek the inner [`RawInvIndIterator`] after a
     /// GC cycle invalidated the cached block offset. Used by enum-level
     /// `RQESuspendedIterator::resume` implementations in
@@ -152,9 +152,21 @@ where
 
 impl<'index, E> RQEIterator<'index> for Wildcard<'index, E>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
+    type Suspended = RawWildcard<'index, Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` containing only a
+        // `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>` field, whose
+        // layout is identical across modes (see
+        // [`InvIndIterator::suspend`]). Box::from_raw reuses the same heap
+        // allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<'index, Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -203,27 +215,9 @@ where
     }
 }
 
-impl<E: DecodedBy> ProfilePrint for Wildcard<'_, E> {
+impl<'query, Rf: Ref, E: DecodedBy + 'static> ProfilePrint for RawWildcard<'query, Rf, E> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"WILDCARD", map);
-    }
-}
-
-impl<'index, E> RQEIteratorBoxed<'index> for Wildcard<'index, E>
-where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
-    <E as DecodedBy>::Decoder: DocIdsDecoder,
-{
-    type Suspended = RawWildcard<'index, Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawWildcard` is `#[repr(C)]` containing only a
-        // `RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>` field, whose
-        // layout is identical across modes (see
-        // [`InvIndIterator::suspend`]). Box::from_raw reuses the same heap
-        // allocation.
-        unsafe { Box::from_raw(raw as *mut RawWildcard<'index, Suspended, E>) }
     }
 }
 

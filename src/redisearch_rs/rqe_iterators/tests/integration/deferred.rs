@@ -74,7 +74,7 @@ fn id_list_is_not_produced_until_first_read() {
 }
 
 /// Suspend/resume round-trips for the lazy ID list. These exercise the
-/// `RQEIteratorBoxed`/`RQESuspendedIterator` impls (whose suspended form erases
+/// `RQEIterator`/`RQESuspendedIterator` impls (whose suspended form erases
 /// the retained producer's lifetime to `'static` and restores it on resume) via
 /// the dyn path used by the production FFI wrapper.
 mod id_list_suspend_resume {
@@ -211,7 +211,7 @@ fn skip_to_triggers_production() {
 }
 
 /// Suspend/resume round-trips for the lazy iterators. These exercise the
-/// `RQEIteratorBoxed`/`RQESuspendedIterator` impls (whose suspended forms erase
+/// `RQEIterator`/`RQESuspendedIterator` impls (whose suspended forms erase
 /// the retained producer's lifetime to `'static` and restore it on resume) via
 /// the dyn path used by the production FFI wrapper.
 mod suspend_resume {

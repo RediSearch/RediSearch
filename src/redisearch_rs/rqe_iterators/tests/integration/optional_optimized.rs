@@ -12,8 +12,8 @@ use index_result::{RSIndexResult, RSResultKind};
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
-    RQEIterator, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
-    empty::Empty, inverted_index::Wildcard, optional_optimized::OptionalOptimized,
+    RQEIterator, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, empty::Empty,
+    inverted_index::Wildcard, optional_optimized::OptionalOptimized,
 };
 use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 

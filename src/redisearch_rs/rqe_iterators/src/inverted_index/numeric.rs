@@ -10,8 +10,8 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
@@ -182,27 +182,6 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
-where
-    R: NumericReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawNumeric<'index, Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
-        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
-        // across modes (see [`InvIndIterator::suspend`]). The remaining
-        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
-        // `Rf` in their type, so they survive the cast unchanged.
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E>) }
-    }
-}
-
 impl<'query, RS, E> RQESuspendedIterator<'query> for RawNumeric<'query, Suspended, RS, E>
 where
     RS: ResumableReader,
@@ -273,9 +252,24 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawNumeric<'index, Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]`. The `Rf`-dependent field is
+        // the inner `RawInvIndIterator<Rf, R, E>`, whose layout is identical
+        // across modes (see [`InvIndIterator::suspend`]). The remaining
+        // fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf` in their type, so they survive the cast unchanged.
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -324,11 +318,7 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
-where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
-{
+impl<'query, Rf: Ref, R, E> ProfilePrint for RawNumeric<'query, Rf, R, E> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"NUMERIC");
         let term_str = format!(
@@ -339,7 +329,10 @@ where
         let term_cstr = std::ffi::CString::new(term_str).unwrap();
         map.kv_simple_string(c"Term", &term_cstr);
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        map.kv_long_long(
+            c"Estimated number of matches",
+            self.it.num_docs_field() as i64,
+        );
     }
 }
 
@@ -570,6 +563,31 @@ impl<'index> NumericIteratorVariant<'index> {
 }
 
 impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Field-by-field dispatch: the enum tag's discriminant layout is
+        // unspecified across these two distinct enum types, so we can't
+        // whole-box-cast. Match arms call the inner `RawNumeric`'s
+        // `RQEIterator::suspend` (disambiguated via UFCS so it isn't
+        // resolved against an inherent or auto-impl `suspend`) and re-wrap
+        // into the suspended enum.
+        match *self {
+            NumericIteratorVariant::Unfiltered(it) => {
+                let suspended = RQEIterator::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Unfiltered(*suspended))
+            }
+            NumericIteratorVariant::Filtered(it) => {
+                let suspended = RQEIterator::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Filtered(*suspended))
+            }
+            NumericIteratorVariant::Geo(it) => {
+                let suspended = RQEIterator::suspend(Box::new(it));
+                Box::new(NumericIteratorVariantSuspended::Geo(*suspended))
+            }
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {
@@ -683,6 +701,49 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
     }
 }
 
+/// Suspended counterpart — dispatches to each variant's suspended profile,
+/// required by the `RQESuspendedIterator: ProfilePrint` supertrait so
+/// `FT.PROFILE` can print a suspended tree. Mirrors the active impl above,
+/// reading the mode-independent `range_min()`/`range_max()` accessors and the
+/// suspended `num_estimated` for the geo arm.
+impl ProfilePrint for NumericIteratorVariantSuspended<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::Unfiltered(it) => it.print_profile(map, ctx),
+            Self::Filtered(it) => it.print_profile(map, ctx),
+            Self::Geo(it) => {
+                let se_hash = geo::hash::GeoHashBits {
+                    bits: it.range_min() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let nw_hash = geo::hash::GeoHashBits {
+                    bits: it.range_max() as u64,
+                    step: geo::hash::GEO_STEP_MAX,
+                };
+                let (se_lon, se_lat) = geo::hash::decode_to_lon_lat(se_hash);
+                let (nw_lon, nw_lat) = geo::hash::decode_to_lon_lat(nw_hash);
+                map.kv_simple_string(c"Type", c"GEO");
+                let se = [se_lon.into_inner(), se_lat.into_inner()];
+                let nw = [nw_lon.into_inner(), nw_lat.into_inner()];
+                let term_str = format!(
+                    "{},{} - {},{}",
+                    format_g(se[0]),
+                    format_g(se[1]),
+                    format_g(nw[0]),
+                    format_g(nw[1]),
+                );
+                let term_cstr = std::ffi::CString::new(term_str).unwrap();
+                map.kv_simple_string(c"Term", &term_cstr);
+                ctx.print_optional_counters(map);
+                map.kv_long_long(
+                    c"Estimated number of matches",
+                    crate::RQESuspendedIterator::num_estimated(it) as i64,
+                );
+            }
+        }
+    }
+}
+
 /// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
 /// field's [`NumericRangeTree`].
 ///
@@ -745,7 +806,7 @@ pub unsafe fn build_numeric_filter_iterator(
 }
 
 /// [`Suspended`]-mode counterpart of [`NumericIteratorVariant`] used
-/// as its `RQEIteratorBoxed::Suspended` type. Each variant holds the
+/// as its `RQEIterator::Suspended` type. Each variant holds the
 /// `Suspended` form of the corresponding `Numeric` instantiation, retaining
 /// the `'query` lifetime so query-attached borrows stay valid across the
 /// suspend/resume cycle.
@@ -797,33 +858,6 @@ impl<'query> NumericIteratorVariantSuspended<'query> {
             Self::Unfiltered(iter) => iter.flags(),
             Self::Filtered(iter) => iter.flags(),
             Self::Geo(iter) => iter.flags(),
-        }
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
-    type Suspended = NumericIteratorVariantSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Field-by-field dispatch: the enum tag's discriminant layout is
-        // unspecified across these two distinct enum types, so we can't
-        // whole-box-cast. Match arms call the inner `RawNumeric`'s
-        // `RQEIteratorBoxed::suspend` (disambiguated via UFCS so it isn't
-        // resolved against an inherent or auto-impl `suspend`) and re-wrap
-        // into the suspended enum.
-        match *self {
-            NumericIteratorVariant::Unfiltered(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Unfiltered(*suspended))
-            }
-            NumericIteratorVariant::Filtered(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Filtered(*suspended))
-            }
-            NumericIteratorVariant::Geo(it) => {
-                let suspended = RQEIteratorBoxed::suspend(Box::new(it));
-                Box::new(NumericIteratorVariantSuspended::Geo(*suspended))
-            }
         }
     }
 }

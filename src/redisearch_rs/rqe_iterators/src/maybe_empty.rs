@@ -14,8 +14,8 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, empty::Empty,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, empty::Empty,
 };
 
 /// An iterator that is either [`Empty`] or the provided [`RQEIterator`].
@@ -100,6 +100,30 @@ impl<'index, I> RQEIterator<'index> for MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = MaybeEmpty<I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the `Some(I)` arm if present — dispatches via the trait so
+        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
+        // arm needs no suspend (Empty is a unit struct with no state).
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the inner enum slot is reachable.
+        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
+        if let MaybeEmptyOption::Some(it) = inner {
+            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+        }
+        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
+        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
+        // `I::Suspended`) is layout-compatible with the suspended form.
+        // `I` and `I::Suspended` share layout by the [`RQEIterator`]
+        // contract.
+        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match &mut self.0 {
@@ -181,35 +205,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = MaybeEmpty<I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk the `Some(I)` arm if present — dispatches via the trait so
-        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
-        // arm needs no suspend (Empty is a unit struct with no state).
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the inner enum slot is reachable.
-        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
-        if let MaybeEmptyOption::Some(it) = inner {
-            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
-        }
-        // SAFETY: `MaybeEmpty<I>` is `#[repr(C)]` over a `#[repr(C)]` enum
-        // `MaybeEmptyOption<I>` whose `Some` payload (now byte-rewritten as
-        // `I::Suspended`) is layout-compatible with the suspended form.
-        // `I` and `I::Suspended` share layout by the [`RQEIteratorBoxed`]
-        // contract.
-        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
-    }
-}
-
 impl<'query, S> RQESuspendedIterator<'query> for MaybeEmpty<S>
 where
     S: RQESuspendedIterator<'query>,
@@ -263,6 +258,22 @@ where
         match &self.0 {
             MaybeEmptyOption::None(empty) => <Empty as RQESuspendedIterator>::num_estimated(empty),
             MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
+        }
+    }
+}
+
+// `MaybeEmpty` is a transparent child holder; delegate to the wrapped iterator's
+// own profile output (composites enumerate children through this), or print an
+// empty leaf when no child is present.
+impl<I: crate::profile_print::ProfilePrint> crate::profile_print::ProfilePrint for MaybeEmpty<I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self.as_ref() {
+            Some(inner) => inner.print_profile(map, ctx),
+            None => ctx.print_leaf(c"EMPTY", map),
         }
     }
 }
