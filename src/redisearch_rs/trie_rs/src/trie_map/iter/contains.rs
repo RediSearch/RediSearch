@@ -14,6 +14,13 @@ use memchr::memmem::Finder;
 /// in lexicographical order.
 ///
 /// Invoke [`TrieMap::contains_iter`](crate::TrieMap::contains_iter) to create an instance of this iterator.
+///
+/// Deliberately not an [`Automaton`](super::Automaton): a substring
+/// predicate has no dead states — whatever a node's path holds, some
+/// descendant may still contain the fragment — so an automaton could never
+/// prune a subtree and would reduce to a per-byte state machine running over
+/// the same full scan. The per-key SIMD [`Finder`] (plus the
+/// ancestor-already-matched skip below) is the cheaper filter.
 pub struct ContainsIter<'tm, 't, Data> {
     /// Stack of nodes and whether they have been visited.
     stack: Vec<StackItem<'tm, Data>>,

@@ -25,7 +25,7 @@
 use super::super::{Automaton, StateClass};
 use super::atoms::{Atom, flatten};
 use super::nfa_bit_set::NfaBitSet;
-use rqe_wildcard::WildcardPattern;
+use rqe_wildcard::{Token, WildcardPattern};
 
 /// One row of the ε-closure table.
 ///
@@ -164,8 +164,14 @@ pub(super) fn nfa_step<S: NfaBitSet>(
 /// (absent if the pattern has no `*`), and a couple of cached
 /// bit-patterns that let [`Self::classify`] short-circuit the two
 /// special accept shapes (permanent, terminal).
-pub struct WildcardNfa<S: NfaBitSet> {
+pub struct WildcardNfa<'p, S: NfaBitSet> {
     atoms: Vec<Atom>,
+    /// The pattern's leading literal token, if it starts with one —
+    /// borrowed straight from the pattern bytes, so compiling stays
+    /// allocation-minimal. Every accepted key starts with these bytes;
+    /// [`Automaton::literal_prefix`] reports them so the traversal can
+    /// jump straight to the matching subtree.
+    literal_prefix: Option<&'p [u8]>,
     /// The accept position — atoms.len(). A state set containing this
     /// position means the whole pattern has matched.
     accept: usize,
@@ -186,7 +192,7 @@ pub struct WildcardNfa<S: NfaBitSet> {
     epsilon_table: Option<Vec<EpsilonRow<S>>>,
 }
 
-impl<S: NfaBitSet> WildcardNfa<S> {
+impl<'p, S: NfaBitSet> WildcardNfa<'p, S> {
     /// Compile a pattern into an NFA backed by `S`.
     ///
     /// Callers should match the width to the atom count: `S = u64` for
@@ -202,7 +208,7 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     /// release builds (the underlying shift wraps modulo the type width
     /// in Rust). Going through [`super::WildcardIter`]
     /// guarantees this never fires.
-    pub(crate) fn compile(pattern: &WildcardPattern<'_>) -> Self {
+    pub(crate) fn compile(pattern: &WildcardPattern<'p>) -> Self {
         assert!(
             pattern.atom_count() < S::CAPACITY,
             "WildcardNfa backend has capacity {} but pattern needs {} atoms; route through WildcardIter for automatic backend selection",
@@ -210,6 +216,10 @@ impl<S: NfaBitSet> WildcardNfa<S> {
             pattern.atom_count(),
         );
         let atoms = flatten(pattern);
+        let literal_prefix = match pattern.tokens().first() {
+            Some(Token::Literal(lit)) => Some(*lit),
+            _ => None,
+        };
         let accept = atoms.len();
         let epsilon_table = atoms
             .iter()
@@ -220,6 +230,7 @@ impl<S: NfaBitSet> WildcardNfa<S> {
         let accept_only = S::singleton(accept, accept);
         Self {
             atoms,
+            literal_prefix,
             accept,
             start_state,
             trailing_star,
@@ -229,12 +240,16 @@ impl<S: NfaBitSet> WildcardNfa<S> {
     }
 }
 
-impl<S: NfaBitSet> Automaton for WildcardNfa<S> {
+impl<'p, S: NfaBitSet> Automaton for WildcardNfa<'p, S> {
     type State = S;
 
     #[inline]
     fn start(&self) -> Self::State {
         self.start_state.clone()
+    }
+
+    fn literal_prefix(&self) -> Option<&[u8]> {
+        self.literal_prefix
     }
 
     #[inline]
