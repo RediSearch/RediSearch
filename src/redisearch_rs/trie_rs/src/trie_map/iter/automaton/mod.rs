@@ -48,6 +48,8 @@
 //!   ([`WildcardIter`]).
 
 pub mod driver;
+#[cfg_attr(not(test), expect(dead_code))]
+mod utf8;
 pub mod wildcard;
 
 pub use driver::{AutomatonIter, AutomatonLendingIter};
