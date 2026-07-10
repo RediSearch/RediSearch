@@ -1,0 +1,18 @@
+[package]
+name = "trie_rdb"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rdb_io.workspace = true
+thiserror.workspace = true
+trie_rs.workspace = true
+workspace_hack.workspace = true

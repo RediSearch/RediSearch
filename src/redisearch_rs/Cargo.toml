@@ -51,6 +51,7 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "trie_rs",
+    "trie_rdb",
     "ttl_table",
     "ttl_table_bencher",
     "value",
@@ -159,6 +160,7 @@ vecsim = { path = "./c_wrappers/vecsim" }
 vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+trie_rdb = { path = "./trie_rdb" }
 rdb_io = { path = "./rdb_io" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
