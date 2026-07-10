@@ -49,11 +49,13 @@
 
 pub mod case_fold;
 pub mod driver;
+pub mod levenshtein;
 mod utf8;
 pub mod wildcard;
 
 pub use case_fold::CaseFoldExact;
 pub use driver::{AutomatonIter, AutomatonLendingIter};
+pub use levenshtein::CaseFoldLevenshtein;
 pub use wildcard::{NfaBitSet, WildcardBackend, WildcardIter, WildcardLendingIter, WildcardNfa};
 
 /// Tells the driver what to do at the current trie node.

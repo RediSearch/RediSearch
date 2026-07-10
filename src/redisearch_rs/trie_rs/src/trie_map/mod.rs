@@ -15,9 +15,9 @@ mod utils;
 
 use crate::trie_map::{
     iter::{
-        Automaton, AutomatonIter, CaseFoldExact, ContainsIter, IntoValues, Iter, LendingIter,
-        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter,
-        WildcardIter, WildcardNfa, filter::VisitAll,
+        Automaton, AutomatonIter, CaseFoldExact, CaseFoldLevenshtein, ContainsIter, IntoValues,
+        Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend,
+        WildcardFilterIter, WildcardIter, WildcardNfa, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -275,6 +275,22 @@ impl<Data> TrieMap<Data> {
     /// UTF-8 never match. See [`CaseFoldExact`] for the matching model.
     pub fn case_insensitive_iter(&self, needle: &str) -> AutomatonIter<'_, Data, CaseFoldExact> {
         AutomatonIter::new(self.root.as_ref(), Vec::new(), CaseFoldExact::new(needle))
+    }
+
+    /// Iterate over the entries whose case-folded key is within Levenshtein
+    /// distance `max_dist` (in codepoints) of `needle`, in lexicographical
+    /// key order. Keys that are not valid UTF-8 never match. See
+    /// [`CaseFoldLevenshtein`] for the matching model.
+    pub fn fuzzy_iter(
+        &self,
+        needle: &str,
+        max_dist: u32,
+    ) -> AutomatonIter<'_, Data, CaseFoldLevenshtein> {
+        AutomatonIter::new(
+            self.root.as_ref(),
+            Vec::new(),
+            CaseFoldLevenshtein::new(needle, max_dist),
+        )
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.

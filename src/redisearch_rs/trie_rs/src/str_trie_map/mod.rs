@@ -132,6 +132,14 @@ impl<Data> StrTrieMap<Data> {
         iter::CaseInsensitiveIter::new(&self.inner, needle)
     }
 
+    /// Yield every entry whose case-folded key is within Levenshtein distance
+    /// `max_dist` (in codepoints) of `needle`, in lexicographical key order.
+    /// See [`CaseFoldLevenshtein`](crate::iter::CaseFoldLevenshtein) for the
+    /// matching model.
+    pub fn fuzzy_iter(&self, needle: &str, max_dist: u32) -> iter::FuzzyIter<'_, Data> {
+        iter::FuzzyIter::new(&self.inner, needle, max_dist)
+    }
+
     /// Iterate over entries with keys inside `filter`, in lexicographical
     /// order. See [`TrieMap::range_iter`].
     pub fn range_iter<'tm, 'p>(
