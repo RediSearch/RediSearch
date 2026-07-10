@@ -97,27 +97,33 @@ impl GeoFixture {
 impl Drop for GeoFixture {
     fn drop(&mut self) {
         // A valid geo evaluation populates `gf.numericFilters` with a
-        // Rust-allocated `[*mut NumericFilter; GEO_RANGE_COUNT]` array (via
-        // `Box::into_raw`) whose non-null entries are C-allocated (`rm_malloc`)
-        // `NumericFilter`s. This test binary uses distinct Rust and C allocators,
-        // so — unlike `GeoFilter_Free`, which releases both through `rm_free` —
-        // each must be reclaimed with the allocator that produced it: the array
-        // with `Box`, the entries with `NumericFilter_Free`. The `gf` box itself
-        // is released by the field drop below. Every evaluated iterator borrows
-        // the fixture and is dropped before this runs, so nothing still
-        // references the filters.
-        let array = self.gf.numericFilters as *mut [*mut ffi::NumericFilter; GEO_RANGE_COUNT];
+        // C-allocated (`GeoFilter_AllocNumericFiltersArray` / `rm_calloc`) array
+        // of `GEO_RANGE_COUNT` pointer slots, whose non-null entries are
+        // C-allocated (`NewNumericFilter`) `NumericFilter`s. This test binary
+        // uses distinct Rust and C allocators, so — unlike `GeoFilter_Free`,
+        // which releases everything through `rm_free` but also frees the `gf`
+        // struct itself (Rust-boxed here) — each piece must be reclaimed with the
+        // allocator that produced it: the entries with `NumericFilter_Free`, the
+        // array with the mock's C `free`. The `gf` box itself is released by the
+        // field drop below. Every evaluated iterator borrows the fixture and is
+        // dropped before this runs, so nothing still references the filters.
+        let array = self.gf.numericFilters as *mut *mut ffi::NumericFilter;
         if !array.is_null() {
-            // SAFETY: `array` is exactly what `build_geo_numeric_filters` produced
-            // with `Box::into_raw`; reclaiming it with `Box::from_raw` matches.
-            let array = unsafe { Box::from_raw(array) };
-            for &nf in array.iter() {
+            for i in 0..GEO_RANGE_COUNT {
+                // SAFETY: `array` has `GEO_RANGE_COUNT` pointer slots, so `i` is
+                // in bounds; the read yields a slot's (possibly null) entry.
+                let nf = unsafe { *array.add(i) };
                 if !nf.is_null() {
                     // SAFETY: each non-null entry is a live, C-allocated
                     // `NumericFilter` owned by `gf`, freed here exactly once.
                     unsafe { ffi::NumericFilter_Free(nf) };
                 }
             }
+            // SAFETY: `array` was allocated through the mock's C allocator
+            // (`GeoFilter_AllocNumericFiltersArray` → `rm_calloc` → `calloc_shim`),
+            // so releasing it with the matching `free_shim` balances that
+            // allocation exactly once.
+            redis_mock::allocator::free_shim(array.cast());
         }
     }
 }
