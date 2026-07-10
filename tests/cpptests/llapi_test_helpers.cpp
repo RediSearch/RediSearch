@@ -26,6 +26,7 @@
 #include "search_options.h"
 #include "query_internal.h"
 #include "suffix.h"
+#include "triemap_ffi.h"
 #include "query.h"
 #include "query_eval_ffi.h"
 #include "extension.h"

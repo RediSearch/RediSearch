@@ -40,6 +40,7 @@ members = [
     "spellcheck_dictionary",
     "string_utils",
     "tag_index",
+    "term_dictionary",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -153,6 +154,7 @@ slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 spellcheck_dictionary = { path = "./spellcheck_dictionary" }
 string_utils = { path = "./string_utils" }
+term_dictionary = { path = "./term_dictionary" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 top_k = { path = "./top_k" }

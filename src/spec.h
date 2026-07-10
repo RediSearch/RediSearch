@@ -31,6 +31,8 @@
 #include "rs_wall_clock.h"
 
 typedef struct QueryError QueryError;
+typedef struct TermSuffixIndex TermSuffixIndex;
+typedef struct TermDictionary TermDictionary;
 
 #ifdef __cplusplus
 extern "C" {
@@ -306,7 +308,12 @@ typedef struct IndexSpec {
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
 
-  Trie *terms;                    // Trie of all TEXT terms. Used for GC and fuzzy queries
+  TermDictionary *terms;          // Dictionary of all TEXT terms. Used for GC and fuzzy queries
+  Trie *legacyTerms;              // Verbatim-byte term trie, set only while upgrading a pre-2.0
+                                  // RDB. The terms dictionary case-folds on insert, but legacy
+                                  // ft:<idx>/<term> keys carry the original (libnu-folded) bytes;
+                                  // this trie preserves them so the keys can be matched and
+                                  // deleted on upgrade. Freed once the upgrade cleanup completes.
   TermSuffixIndex *suffix;        // TEXT suffix index of terms. Used for contains queries
   t_fieldMask suffixMask;         // Mask of all fields that support contains query
   dict *keysDict;                 // Inverted indexes dictionary of all TEXT terms
@@ -726,7 +733,7 @@ size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
- * sp->terms and sp->suffix Tries.
+ * sp->terms Trie and the sp->suffix term suffix index.
  */
 size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
 

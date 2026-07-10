@@ -2052,6 +2052,7 @@ dependencies = [
  "sorting_vector_ffi",
  "spellcheck_dictionary_ffi",
  "syn 2.0.118",
+ "term_dictionary_ffi",
  "term_suffix_index_ffi",
  "toml",
  "trie_rdb_ffi",
@@ -2931,6 +2932,24 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "term_dictionary"
+version = "0.0.1"
+dependencies = [
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "term_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "redis_mock",
+ "term_dictionary",
+ "workspace_hack",
 ]
 
 [[package]]

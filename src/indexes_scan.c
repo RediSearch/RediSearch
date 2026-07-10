@@ -304,20 +304,27 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
 void IndexSpec_DropLegacyIndexFromKeySpace(IndexSpec *sp) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  size_t termLen;
-
-  TrieIterator *it = Trie_IterateAll(ctx.spec->terms);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, res, strlen(res));
-    Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
-    RedisModule_FreeString(ctx.redisCtx, keyName);
-    rm_free(res);
+  // Legacy ft:<idx>/<term> keys are named with the verbatim term bytes preserved
+  // in legacyTerms (see IndexSpec_LegacyRdbLoad). The terms dictionary case-folds
+  // on insert, so it cannot reconstruct those names; iterate the preserved trie
+  // instead, then free it — the upgrade cleanup is its only consumer.
+  if (ctx.spec->legacyTerms) {
+    rune *rstr = NULL;
+    t_len slen = 0;
+    float score = 0;
+    TrieIterator *it = Trie_IterateAll(ctx.spec->legacyTerms);
+    while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
+      size_t termLen;
+      char *term = runesToStr(rstr, slen, &termLen);
+      RedisModuleString *keyName = Legacy_fmtRedisTermKey(&ctx, term, termLen);
+      Redis_LegacyDropScanHandler(ctx.redisCtx, keyName, &ctx);
+      RedisModule_FreeString(ctx.redisCtx, keyName);
+      rm_free(term);
+    }
+    TrieIterator_Free(it);
+    TrieType_Free(ctx.spec->legacyTerms);
+    ctx.spec->legacyTerms = NULL;
   }
-  TrieIterator_Free(it);
 
   // Delete the numeric, tag, and geo indexes which reside on separate keys
   for (size_t i = 0; i < ctx.spec->numFields; i++) {

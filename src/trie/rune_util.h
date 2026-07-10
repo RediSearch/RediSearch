@@ -29,6 +29,15 @@ typedef struct {
   } u;
 } runeBuf;
 
+#define UTF8_STATIC_ALLOC_SIZE 127
+typedef struct {
+  int isDynamic;
+  union {
+    char s[UTF8_STATIC_ALLOC_SIZE + 1];
+    char *p;
+  } u;
+} utf8Buf;
+
 // The maximum size we allow converting to at once
 #define MAX_RUNE_STR_LEN 1024
 
@@ -44,6 +53,19 @@ rune runeFold(rune r);
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
+/* Like runesToStr, but writes into `buf`, using its static storage when
+ * the encoding fits and heap storage otherwise. Returns the
+ * NUL-terminated string (owned by `buf`), or NULL with *utflen = 0 when
+ * len exceeds MAX_RUNE_STR_LEN. Release with utf8BufFree, which is safe
+ * to call on every outcome, including NULL. */
+char *runesToStrBuf(const rune *in, size_t len, utf8Buf *buf, size_t *utflen);
+
+static inline void utf8BufFree(utf8Buf *buf) {
+  if (buf->isDynamic) {
+    rm_free(buf->u.p);
+  }
+}
+
 /* Convert a string to runes, lowercase them and return the transformed runes.
  * This function supports lowercasing of multi-codepoint runes. */
 
@@ -56,6 +78,18 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
  *   resulting array of runes will be stored. Must be non-NULL.
  */
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len);
+
+/* Lowercase a UTF-8 string of `utf8_len` bytes directly into `buf`,
+ * using its static storage when the encoding fits and heap storage
+ * otherwise. Applies the same lowering as strToLowerRunes (including
+ * multi-codepoint expansions) without the intermediate rune
+ * representation, so codepoints beyond the Basic Multilingual Plane
+ * are preserved rather than truncated. Returns the NUL-terminated
+ * string (owned by `buf`), or NULL with *outlen = 0 when the lowered
+ * form exceeds MAX_RUNE_STR_LEN codepoints — the same gate as
+ * strToLowerRunes. Release with utf8BufFree, which is safe to call on
+ * every outcome, including NULL. */
+char *strToLowerStr(const char *str, size_t utf8_len, utf8Buf *buf, size_t *outlen);
 
 /* Convert a UTF-8 byte buffer to runes, fold them and return the folded
  * runes. If a folded rune contains more than one codepoint, only the

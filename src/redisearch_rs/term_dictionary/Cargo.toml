@@ -1,0 +1,13 @@
+[package]
+name = "term_dictionary"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+trie_rs.workspace = true
+workspace_hack.workspace = true

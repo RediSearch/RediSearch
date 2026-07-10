@@ -372,6 +372,16 @@ after_includes = """
 typedef struct timespec timespec;
 """
 
+[header.spellcheck_dictionary_ffi]
+# `RedisModuleIO` (from the skipped `ffi` package) appears in the RDB
+# save/load signatures; pull in its definition.
+includes = ["redismodule.h"]
+
+[header.trie_rdb_ffi]
+# `RedisModuleIO` (from the skipped `ffi` package) appears in the RDB
+# save/load signatures; pull in its definition.
+includes = ["redismodule.h"]
+
 [header.types_ffi]
 # Pull in `inverted_index.h` so consumers see the full `NumericFilter`
 # body (embedded by value in `LegacyNumericFilter` and friends on the C
