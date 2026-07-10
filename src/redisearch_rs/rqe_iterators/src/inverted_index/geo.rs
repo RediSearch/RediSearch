@@ -194,7 +194,7 @@ pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
 
 /// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.
 ///
-/// A radius query maps to up to [`GEO_RANGE_COUNT`] contiguous geohash ranges;
+/// A radius query maps to up to `GEO_RANGE_COUNT` contiguous geohash ranges;
 /// each is queried via the field's numeric range tree (with per-record distance
 /// filtering) and the results are combined with [`build_union`].
 ///
