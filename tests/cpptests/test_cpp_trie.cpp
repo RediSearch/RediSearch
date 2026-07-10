@@ -13,6 +13,7 @@
 #include "trie/trie.h"
 #include "redismock/redismock.h"
 #include "trie_rdb_ffi.h"
+#include "spellcheck_dictionary_ffi.h"
 
 #include <set>
 #include <string>
@@ -1124,3 +1125,95 @@ TEST_F(TrieTest, testCRustRdbInterop) {
   }
 }
 
+// Round-trips the spell-check dict combo (`savePayloads=false,
+// saveNumDocs=false`, score constant 1 — what `Dictionary_Add` inserts and
+// the aux callbacks persist per dict) through both the C trie and the Rust
+// `SpellCheckDictionary`:
+//   C save -> Rust load -> Rust save (must be byte-identical to original)
+//   Rust save -> C load  (must rehydrate a trie holding the same terms)
+// Scores that drifted above 1 on the C side (incr re-adds) are normalized
+// back to 1 by the Rust round-trip; the term set must still survive.
+TEST_F(TrieTest, testCRustSpellCheckDictRdbInterop) {
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  const char *terms[] = {"alpha", "beta", "Gamma"};
+  for (const char *term : terms) {
+    // Dictionary_Add: score 1, incr, no payload.
+    Trie_InsertStringBuffer(originalTrie, term, strlen(term), 1, 1, NULL, 0);
+  }
+  ASSERT_EQ(sizeof(terms) / sizeof(terms[0]), Trie_Size(originalTrie));
+
+  RedisModuleIO *ioC = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioCPtr(ioC, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioC != nullptr);
+
+  TrieType_GenericSave(ioC, originalTrie, /*savePayloads=*/false, /*saveNumDocs=*/false);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  ASSERT_GT(ioC->buffer.size(), 0u);
+
+  // C bytes -> Rust load. Reset the cursor; the buffer itself is unchanged.
+  ioC->read_pos = 0;
+  SpellCheckDictionary *dict = SpellCheckDictionary_RdbLoad(ioC);
+  std::unique_ptr<SpellCheckDictionary, std::function<void(SpellCheckDictionary *)>> dictPtr(
+      dict, [](SpellCheckDictionary *d) { SpellCheckDictionary_Free(d); });
+  ASSERT_TRUE(dict != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  EXPECT_EQ(Trie_Size(originalTrie), SpellCheckDictionary_Len(dict));
+
+  // Rust save -> compare bytes against the original C-emitted buffer.
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  ASSERT_TRUE(ioRust != nullptr);
+
+  SpellCheckDictionary_RdbSave(ioRust, dict);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(ioC->buffer, ioRust->buffer);
+
+  // Rust bytes -> C load. Must rehydrate into a trie holding the same terms.
+  ioRust->read_pos = 0;
+  Trie *recoveredTrie =
+      (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/false, /*loadNumDocs=*/false, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> recoveredTriePtr(recoveredTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(recoveredTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(recoveredTrie));
+  for (const char *term : terms) {
+    EXPECT_TRUE(trieContains(recoveredTrie, term)) << "missing term: " << term;
+  }
+}
+
+// A C dict whose score drifted above 1 (incr re-add) still round-trips its
+// term set through the Rust dictionary; only the score is normalized.
+TEST_F(TrieTest, testCRustSpellCheckDictRdbScoreNormalization) {
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  Trie_InsertStringBuffer(originalTrie, "alpha", 5, 1, 1, NULL, 0);
+  Trie_InsertStringBuffer(originalTrie, "alpha", 5, 1, 1, NULL, 0);  // score -> 2
+  ASSERT_EQ(1, Trie_Size(originalTrie));
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *i) {
+    RMCK_FreeRdbIO(i);
+  });
+  TrieType_GenericSave(io, originalTrie, false, false);
+
+  io->read_pos = 0;
+  SpellCheckDictionary *dict = SpellCheckDictionary_RdbLoad(io);
+  std::unique_ptr<SpellCheckDictionary, std::function<void(SpellCheckDictionary *)>> dictPtr(
+      dict, [](SpellCheckDictionary *d) { SpellCheckDictionary_Free(d); });
+  ASSERT_TRUE(dict != nullptr);
+  EXPECT_EQ(1, SpellCheckDictionary_Len(dict));
+  EXPECT_TRUE(SpellCheckDictionary_Contains(dict, "alpha", 5));
+}

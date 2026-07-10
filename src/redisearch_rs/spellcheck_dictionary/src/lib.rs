@@ -14,12 +14,14 @@
 //!
 //! Terms are stored verbatim. [`SpellCheckDictionary::contains`] and
 //! [`SpellCheckDictionary::fuzzy_matches`] are case-insensitive — the query
-//! and each candidate are lowercased via [`unicode_tolower_cow`] before comparison
-//! — but [`SpellCheckDictionary::remove`] matches verbatim and is therefore
+//! and each candidate are lowercased per-codepoint before comparison — but
+//! [`SpellCheckDictionary::remove`] matches verbatim and is therefore
 //! case-sensitive.
 //!
-//! Because matching lowercases verbatim-stored keys, those two queries scan
-//! every stored term rather than exploiting the trie's prefix structure.
+//! Both queries run as streaming-automaton trie descents (see
+//! [`StrTrieMap::case_insensitive_iter`] and [`StrTrieMap::fuzzy_iter`]),
+//! folding stored codepoints during the walk and pruning subtrees that can
+//! no longer match.
 
 // Public methods link the private length constants rather than duplicate their
 // rationale in prose.
@@ -27,7 +29,9 @@
 
 use std::fmt::{self, Debug};
 
-use string_utils::{unicode_tolower_capped, unicode_tolower_cow};
+use rdb_io::RdbIO;
+use string_utils::unicode_tolower_capped;
+use trie_rdb::{EntryFields, RdbError, RdbOpts, str as str_rdb};
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -109,9 +113,36 @@ impl SpellCheckDictionary {
         let Some(needle) = unicode_tolower_capped(term, TRIE_MAX_PREFIX) else {
             return false;
         };
-        self.trie
-            .iter()
-            .any(|(key, _)| *unicode_tolower_cow(&key) == *needle)
+        self.trie.case_insensitive_iter(&needle).next().is_some()
+    }
+
+    /// Serialize the dictionary to `writer` in the trie RDB wire format the
+    /// C spell-check dict aux callbacks use (no payloads, no `num_docs`).
+    ///
+    /// The dictionary stores nothing per term, so every entry is written
+    /// with the constant score 1 — the value `FT.DICTADD` inserts with. A
+    /// C-side dict whose scores drifted above 1 through repeated re-adds
+    /// therefore round-trips through Rust with its scores normalized back
+    /// to 1; nothing reads dict scores, so the difference is wire-visible
+    /// but semantically inert.
+    pub fn rdb_save<IO: RdbIO>(&self, writer: &mut IO) {
+        str_rdb::save_with(&self.trie, writer, RdbOpts::default(), |()| EntryFields {
+            score: 1.0,
+            payload: None,
+            num_docs: 0,
+        });
+    }
+
+    /// Deserialize a dictionary from `reader`, accepting the wire format
+    /// [`Self::rdb_save`] emits (which is also what the C aux save callback
+    /// writes for each dict). Per-entry scores on the wire are discarded.
+    ///
+    /// Keys must be valid UTF-8; a non-UTF-8 key aborts the load with
+    /// [`RdbError::InvalidUtf8`].
+    pub fn rdb_load<IO: RdbIO>(reader: &mut IO) -> Result<Self, RdbError> {
+        Ok(Self {
+            trie: str_rdb::load_with(reader, RdbOpts::default(), |_| ())?,
+        })
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
@@ -121,12 +152,9 @@ impl SpellCheckDictionary {
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
         let needle = unicode_tolower_capped(term, TRIE_MAX_PREFIX);
-        needle.into_iter().flat_map(move |needle| {
-            self.trie.iter().filter_map(move |(key, _)| {
-                let dist = strsim::levenshtein(&unicode_tolower_cow(&key), &needle) as u32;
-                (dist <= max_dist).then_some(key)
-            })
-        })
+        needle
+            .into_iter()
+            .flat_map(move |needle| self.trie.fuzzy_iter(&needle, max_dist).map(|(key, _)| key))
     }
 }
 
@@ -249,5 +277,147 @@ mod tests {
 
         assert!(!sut.contains(&term));
         assert!(sut.fuzzy_matches(&term, 0).next().is_none());
+    }
+
+    /// Minimal in-memory [`RdbIO`]: writes record typed ops, reads replay
+    /// them in order (erroring on exhaustion).
+    #[derive(Debug, PartialEq)]
+    enum Op {
+        U64(u64),
+        F64(f64),
+        Bytes(Vec<u8>),
+    }
+
+    #[derive(Default)]
+    struct MockIo {
+        ops: Vec<Op>,
+        pos: usize,
+    }
+
+    impl MockIo {
+        fn next(&mut self) -> std::io::Result<&Op> {
+            let op = self.ops.get(self.pos).ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "mock: exhausted")
+            })?;
+            self.pos += 1;
+            Ok(op)
+        }
+    }
+
+    // The dict wire format only ever uses u64/f64/buffer; the `i64`/`f32`
+    // methods of the shared `RdbIO` trait are never reached from this crate,
+    // so the mock asserts that invariant rather than modeling them.
+    impl RdbIO for MockIo {
+        fn write_u64(&mut self, v: u64) {
+            self.ops.push(Op::U64(v));
+        }
+        fn write_f64(&mut self, v: f64) {
+            self.ops.push(Op::F64(v));
+        }
+        fn write_buffer(&mut self, b: &[u8]) {
+            self.ops.push(Op::Bytes(b.to_vec()));
+        }
+        fn write_i64(&mut self, _v: i64) {
+            unreachable!("the dict wire format never serializes i64");
+        }
+        fn write_f32(&mut self, _v: f32) {
+            unreachable!("the dict wire format never serializes f32");
+        }
+
+        fn read_u64(&mut self) -> std::io::Result<u64> {
+            match self.next()? {
+                Op::U64(v) => Ok(*v),
+                op => panic!("mock: expected U64, got {op:?}"),
+            }
+        }
+        fn read_f64(&mut self) -> std::io::Result<f64> {
+            match self.next()? {
+                Op::F64(v) => Ok(*v),
+                op => panic!("mock: expected F64, got {op:?}"),
+            }
+        }
+        fn read_buffer(&mut self) -> std::io::Result<Vec<u8>> {
+            match self.next()? {
+                Op::Bytes(v) => Ok(v.clone()),
+                op => panic!("mock: expected Bytes, got {op:?}"),
+            }
+        }
+        fn read_i64(&mut self) -> std::io::Result<i64> {
+            unreachable!("the dict wire format never deserializes i64");
+        }
+        fn read_f32(&mut self) -> std::io::Result<f32> {
+            unreachable!("the dict wire format never deserializes f32");
+        }
+    }
+
+    #[test]
+    fn rdb_roundtrip_preserves_terms_and_case() {
+        let mut sut = SpellCheckDictionary::new();
+        sut.add("Hello");
+        sut.add("wörld");
+        let mut io = MockIo::default();
+
+        sut.rdb_save(&mut io);
+        let loaded = SpellCheckDictionary::rdb_load(&mut io).expect("load should succeed");
+
+        assert_eq!(
+            loaded.dump().collect::<Vec<_>>(),
+            sut.dump().collect::<Vec<_>>()
+        );
+        assert_eq!(loaded.len(), 2);
+    }
+
+    #[test]
+    fn rdb_save_writes_dict_wire_shape() {
+        // Count, then per term: NUL-terminated key + constant score 1, in
+        // lexicographical order — the exact stream the C aux callbacks
+        // exchange per dict (`TrieType_GenericSave(…, false, false)`).
+        let mut sut = SpellCheckDictionary::new();
+        sut.add("beta");
+        sut.add("Alpha");
+        let mut io = MockIo::default();
+
+        sut.rdb_save(&mut io);
+
+        let expected = [
+            Op::U64(2),
+            Op::Bytes(b"Alpha\0".to_vec()),
+            Op::F64(1.0),
+            Op::Bytes(b"beta\0".to_vec()),
+            Op::F64(1.0),
+        ];
+        assert_eq!(io.ops, expected);
+    }
+
+    #[test]
+    fn rdb_load_discards_wire_scores() {
+        // A C-written dict whose scores drifted above 1 (incr re-adds) still
+        // loads; the scores are dropped, not preserved.
+        let mut io = MockIo {
+            ops: vec![Op::U64(1), Op::Bytes(b"term\0".to_vec()), Op::F64(3.0)],
+            pos: 0,
+        };
+
+        let loaded = SpellCheckDictionary::rdb_load(&mut io).expect("load should succeed");
+
+        assert!(loaded.contains("term"));
+        let mut resaved = MockIo::default();
+        loaded.rdb_save(&mut resaved);
+        assert!(
+            resaved.ops.contains(&Op::F64(1.0)),
+            "re-save must normalize the score to 1"
+        );
+    }
+
+    #[test]
+    fn rdb_roundtrip_empty_dictionary() {
+        let sut = SpellCheckDictionary::new();
+        let mut io = MockIo::default();
+
+        sut.rdb_save(&mut io);
+        let loaded = SpellCheckDictionary::rdb_load(&mut io).expect("load should succeed");
+
+        assert!(loaded.is_empty());
+        assert_eq!(io.ops, [Op::U64(0)]);
     }
 }

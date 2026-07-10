@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include <errno.h>
 #include "dictionary.h"
 #include "redismodule.h"
@@ -21,26 +21,36 @@
 
 dict *spellCheckDicts = NULL;
 
-Trie *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
-  Trie *t = dictFetchValue(spellCheckDicts, dictName);
-  if (!t && mode == REDISMODULE_WRITE) {
-    t = NewTrie(NULL, Trie_Sort_Lex);
-    dictAdd(spellCheckDicts, (char *)dictName, t);
+SpellCheckDictionary *SpellCheck_OpenDict(RedisModuleCtx *ctx, const char *dictName, int mode) {
+  SpellCheckDictionary *d = dictFetchValue(spellCheckDicts, dictName);
+  if (!d && mode == REDISMODULE_WRITE) {
+    d = SpellCheckDictionary_New();
+    dictAdd(spellCheckDicts, (char *)dictName, d);
   }
-  return t;
+  return d;
 }
 
 int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesAdded = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
-  RS_LOG_ASSERT_ALWAYS(t != NULL, "Failed to open dictionary in write mode");
+  SpellCheckDictionary *d = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
+  RS_LOG_ASSERT_ALWAYS(d != NULL, "Failed to open dictionary in write mode");
 
   for (int i = 0; i < len; ++i) {
-    // Payload is NULL so TRIE_ERR_PAYLOAD_OVERFLOW cannot occur
-    int rc = Trie_Insert(t, values[i], 1, 1, NULL, 0);
-    if (likely(rc == TRIE_OK_NEW)) {
+    size_t valLen;
+    const char *val = RedisModule_StringPtrLen(values[i], &valLen);
+    if (!Dictionary_IsValidTerm(val, valLen)) {
+      continue;
+    }
+    if (likely(SpellCheckDictionary_Add(d, val, valLen))) {
       valuesAdded++;
     }
+  }
+
+  // Every value may have been rejected; an empty dictionary must not stay in
+  // the dictionary list (the RDB save path asserts non-emptiness).
+  if (SpellCheckDictionary_Len(d) == 0) {
+    dictDelete(spellCheckDicts, dictName);
+    SpellCheckDictionary_Free(d);
   }
 
   return valuesAdded;
@@ -48,47 +58,45 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
 
 int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesDeleted = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellCheckDictionary *d = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
+  if (d == NULL) {
     return 0;
   }
 
   for (int i = 0; i < len; ++i) {
     size_t valLen;
     const char *val = RedisModule_StringPtrLen(values[i], &valLen);
-    valuesDeleted += Trie_Delete(t, val, valLen);
+    if (!Dictionary_IsValidTerm(val, valLen)) {
+      continue;
+    }
+    valuesDeleted += SpellCheckDictionary_Remove(d, val, valLen);
   }
 
   // Delete the dictionary if it's empty
-  if (Trie_Size(t) == 0) {
+  if (SpellCheckDictionary_Len(d) == 0) {
     dictDelete(spellCheckDicts, dictName);
-    TrieType_Free(t);
+    SpellCheckDictionary_Free(d);
   }
 
   return valuesDeleted;
 }
 
 void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellCheckDictionary *d = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
+  if (d == NULL) {
     RedisModule_ReplyWithSet(ctx, 0);
     return;
   }
 
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
+  RedisModule_ReplyWithSet(ctx, SpellCheckDictionary_Len(d));
+
+  SpellCheckDictionaryIterator *it = SpellCheckDictionary_IterateAll(d);
+  const char *term;
   size_t termLen;
-
-  RedisModule_ReplyWithSet(ctx, Trie_Size(t));
-
-  TrieIterator *it = Trie_IterateAll(t);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
-    rm_free(res);
+  while (SpellCheckDictionaryIterator_Next(it, &term, &termLen)) {
+    RedisModule_ReplyWithStringBuffer(ctx, term, termLen);
   }
-  TrieIterator_Free(it);
+  SpellCheckDictionaryIterator_Free(it);
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -137,8 +145,8 @@ void Dictionary_Clear() {
     dictIterator *iter = dictGetIterator(spellCheckDicts);
     dictEntry *entry;
     while ((entry = dictNext(iter))) {
-      Trie *val = dictGetVal(entry);
-      TrieType_Free(val);
+      SpellCheckDictionary *val = dictGetVal(entry);
+      SpellCheckDictionary_Free(val);
     }
     dictReleaseIterator(iter);
     dictEmpty(spellCheckDicts, NULL);
@@ -156,28 +164,28 @@ size_t Dictionary_Size() {
   return dictSize(spellCheckDicts);
 }
 
-static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie) {
+static void Propagate_Dict(RedisModuleCtx *ctx, const char *dictName, SpellCheckDictionary *d) {
   size_t termLen;
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
+  const char *term = NULL;
 
-  RedisModuleString **terms = rm_malloc(Trie_Size(trie) * sizeof(RedisModuleString*));
+  RedisModuleString **terms = rm_malloc(SpellCheckDictionary_Len(d) * sizeof(RedisModuleString *));
   size_t termsCount = 0;
 
-  TrieIterator *it = Trie_IterateAll(trie);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
-    char *res = runesToStr(rstr, slen, &termLen);
-    terms[termsCount++] = RedisModule_CreateString(NULL, res, termLen);
-    rm_free(res);
+  SpellCheckDictionaryIterator *it = SpellCheckDictionary_IterateAll(d);
+  while (SpellCheckDictionaryIterator_Next(it, &term, &termLen)) {
+    terms[termsCount++] = RedisModule_CreateString(NULL, term, termLen);
   }
-  TrieIterator_Free(it);
+  SpellCheckDictionaryIterator_Free(it);
 
-  RS_ASSERT(termsCount == Trie_Size(trie));
-  RS_LOG_ASSERT(Trie_Size(trie) != 0, "Empty dictionary should not exist in the dictionary list");
-  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_DICT_ADD), "cv", dictName, terms, termsCount);
+  RS_ASSERT(termsCount == SpellCheckDictionary_Len(d));
+  RS_LOG_ASSERT(SpellCheckDictionary_Len(d) != 0,
+                "Empty dictionary should not exist in the dictionary list");
+  int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_DICT_ADD), "cv",
+                                                        dictName, terms, termsCount);
   if (rc != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Failed to propagate dictionary '%s' during slot migration. errno: %d", RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
+    RedisModule_Log(ctx, "warning",
+                    "Failed to propagate dictionary '%s' during slot migration. errno: %d",
+                    RSGlobalConfig.hideUserDataFromLog ? "****" : dictName, errno);
   }
 
   for (size_t i = 0; i < termsCount; ++i) {
@@ -186,13 +194,13 @@ static void Propagate_Dict(RedisModuleCtx* ctx, const char* dictName, Trie* trie
   rm_free(terms);
 }
 
-void Dictionary_Propagate(RedisModuleCtx* ctx) {
+void Dictionary_Propagate(RedisModuleCtx *ctx) {
   dictIterator *iter = dictGetIterator(spellCheckDicts);
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *dictName = dictGetKey(entry);
-    Trie *trie = dictGetVal(entry);
-    Propagate_Dict(ctx, dictName, trie);
+    SpellCheckDictionary *d = dictGetVal(entry);
+    Propagate_Dict(ctx, dictName, d);
   }
   dictReleaseIterator(iter);
 }
@@ -205,15 +213,17 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
   size_t len = LoadUnsigned_IOError(rdb, goto cleanup);
   for (size_t i = 0; i < len; i++) {
     char *key = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
-    Trie *val = TrieType_GenericLoad(rdb, false, false, Trie_Sort_Lex);
+    // NULL covers IO errors, framing errors, and non-UTF-8 keys: a legacy RDB
+    // holding terms the lossy C decoder accepted fails the load here.
+    SpellCheckDictionary *val = SpellCheckDictionary_RdbLoad(rdb);
     if (val == NULL) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    if (Trie_Size(val)) {
+    if (SpellCheckDictionary_Len(val)) {
       dictAdd(spellCheckDicts, key, val);
     } else {
-      TrieType_Free(val);
+      SpellCheckDictionary_Free(val);
     }
     RedisModule_Free(key);
   }
@@ -233,10 +243,11 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
-    Trie *val = dictGetVal(entry);
-    RS_LOG_ASSERT(Trie_Size(val) != 0, "Empty dictionary should not exist in the dictionary list");
+    SpellCheckDictionary *val = dictGetVal(entry);
+    RS_LOG_ASSERT(SpellCheckDictionary_Len(val) != 0,
+                  "Empty dictionary should not exist in the dictionary list");
     RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
-    TrieType_GenericSave(rdb, val, false, false);
+    SpellCheckDictionary_RdbSave(rdb, val);
   }
   dictReleaseIterator(iter);
 }

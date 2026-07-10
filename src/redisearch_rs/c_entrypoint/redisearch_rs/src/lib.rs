@@ -35,6 +35,7 @@ pub use rlookup_ffi as rlookup;
 pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
+pub use spellcheck_dictionary_ffi as spellcheck_dictionary;
 pub use term_suffix_index_ffi as term_suffix_index;
 pub use trie_rdb_ffi as trie_rdb;
 pub use triemap_ffi as triemap;

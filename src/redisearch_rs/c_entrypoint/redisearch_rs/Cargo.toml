@@ -47,6 +47,7 @@ result_processor_ffi = { path = "../result_processor_ffi" }
 rlookup_ffi = { path = "../rlookup_ffi" }
 slots_tracker_ffi = { path = "../slots_tracker_ffi" }
 sorting_vector_ffi = { path = "../sorting_vector_ffi" }
+spellcheck_dictionary_ffi = { path = "../spellcheck_dictionary_ffi" }
 term_suffix_index_ffi = { path = "../term_suffix_index_ffi" }
 triemap_ffi = { path = "../triemap_ffi" }
 trie_rdb_ffi = { path = "../trie_rdb_ffi" }

@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "spell_check.h"
 #include "types_ffi.h"
 #include "util/arr.h"
@@ -17,7 +17,6 @@
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);
-
 
 int RS_SuggestionCompare(const void *val1, const void *val2) {
   const RS_Suggestion **a = (const RS_Suggestion **)val1;
@@ -141,7 +140,8 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
   int dist = 0;
   size_t suggestionLen;
 
-  TrieIterator *it = Trie_IterateFuzzy(t, term, len, (int)scCtx->distance, TRIE_MATCH_EDIT_DISTANCE);
+  TrieIterator *it =
+      Trie_IterateFuzzy(t, term, len, (int)scCtx->distance, TRIE_MATCH_EDIT_DISTANCE);
   // TrieIterator can be NULL when rune length exceed TRIE_MAX_PREFIX
   if (it == NULL) {
     return;
@@ -155,6 +155,26 @@ static void SpellCheck_FindSuggestions(SpellCheckCtx *scCtx, Trie *t, const char
     rm_free(res);
   }
   TrieIterator_Free(it);
+}
+
+// Dict flavor of SpellCheck_FindSuggestions: same accumulation contract, but
+// the suggestions come from a SpellCheckDictionary fuzzy cursor. The cursor
+// lends each term only until the next advance; both consumers below
+// (SpellCheck_GetScore, RS_SuggestionsAdd) copy what they keep.
+static void SpellCheck_FindSuggestionsFromDict(SpellCheckCtx *scCtx, SpellCheckDictionary *d,
+                                               const char *term, size_t len, t_fieldMask fieldMask,
+                                               RS_Suggestions *s, int incr) {
+  SpellCheckDictionaryIterator *it =
+      SpellCheckDictionary_IterateFuzzy(d, term, len, (uint32_t)scCtx->distance);
+  const char *suggestion;
+  size_t suggestionLen;
+  while (SpellCheckDictionaryIterator_Next(it, &suggestion, &suggestionLen)) {
+    double score;
+    if ((score = SpellCheck_GetScore(scCtx, (char *)suggestion, suggestionLen, fieldMask)) != -1) {
+      RS_SuggestionsAdd(s, (char *)suggestion, suggestionLen, score, incr);
+    }
+  }
+  SpellCheckDictionaryIterator_Free(it);
 }
 
 RS_Suggestion **spellCheck_GetSuggestions(RS_Suggestions *s) {
@@ -176,14 +196,14 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
                                 uint64_t totalDocNumber) {
   bool resp3 = RedisModule_IsRESP3(reply);
 
-  if (totalDocNumber == 0) { // Can happen with FT.DICTADD
+  if (totalDocNumber == 0) {  // Can happen with FT.DICTADD
     totalDocNumber = 1;
   }
 
   RS_Suggestion **suggestions = spellCheck_GetSuggestions(s);
   qsort(suggestions, array_len(suggestions), sizeof(RS_Suggestion *), RS_SuggestionCompare);
 
-  if (resp3) // RESP3
+  if (resp3)  // RESP3
   {
     // we assume we're in the terms' map
 
@@ -191,34 +211,33 @@ void SpellCheck_SendReplyOnTerm(RedisModule_Reply *reply, char *term, size_t len
 
     RedisModule_Reply_Array(reply);
 
-      int n = array_len(suggestions);
-      for (int i = 0; i < n; ++i) {
-        RedisModule_Reply_Map(reply);
-          RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-          RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
-        RedisModule_Reply_MapEnd(reply);
-      }
+    int n = array_len(suggestions);
+    for (int i = 0; i < n; ++i) {
+      RedisModule_Reply_Map(reply);
+      RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
+      RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
+      RedisModule_Reply_MapEnd(reply);
+    }
 
     RedisModule_Reply_ArrayEnd(reply);
-  }
-  else // RESP2
+  } else  // RESP2
   {
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
 
     RedisModule_Reply_StringBuffer(reply, term, len);
 
+    RedisModule_Reply_Array(reply);
+
+    int n = array_len(suggestions);
+    for (int i = 0; i < n; ++i) {
       RedisModule_Reply_Array(reply);
-
-        int n = array_len(suggestions);
-        for (int i = 0; i < n; ++i) {
-          RedisModule_Reply_Array(reply);
-            RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
-            RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
-          RedisModule_Reply_ArrayEnd(reply);
-        }
-
+      RedisModule_Reply_Double(reply, suggestions[i]->score / totalDocNumber);
+      RedisModule_Reply_StringBuffer(reply, suggestions[i]->suggestion, suggestions[i]->len);
       RedisModule_Reply_ArrayEnd(reply);
+    }
+
+    RedisModule_Reply_ArrayEnd(reply);
 
     RedisModule_Reply_ArrayEnd(reply);
   }
@@ -245,22 +264,28 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
       RedisModule_Reply_Error(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
     } else {
       RedisModule_Reply_Array(reply);
-        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
-        RedisModule_Reply_StringBuffer(reply, term, len);
-        RedisModule_Reply_SimpleString(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
+      RedisModule_Reply_SimpleString(reply, SPELL_CHECK_TERM_CONST);
+      RedisModule_Reply_StringBuffer(reply, term, len);
+      RedisModule_Reply_SimpleString(reply, SPELL_CHECK_FOUND_TERM_IN_INDEX);
       RedisModule_Reply_ArrayEnd(reply);
     }
     return true;
   }
 
+  // The Rust dictionaries only ever hold valid UTF-8, so an invalid term can
+  // neither be excluded by one nor gain suggestions from one — and it must
+  // not reach the SpellCheckDictionary_* calls (see Dictionary_IsValidTerm).
+  bool termIsValidUtf8 = Dictionary_IsValidTerm(term, len);
+
   // searching the term on the exclude list, if its there we just return false
   // because there is no need to return suggestions on it.
-  for (int i = 0; i < array_len(scCtx->excludeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
-    if (t == NULL) {
+  for (int i = 0; termIsValidUtf8 && i < array_len(scCtx->excludeDict); ++i) {
+    SpellCheckDictionary *d =
+        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->excludeDict[i], REDISMODULE_READ);
+    if (d == NULL) {
       continue;
     }
-    if (SpellCheck_IsTermExistsInTrie(t, term, len, NULL)) {
+    if (SpellCheckDictionary_Contains(d, term, len)) {
       return false;
     }
   }
@@ -272,12 +297,13 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
   // sorting results by score
 
   // searching the term on the include list for more suggestions.
-  for (int i = 0; i < array_len(scCtx->includeDict); ++i) {
-    Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
-    if (t == NULL) {
+  for (int i = 0; termIsValidUtf8 && i < array_len(scCtx->includeDict); ++i) {
+    SpellCheckDictionary *d =
+        SpellCheck_OpenDict(scCtx->sctx->redisCtx, scCtx->includeDict[i], REDISMODULE_READ);
+    if (d == NULL) {
       continue;
     }
-    SpellCheck_FindSuggestions(scCtx, t, term, len, fieldMask, s, 0);
+    SpellCheck_FindSuggestionsFromDict(scCtx, d, term, len, fieldMask, s, 0);
   }
 
   SpellCheck_SendReplyOnTerm(reply, term, len, s,
@@ -290,8 +316,8 @@ static bool SpellCheck_ReplyTermSuggestions(SpellCheckCtx *scCtx, char *term, si
 
 static bool SpellCheck_CheckDictExistence(SpellCheckCtx *scCtx, const char *dict) {
 #define BUFF_SIZE 1000
-  Trie *t = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
-  if (t == NULL) {
+  SpellCheckDictionary *d = SpellCheck_OpenDict(scCtx->sctx->redisCtx, dict, REDISMODULE_READ);
+  if (d == NULL) {
     char buff[BUFF_SIZE];
     snprintf(buff, BUFF_SIZE, "Dict does not exist: %s", dict);
     RedisModule_ReplyWithError(scCtx->sctx->redisCtx, buff);
@@ -328,33 +354,33 @@ static int forEachCallback(QueryNode *n, QueryNode *orig, void *arg) {
 static void SpellCheck_Reply_resp2(SpellCheckCtx *scCtx, QueryAST *q, RedisModule_Reply *reply) {
   RedisModule_Reply_Array(reply);
 
-    if (scCtx->fullScoreInfo) {
-      // sending the total number of docs for the ability to calculate score on cluster
-      RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
-    }
+  if (scCtx->fullScoreInfo) {
+    // sending the total number of docs for the ability to calculate score on cluster
+    RedisModule_Reply_LongLong(reply, scCtx->sctx->spec->docs.size - 1);
+  }
 
-    scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
-    QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
-    scCtx->reply = NULL;
+  scCtx->reply = reply;  // this is stack-allocated, should be reset immediately after use
+  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+  scCtx->reply = NULL;
 
   RedisModule_Reply_ArrayEnd(reply);
 }
 
 static void SpellCheck_Reply_resp3(SpellCheckCtx *scCtx, QueryAST *q, RedisModule_Reply *reply) {
-  RedisModule_Reply_Map(reply); // root
+  RedisModule_Reply_Map(reply);  // root
 
-    if (scCtx->fullScoreInfo) {
-      // sending the total number of docs for the ability to calculate score on cluster
-      RedisModule_ReplyKV_LongLong(reply, "total_docs", scCtx->sctx->spec->docs.size - 1);
-    }
+  if (scCtx->fullScoreInfo) {
+    // sending the total number of docs for the ability to calculate score on cluster
+    RedisModule_ReplyKV_LongLong(reply, "total_docs", scCtx->sctx->spec->docs.size - 1);
+  }
 
-    RedisModule_ReplyKV_Map(reply, "results"); // >results
-      scCtx->reply = reply; // this is stack-allocated, should be reset immediately after use
-      QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
-      scCtx->reply = NULL;
-    RedisModule_Reply_MapEnd(reply); // >results
+  RedisModule_ReplyKV_Map(reply, "results");  // >results
+  scCtx->reply = reply;  // this is stack-allocated, should be reset immediately after use
+  QueryNode_ForEach(q->root, forEachCallback, scCtx, 1);
+  scCtx->reply = NULL;
+  RedisModule_Reply_MapEnd(reply);  // >results
 
-  RedisModule_Reply_MapEnd(reply); // root
+  RedisModule_Reply_MapEnd(reply);  // root
 }
 
 void SpellCheck_Reply(SpellCheckCtx *scCtx, QueryAST *q) {

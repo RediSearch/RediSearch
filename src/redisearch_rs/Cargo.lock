@@ -2050,6 +2050,7 @@ dependencies = [
  "search_result_ffi",
  "slots_tracker_ffi",
  "sorting_vector_ffi",
+ "spellcheck_dictionary_ffi",
  "syn 2.0.118",
  "term_suffix_index_ffi",
  "toml",
@@ -2763,10 +2764,21 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "proptest",
+ "rdb_io",
  "rstest",
  "string_utils",
- "strsim",
+ "trie_rdb",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "spellcheck_dictionary_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "redis-module",
+ "spellcheck_dictionary",
  "workspace_hack",
 ]
 
@@ -2799,12 +2811,6 @@ checksum = "2a8f8038e7e7969abb3f1b7c2a811225e9296da208539e0f79c5251d6cac0025"
 dependencies = [
  "vte",
 ]
-
-[[package]]
-name = "strsim"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "strum"
