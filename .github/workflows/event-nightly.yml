@@ -50,9 +50,8 @@ jobs:
     with:
       platform: all,ubuntu:latest
       architecture: all
-      # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
-      redis-repository: TalBarYakar/redis
-      redis-ref: tal.ba/feat/add_redis_docker_files
+      redis-repository: redis/redis
+      redis-ref: unstable
       redisearch-repository: ${{ github.repository }}
       redisearch-ref: ${{ github.sha }}
 
