@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod automaton;
 pub mod iter;
 
 use crate::TrieMap;
