@@ -14,6 +14,7 @@
 #include "redismock/redismock.h"
 #include "trie_rdb_ffi.h"
 #include "spellcheck_dictionary_ffi.h"
+#include "term_dictionary_ffi.h"
 
 #include <set>
 #include <string>
@@ -1188,6 +1189,80 @@ TEST_F(TrieTest, testCRustSpellCheckDictRdbInterop) {
   EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(recoveredTrie));
   for (const char *term : terms) {
     EXPECT_TRUE(trieContains(recoveredTrie, term)) << "missing term: " << term;
+  }
+}
+
+
+// Round-trips the FT.SEARCH terms-trie combo (`savePayloads=false,
+// saveNumDocs=true`, per-entry scores) through both the C trie and the Rust
+// `TermDictionary`:
+//   C save -> Rust load -> Rust save (must be byte-identical to original)
+//   Rust save -> C load  (must rehydrate a trie with the same terms,
+//                         scores, and numDocs)
+TEST_F(TrieTest, testCRustTermDictionaryRdbInterop) {
+  Trie *originalTrie = NewTrie(NULL, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> originalTriePtr(originalTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+
+  struct Entry {
+    const char *term;
+    float score;
+    size_t numDocs;
+  };
+  const Entry entries[] = {{"alpha", 1, 3}, {"beta", 2, 1}, {"gamma", 5, 7}};
+  for (const Entry &e : entries) {
+    // ADD_REPLACE into a fresh node sets the score; numDocs accumulates from 0.
+    Trie_InsertStringBuffer(originalTrie, e.term, strlen(e.term), e.score, 0, NULL, e.numDocs);
+  }
+  ASSERT_EQ(sizeof(entries) / sizeof(entries[0]), Trie_Size(originalTrie));
+
+  RedisModuleIO *ioC = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioCPtr(ioC, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  TrieType_GenericSave(ioC, originalTrie, /*savePayloads=*/false, /*saveNumDocs=*/true);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  ASSERT_GT(ioC->buffer.size(), 0u);
+
+  // C bytes -> Rust load.
+  ioC->read_pos = 0;
+  TermDictionary *dict = TermDictionary_RdbLoad(ioC);
+  std::unique_ptr<TermDictionary, std::function<void(TermDictionary *)>> dictPtr(
+      dict, [](TermDictionary *d) { TermDictionary_Free(d); });
+  ASSERT_TRUE(dict != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioC));
+  EXPECT_EQ(Trie_Size(originalTrie), TermDictionary_Len(dict));
+  for (const Entry &e : entries) {
+    float score = 0;
+    size_t numDocs = 0;
+    ASSERT_EQ(1, TermDictionary_Get(dict, e.term, strlen(e.term), &score, &numDocs)) << e.term;
+    EXPECT_EQ(e.score, score) << "score mismatch for: " << e.term;
+    EXPECT_EQ(e.numDocs, numDocs) << "numDocs mismatch for: " << e.term;
+  }
+
+  // Rust save -> compare bytes against the original C-emitted buffer.
+  RedisModuleIO *ioRust = RMCK_CreateRdbIO();
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioRustPtr(ioRust, [](RedisModuleIO *io) {
+    RMCK_FreeRdbIO(io);
+  });
+  TermDictionary_RdbSave(ioRust, dict);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(ioC->buffer, ioRust->buffer);
+
+  // Rust bytes -> C load. Must rehydrate a trie with the same payload fields.
+  ioRust->read_pos = 0;
+  Trie *recoveredTrie =
+      (Trie *)TrieType_GenericLoad(ioRust, /*loadPayloads=*/false, /*loadNumDocs=*/true, Trie_Sort_Lex);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> recoveredTriePtr(recoveredTrie, [](Trie *trie) {
+    TrieType_Free(trie);
+  });
+  ASSERT_TRUE(recoveredTrie != nullptr);
+  EXPECT_EQ(0, RMCK_IsIOError(ioRust));
+  EXPECT_EQ(Trie_Size(originalTrie), Trie_Size(recoveredTrie));
+  for (const Entry &e : entries) {
+    EXPECT_TRUE(trieContains(recoveredTrie, e.term)) << "missing term: " << e.term;
+    EXPECT_EQ(e.numDocs, trieGetNumDocs(recoveredTrie, e.term)) << "numDocs mismatch for: " << e.term;
   }
 }
 

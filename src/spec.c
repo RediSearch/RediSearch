@@ -2943,51 +2943,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   return true;
 }
 
-// The terms dictionary is a Rust TermDictionary, but its on-disk representation
-// is still the legacy C-trie TrieType wire format. These two helpers bridge the
-// gap by round-tripping through a transient C Trie, so existing RDBs keep loading
-// and new RDBs stay byte-compatible with readers that predate the Rust port.
-static void termDictRdbSave(RedisModuleIO *rdb, const TermDictionary *td, bool saveNumDocs) {
-  Trie *tmp = NewTrie(NULL, Trie_Sort_Lex);
-  TermDictionaryIterator *it = TermDictionary_Iterate(td);
-  const char *term = NULL;
-  size_t len = 0;
-  float score = 0;
-  size_t numDocs = 0;
-  uint32_t dist = 0;
-  while (TermDictionaryIterator_Next(it, &term, &len, &score, &numDocs)) {
-    // ADD_REPLACE into a fresh node sets score and accumulates numDocs from 0,
-    // so the transient trie mirrors the dictionary exactly.
-    Trie_InsertStringBuffer(tmp, term, len, score, 0, NULL, numDocs);
-  }
-  TermDictionaryIterator_Free(it);
-  TrieType_GenericSave(rdb, tmp, false, saveNumDocs);
-  TrieType_Free(tmp);
-}
-
-static TermDictionary *termDictRdbLoad(RedisModuleIO *rdb, bool loadNumDocs) {
-  Trie *tmp = TrieType_GenericLoad(rdb, false, loadNumDocs, Trie_Sort_Lex);
-  if (!tmp) {
-    return NULL;
-  }
-  TermDictionary *td = NewTermDictionary();
-  rune *rstr = NULL;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-  size_t numDocs = 0;
-  TrieIterator *it = Trie_IterateAll(tmp);
-  while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocs, &dist)) {
-    size_t termLen;
-    char *term = runesToStr(rstr, slen, &termLen);
-    TermDictionary_Insert(td, term, termLen, score, numDocs);
-    rm_free(term);
-  }
-  TrieIterator_Free(it);
-  TrieType_Free(tmp);
-  return td;
-}
-
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
@@ -3050,7 +3005,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     // See Indexes_FinishSSTReplication.
     RedisModule_SaveUnsigned(rdb, (uint64_t)(sp->scan_in_progress || sp->scan_failed_OOM));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
-    termDictRdbSave(rdb, sp->terms, true);
+    TermDictionary_RdbSave(rdb, sp->terms);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
   }
 
@@ -3179,7 +3134,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     if (sp->terms) {
       TermDictionary_Free(sp->terms);
     }
-    sp->terms = termDictRdbLoad(rdb, true);
+    sp->terms = TermDictionary_RdbLoad(rdb);
     RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed

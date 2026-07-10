@@ -736,3 +736,65 @@ pub unsafe extern "C" fn TermDictionaryIterator_Free(it: *mut TermDictionaryIter
     // obtained from a `TermDictionary_Iterate*` function.
     drop(unsafe { Box::from_raw(it) });
 }
+
+/// Serialize a [`TermDictionary`] to `io` in the trie RDB wire format the
+/// FT.SEARCH terms trie has always used (`TrieType_GenericSave` with
+/// per-entry score and `num_docs`, no payloads). Save is infallible at this
+/// layer; any underlying RDB IO error surfaces later via
+/// `RedisModule_IsIOError` on the load side.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `io` must be a valid, non-null `*mut RedisModuleIO` supplied by the
+///   calling Redis module save callback, and remain valid for the duration
+///   of the call.
+/// - `t` must point to a valid [`TermDictionary`] obtained from
+///   [`NewTermDictionary`] or [`TermDictionary_RdbLoad`]. No mutating call
+///   on `t` may run concurrently with this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermDictionary_RdbSave(
+    io: *mut ffi::RedisModuleIO,
+    t: *const TermDictionary,
+) {
+    debug_assert!(!io.is_null(), "io cannot be NULL");
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: caller is to ensure `t` is a valid, non-null pointer to a
+    // TermDictionary with no concurrent mutation.
+    let TermDictionary(dict) = unsafe { &*t };
+    // Wrapping the pointer is safe; the caller's validity guarantee on `io`
+    // covers the RDB writes performed through it for the duration of the call.
+    let mut rm_io = redis_module::RedisModuleIO::new(io.cast::<redis_module::raw::RedisModuleIO>());
+    dict.rdb_save(&mut rm_io);
+}
+
+/// Deserialize a [`TermDictionary`] from `io`, accepting the stream
+/// [`TermDictionary_RdbSave`] emits (which is also what
+/// `TrieType_GenericSave` wrote for the C terms trie). Returns NULL on any
+/// RDB IO or framing error (including non-UTF-8 keys), matching the C
+/// contract of `TrieType_GenericLoad`.
+///
+/// On success, the caller owns the returned pointer and must release it via
+/// [`TermDictionary_Free`].
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `io` must be a valid, non-null `*mut RedisModuleIO` supplied by the
+///   calling Redis module load callback, and remain valid for the duration
+///   of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TermDictionary_RdbLoad(
+    io: *mut ffi::RedisModuleIO,
+) -> *mut TermDictionary {
+    debug_assert!(!io.is_null(), "io cannot be NULL");
+
+    // Wrapping the pointer is safe; the caller's validity guarantee on `io`
+    // covers the RDB reads performed through it for the duration of the call.
+    let mut rm_io = redis_module::RedisModuleIO::new(io.cast::<redis_module::raw::RedisModuleIO>());
+    match TermDictionaryImpl::rdb_load(&mut rm_io) {
+        Ok(dict) => Box::into_raw(Box::new(TermDictionary(dict))),
+        Err(_) => std::ptr::null_mut(),
+    }
+}

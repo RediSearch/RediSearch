@@ -2938,6 +2938,8 @@ dependencies = [
 name = "term_dictionary"
 version = "0.0.1"
 dependencies = [
+ "rdb_io",
+ "trie_rdb",
  "trie_rs",
  "workspace_hack",
 ]
@@ -2947,6 +2949,8 @@ name = "term_dictionary_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "ffi",
+ "redis-module",
  "redis_mock",
  "term_dictionary",
  "workspace_hack",

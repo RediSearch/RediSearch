@@ -36,12 +36,22 @@
 
 use std::borrow::Cow;
 
+use rdb_io::RdbIO;
+use trie_rdb::{EntryFields, RdbError, RdbOpts, str as str_rdb};
 use trie_rs::str_trie_map::{
     StrTrieMap,
     iter::{
         ContainsIter as StrContainsIter, FuzzyIter, Iter, PrefixedIter, RangeBoundary, RangeFilter,
         RangeIter as StrRangeIter, SuffixedIter, WildcardIter as StrWildcardIter,
     },
+};
+
+/// Wire options of the FT.SEARCH terms trie (`TrieType_GenericSave` with
+/// `savePayloads = false, saveNumDocs = true`): per-entry score and
+/// `num_docs`, no payloads.
+const TERMS_RDB_OPTS: RdbOpts = RdbOpts {
+    payloads: false,
+    num_docs: true,
 };
 
 /// Per-term metadata stored at each terminal in the term dictionary.
@@ -260,6 +270,47 @@ impl TermDictionary {
     /// needle, so it stays lazy regardless of whether folding allocated.
     pub fn fuzzy_iter(&self, pattern: &str, max_dist: u32) -> FuzzyIter<'_, TermEntry> {
         self.inner.fuzzy_iter(&fold(pattern), max_dist)
+    }
+
+    /// Serialize the dictionary to `writer` in the trie RDB wire format the
+    /// FT.SEARCH terms trie has always used (per-entry score and `num_docs`,
+    /// no payloads), so existing RDBs keep loading and new RDBs stay
+    /// byte-compatible with readers that predate the Rust port.
+    pub fn rdb_save<IO: RdbIO>(&self, writer: &mut IO) {
+        str_rdb::save_with(&self.inner, writer, TERMS_RDB_OPTS, |entry| EntryFields {
+            score: f64::from(entry.score),
+            payload: None,
+            num_docs: entry.num_docs as u64,
+        });
+    }
+
+    /// Deserialize a dictionary from `reader`, accepting the wire format
+    /// [`Self::rdb_save`] emits (which is also what `TrieType_GenericSave`
+    /// wrote for the C terms trie).
+    ///
+    /// Keys must be valid UTF-8; a non-UTF-8 key aborts the load with
+    /// [`RdbError::InvalidUtf8`]. Keys are re-folded on the way in: streams
+    /// written by this module are folded already, but a legacy stream may
+    /// carry codepoints whose old libnu fold differs from
+    /// [`char::to_lowercase`], and the dictionary's folded-keys invariant
+    /// must hold for lookups to find them.
+    pub fn rdb_load<IO: RdbIO>(reader: &mut IO) -> Result<Self, RdbError> {
+        let raw: StrTrieMap<TermEntry> =
+            str_rdb::load_with(reader, TERMS_RDB_OPTS, |entry| TermEntry {
+                score: entry.score as f32,
+                num_docs: entry.num_docs as usize,
+            })?;
+        let mut dict = Self::new();
+        for (key, entry) in raw.iter() {
+            dict.insert(
+                &key,
+                TermEntry {
+                    score: entry.score,
+                    num_docs: entry.num_docs,
+                },
+            );
+        }
+        Ok(dict)
     }
 
     /// Decrement the `num_docs` count for `term` by `delta`. Saturating

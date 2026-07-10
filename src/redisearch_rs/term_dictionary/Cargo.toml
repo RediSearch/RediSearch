@@ -9,5 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+rdb_io.workspace = true
+trie_rdb.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
