@@ -109,9 +109,7 @@ impl SpellCheckDictionary {
         let Some(needle) = unicode_tolower_capped(term, TRIE_MAX_PREFIX) else {
             return false;
         };
-        self.trie
-            .iter()
-            .any(|(key, _)| *unicode_tolower_cow(&key) == *needle)
+        self.trie.case_insensitive_iter(&needle).next().is_some()
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`

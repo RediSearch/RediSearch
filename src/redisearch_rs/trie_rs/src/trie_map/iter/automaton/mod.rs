@@ -47,11 +47,12 @@
 //!   pattern-size-based backend dispatcher
 //!   ([`WildcardIter`]).
 
+pub mod case_fold;
 pub mod driver;
-#[cfg_attr(not(test), expect(dead_code))]
 mod utf8;
 pub mod wildcard;
 
+pub use case_fold::CaseFoldExact;
 pub use driver::{AutomatonIter, AutomatonLendingIter};
 pub use wildcard::{NfaBitSet, WildcardBackend, WildcardIter, WildcardLendingIter, WildcardNfa};
 

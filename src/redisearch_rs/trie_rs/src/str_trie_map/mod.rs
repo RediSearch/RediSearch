@@ -125,6 +125,13 @@ impl<Data> StrTrieMap<Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
 
+    /// Yield every entry whose key equals `needle` after per-codepoint case
+    /// folding, in lexicographical key order. See
+    /// [`CaseFoldExact`](crate::iter::CaseFoldExact) for the matching model.
+    pub fn case_insensitive_iter(&self, needle: &str) -> iter::CaseInsensitiveIter<'_, Data> {
+        iter::CaseInsensitiveIter::new(&self.inner, needle)
+    }
+
     /// Iterate over entries with keys inside `filter`, in lexicographical
     /// order. See [`TrieMap::range_iter`].
     pub fn range_iter<'tm, 'p>(

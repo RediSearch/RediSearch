@@ -15,9 +15,9 @@ mod utils;
 
 use crate::trie_map::{
     iter::{
-        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
-        RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter,
-        WildcardNfa, filter::VisitAll,
+        Automaton, AutomatonIter, CaseFoldExact, ContainsIter, IntoValues, Iter, LendingIter,
+        PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter,
+        WildcardIter, WildcardNfa, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -268,6 +268,13 @@ impl<Data> TrieMap<Data> {
         } else {
             AutomatonIter::new(Some(root), Vec::new(), automaton)
         }
+    }
+
+    /// Iterate over the entries whose key equals `needle` after per-codepoint
+    /// case folding, in lexicographical key order. Keys that are not valid
+    /// UTF-8 never match. See [`CaseFoldExact`] for the matching model.
+    pub fn case_insensitive_iter(&self, needle: &str) -> AutomatonIter<'_, Data, CaseFoldExact> {
+        AutomatonIter::new(self.root.as_ref(), Vec::new(), CaseFoldExact::new(needle))
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.
