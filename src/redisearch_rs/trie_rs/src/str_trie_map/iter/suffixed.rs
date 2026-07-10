@@ -10,8 +10,9 @@
 use crate::{
     TrieMap,
     iter::{self, filter},
-    str_trie_map::iter::unfiltered::key_to_string,
+    str_trie_map::iter::unfiltered::key_to_str,
 };
+use lending_iterator::prelude::*;
 
 /// Suffix-filtered iterator over a [`StrTrieMap`](crate::str_trie_map::StrTrieMap),
 /// in lexicographical key order.
@@ -22,10 +23,13 @@ use crate::{
 /// codepoint. Empty `suffix` yields zero matches by delegating to an empty
 /// inner iterator.
 ///
-/// See [`crate::iter::Iter`] for the underlying traversal.
+/// An ends-with predicate can never prune a subtree — any key may still gain
+/// a matching descendant — so the scan visits every entry either way. The
+/// inner [`LendingIter`](crate::iter::LendingIter) borrows each candidate
+/// key in place; only yielded keys are allocated into `String`s.
 pub struct SuffixedIter<'tm, Data: 'tm> {
     target_bytes: Box<[u8]>,
-    iter: iter::Iter<'tm, Data, filter::VisitAll>,
+    iter: iter::LendingIter<'tm, Data, filter::VisitAll>,
 }
 
 impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
@@ -33,12 +37,12 @@ impl<'tm, Data: 'tm> SuffixedIter<'tm, Data> {
         if suffix.is_empty() {
             return Self {
                 target_bytes: Box::new([]),
-                iter: iter::Iter::empty(),
+                iter: iter::Iter::empty().into(),
             };
         }
         Self {
             target_bytes: suffix.as_bytes().to_vec().into_boxed_slice(),
-            iter: trie.iter(),
+            iter: trie.lending_iter(),
         }
     }
 }
@@ -48,9 +52,9 @@ impl<'tm, Data: 'tm> Iterator for SuffixedIter<'tm, Data> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let (k, v) = self.iter.next()?;
+            let (k, v) = LendingIterator::next(&mut self.iter)?;
             if k.ends_with(&self.target_bytes) {
-                return Some((key_to_string(k), v));
+                return Some((key_to_str(k).to_owned(), v));
             }
         }
     }

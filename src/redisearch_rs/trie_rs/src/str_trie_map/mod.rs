@@ -81,6 +81,11 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Borrow the underlying byte-keyed [`TrieMap`] that backs this UTF-8 view.
+    pub const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
     ///
     /// Yields `(String, &Data)` — keys are decoded back into owned `String`s
@@ -126,6 +131,21 @@ impl<Data> StrTrieMap<Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
 
+    /// Yield every entry whose key equals `needle` after per-codepoint case
+    /// folding, in lexicographical key order. See
+    /// [`CaseFoldExact`](automaton::CaseFoldExact) for the matching model.
+    pub fn case_insensitive_iter(&self, needle: &str) -> iter::CaseInsensitiveIter<'_, Data> {
+        iter::CaseInsensitiveIter::new(&self.inner, needle)
+    }
+
+    /// Yield every entry whose case-folded key is within Levenshtein distance
+    /// `max_dist` (in codepoints) of `needle`, in lexicographical key order.
+    /// See [`CaseFoldLevenshtein`](automaton::CaseFoldLevenshtein) for the
+    /// matching model.
+    pub fn fuzzy_iter(&self, needle: &str, max_dist: u32) -> iter::FuzzyIter<'_, Data> {
+        iter::FuzzyIter::new(&self.inner, needle, max_dist)
+    }
+
     /// Iterate over entries with keys inside `filter`, in lexicographical
     /// order. See [`TrieMap::range_iter`].
     pub fn range_iter<'tm, 'p>(
@@ -135,17 +155,16 @@ impl<Data> StrTrieMap<Data> {
         iter::RangeIter::build_from(&self.inner, filter)
     }
 
-    /// Wildcard iteration over UTF-8 keys with codepoint-aware semantics.
+    /// Yield every entry whose key matches the wildcard `pattern`, in
+    /// lexicographical key order.
     ///
-    /// Differs from [`TrieMap::wildcard_iter`], which matches pattern tokens
-    /// against raw bytes — here `?` matches one codepoint, not one byte.
-    pub fn wildcard_iter<'tm>(
-        &'tm self,
-        _pattern: &str,
-    ) -> impl Iterator<Item = (String, &'tm Data)> + 'tm {
-        todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
-        #[expect(unreachable_code)]
-        std::iter::empty()
+    /// Codepoint semantics: `?` matches one codepoint (`entr?` matches
+    /// `entré`), `*` any run of codepoints. Differs from
+    /// [`TrieMap::wildcard_iter`], which matches raw bytes. Matching is
+    /// case-sensitive. See [`CodepointWildcard`](automaton::CodepointWildcard)
+    /// for the matching model.
+    pub fn wildcard_iter(&self, pattern: &str) -> iter::WildcardIter<'_, Data> {
+        iter::WildcardIter::new(&self.inner, pattern)
     }
 }
 

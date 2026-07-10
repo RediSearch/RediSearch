@@ -39,3 +39,9 @@ impl<'a, Data> Iterator for Iter<'a, Data> {
 pub(super) fn key_to_string(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes).expect("StrTrieMap keys are UTF-8 by construction")
 }
+
+/// Borrowing sibling of [`key_to_string`], for lending traversals that only
+/// allocate on yielded keys.
+pub(super) fn key_to_str(bytes: &[u8]) -> &str {
+    std::str::from_utf8(bytes).expect("StrTrieMap keys are UTF-8 by construction")
+}
