@@ -37,10 +37,10 @@ use std::{
     sync::Arc,
 };
 
-use rqe_wildcard::{MatchOutcome, WildcardPattern};
 use string_utils::unicode_tolower_cow;
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
+use trie_rs::str_trie_map::automaton::CodepointWildcard;
 
 /// Score handicap for anchor tokens followed by `*`: matching them
 /// scans a whole subtree instead of a single exact entry, so they
@@ -174,22 +174,13 @@ impl TermSuffixIndex {
             .flat_map(|data| data.terms().map(|term| &**term))
     }
 
-    /// Iterate over the members matching the glob `pattern`, where `*` matches
-    /// any run of characters and `?` any single byte. Matching is
-    /// [case-insensitive](crate#case-insensitivity). Returns `None` when no
-    /// token in the pattern can seed the search (every token is empty or
-    /// contains `?`).
+    /// Iterate over the members matching the glob `pattern`, where `*`
+    /// matches any run of codepoints and `?` exactly one codepoint (`entr?`
+    /// matches `entré`) — see [`CodepointWildcard`] for the matching model.
+    /// Matching is [case-insensitive](crate#case-insensitivity). Returns
+    /// `None` when no token in the pattern can seed the search (every token
+    /// is empty or contains `?`).
     /// A term may be yielded more than once (once per matching suffix entry).
-    ///
-    /// `?` matches a single *byte*, not a codepoint. The final filter runs
-    /// [`WildcardPattern`] over the raw UTF-8, and that matcher advances one
-    /// byte per `?` — it is the same byte-granular matcher the wider query
-    /// engine uses for wildcard search (the Rust counterpart of C's
-    /// `Wildcard_MatchChar`). So against a multibyte term, `?` lines up with a
-    /// single byte of a codepoint, not the whole character: `entr?` will not
-    /// match `entré`. This is not an approximation introduced here — it is the
-    /// engine's pre-existing `?` behavior, which we deliberately reuse rather
-    /// than diverge from with a second, codepoint-aware matcher.
     pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Arc<str>>> {
         let lowered = unicode_tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
@@ -205,13 +196,13 @@ impl TermSuffixIndex {
             (None, self.inner.get(token))
         };
 
-        let wildcard = WildcardPattern::parse(lowered.as_bytes());
+        let wildcard = CodepointWildcard::parse(&lowered);
         let matches: Vec<Arc<str>> = subtree
             .into_iter()
             .flatten()
             .chain(exact)
             .flat_map(|data| data.terms().cloned())
-            .filter(|term| wildcard.matches(term.as_bytes()) == MatchOutcome::Match)
+            .filter(|term| wildcard.matches(term))
             .collect();
         Some(matches.into_iter())
     }

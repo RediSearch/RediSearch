@@ -13,6 +13,7 @@
 #include "trie/trie_node.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "term_suffix_index_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
@@ -121,9 +122,9 @@ FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     sctx->spec->stats.scoring.numTerms--;
     sctx->spec->stats.termsSize -= len;
-    // Empty terms (INDEXEMPTY) are never inserted into the suffix trie, so skip the delete.
+    // Empty terms (INDEXEMPTY) are never inserted into the suffix index, so skip the delete.
     if (sctx->spec->suffix && len) {
-      deleteSuffixTrie(sctx->spec->suffix, term, len);
+      TermSuffixIndex_Remove(sctx->spec->suffix, term, len);
     }
   }
 

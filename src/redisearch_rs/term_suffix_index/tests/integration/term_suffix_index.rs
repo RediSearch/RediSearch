@@ -235,12 +235,11 @@ fn iter_wildcard_multibyte_anchor_matches() {
 }
 
 #[test]
-fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
-    // The matcher is byte-wise, so `?` consumes one *byte*, not one
-    // codepoint. `é` (U+00E9) is two UTF-8 bytes: `ab*c?` matches only its
-    // first byte, the second has nothing to pair with, and the term is
-    // dropped. This is the accepted approximation — an ASCII tail matches.
-    let corpus = ["abxc\u{e9}", "abxcd"]
+fn iter_wildcard_question_mark_consumes_one_codepoint() {
+    // `?` matches exactly one codepoint, so the multi-byte `é` (U+00E9)
+    // pairs with it just like the ASCII `d` does — and a two-codepoint tail
+    // does not.
+    let corpus = ["abxc\u{e9}", "abxcd", "abxcde"]
         .into_iter()
         .map(String::from)
         .collect::<Vec<_>>();
@@ -248,8 +247,8 @@ fn iter_wildcard_question_mark_is_byte_wise_for_multibyte() {
 
     let actual = collect_set(sut.iter_wildcard("ab*c?").expect("'ab' is anchorable"));
 
-    // The ASCII-tailed term matches; the `é`-tailed one is missed.
-    assert_eq!(actual, HashSet::from(["abxcd".to_string()]));
+    let expected = HashSet::from(["abxc\u{e9}".to_string(), "abxcd".to_string()]);
+    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -444,18 +443,18 @@ mod fuzz {
             corpus in proptest::collection::vec(term_strategy(), 1..=20),
             pattern in "[ab*?]{0,8}",
         ) {
-            use rqe_wildcard::{MatchOutcome, WildcardPattern};
+            use trie_rs::str_trie_map::automaton::CodepointWildcard;
 
             let sut = build_index(&corpus);
 
             // `None` requests the fallback scan — out of scope here. The
-            // oracle uses the same byte-wise matcher iter_wildcard does, so
+            // oracle uses the same codepoint matcher iter_wildcard does, so
             // this pins the anchor-selection logic, not the matcher itself.
             if let Some(matches) = sut.iter_wildcard(&pattern) {
-                let parsed = WildcardPattern::parse(pattern.as_bytes());
+                let parsed = CodepointWildcard::parse(&pattern);
                 let expected = corpus
                     .iter()
-                    .filter(|t| parsed.matches(t.as_bytes()) == MatchOutcome::Match)
+                    .filter(|t| parsed.matches(t))
                     .cloned()
                     .collect::<HashSet<_>>();
 
