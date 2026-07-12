@@ -29,10 +29,15 @@ from common import (
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
 SVS_COMPRESSION_TYPES = ['NO_COMPRESSION', 'LVQ8', 'LVQ4', 'LVQ4x4', 'LVQ4x8', 'LeanVec4x8', 'LeanVec8x8']
 
+def available_cpus():
+    # Mirrors the module's effectiveCPUCount(): CPU affinity on Linux, online CPU count
+    # elsewhere (macOS has no affinity API).
+    return len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else (os.cpu_count() or 1)
+
 def svs_pool_cap(workers):
     """The shared SVS pool is capped at the CPUs available to the process (MOD-16610),
     so the expected pool size for a WORKERS value is min(workers, available CPUs)."""
-    return min(workers, len(os.sched_getaffinity(0)))
+    return min(workers, available_cpus())
 
     # Simple platform-agnostic check for Intel CPU.
 def is_intel_opt_supported():
@@ -339,6 +344,10 @@ def test_svs_shared_threadpool_memory_info():
     # bytes, which would make the 'pool memory > 0' assertion below vacuous).
     initial_workers = 2
     grown_workers = 4
+    if svs_pool_cap(initial_workers) < 2:
+        # Pool size 1 = zero worker slots = zero pool-tracked bytes; the 'pool memory > 0'
+        # assertion below would fail before the cap-aware resize branch is even reached.
+        raise SkipTest("needs at least 2 available CPUs")
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
     dim = 2
     shared_mem_field = 'SHARED_MEMORY'
@@ -591,7 +600,7 @@ def test_change_threads_increase():
 def test_svs_pool_capped_at_cpu_count():
     """WORKERS above the available CPU count must cap the shared SVS pool at the CPU count
     (MOD-16610), while the config value itself keeps reporting the requested number."""
-    cpus = len(os.sched_getaffinity(0))
+    cpus = available_cpus()
     requested = cpus + 1
     if requested > 16:
         # OSS caps WORKERS at MAX_WORKER_THREADS (16); run under `taskset -c 0-3` to exercise.

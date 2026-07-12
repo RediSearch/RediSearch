@@ -51,9 +51,11 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
 // CPUs this process may run on (honors affinity/pinning), never less than 1.
 static size_t effectiveCPUCount(void) {
 #ifdef __linux__
-  cpu_set_t cpuset;
-  if (sched_getaffinity(0, sizeof(cpuset), &cpuset) == 0) {
-    int count = CPU_COUNT(&cpuset);
+  // Mask sized for hosts up to 4096 CPUs — a plain cpu_set_t covers only 1024, and
+  // sched_getaffinity fails with EINVAL on hosts with more.
+  unsigned long mask[4096 / (8 * sizeof(unsigned long))] = {0};
+  if (sched_getaffinity(0, sizeof(mask), (cpu_set_t *)mask) == 0) {
+    int count = CPU_COUNT_S(sizeof(mask), (cpu_set_t *)mask);
     if (count > 0) return (size_t)count;
   }
 #endif
