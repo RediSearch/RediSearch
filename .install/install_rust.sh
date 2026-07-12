@@ -100,6 +100,19 @@ echo "Rustup binary location: $rustup_bin"
 echo "Cargo binary location: $cargo_bin"
 cargo +"$PINNED_VERSION" -vV
 
+# Cargo subcommands should be installed into Cargo home, not necessarily next
+# to the `cargo` binary. `cargo` may come from /usr/bin or another
+# system-managed directory that a non-root bootstrap cannot write to.
+cargo_home_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+mkdir -p "$cargo_home_bin_dir"
+export PATH="$cargo_home_bin_dir:$PATH"
+hash -r
+if [[ -n "${GITHUB_PATH:-}" &&
+      "$cargo_home_bin_dir" != "$cargo_bin_dir" &&
+      "$cargo_home_bin_dir" != "$rustup_bin_dir" ]]; then
+    echo "$cargo_home_bin_dir" >> "$GITHUB_PATH"
+fi
+
 # cargo-nextest is the runner `make test` / `make rust-tests` invoke
 # (build.sh runs `cargo nextest run`), so bootstrap must provision it or
 # the documented `make bootstrap` -> `make test` flow dies with
@@ -127,7 +140,8 @@ else
     fi
     curl -L --proto '=https' --tlsv1.2 -sSf \
         "https://get.nexte.st/${NEXTEST_VERSION}/${nextest_artifact}" \
-        | tar zxf - -C "$cargo_bin_dir"
+        | tar zxf - -C "$cargo_home_bin_dir"
+    hash -r
 fi
 
 # cheadergen is required when REDISEARCH_GENERATE_HEADERS=ON, the default
