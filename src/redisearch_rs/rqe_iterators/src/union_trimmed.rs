@@ -286,7 +286,7 @@ where
         // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
         // before emitting any rows. That drain happens entirely within the
         // first `sendChunk` call while the spec read-lock is held
-        // (`sctx->flags != RS_CTX_UNSET`), so `handleSpecLockAndRevalidate`
+        // (`sctx->lock_state != SPEC_LOCK_UNSET`), so `handleSpecLockAndRevalidate`
         // short-circuits and never calls `Revalidate`. Subsequent cursor reads
         // only pull from the sorter's buffer; `rpQueryItNext` is not called
         // again.

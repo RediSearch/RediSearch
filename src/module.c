@@ -1299,8 +1299,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 4,
-    .patchVersion = 0,
+    .minorVersion = 9,
+    .patchVersion = 80,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -3109,7 +3109,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   searchRequestCtx *req = rCtx->searchCtx;
 
   // Number of results to actually return
-  size_t num = req->requestedResultsCount;
+  size_t num = req->offset + req->limit;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
@@ -3175,7 +3175,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    for (int i = 0; i < qlen && i < num; ++i) {
+    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 

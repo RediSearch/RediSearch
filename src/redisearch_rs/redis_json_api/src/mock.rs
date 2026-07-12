@@ -76,6 +76,7 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     nextKeyValue: Some(next_key_value),
     freeJson: Some(free_json),
     getArray: None,
+    getJsonFromHandle: None,
 };
 
 /// View a `RedisJSON` handle as the `serde_json::Value` node it points at.

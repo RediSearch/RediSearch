@@ -366,6 +366,12 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
+// Flex (disk-based indexes) defaults: disk queries are expected to take
+// longer, so they get a higher timeout, and time out with an error instead
+// of returning partial results.
+#define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
+#define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
+#define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
 #define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
@@ -407,7 +413,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .requestConfigParams.timeoutPolicy = DEFAULT_TIMEOUT_POLICY,               \
     .maxForegroundTimeoutLimitMS = DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS,    \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \

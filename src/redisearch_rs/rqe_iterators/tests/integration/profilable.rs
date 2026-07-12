@@ -278,14 +278,11 @@ fn not_rewind() {
 #[test]
 #[should_panic(expected = "double-profile")]
 fn double_profiling_panics() {
-    use rqe_iterators::{c2rust::CRQEIterator, interop::RQEIteratorWrapper};
-    use std::ptr::NonNull;
+    use rqe_iterators::c2rust::CRQEIterator;
 
     let child = Mock::new([1, 2, 3]);
     let profile = Profile::new(child);
-    let ptr = RQEIteratorWrapper::boxed_new(profile);
-    // SAFETY: `boxed_new` returns a valid, owning, non-aliased pointer with all callbacks set.
-    let iter = unsafe { CRQEIterator::new(NonNull::new(ptr).unwrap()) };
+    let iter = CRQEIterator::from_rust_leaf(profile);
     // First profiling succeeds (it's a Profile leaf, so profile_children is a no-op,
     // but into_profiled wraps it in another Profile — which is the double-profiling).
     let _double = iter.into_profiled();

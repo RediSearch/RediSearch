@@ -140,6 +140,12 @@ impl QueryEvalContext {
         }
     }
 
+    /// Raw pointer to the [`ffi::QueryError`] accumulator, for passing to C
+    /// functions that report errors into it.
+    pub const fn status_ptr(&self) -> *mut ffi::QueryError {
+        self.as_ref().status
+    }
+
     /// Double pointer to the metric-requests array.
     ///
     /// The C side appends entries via `array_ensure_append_1`. Rust callers

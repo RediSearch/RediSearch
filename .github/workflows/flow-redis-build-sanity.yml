@@ -12,12 +12,11 @@ on:
       redis-repository:
         description: 'Redis repository to use for the modernized build flow'
         type: string
-        # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
-        default: TalBarYakar/redis
+        default: redis/redis
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
         type: string
-        default: tal.ba/feat/add_redis_docker_files
+        default: unstable
       redisearch-repository:
         description: 'RediSearch repository to inject into Redis modules.yaml. Defaults to this repository.'
         type: string
@@ -47,12 +46,11 @@ on:
       redis-repository:
         description: 'Redis repository to use for the modernized build flow'
         type: string
-        # TODO: Switch to redis/redis after https://github.com/redis/redis/pull/15253 lands.
-        default: TalBarYakar/redis
+        default: redis/redis
       redis-ref:
         description: 'Redis ref containing modules-update/bootstrap/build/run'
         type: string
-        default: tal.ba/feat/add_redis_docker_files
+        default: unstable
       redisearch-repository:
         description: 'RediSearch repository to inject into Redis modules.yaml. Empty means this repository.'
         type: string

@@ -12,10 +12,8 @@ use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::interop::RQEIteratorWrapper;
 use rqe_iterators::{
-    metric::{
-        Metric, MetricLazySortedById, MetricLazySortedByScore, MetricSortedById,
-        MetricSortedByScore, MetricType,
-    },
+    metric::{Metric, MetricSortedById, MetricSortedByScore, MetricType},
+    metric_lazy::{MetricLazySortedById, MetricLazySortedByScore},
     utils::OwnedSlice,
 };
 

@@ -12,7 +12,7 @@
 #include "triemap_ffi.h"
 #include "spec.h"
 #include "indexes.h"
-#include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"

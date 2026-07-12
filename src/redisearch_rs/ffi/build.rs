@@ -147,6 +147,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geo_index.h",
+        fns: &["GeoFilter_Validate"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -201,7 +207,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/numeric_filter.h",
-        fns: &["NewNumericFilter"],
+        fns: &["NewNumericFilter", "NumericFilter_Free"],
         types: &[],
         vars: &[],
     },
@@ -563,6 +569,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
     "varint_ffi.h",
+    // `src/ext/default.h` includes `query_eval.h` for the scorer- and
+    // expander-name macros (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`,
+    // ...), whose single source of truth is the Rust `query_eval` crate. These
+    // are string `#define`s, so a forward declaration isn't applicable.
+    "query_eval.h",
 ];
 
 /// Types defined in Rust (re-exported from their owning crate in

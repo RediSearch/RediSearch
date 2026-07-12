@@ -40,9 +40,9 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     bencher.wildcard_group(c, "*ly");
 
     // Patterns that exercise the two surviving NFA classes (`u64` ≤ 63
-    // atoms, `u128` ≤ 127). Anything larger routes through the filter
-    // fallback under `wildcard_specialized_iter` and would compare
-    // identical timings against `wildcard_iter`, so we don't bench it.
+    // atoms, `u128` ≤ 127). Anything larger routes through
+    // `wildcard_iter`'s per-key filter fallback; the bench would just
+    // measure that path so we don't include it here.
     //
     // For the `u128` class we run two shapes back-to-back so the contrast
     // is visible:
