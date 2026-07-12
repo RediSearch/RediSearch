@@ -104,11 +104,11 @@ th.l, td.l { text-align: left; }
     <div class="panels" id="chart-c-top"></div>
   </div>
 
-  <div class="card" id="sweep-card" style="display:none">
-    <h2 id="sweep-title">Degradation with growing result sets</h2>
-    <p class="sub" id="sweep-sub"></p>
+  <div class="card" id="degradation-card">
+    <h2 id="deg-title">Degradation with dataset size — hybrid vs its subqueries</h2>
+    <p class="sub" id="deg-sub"></p>
     <div class="legend" id="legend-s"></div>
-    <div class="panels" id="chart-sweep"></div>
+    <div class="panels" id="chart-deg"></div>
   </div>
 
   <div class="card">
@@ -182,7 +182,7 @@ function cOf(size, window, workers, fields) {
 (function () {
   const m = DATA.meta;
   document.getElementById("meta").appendChild(document.createTextNode(
-    `balanced per (size, window): search p50 calibrated to vsim p50 ±${Math.round(100 * m.cal_tol)}% · ` +
+    `text queries engineered per (size, window) so text-subquery latency correlates with the vector subquery's (±${Math.round(100 * m.cal_tol)}%) · ` +
     `output top-${m.out_k} · ${m.n_query_set} distinct queries, ${m.n_timed} timed reps/cell (after ${m.n_warmup} warm-up)`));
   function tile(label, value, note) {
     const t = document.createElement("div"); t.className = "tile";
@@ -449,7 +449,7 @@ function renderMain() {
             dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
             tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
                       { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · fields=${fields}` },
-                      { text: `|matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
+                      { text: `calibrated |matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
         }),
       }));
       p.appendChild(columnPanel(groups, {}));
@@ -465,7 +465,7 @@ function td(tr, txt, cls) { const c = document.createElement("td"); if (cls) c.c
 (function gatesTable() {
   const t = document.getElementById("gates-table");
   const hr = document.createElement("tr");
-  ["size", "K/W", "|matches| mean", "balance ratio", "gate LINEAR", "gate RRF"].forEach((h, i) => th(hr, h, i < 2 ? "l" : ""));
+  ["size", "K/W", "calibrated |matches|", "balance ratio", "gate LINEAR", "gate RRF"].forEach((h, i) => th(hr, h, i < 2 ? "l" : ""));
   t.appendChild(hr);
   DATA.gates.forEach(g => {
     const tr = document.createElement("tr");
@@ -503,43 +503,43 @@ function renderTable() {
     });
 }
 
-function renderSweep() {
-  const S = DATA.sweep;
-  if (!S || !S.results || !S.results.length) return;
-  document.getElementById("sweep-card").style.display = "";
-  const SWINDOWS = [...new Set(S.results.map(r => r.window))].sort((a, b) => a - b);
-  document.getElementById("sweep-title").textContent =
-    `Degradation with growing result sets — hybrid vs its subqueries — workers=${S.meta.workers}, fields=${S.meta.fields}`;
-  document.getElementById("sweep-sub").textContent =
-    `Raw p50 latencies side by side (no derived metrics). Each panel holds K/WINDOW fixed; ` +
-    `x = measured |matches| of the text query (log scale), points pooled from all corpus sizes ` +
-    `and selectivities (${S.meta.n_timed} reps/cell). Read: does hybrid keep tracking its ` +
-    `subqueries as result sets grow ~1000×?`;
+function renderDegradation() {
+  const w0 = state.workers;
+  document.getElementById("deg-title").textContent =
+    `Degradation with dataset size — hybrid vs its subqueries — workers=${w0}, fields=none`;
+  document.getElementById("deg-sub").textContent =
+    `Raw p50 latencies side by side (no derived metrics), x = dataset size (log scale), ` +
+    `one panel per K/WINDOW. The text queries are engineered per cell so the text ` +
+    `subquery's latency correlates with the vector subquery's (calibrated |matches| is ` +
+    `the knob — shown in the tooltip, with the achieved balance ratio).`;
   const SC = [
-    { key: "hybrid_p50_ms", name: "FT.HYBRID (LINEAR)", v: "--s-hyblin" },
-    { key: "search_p50_ms", name: "SEARCH branch", v: "--s-search" },
-    { key: "vsim_p50_ms",   name: "VSIM branch",   v: "--s-vsim" },
+    { key: "hybrid_linear", name: "FT.HYBRID (LINEAR)", v: "--s-hyblin" },
+    { key: "search_branch", name: "SEARCH branch", v: "--s-search" },
+    { key: "vsim_branch",   name: "VSIM branch",   v: "--s-vsim" },
   ];
   legend("legend-s", SC);
-  const box = document.getElementById("chart-sweep"); box.textContent = "";
-  SWINDOWS.forEach(w => {
-    const rowsW = S.results.filter(r => r.window === w);
+  const box = document.getElementById("chart-deg"); box.textContent = "";
+  WINDOWS.forEach(w => {
+    const kOf = (DATA.results.find(r => r.window === w) || {}).k;
     const seriesList = SC.map(c => ({
       name: c.name, color: css(c.v),
-      points: rowsW.map(r => ({
-        x: r.matches_mean, y: r[c.key],
-        tooltip: [{ text: `${fmt(r[c.key])} ms p50` },
-                  { text: c.name, color: css(c.v) },
-                  { text: `|matches|≈${fmt(r.matches_mean, 0)} (${Math.round(100 * r.match_frac)}% of ${sizeName(r.size)} docs) · K/W=${r.k}/${w}` },
-                  { text: `hybrid ${fmt(r.hybrid_p50_ms)} · search ${fmt(r.search_p50_ms)} · vsim ${fmt(r.vsim_p50_ms)} ms` }] })),
+      points: SIZES.map(size => {
+        const r = row1({ contender: c.key, size, window: w, workers: w0, fields: "none" });
+        if (!r) return null;
+        return { x: size, y: r.p50_ms,
+          tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` },
+                    { text: c.name, color: css(c.v) },
+                    { text: `${sizeName(size)} docs · K/W=${r.k}/${w} · workers=${w0}` },
+                    { text: `calibrated |matches|≈${fmt(r.matches_mean, 0)} · balance ratio ${fmt(r.balance_ratio, 2)}` }] };
+      }).filter(Boolean),
     }));
-    const p = panelBox(box, `K/WINDOW=${rowsW[0].k}/${w} — p50 (ms) vs |matches|`, "");
+    const p = panelBox(box, `K/WINDOW=${kOf}/${w} — p50 (ms) vs dataset size`, "");
     p.appendChild(linesPanelLogX(seriesList, {}));
   });
 }
 
 function render() {
-  renderSweep();
+  renderDegradation();
   syncW();
   document.getElementById("table-sub").textContent =
     `The full table view (workers=${state.workers}) — every number reachable without hover.`;
