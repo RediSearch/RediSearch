@@ -2763,6 +2763,7 @@ dependencies = [
 name = "spellcheck_dictionary"
 version = "0.0.1"
 dependencies = [
+ "criterion",
  "ffi",
  "proptest",
  "rdb_io",
