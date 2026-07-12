@@ -19,9 +19,9 @@ import bench_lib as B
 
 SIZES = [10_000, 100_000, 500_000]
 DEPTHS = [dict(k=10, window=20), dict(k=50, window=100), dict(k=250, window=500)]
-CAL_TOL = 0.20              # calibration targets +-20% of the vsim mirror p50
-CAL_ITERS = 7
-CAL_REPS = (64, 200)        # warmup, timed reps per calibration probe
+CAL_TOL = 0.08              # calibration targets +-8% of the vsim mirror p50
+CAL_ITERS = 12
+CAL_REPS = (64, 400)        # warmup, timed reps per calibration probe (tight tolerance needs a stable probe)
 N_QUERY_SET = 256
 
 
