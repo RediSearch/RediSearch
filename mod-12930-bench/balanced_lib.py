@@ -78,20 +78,27 @@ def calibrate(r, df, pool, q_emb, n, depth):
 
     lo, hi = min(200.0, 0.002 * n), 1.0 * n
     target, search_p50 = hi, None
+    best = None  # (deviation, target, search_p50) — keep the closest-to-balanced probe,
+                 # not the last one: at sub-ms targets probe jitter is the same order as
+                 # CAL_TOL, so the final bisection step is often not the best seen.
     for it in range(CAL_ITERS):
         target = (lo * hi) ** 0.5
         qs = _gen_qset(df, pool, target, q_emb, seed=1000 + it)[:64]
         args = [B.search_branch(q, v, fields=False, **depth) for q, v in qs]
         search_p50 = _probe_p50(r, args, *CAL_REPS)
         print(f"  target≈{target:,.0f} -> search p50 {search_p50:.2f}ms")
-        if abs(search_p50 - vsim_p50) <= CAL_TOL * vsim_p50:
+        dev = abs(search_p50 - vsim_p50)
+        if best is None or dev < best[0]:
+            best = (dev, target, search_p50)
+        if dev <= CAL_TOL * vsim_p50:
             break
         if search_p50 < vsim_p50:
             lo = target
         else:
             hi = target
-        if hi / lo < 1.05:  # bisection exhausted (balance unreachable)
+        if hi / lo < 1.05:  # bisection exhausted
             break
+    _, target, search_p50 = best
     qset = _gen_qset(df, pool, target, q_emb, seed=42)
     counts = [B.count_matches(r, q) for q, _ in qset[:32]]
     ratio = search_p50 / vsim_p50
