@@ -281,8 +281,7 @@ def test_svs_threadpool_lazy_init():
     """
     workers = 4
     if svs_pool_cap(workers) < 2:
-        # The pool is capped at the CPU count; with an effective size of 1 there are zero
-        # worker slots and no pool-tracked bytes, making the growth assertion vacuous.
+        # Pool size 1 = zero worker slots = zero pool-tracked bytes; growth assertion vacuous.
         raise SkipTest("needs at least 2 available CPUs")
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {workers}')
 
@@ -590,15 +589,12 @@ def test_change_threads_increase():
 
 @skip(cluster=True)
 def test_svs_pool_capped_at_cpu_count():
-    """CONFIG SET WORKERS above the process CPU count must cap the shared SVS pool at the
-    CPU count (MOD-16610): SVS threads are compute-bound, so threads beyond the core count
-    add no throughput, and physically resizing to oversubscribed sizes stalls the main
-    thread (booting threads busy-spin and starve each other's start-up handshakes)."""
+    """WORKERS above the available CPU count must cap the shared SVS pool at the CPU count
+    (MOD-16610), while the config value itself keeps reporting the requested number."""
     cpus = len(os.sched_getaffinity(0))
     requested = cpus + 1
     if requested > 16:
-        # OSS caps WORKERS at MAX_WORKER_THREADS (16), so on machines with >= 16 available
-        # CPUs the cap can never bind. Run the suite under `taskset -c 0-3` to exercise it.
+        # OSS caps WORKERS at MAX_WORKER_THREADS (16); run under `taskset -c 0-3` to exercise.
         raise SkipTest("needs fewer than 16 available CPUs to request WORKERS > CPUs")
     env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 2')
     # Trigger the SVS backend (training) so NUM_THREADS is observable in the debug info.
