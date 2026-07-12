@@ -159,16 +159,18 @@ def iter_docs(group_sizes, seed, payload_bytes):
 
         record_id = 200_000_000 + i
         event_id = 600_000_000 + i
+        # Deterministic PRNG is intentional: this script generates reproducible
+        # synthetic benchmark data and is not used in a security context.
         doc = {
             "recordId": record_id,
             "entityName": ENTITY_NAMES[best_group],
             "event": {
                 "id": event_id,
-                "type": rng.choice(EVENT_TYPES),
-                "target": rng.choice(BOOLS),
-                "hasNotes": rng.choice(BOOLS),
-                "processed": rng.choice(BOOLS),
-                "dueDate": ordinal_date(rng.randint(0, DATE_RANGE_DAYS)),
+                "type": rng.choice(EVENT_TYPES),  # NOSONAR
+                "target": rng.choice(BOOLS),  # NOSONAR
+                "hasNotes": rng.choice(BOOLS),  # NOSONAR
+                "processed": rng.choice(BOOLS),  # NOSONAR
+                "dueDate": ordinal_date(rng.randint(0, DATE_RANGE_DAYS)),  # NOSONAR
                 "payload": make_payload(record_id, payload_bytes),
             },
         }
