@@ -135,7 +135,7 @@ static inline void TagIndex_FreePreprocessedData(char **s) {
 }
 
 /* Index a vector of pre-processed tags for a docId.
- * Updates stats->invertedSize (memory mode) and stats->numRecords on success.
+ * Updates stats->invertedSize (memory mode) and stats->numRecords once per committed tag posting.
  * Returns true on success, false on failure (disk mode only).
  * @param ctx RedisModuleCtx pointer */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats);
