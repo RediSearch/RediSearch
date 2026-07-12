@@ -60,7 +60,6 @@ def _sort_collected(entries, key):
 @skip(cluster=False)
 def test_collect_cluster_merges_same_group_across_shards():
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -101,7 +100,6 @@ def test_collect_cluster_merges_same_group_across_shards():
 # ---------------------------------------------------------------------------
 def test_collect_cluster_chained_groupby_collect():
     env = Env(protocol=3)
-    enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -150,7 +148,6 @@ def test_collect_cluster_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 def test_collect_1_field_hash():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -178,7 +175,6 @@ def test_collect_1_field_hash():
 # ---------------------------------------------------------------------------
 def test_collect_3_fields_hash():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -213,7 +209,6 @@ def test_collect_3_fields_hash():
 @skip(no_json=True)
 def test_collect_1_field_json():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -237,7 +232,6 @@ def test_collect_1_field_json():
 @skip(no_json=True)
 def test_collect_3_fields_json():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_json(env)
 
     res = env.cmd(
@@ -265,7 +259,6 @@ def test_collect_3_fields_json():
 # ---------------------------------------------------------------------------
 def test_chained_groupby_collect():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -294,7 +287,6 @@ def test_chained_groupby_collect():
 # ---------------------------------------------------------------------------
 def test_collect_missing_values():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -329,7 +321,6 @@ def test_collect_missing_values():
 # ---------------------------------------------------------------------------
 def test_collect_alias():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -348,7 +339,6 @@ def test_collect_alias():
 # ---------------------------------------------------------------------------
 def test_collect_multi_groupby_keys():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -371,7 +361,6 @@ def test_collect_multi_groupby_keys():
 # ---------------------------------------------------------------------------
 def test_collect_output_structure():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -390,30 +379,11 @@ def test_collect_output_structure():
 
 
 # ---------------------------------------------------------------------------
-# COLLECT requires ENABLE_UNSTABLE_FEATURES
-# ---------------------------------------------------------------------------
-def test_collect_requires_unstable_features():
-    env = Env()
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
-               'SCHEMA', 'name', 'TEXT', 'color', 'TAG').ok()
-    conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:0', 'name', 'banana', 'color', 'yellow')
-
-    env.expect(
-        'FT.AGGREGATE', 'idx', '*',
-        'GROUPBY', '1', '@color',
-        'REDUCE', 'COLLECT', '3', 'FIELDS', '1', '@name',
-    ).error().contains('COLLECT')
-
-
-# ---------------------------------------------------------------------------
 # COLLECT FIELDS with a JSON-path token ($..)
 # ---------------------------------------------------------------------------
 @skip(no_json=True, cluster=False)
 def test_collect_json_path_in_fields_cluster():
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
     _setup_json(env)
 
     # Reference the JSON path directly in LOAD and in COLLECT FIELDS.
@@ -439,7 +409,6 @@ def test_collect_json_path_in_fields_cluster():
 @skip(no_json=True)
 def test_collect_loaded_json_path():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
                'SCHEMA', '$.name', 'AS', 'name', 'TEXT', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -471,7 +440,6 @@ def test_collect_loaded_json_path():
 def test_collect_internal_serializes_sort_fields():
     """In internal mode the shard includes SORTBY fields alongside FIELDS."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -498,7 +466,6 @@ def test_collect_internal_serializes_sort_fields():
 def test_collect_internal_without_sortby_equals_external_shape():
     """No spurious widening: _FT without SORTBY must match FT output."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -536,7 +503,6 @@ def test_collect_internal_duplicate_field_and_sort():
     survive and can be counted directly.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -590,7 +556,6 @@ def _collect_load_all_index_with_three_fields(env):
     collected row's wire payload comes from the rlookup not having that
     key — never from the row missing a value.
     """
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
                'name', 'TEXT', 'SORTABLE',
@@ -741,7 +706,6 @@ def test_collect_internal_load_all_omits_missing_fields():
     without RESP3's silent duplicate-key collapse.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
                'name', 'TEXT', 'SORTABLE',
@@ -819,7 +783,6 @@ def test_collect_internal_load_all_emits_dollar_on_json():
     `LOAD *` itself (HGETALL fans out fields, JSON_GetAll does not).
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -886,7 +849,6 @@ def test_collect_internal_no_load_emits_only_groupby_key_on_json():
     explicit `LOAD` is a footgun that emits less than users may expect.
     """
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _setup_json(env)
 
     _, slots_data = get_shard_slot_ranges(env)[0]
@@ -937,7 +899,6 @@ def test_chained_groupby_collect_load_all():
     reducer.
     """
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -965,7 +926,6 @@ def test_chained_groupby_collect_load_all():
 # ---------------------------------------------------------------------------
 def test_collect_resp2_sanity():
     env = Env(protocol=2)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1008,7 +968,6 @@ def test_collect_apply_alias_as_groupby_key():
     field.
     """
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1040,7 +999,6 @@ def test_collect_apply_alias_as_field():
     caught.
     """
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1080,7 +1038,6 @@ def test_chained_groupby_collect_apply_on_reducer_alias():
         red:    cnt=2, avg_sweet=3.5 -> weighted = 7
     """
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1124,7 +1081,6 @@ def test_chained_groupby_collect_apply_load_all():
         red:    cnt=2, avg_sweet=3.5 -> weighted = 7
     """
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1158,7 +1114,6 @@ def test_chained_groupby_collect_apply_load_all():
 def test_collect_cluster_load_all_merges_per_row_keys_across_shards():
     """FIELDS * in cluster mode: coordinator emits all keys present per row."""
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -1267,7 +1222,6 @@ def _names(entries):
 @skip(no_json=True)
 def test_collect_limit_without_sortby():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_json(env)
 
     res = env.cmd(
@@ -1292,7 +1246,6 @@ def test_collect_limit_without_sortby():
 @skip(no_json=True)
 def test_collect_sortby_limit_applies_offset_after_sort():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_json(env)
 
     res = env.cmd(
@@ -1315,7 +1268,6 @@ def test_collect_sortby_limit_applies_offset_after_sort():
 @skip(cluster=False)
 def test_collect_sortby_limit_merges_global_topk_across_shards():
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env, key_for_idx=lambda i: f'doc:{i}{{slot:{i % 3}}}')
 
     res = env.cmd(
@@ -1341,7 +1293,6 @@ def test_collect_sortby_without_limit_caps_at_default_10():
     """COLLECT + SORTBY without an explicit LIMIT runs the heap path with its
     default capacity of 10, even when the group has more matching docs."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     # PRICED has 12 docs in the 'red' group; ASC top-10 by price drops the
@@ -1368,7 +1319,6 @@ def test_collect_sortby_without_limit_caps_at_default_10():
 @skip(no_json=True)
 def test_collect_array_path_capped_by_max_aggregate_results():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_json(env)
 
     # Narrow the array-path cap; restore to unlimited at the end.
@@ -1398,7 +1348,6 @@ def test_two_collect_reducers_different_fields():
     """Two COLLECTs in the same GROUPBY emit independent arrays with their own
     field sets."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1432,7 +1381,6 @@ def test_two_collect_reducers_different_fields():
 def test_two_collect_reducers_one_with_limit():
     """LIMIT on one COLLECT must not bound the sibling COLLECT in the same group."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1463,7 +1411,6 @@ def test_two_collect_reducers_one_with_limit():
 def test_two_collect_reducers_sortby_different_keys():
     """Two COLLECTs with different SORTBY keys keep independent heap state."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1504,7 +1451,6 @@ def test_two_collect_reducers_overlapping_fields_cluster():
     """Two COLLECTs over @name with divergent SORTBY/LIMIT keep independent
     state across shards."""
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA',
@@ -1552,7 +1498,6 @@ def test_two_identical_collect_reducers():
     # MOD-15816: two REDUCE COLLECT calls over identical (name, args) inside one GROUPBY
     # should work.
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1579,7 +1524,6 @@ def test_collect_in_first_groupby_survives_second_groupby():
     """A COLLECT array produced in stage 1 must round-trip as a payload through
     a stage-2 GROUPBY."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1610,7 +1554,6 @@ def test_three_stage_groupby_with_collect_at_end():
     """Three-stage pipeline: GROUPBY @color → APPLY derives @is_sweet →
     GROUPBY @is_sweet with COLLECT."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1638,7 +1581,6 @@ def test_chained_groupby_collect_of_collect_alias():
     """A COLLECT alias from stage 1 can be re-collected in stage 2 as a nested
     payload."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1669,7 +1611,6 @@ def test_collect_with_count_and_avg():
     """COLLECT alongside COUNT and AVG: per-group counts/averages must match
     collected rows."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1701,7 +1642,6 @@ def test_collect_with_tolist_same_field():
     """TOLIST (flat list) and COLLECT (Array<Map>) over the same field have
     different wire shapes."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1728,7 +1668,6 @@ def test_collect_with_tolist_same_field():
 def test_collect_with_min_max_sortby():
     """SORTBY+LIMIT inside COLLECT must agree with MIN/MAX over the same key."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     res = env.cmd(
@@ -1756,7 +1695,6 @@ def test_collect_with_min_max_sortby():
 def test_collect_with_quantile_and_stddev():
     """QUANTILE and STDDEV coexist with COLLECT without state interference."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     res = env.cmd(
@@ -1781,7 +1719,6 @@ def test_collect_followed_by_apply_and_filter():
     """COLLECT coexists with a post-GROUPBY APPLY and FILTER on sibling reducer
     output."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     res = env.cmd(
@@ -1824,7 +1761,6 @@ def test_collect_sortby_tiebreak_stable_under_asc():
     must come entirely from the doc_id tie-breaker — smaller doc_id wins
     under ASC, matching FT.AGGREGATE SORTBY."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
     names_in_insert_order = _insert_tied_docs(env)
 
@@ -1852,7 +1788,6 @@ def test_collect_sortby_tiebreak_stable_under_desc():
     a DESC user direction yields rows in insertion (smaller-docid-first)
     order."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
     names_in_insert_order = _insert_tied_docs(env)
 
@@ -1881,7 +1816,6 @@ def test_collect_cluster_sortby_tiebreak_result_complete():
     arrival sequence and is not guaranteed stable across runs. This
     test therefore only verifies completeness of the result set."""
     env = Env(shardsCount=3, protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
     conn = getConnectionByEnv(env)
     # Spread documents across shards via hash tags; all share the same
@@ -1908,7 +1842,6 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby():
     """Two sibling COLLECT … SORTBY reducers in the same GROUPBY must both
     receive the doc_id tie-break — not only the first one."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
     # Both SORTBY keys fully tie, so the only thing that can order the
     # rows is the doc_id tie-break.
@@ -1948,7 +1881,6 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
     user sort value ties, both ASC and DESC variants land on the exact same
     row order — they do NOT reverse each other."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
     conn = getConnectionByEnv(env)
     # All docs share color='black' and sweetness=1 — the user SORTBY key
@@ -1980,7 +1912,6 @@ def test_collect_sortby_tiebreak_two_collects_same_groupby_asc_desc():
 def test_chained_groupby_outer_collect_sortby():
     """Chained GROUPBY with COLLECT SORTBY in the outer reducer"""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     # Inner GROUPBY aggregates per-price (multiple groups since prices repeat),
@@ -2008,7 +1939,6 @@ def test_chained_groupby_outer_collect_sortby_limit():
     """Chained GROUPBY with COLLECT SORTBY in the outer reducer but with a LIMIT
     on the outer COLLECT, forcing the bounded top-K heap path on synthetic rows."""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     res = env.cmd(
@@ -2033,7 +1963,6 @@ def test_chained_groupby_outer_collect_sortby_limit():
 def test_chained_groupby_outer_collect_sortby_partial_ties():
     """Outer SORTBY has both non-tied and tied groups"""
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_hash(env)
 
     # Inner GROUPBY by @price: prices 10 and 15 each have 2 docs, the rest 1.
@@ -2062,7 +1991,6 @@ def test_chained_groupby_outer_collect_sortby_partial_ties():
 # ---------------------------------------------------------------------------
 def test_collect_requires_prefixed_fields():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_hash(env)
 
     error_msg = "SEARCH_PARSE_ARGS Missing prefix"
@@ -2086,7 +2014,6 @@ def test_collect_requires_prefixed_fields():
 @skip(no_json=True)
 def test_json_collect_requires_prefixed_fields():
     env = Env(protocol=3)
-    enable_unstable_features(env)
     _setup_priced_json(env)
 
     error_msg = "SEARCH_PARSE_ARGS Missing prefix"

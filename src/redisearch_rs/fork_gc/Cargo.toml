@@ -24,3 +24,4 @@ workspace_hack.workspace = true
 ffi = { workspace = true }
 index_result = { workspace = true }
 inverted_index = { workspace = true, features = ["test_utils"] }
+rqe_core = { workspace = true }

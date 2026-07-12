@@ -26,6 +26,8 @@
 #define ID_LIST_UNSORTED_ITERATOR         IteratorType_IdListUnsorted
 #define METRIC_SORTED_BY_ID_ITERATOR      IteratorType_MetricSortedById
 #define METRIC_SORTED_BY_SCORE_ITERATOR   IteratorType_MetricSortedByScore
+#define METRIC_LAZY_SORTED_BY_ID_ITERATOR    IteratorType_MetricLazySortedById
+#define METRIC_LAZY_SORTED_BY_SCORE_ITERATOR IteratorType_MetricLazySortedByScore
 #define PROFILE_ITERATOR                  IteratorType_Profile
 #define OPTIMUS_ITERATOR                  IteratorType_Optimus
 #define MAX_ITERATOR                      IteratorType_Max
@@ -64,10 +66,18 @@ enum IteratorType
   IteratorType_Optimus = 19,
   IteratorType_GeoShape = 20,
   /**
+   * Lazily-populated counterpart of [`MetricSortedById`](Self::MetricSortedById).
+   */
+  IteratorType_MetricLazySortedById = 21,
+  /**
+   * Lazily-populated counterpart of [`MetricSortedByScore`](Self::MetricSortedByScore).
+   */
+  IteratorType_MetricLazySortedByScore = 22,
+  /**
    * Used only in tests.
    */
-  IteratorType_Mock = 21,
-  IteratorType_Max = 22,
+  IteratorType_Mock = 23,
+  IteratorType_Max = 24,
 };
 #ifndef __cplusplus
 typedef uint32_t IteratorType;

@@ -42,9 +42,21 @@ jobs:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
+  redis-build-sanity:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/flow-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      platform: all,ubuntu:latest
+      architecture: all
+      redis-repository: redis/redis
+      redis-ref: unstable
+      redisearch-repository: ${{ github.repository }}
+      redisearch-ref: ${{ github.sha }}
 
   notify-failure:
-    needs: [lint, test-all-platforms, micro-benchmarks]
+    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity]
     if: failure()
     runs-on: ubuntu-slim
     permissions:

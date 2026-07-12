@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Verify that [`string_utils::unicode_tolower`] matches the FFI
-//! `unicode_tolower_fn` for all BMP codepoints.
+//! Verify that [`string_utils::unicode_tolower`] and
+//! [`string_utils::unicode_tolower_cow`] match the FFI `unicode_tolower_fn`
+//! for all BMP codepoints, and that the `Cow` variant borrows when possible.
 
 #[cfg(not(miri))]
 mod ffi_comparison {
@@ -49,13 +50,24 @@ mod ffi_comparison {
         }
     }
 
+    /// Assert that both the owned [`string_utils::unicode_tolower`] and the
+    /// borrowing [`string_utils::unicode_tolower_cow`] produce the same bytes
+    /// as the C oracle. Sharing the oracle here means every case below — and the
+    /// BMP proptest — exercises both Rust functions.
     fn assert_tolower_matches_c(s: &str) {
         let c_result = c_unicode_tolower(s);
+
         let rust_result = string_utils::unicode_tolower(s);
         assert_eq!(
             rust_result, c_result,
-            "mismatch for input {:?}: rust={:?}, c={:?}",
-            s, rust_result, c_result,
+            "unicode_tolower mismatch for {s:?}: rust={rust_result:?}, c={c_result:?}",
+        );
+
+        let cow_result = string_utils::unicode_tolower_cow(s);
+        assert_eq!(
+            cow_result.as_ref(),
+            c_result.as_str(),
+            "unicode_tolower_cow mismatch for {s:?}: cow={cow_result:?}, c={c_result:?}",
         );
     }
 
@@ -103,5 +115,26 @@ mod ffi_comparison {
         fn ffi_matches_rust(s in bmp_string()) {
             assert_tolower_matches_c(&s);
         }
+    }
+}
+
+/// The `Cow` variant must borrow when nothing changes and allocate only when a
+/// fold is required — the optimization the equivalence checks can't observe.
+mod cow_borrow_contract {
+    use std::borrow::Cow;
+    use string_utils::unicode_tolower_cow;
+
+    #[test]
+    fn borrows_when_already_lowercase() {
+        assert!(matches!(unicode_tolower_cow(""), Cow::Borrowed(_)));
+        assert!(matches!(unicode_tolower_cow("hello"), Cow::Borrowed(_)));
+        // ß is already lowercase; the non-ASCII path must borrow it too.
+        assert!(matches!(unicode_tolower_cow("straße"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn owns_when_fold_changes_input() {
+        assert!(matches!(unicode_tolower_cow("Hello"), Cow::Owned(_)));
+        assert!(matches!(unicode_tolower_cow("Σ"), Cow::Owned(_)));
     }
 }

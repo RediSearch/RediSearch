@@ -87,7 +87,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
   disk->basic.setThrottleCallbacks(VecSim_EnableThrottle, VecSim_DisableThrottle);
 
   disk_db = disk->basic.open(ctx, (int)RSGlobalConfig.diskBufferPercentage, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskMaxOpenFiles);
   bool disk_initialized = disk_db != NULL;
 
   if (!disk_initialized) {
@@ -221,6 +222,13 @@ RedisSearchDiskIndexSpec* SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
         c_index_spec->diskRegistered = true;
     }
     return result;
+}
+
+ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, uint32_t reqflags,
+                                                          RLookup *lk, const RLookupKey **keys,
+                                                          size_t nkeys, uint32_t *outStateFlags) {
+    return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
+                                                     outStateFlags);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -558,6 +566,24 @@ void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx) {
   disk->metrics.outputInfoMetrics(disk_db, ctx);
 }
 
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       t_fieldId ftId) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getTextFieldMetrics(index, ftId);
+}
+
+PerFieldCfDiskMetrics SearchDisk_GetCfFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                   t_fieldIndex fieldIndex) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getCfFieldMetrics(index, fieldIndex);
+}
+
+PerFieldCfDiskMetrics SearchDisk_GetVectorFieldMetrics(const RedisSearchDiskIndexSpec* index,
+                                                       const char* fieldName, size_t fieldNameLen) {
+  RS_ASSERT(disk && index);
+  return disk->metrics.getVectorFieldMetrics(index, fieldName, fieldNameLen);
+}
+
 uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->index.getDiskUsage(index);
@@ -607,6 +633,28 @@ void SearchDisk_UpdateBufferBudget(RedisModuleCtx *ctx, int percentage) {
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
       disk->index.updateWriteBufferSize(sp->diskSpec, new_budget);
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+void SearchDisk_UpdateMaxOpenFiles(RedisModuleCtx *ctx, int maxOpenFiles) {
+  RS_ASSERT(disk && disk_db);
+
+  // Store the configured value on the shared context so new DBs pick it up.
+  disk->basic.updateMaxOpenFiles(ctx, disk_db, maxOpenFiles);
+  // Reapply to every existing index's database.
+  if (!specDict_g) {
+    return;
+  }
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
+      disk->index.updateMaxOpenFiles(sp->diskSpec, maxOpenFiles);
     }
   }
   dictReleaseIterator(iter);

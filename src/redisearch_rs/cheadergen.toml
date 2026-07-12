@@ -313,6 +313,8 @@ after_includes = """
 #define ID_LIST_UNSORTED_ITERATOR         IteratorType_IdListUnsorted
 #define METRIC_SORTED_BY_ID_ITERATOR      IteratorType_MetricSortedById
 #define METRIC_SORTED_BY_SCORE_ITERATOR   IteratorType_MetricSortedByScore
+#define METRIC_LAZY_SORTED_BY_ID_ITERATOR    IteratorType_MetricLazySortedById
+#define METRIC_LAZY_SORTED_BY_SCORE_ITERATOR IteratorType_MetricLazySortedByScore
 #define PROFILE_ITERATOR                  IteratorType_Profile
 #define OPTIMUS_ITERATOR                  IteratorType_Optimus
 #define MAX_ITERATOR                      IteratorType_Max
@@ -337,6 +339,7 @@ typedef struct QueryProcessingCtx {
   rs_wall_clock_ns_t queryGILTime;
   double minScore;
   uint32_t totalResults;
+  uint32_t skippedResults;
   uint32_t resultLimit;
   QueryError *err;
   bool bgScanOOM;

@@ -16,7 +16,7 @@ use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::{DocId, FieldMask};
 
-pub use self::core::*;
+pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
 pub use numeric::{FilterNumericReader, NumericFilter};
@@ -58,6 +58,42 @@ pub trait IndexReader<'index> {
 
     /// Refresh buffer pointers in case blocks were reallocated without GC changes
     fn refresh_buffer_pointers(&mut self);
+}
+
+/// Type-level mapping from an Active reader to its Suspended counterpart.
+///
+/// Each reader type that contains [`ref_mode::Active`] somewhere in its type
+/// parameters declares its matching `Suspended` shape via this trait. The
+/// suspend/resume work in `rqe_iterators` uses it to express the `Suspended`
+/// associated type of an iterator generically, e.g.
+/// `InvIndIterator<Active<'a>, R, E>` has
+/// `Suspended = InvIndIterator<Suspended, R::Suspended, E>` for any
+/// `R: SuspendableReader`.
+///
+/// The actual transmute between the two layouts happens at the iterator
+/// level via the `Suspendable` trait (in the `rqe_iterators` crate) — this
+/// trait is purely a type-level helper with no runtime method.
+pub trait SuspendableReader {
+    /// The matching reader type carrying [`ref_mode::Suspended`] instead of
+    /// [`ref_mode::Active`].
+    type Suspended;
+}
+
+/// Inverse of [`SuspendableReader`]: type-level mapping from a Suspended
+/// reader to its Active counterpart at a given index lifetime.
+///
+/// Together with [`SuspendableReader`], implementers of this trait form a
+/// bijection between Active and Suspended reader types — used by the
+/// `RQESuspendedIterator` impl on the suspended side of inverted-index
+/// iterators (in `rqe_iterators`) to express the [`Resumed`](Self::Resumed)
+/// associated type generically.
+///
+/// The `'static` bound reflects that a suspended reader carries no live
+/// references into the index.
+pub trait ResumableReader: 'static {
+    /// The matching active reader type, parameterised by the index
+    /// lifetime under which the suspended reader is being resumed.
+    type Resumed<'a>: IndexReader<'a> + SuspendableReader<Suspended = Self> + 'a;
 }
 
 /// Marker trait for readers producing numeric values.

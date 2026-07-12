@@ -949,28 +949,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
-  RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
-
-  const FieldSpec *fs = node->nn.nf->fieldSpec;
-  if (q->sctx->spec->diskSpec) {
-    return SearchDisk_NewNumericIterator(q->sctx->spec->diskSpec, q->sctx, node->nn.nf, fs->index, q->status);
-  }
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  return NewNumericFilterIterator(q->sctx, node->nn.nf, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
-}
-
-static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
-                                              double weight) {
-  RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
-
-  if (!GeoFilter_Validate(node->gn.gf, q->status)) {
-    return NULL;
-  }
-
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
-}
-
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
@@ -1038,7 +1016,9 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If iterator was created successfully, and we have a metric to yield, update the
   // Only create MetricRequest entries for iterators that actually yield metrics
   if (it && qn->vn.vq->scoreField &&
-      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR || it->type == METRIC_SORTED_BY_SCORE_ITERATOR)) {
+      (it->type == HYBRID_ITERATOR || it->type == METRIC_SORTED_BY_ID_ITERATOR ||
+       it->type == METRIC_SORTED_BY_SCORE_ITERATOR || it->type == METRIC_LAZY_SORTED_BY_ID_ITERATOR ||
+       it->type == METRIC_LAZY_SORTED_BY_SCORE_ITERATOR)) {
     MetricRequest *request = array_ensure_at(q->metricRequestsP, idx, MetricRequest);
 
     // Create a handle that points to the iterator's ownKey field
@@ -1060,26 +1040,6 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     child_it->Free(child_it);
   }
   return it;
-}
-
-static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
-  // Parsers and expanders always create unions with 2+ children.
-  RS_ASSERT(QueryNode_NumChildren(qn) > 1);
-
-  // recursively eval the children
-  QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
-  for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
-    qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[i] = Query_EvalNode_Rs(q, qn->children[i]);
-  }
-
-  // We want to get results with all the matching children (`quickExit == false`), unless:
-  // 1. We are a `Not` sub-tree, so we only care about the set of IDs
-  // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
-  QueryIterator *ret = NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
-  return ret;
 }
 
 /**
@@ -1130,12 +1090,7 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
 
 static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                                 double weight, bool caseSensitive) {
-  TrieMap *t = idx->values;
   TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
-
-  if (!t) {
-    return NULL;
-  }
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
@@ -1153,8 +1108,8 @@ static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
   const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
   int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
 
-  TrieMap_IterateRange(t, begin, nbegin, qn->lxrng.includeBegin, end, nend, qn->lxrng.includeEnd,
-                       tagRangeIterCb, &ctx);
+  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
+                              qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
 
   return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
@@ -1173,21 +1128,21 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   if (tok->len < q->config->minTermPrefix) {
     return NULL;
   }
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    tm_iter_mode iter_mode = TM_PREFIX_MODE;
+    tag_iter_mode iter_mode = TAG_PREFIX_MODE;
     if (qn->pfx.suffix) {
       if (qn->pfx.prefix) { // contains mode
-        iter_mode = TM_CONTAINS_MODE;
+        iter_mode = TAG_CONTAINS_MODE;
       } else {
-        iter_mode = TM_SUFFIX_MODE;
+        iter_mode = TAG_SUFFIX_MODE;
       }
     }
-    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, iter_mode);
+    TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
     // TrieMap_IterateWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
     if (!q->sctx->time.skipTimeoutChecks) {
@@ -1219,9 +1174,10 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
     }
 
     TrieMapIterator_Free(it);
-  } else {    // TAG field has suffix triemap
-    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
-                                                qn->pfx.prefix, q->sctx->time.timeout, q->sctx->time.skipTimeoutChecks);
+  } else {  // TAG field has suffix triemap
+    arrayof(char **) arr =
+        TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
+                               q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
@@ -1256,7 +1212,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
                      QueryNode *qn, double weight,
                      t_fieldIndex fieldIndex, bool caseSensitive) {
   RS_ASSERT(qn->type == QN_WILDCARD_QUERY);
-  if (!idx || !idx->values) return NULL;
+  if (!idx) return NULL;
 
   RSToken *tok = &qn->verb.tok;
 
@@ -1268,10 +1224,11 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
 
   bool fallbackBruteForce = false;
-  if (idx->suffix) {
+  if (TagIndex_HasSuffix(idx)) {
     // with suffix
-    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
-                                                        q->sctx->time.timeout, q->config->maxPrefixExpansions, q->sctx->time.skipTimeoutChecks);
+    arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
+        idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
+        q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       // No matching terms
       rm_free(its);
@@ -1299,9 +1256,10 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
     }
   }
 
-  if (!idx->suffix || fallbackBruteForce) {
+  if (!TagIndex_HasSuffix(idx) || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, TM_WILDCARD_MODE);
+    TrieMapIterator *it =
+        TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
     if (!q->sctx->time.skipTimeoutChecks) {
       TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     }
@@ -1425,12 +1383,13 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_OPTIONAL:
     case QN_NOT:
     case QN_PHRASE:
+    case QN_UNION:
+    case QN_NUMERIC:
+    case QN_GEO:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
-    case QN_UNION:
-      return Query_EvalUnionNode(q, n);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
     case QN_PREFIX:
@@ -1439,10 +1398,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
-    case QN_NUMERIC:
-      return Query_EvalNumericNode(q, n);
-    case QN_GEO:
-      return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:

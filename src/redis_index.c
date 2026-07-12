@@ -92,16 +92,16 @@ RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const
 }
 
 void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
   pthread_rwlock_rdlock(&ctx->spec->rwlock);
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->flags = RS_CTX_READONLY;
+  ctx->lock_state = SPEC_LOCK_READ;
 }
 
 int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
   int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
   if (rc != 0) {
     // Lock is busy (EBUSY) or other error
@@ -110,12 +110,12 @@ int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
   RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->flags = RS_CTX_READONLY;
+  ctx->lock_state = SPEC_LOCK_READ;
   return REDISMODULE_OK;
 }
 
 void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->flags == RS_CTX_UNSET);
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
 #ifdef ENABLE_ASSERT
   // Bump the pending-writers counter before we may park on the rwlock so that
   // tests can observe a queued writer via `PendingSpecWriters_Get` without
@@ -127,7 +127,7 @@ void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
 #ifdef ENABLE_ASSERT
   PendingSpecWriters_Decr();
 #endif
-  ctx->flags = RS_CTX_READWRITE;
+  ctx->lock_state = SPEC_LOCK_WRITE;
 }
 
 // DOES NOT INCREMENT REF COUNT
@@ -175,16 +175,16 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
 
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   RS_ASSERT(sctx);
-  if (sctx->flags == RS_CTX_UNSET) {
+  if (sctx->lock_state == SPEC_LOCK_UNSET) {
     return;
   }
-  if (sctx->flags == RS_CTX_READONLY) {
+  if (sctx->lock_state == SPEC_LOCK_READ) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
     RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
-  sctx->flags = RS_CTX_UNSET;
+  sctx->lock_state = SPEC_LOCK_UNSET;
 }
 
 void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {

@@ -99,7 +99,12 @@ RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule
 void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type);
+// Decide whether `keyname` (of `type`) belongs to `sp`: matches its type, a prefix, and the
+// optional FILTER expression. `openKey`, when non-NULL, is an already-open pinned handle for
+// `keyname` (e.g. the value pinned for an AsyncScan callback) that the FILTER evaluation reuses
+// to load fields instead of reopening by name; pass NULL when no such handle is available.
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey);
 
 struct EvalCtx;
 /**

@@ -19,7 +19,7 @@ use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref, SharedPtr};
+use ref_mode::{Active, Ref, SharedPtr, Suspended};
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 /// Builder for creating [`RawIndexResult`] instances.
@@ -325,6 +325,40 @@ pub struct RawIndexResult<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSIndexResult<'a> = RawIndexResult<Active<'a>>;
 
+// Compile-time proof that the [`Active`] and [`Suspended`] instantiations of
+// [`RawIndexResult`] are layout-identical, which is what makes the
+// `transmute`-based [`RSIndexResult::into_suspended`] /
+// [`RawIndexResult::<Suspended>::into_active`] conversions sound.
+//
+// `RawIndexResult` is `#[repr(C)]`, so checking that every field shares an
+// identical offset and that each `R`-dependent field type shares an identical
+// size pins the layout down completely. If a future change makes the two
+// instantiations diverge, this block fails to compile.
+const _: () = {
+    use std::mem::{align_of, offset_of, size_of};
+
+    type A = RawIndexResult<Active<'static>>;
+    type S = RawIndexResult<Suspended>;
+
+    // Every field starts at the same offset.
+    assert!(offset_of!(A, doc_id) == offset_of!(S, doc_id));
+    assert!(offset_of!(A, dmd) == offset_of!(S, dmd));
+    assert!(offset_of!(A, field_mask) == offset_of!(S, field_mask));
+    assert!(offset_of!(A, freq) == offset_of!(S, freq));
+    assert!(offset_of!(A, data) == offset_of!(S, data));
+    assert!(offset_of!(A, metrics) == offset_of!(S, metrics));
+    assert!(offset_of!(A, weight) == offset_of!(S, weight));
+
+    // The two `R`-dependent field types have identical size (the non-`R`
+    // fields are the same type on both sides, so only these can differ).
+    assert!(size_of::<RawResultData<Active<'static>>>() == size_of::<RawResultData<Suspended>>());
+    assert!(size_of::<RawMetricsVec<Active<'static>>>() == size_of::<RawMetricsVec<Suspended>>());
+
+    // Whole-struct backstop: equal total size + alignment.
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'a> PartialEq for RSIndexResult<'a> {
     fn eq(&self, other: &Self) -> bool {
         let Self {
@@ -358,6 +392,66 @@ impl<'a> PartialEq for RSIndexResult<'a> {
 impl<'a> Default for RSIndexResult<'a> {
     fn default() -> Self {
         Self::build_virt().build()
+    }
+}
+
+impl<'a> RSIndexResult<'a> {
+    /// Convert this active result into its [`Suspended`] counterpart.
+    pub const fn into_suspended(self) -> RawIndexResult<Suspended> {
+        // SAFETY: `RawIndexResult<Active<'a>>` and `RawIndexResult<Suspended>`
+        // are layout-identical (enforced by the `const _` assertion block above).
+        // Going Active -> Suspended is a widening transition: it only loosens
+        // validity invariants (`'a`-bound references become inert raw pointers),
+        // so it is sound. `transmute` moves `self`, so no destructor runs on the
+        // logically-moved bytes.
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl RawIndexResult<Suspended> {
+    /// Convert this suspended result back to an [`Active`] counterpart
+    /// covering lifetime `'a`.
+    ///
+    /// Layout-compatibility is the same as for [`RSIndexResult::into_suspended`];
+    /// this is the inverse direction. Promoting `Suspended` to `Active<'a>`
+    /// narrows validity (asserting that every pointer inside this result is
+    /// dereferenceable for `'a`), so the call is `unsafe`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that all of the following hold for the entire
+    /// chosen lifetime `'a`:
+    ///
+    /// 1. Every single-value pointer — the document metadata ([`Self::dmd`])
+    ///    and each [`SharedPtr`] pointee (e.g. a metric's `RLookupKey`, a term
+    ///    record's borrowed query term) — is valid for reads of its pointee
+    ///    type.
+    /// 2. Every slice-backed pointer is valid for reads of its **entire stored
+    ///    length**, with provenance covering the whole region — e.g. a term
+    ///    record's offset slice ([`RawOffsetSlice`]), whose `*const u8` must
+    ///    cover all `len` bytes.
+    /// 3. No concurrent writer aliases any pointer covered by (1) or (2).
+    /// 4. Conditions (1)–(3) hold recursively for every child result reachable
+    ///    through aggregate records (the [`SharedPtr`]/`Box` entries of a
+    ///    union / intersection / hybrid-metric result).
+    ///
+    /// Typically the caller upholds these by holding the inverted-index read
+    /// lock for the whole of `'a`, so that neither GC nor a writer can free or
+    /// relocate a backing block; this method makes no specific lock assumption.
+    ///
+    /// Note that (2) is strictly stronger than per-pointee validity: a pointer
+    /// valid for a single `u8` does *not* satisfy it. If a GC cycle has freed
+    /// or relocated the backing block, the slice tail may be stale, and a safe
+    /// call such as `RSOffsetSlice::as_bytes` (or anything built on it) would
+    /// then read invalid memory — undefined behaviour reached through entirely
+    /// safe code.
+    pub const unsafe fn into_active<'a>(self) -> RSIndexResult<'a> {
+        // SAFETY: layout-identical (see the `const _` assertion block above).
+        // Narrowing the validity from raw-pointer to `&'a`-style references
+        // is sound under the caller's contract documented on this method.
+        // `transmute` moves `self`, so no destructor runs on the logically-moved
+        // bytes.
+        unsafe { std::mem::transmute(self) }
     }
 }
 

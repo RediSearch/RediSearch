@@ -54,7 +54,51 @@ install_from_tarball() {
     rm -rf "$tmpdir"
 
     export_path_gha
+    link_tools_for_fresh_shells
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# Fresh-shell usability for the tarball install: export_path_gha only covers
+# GitHub Actions steps (via $GITHUB_PATH/$GITHUB_ENV) and the shell that ran
+# this script. A user following the manual flow — `make bootstrap` now,
+# `make build LTO=1` from a later shell — has no ${INSTALL_DIR}/bin on PATH,
+# so build.sh cannot find clang-${LLVM_VER} and LTO refuses to enable. The
+# package-manager install paths don't have this problem (they land versioned
+# binaries in /usr/bin), so mirror that: symlink the tools build.sh looks up
+# — and llvm-config, through which bindgen's clang-sys locates libclang
+# (`llvm-config --libdir`) without needing a persisted LIBCLANG_PATH — into
+# /usr/local/bin, which is on the default PATH of every supported distro.
+# Same pattern rocky_linux_8.sh uses for its gcc-toolset shims.
+link_tools_for_fresh_shells() {
+    local bindir="${INSTALL_DIR}/bin"
+    local destdir="/usr/local/bin"
+    local tool target
+
+    if ! $MODE mkdir -p "$destdir"; then
+        echo "ERROR: cannot create ${destdir}; rerun with sudo or add ${bindir} to PATH manually" >&2
+        return 1
+    fi
+
+    # ld.lld-${LLVM_VER} matters beyond fresh shells: once lld-${LLVM_VER} is
+    # on PATH, build.sh links with -fuse-ld=lld-${LLVM_VER}, and clang
+    # resolves that name by looking for an executable literally called
+    # ld.lld-${LLVM_VER} — distro packages ship one, the tarball only ships
+    # unversioned ld.lld.
+    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}" ld.lld llvm-config; do
+        # The tarball ships some of these only under their unversioned
+        # names; resolve to whichever exists.
+        target="${bindir}/${tool}"
+        [[ -e "$target" ]] || target="${bindir}/${tool%-${LLVM_VER}}"
+        if [[ ! -e "$target" ]]; then
+            echo "ERROR: expected LLVM tool '${tool}' not found under ${bindir}" >&2
+            return 1
+        fi
+
+        if ! $MODE ln -sf "$target" "${destdir}/${tool}"; then
+            echo "ERROR: failed to link ${destdir}/${tool} -> ${target}" >&2
+            return 1
+        fi
+    done
 }
 
 # Wire up $INSTALL_DIR/bin for GitHub Actions and the current shell.
@@ -68,6 +112,26 @@ export_path_gha() {
     fi
     export PATH="${bindir}:${PATH}"
     export LIBCLANG_PATH="${INSTALL_DIR}/lib"
+}
+
+llvm_major() {
+    "$1" --version 2>/dev/null | head -1 | sed -En 's/.*version ([0-9]+).*/\1/p'
+}
+
+accept_native_llvm() {
+    local clang_cmd="$1"
+    local lld_cmd="$2"
+
+    command -v "$clang_cmd" &>/dev/null || return 1
+    command -v "$lld_cmd" &>/dev/null || return 1
+
+    local actual
+    actual=$(llvm_major "$clang_cmd")
+    [[ "$actual" == "$LLVM_VER" ]] || return 1
+
+    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
 }
 
 # ---------------------------------------------------------------------------
@@ -123,8 +187,12 @@ install_llvm() {
         apt_get_cmd "$MODE" update -qq
 
         # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        # llvm-${LLVM_VER} supplies llvm-ar/llvm-ranlib, which CMake's IPO
+        # (LTO) archive rules need; with --no-install-recommends
+        # clang-${LLVM_VER} doesn't pull it in.
         if apt_get_cmd "$MODE" install -y --no-install-recommends \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                "llvm-${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed clang-${LLVM_VER} from native apt repos"
         else
             # 2) Fall back to apt.llvm.org third-party repo.
@@ -178,8 +246,28 @@ install_llvm() {
         fi
         ;;
 
+    # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
+    rhel|rocky|almalinux|centos|fedora|amzn)
+        # Try native distro packages first — they're built against the system
+        # glibc/libstdc++ so no version-mismatch issues with the tarball.
+        if $MODE dnf install -y --nobest --skip-broken \
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null \
+                && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
+        elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
+        elif $MODE yum install -y clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed clang from native yum repos"
+        else
+            echo ">>> Native packages unavailable or wrong LLVM major — falling back to official tarball"
+            install_from_tarball
+        fi
+        ;;
+
     # ----- Everything else: official tarball ----------------------------------
-    # Rocky, CentOS, RHEL, AlmaLinux, Fedora, Amazon Linux, Mariner, Azure Linux
+    # Mariner, Azure Linux, and anything else
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball

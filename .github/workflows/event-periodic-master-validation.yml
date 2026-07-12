@@ -149,12 +149,20 @@ jobs:
         run: |
           echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
+  # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
+  # Pinned to a redis/redis unstable commit because the module requires
+  # RedisModule_GetClusterNodeSlotRanges (MOD-15868), which is not in any Redis release yet.
   get-latest-redis-tag:
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
+    # uses: ./.github/workflows/task-get-latest-tag.yml
+    # with:
+    #   repo: redis/redis
+    runs-on: ubuntu-slim
+    outputs:
+      tag: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
+    steps:
+      - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
 
   test-selected-platforms:
     needs: [should-run, get-latest-redis-tag]

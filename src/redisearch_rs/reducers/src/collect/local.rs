@@ -110,17 +110,6 @@ impl Fields {
     }
 }
 
-/// Snapshot sort-key values for ranking comparison, preserving absent keys as
-/// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
-/// missing-worst policy.
-fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
-    debug_assert!(matches!(item, Value::Map(_) | Value::Array(_)));
-    sort_key_names
-        .iter()
-        .map(|name| get_field(item, name.to_bytes()).cloned())
-        .collect()
-}
-
 /// Materialize `(k, v)` as a typed [`RLookupRow`] entry.
 ///
 /// Terminates the wire-side `BString → CString` check; a non-string or
@@ -256,11 +245,17 @@ impl LocalCollectCtx {
             match &mut self.storage {
                 Storage::Unranked(unranked) => unranked
                     .push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup))),
-                Storage::Ranked(ranked) => ranked.consider(
-                    snapshot_sort_keys(r.fields.sort_key_names(), item),
-                    (),
-                    || ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup)),
-                ),
+                Storage::Ranked(ranked) => {
+                    let item = &**item;
+                    let sort_vals = r
+                        .fields
+                        .sort_key_names()
+                        .iter()
+                        .map(|name| get_field(item, name.to_bytes()));
+                    ranked.consider(sort_vals, (), || {
+                        ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup))
+                    })
+                }
             }
         }
     }
