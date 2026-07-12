@@ -8,6 +8,7 @@ import numpy as np
 import threading
 import time
 import os
+import platform
 import signal
 import psutil
 import subprocess
@@ -15,6 +16,11 @@ import subprocess
 # Total number of hash slots in a Redis Cluster (CRC16(key) % 16384).
 # This is a fixed, protocol-level constant defined by the Redis Cluster specification.
 CLUSTER_SLOTS = 2**14
+
+# Doc count for the slot-migration tests. The Intel (x86_64) macOS CI runners are
+# emulated and far slower; shrink the corpus there to avoid per-test timeouts
+# (still >= 1 doc/slot, and the @n:[69 1420] match set is unchanged).
+ASM_N_DOCS = CLUSTER_SLOTS if (OS == 'macos' and platform.machine() == 'x86_64') else 5 * CLUSTER_SLOTS
 
 # Random words for generating more diverse text content
 RANDOM_WORDS = [
@@ -442,7 +448,7 @@ def wait_for_migration_complete(env, dest_shard, source_shard, timeout=200, quer
 cluster_node_timeout = 60_000 # in milliseconds (1 minute)
 
 def import_slot_range_sanity_test(env: Env, query_type: str = 'FT.SEARCH'):
-    n_docs = 5 * CLUSTER_SLOTS
+    n_docs = ASM_N_DOCS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
@@ -502,7 +508,7 @@ def parallel_update_worker(env, n_docs, stop_event):
             time.sleep(0.1)
 
 def import_slot_range_test(env: Env, query_type: str = 'FT.SEARCH', parallel_updates: bool = False):
-    n_docs = 5 * CLUSTER_SLOTS
+    n_docs = ASM_N_DOCS
     create_and_populate_index(env, 'idx', n_docs)
 
     if query_type == 'FT.SEARCH':
@@ -684,7 +690,7 @@ def test_ft_hybrid_import_slot_range_sanity_BG():
 
 def add_shard_and_migrate_test(env: Env, query_type: str = 'FT.SEARCH'):
     initial_shards_count = env.shardsCount
-    n_docs = 5 * CLUSTER_SLOTS
+    n_docs = ASM_N_DOCS
     create_and_populate_index(env, 'idx', n_docs)
 
     shard1 = env.getConnection(1)
@@ -949,7 +955,7 @@ def test_migrate_no_indexes():
         shard.execute_command('CONFIG', 'SET', 'search-_min-trim-delay-ms', 1000000)
 
     # Add documents without creating any index
-    n_docs = 5 * CLUSTER_SLOTS
+    n_docs = ASM_N_DOCS
     with env.getClusterConnectionIfNeeded() as con:
         for i in range(n_docs):
             con.execute_command('HSET', f'doc-{i}:{{{i % CLUSTER_SLOTS}}}',
