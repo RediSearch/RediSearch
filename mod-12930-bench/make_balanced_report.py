@@ -105,7 +105,7 @@ th.l, td.l { text-align: left; }
   </div>
 
   <div class="card" id="sweep-card" style="display:none">
-    <h2 id="sweep-title">Merger overhead C vs |matches|</h2>
+    <h2 id="sweep-title">Degradation with growing result sets</h2>
     <p class="sub" id="sweep-sub"></p>
     <div class="legend" id="legend-s"></div>
     <div class="panels" id="chart-sweep"></div>
@@ -330,16 +330,17 @@ function linePanel(series, xlabels, opts) {
   svg.appendChild(hit);
   return svg;
 }
-// numeric log-x scatter: points = {x (linear value), y, color, tooltip[]}
-function scatterPanelLogX(points, opts) {
+// multi-series log-x line panel: series = [{name, color, points: [{x, y, tooltip[]}]}]
+function linesPanelLogX(seriesList, opts) {
   const W = opts.width || 340, plotH = 190, axB = 22, axT = 12, axL = 50, axR = 26;
   const H = plotH + axB + axT;
   const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img" });
+  const all = seriesList.flatMap(s => s.points);
   const lx = v => Math.log10(v);
-  const xs = points.map(p => lx(p.x));
+  const xs = all.map(p => lx(p.x));
   const xMin = Math.floor(Math.min(...xs)), xMax = Math.ceil(Math.max(...xs));
   const X = v => axL + (lx(v) - xMin) / (xMax - xMin || 1) * (W - axL - axR);
-  const maxV = Math.max(...points.map(p => p.y), 1e-9);
+  const maxV = Math.max(...all.map(p => p.y), 1e-9);
   const ticks = niceTicks(maxV);
   const yMax = ticks[ticks.length - 1] * 1.02;
   const Y = v => axT + plotH - (v / yMax) * plotH;
@@ -357,19 +358,21 @@ function scatterPanelLogX(points, opts) {
     tx.textContent = v >= 1e6 ? (v / 1e6) + "M" : v >= 1000 ? (v / 1000) + "K" : String(v);
     svg.appendChild(tx);
   }
-  // connect points in |matches| order with a recessive line (one curve across sizes)
-  const sorted = [...points].sort((a, b) => a.x - b.x);
-  svg.appendChild(el("path", { fill: "none", stroke: css("--baseline"), "stroke-width": 1,
-    d: sorted.map((p, i) => (i ? "L" : "M") + X(p.x) + "," + Y(p.y)).join(" ") }));
-  sorted.forEach(p => {
-    const dot = el("circle", { cx: X(p.x), cy: Y(p.y), r: 4.5, fill: p.color,
-      stroke: css("--surface-1"), "stroke-width": 2, tabindex: "0" });
-    const hit = el("circle", { cx: X(p.x), cy: Y(p.y), r: 12, fill: "transparent" });
-    [dot, hit].forEach(elm => {
-      elm.addEventListener("pointermove", e => showTip(e, p.tooltip));
-      elm.addEventListener("pointerleave", hideTip);
+  seriesList.forEach(s => {
+    const pts = [...s.points].sort((a, b) => a.x - b.x);
+    svg.appendChild(el("path", { fill: "none", stroke: s.color, "stroke-width": 2,
+      "stroke-linejoin": "round", "stroke-linecap": "round",
+      d: pts.map((p, i) => (i ? "L" : "M") + X(p.x) + "," + Y(p.y)).join(" ") }));
+    pts.forEach(p => {
+      const dot = el("circle", { cx: X(p.x), cy: Y(p.y), r: 4, fill: s.color,
+        stroke: css("--surface-1"), "stroke-width": 2 });
+      const hit = el("circle", { cx: X(p.x), cy: Y(p.y), r: 12, fill: "transparent" });
+      [dot, hit].forEach(elm => {
+        elm.addEventListener("pointermove", e => showTip(e, p.tooltip));
+        elm.addEventListener("pointerleave", hideTip);
+      });
+      svg.appendChild(dot); svg.appendChild(hit);
     });
-    svg.appendChild(dot); svg.appendChild(hit);
   });
   return svg;
 }
@@ -504,28 +507,34 @@ function renderSweep() {
   const S = DATA.sweep;
   if (!S || !S.results || !S.results.length) return;
   document.getElementById("sweep-card").style.display = "";
-  const FRACS = [...new Set(S.results.map(r => r.match_frac))].sort((a, b) => a - b);
   const SWINDOWS = [...new Set(S.results.map(r => r.window))].sort((a, b) => a - b);
-  const SSIZES = [...new Set(S.results.map(r => r.size))].sort((a, b) => a - b);
   document.getElementById("sweep-title").textContent =
-    `Merger overhead C vs |matches| — window, size and selectivity varied independently — workers=${S.meta.workers}, fields=${S.meta.fields}`;
+    `Degradation with growing result sets — hybrid vs its subqueries — workers=${S.meta.workers}, fields=${S.meta.fields}`;
   document.getElementById("sweep-sub").textContent =
-    `C = hybrid mean − max(search, vsim) (dedicated sweep, ${S.meta.n_timed} reps/cell). ` +
-    `Each panel holds WINDOW fixed; x = measured |matches| of the text query (log scale). ` +
-    `Point color = corpus size. Points from different sizes falling on one curve ⇒ C follows ` +
-    `absolute |matches|, not corpus size.`;
-  legend("legend-s", SSIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
+    `Raw p50 latencies side by side (no derived metrics). Each panel holds K/WINDOW fixed; ` +
+    `x = measured |matches| of the text query (log scale), points pooled from all corpus sizes ` +
+    `and selectivities (${S.meta.n_timed} reps/cell). Read: does hybrid keep tracking its ` +
+    `subqueries as result sets grow ~1000×?`;
+  const SC = [
+    { key: "hybrid_p50_ms", name: "FT.HYBRID (LINEAR)", v: "--s-hyblin" },
+    { key: "search_p50_ms", name: "SEARCH branch", v: "--s-search" },
+    { key: "vsim_p50_ms",   name: "VSIM branch",   v: "--s-vsim" },
+  ];
+  legend("legend-s", SC);
   const box = document.getElementById("chart-sweep"); box.textContent = "";
   SWINDOWS.forEach(w => {
-    const points = S.results.filter(r => r.window === w).map(r => ({
-      x: r.matches_mean, y: r.C_ms,
-      color: css(SIZE_V[SSIZES.indexOf(r.size)]),
-      tooltip: [{ text: `C = ${fmt(r.C_ms)} ms` },
-                { text: sizeName(r.size) + " docs", color: css(SIZE_V[SSIZES.indexOf(r.size)]) },
-                { text: `|matches|≈${fmt(r.matches_mean, 0)} (${Math.round(100 * r.match_frac)}% of corpus) · W=${w}` },
-                { text: `hybrid ${fmt(r.hybrid_mean_ms)} · search ${fmt(r.search_mean_ms)} · vsim ${fmt(r.vsim_mean_ms)} ms` }] }));
-    const p = panelBox(box, `WINDOW=${w} — C (ms) vs |matches|`, "");
-    p.appendChild(scatterPanelLogX(points, {}));
+    const rowsW = S.results.filter(r => r.window === w);
+    const seriesList = SC.map(c => ({
+      name: c.name, color: css(c.v),
+      points: rowsW.map(r => ({
+        x: r.matches_mean, y: r[c.key],
+        tooltip: [{ text: `${fmt(r[c.key])} ms p50` },
+                  { text: c.name, color: css(c.v) },
+                  { text: `|matches|≈${fmt(r.matches_mean, 0)} (${Math.round(100 * r.match_frac)}% of ${sizeName(r.size)} docs) · K/W=${r.k}/${w}` },
+                  { text: `hybrid ${fmt(r.hybrid_p50_ms)} · search ${fmt(r.search_p50_ms)} · vsim ${fmt(r.vsim_p50_ms)} ms` }] })),
+    }));
+    const p = panelBox(box, `K/WINDOW=${rowsW[0].k}/${w} — p50 (ms) vs |matches|`, "");
+    p.appendChild(linesPanelLogX(seriesList, {}));
   });
 }
 
