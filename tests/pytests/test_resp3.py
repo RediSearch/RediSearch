@@ -113,6 +113,57 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*").equal(exp)
 
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_sortby_limit_offset():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
+    for i in range(30):
+        conn.execute_command('HSET', f'cdoc{{{i}}}', 'count', i)
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
+    ids = [row['id'] for row in res['results']]
+    env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
+
+def _search_knn_limit_offset(protocol):
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 'v',
+                             np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '0', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10)])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '10', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10, 20)])
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp2():
+    _search_knn_limit_offset(protocol=2)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp3():
+    _search_knn_limit_offset(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
