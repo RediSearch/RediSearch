@@ -166,11 +166,11 @@ def iter_docs(group_sizes, seed, payload_bytes):
             "entityName": ENTITY_NAMES[best_group],
             "event": {
                 "id": event_id,
-                "type": rng.choice(EVENT_TYPES),  # NOSONAR
-                "target": rng.choice(BOOLS),  # NOSONAR
-                "hasNotes": rng.choice(BOOLS),  # NOSONAR
-                "processed": rng.choice(BOOLS),  # NOSONAR
-                "dueDate": ordinal_date(rng.randint(0, DATE_RANGE_DAYS)),  # NOSONAR
+                "type": rng.choice(EVENT_TYPES),  # NOSONAR(S2245)
+                "target": rng.choice(BOOLS),  # NOSONAR(S2245)
+                "hasNotes": rng.choice(BOOLS),  # NOSONAR(S2245)
+                "processed": rng.choice(BOOLS),  # NOSONAR(S2245)
+                "dueDate": ordinal_date(rng.randint(0, DATE_RANGE_DAYS)),  # NOSONAR(S2245)
                 "payload": make_payload(record_id, payload_bytes),
             },
         }
