@@ -287,6 +287,8 @@ static TrieAddChildResult __trieNode_addChild_lex(
                               numDocs);
       *__trieNode_childKey(n, idx) = str[offset];
       TrieNode_Children(n)[idx] = child;
+      // the recursion left child->subtreeMaxScore correct; fold it upward
+      updateScore(n, child->subtreeMaxScore);
       return (TrieAddChildResult){.node = n, .rc = rc};
     }
     // break if new node has lex value higher than current child
@@ -295,6 +297,7 @@ static TrieAddChildResult __trieNode_addChild_lex(
     }
   }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  updateScore(n, score);
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
@@ -316,6 +319,8 @@ static TrieAddChildResult __trieNode_addChild_score(
                               numDocs);
       *__trieNode_childKey(n, idx) = str[offset];
       TrieNode_Children(n)[idx] = child;
+      // the recursion left child->subtreeMaxScore correct; fold it upward
+      updateScore(n, child->subtreeMaxScore);
       // check if the order was kept and fix as necessary
       if (n->numChildren > 1) {
         if ((idx > 0 && child->subtreeMaxScore > TrieNode_Children(n)[idx - 1]->subtreeMaxScore) ||
@@ -335,6 +340,7 @@ static TrieAddChildResult __trieNode_addChild_score(
     idx = scoreIdx;
   }
   n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
+  updateScore(n, score);
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
@@ -376,8 +382,10 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       }
 
       TrieNode_Children(n)[0] = newChild;
+      // the split node just became terminal with `score`; fold it into the bound
+      updateScore(n, n->score);
     } else {
-      // a node after a split has a single child
+      // a node after a split has a single child, created with the full `score`
       int idx = str[offset] > *__trieNode_childKey(n, 0) ? 1 : 0;
       n = __trie_AddChildIdx(n, str, offset, len, payload, score, idx, numDocs);
       updateScore(n, score);
@@ -385,8 +393,6 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
     *np = n;
     return TRIE_OK_NEW;
   }
-
-  updateScore(n, score);
 
   // we're inserting in an existing node - just replace the value
   if (offset == len) {
@@ -403,6 +409,11 @@ static int __trieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *
       default:
         n->score = score;
     }
+    // fold the node's own (post-update) score into the subtree bound. For
+    // ADD_INCR this is the total, not the delta, so the bound never lags behind
+    // the score. A lowered score (ADD_REPLACE) leaves the bound an over-estimate,
+    // which is safe — it only relaxes pruning; TrieNode_Delete recomputes it.
+    updateScore(n, n->score);
     n->numDocs += numDocs;
     if (payload != NULL && payload->data != NULL && payload->len > 0) {
       if (n->payload != NULL) {
@@ -774,7 +785,9 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
       // push the next child
       if (current->childOffset < current->n->numChildren) {
         TrieNode *ch = TrieNode_Children(current->n)[current->childOffset++];
-        if (ch->subtreeMaxScore >= it->kthBestScore || ch->score >= it->kthBestScore) {
+        // subtreeMaxScore >= ch->score holds by construction (every score
+        // mutation folds into the bound), so it alone is the admissible test.
+        if (ch->subtreeMaxScore >= it->kthBestScore) {
           __ti_Push(it, ch, 0);
           it->nodesConsumed++;
         } else {
