@@ -149,6 +149,21 @@ def load_corpus(r, titles, texts, emb, n):
         sleep(1)
     print(f"loaded+indexed {n} docs in {perf_counter() - t0:.1f}s "
           f"(hash_indexing_failures={info.get('hash_indexing_failures')})")
+    warm_index(r, emb, n)
+
+
+def warm_index(r, emb, n):
+    """Global warmup after load+index: the first timed command on a cold index otherwise
+    pays page/CPU-cache cost (measured: 3-4x inflation on 500K HNSW). Touch the vector
+    graph broadly and sweep the text postings once."""
+    t0 = perf_counter()
+    for i in range(300):
+        r.execute_command("FT.SEARCH", IDX, f"*=>[KNN 100 @text_vector $v]",
+                          "NOCONTENT", "LIMIT", "0", "1", "PARAMS", "2",
+                          "v", emb[(i * 37) % n].tobytes(), "DIALECT", "2")
+    r.execute_command("FT.SEARCH", IDX, "~@text:(time|world|first|city|american|part)",
+                      "SCORER", "BM25STD", "NOCONTENT", "LIMIT", "0", "1", "DIALECT", "2")
+    print(f"index warmup done in {perf_counter() - t0:.1f}s")
 
 
 # --- query generation (selectivity measured, never assumed) ---
