@@ -831,7 +831,7 @@ def test_resize_workers_during_pending_svs_jobs():
                                 message="training")
 
     backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-    env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
+    env.assertEqual(backend_info['NUM_THREADS'], svs_pool_cap(initial_workers), message="after training")
 
     # ARM the sync point — queries will block at BeforeSpecLock (no lock held)
     env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
@@ -882,7 +882,7 @@ def test_resize_workers_during_pending_svs_jobs():
 
     # Pool size should reflect the new worker count (deferred resize applied)
     backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-    env.assertEqual(backend_info['NUM_THREADS'], final_workers,
+    env.assertEqual(backend_info['NUM_THREADS'], svs_pool_cap(final_workers),
                     message="NUM_THREADS should match final workers")
 
     # Verify search still works
@@ -917,7 +917,7 @@ def test_multiple_svs_indexes_share_pool():
     # Both should report initial pool size
     for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
-        env.assertEqual(info['NUM_THREADS'], initial_workers,
+        env.assertEqual(info['NUM_THREADS'], svs_pool_cap(initial_workers),
                         message=f"{idx} NUM_THREADS before resize")
 
     # Resize workers
@@ -926,7 +926,7 @@ def test_multiple_svs_indexes_share_pool():
     # Both should immediately see the new pool size
     for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
-        env.assertEqual(info['NUM_THREADS'], final_workers,
+        env.assertEqual(info['NUM_THREADS'], svs_pool_cap(final_workers),
                         message=f"{idx} NUM_THREADS after resize")
 
     # Trigger update jobs on both indexes
@@ -939,7 +939,7 @@ def test_multiple_svs_indexes_share_pool():
     # Both indexes should still report the resized pool
     for idx in [idx1, idx2]:
         info = get_tiered_backend_debug_info(env, idx, field)
-        env.assertEqual(info['NUM_THREADS'], final_workers,
+        env.assertEqual(info['NUM_THREADS'], svs_pool_cap(final_workers),
                         message=f"{idx} NUM_THREADS after update")
 
     # Verify search works on both
