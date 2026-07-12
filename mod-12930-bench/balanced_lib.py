@@ -83,7 +83,10 @@ def calibrate(r, df, pool, q_emb, n, depth):
                  # CAL_TOL, so the final bisection step is often not the best seen.
     for it in range(CAL_ITERS):
         target = (lo * hi) ** 0.5
-        qs = _gen_qset(df, pool, target, q_emb, seed=1000 + it)[:64]
+        # Probe the exact workload that will be timed (same seed, full query set):
+        # probing a different sample previously drifted up to ~30% between the
+        # calibrated ratio and the ratio actually measured in the run.
+        qs = _gen_qset(df, pool, target, q_emb, seed=42)
         args = [B.search_branch(q, v, fields=False, **depth) for q, v in qs]
         search_p50 = _probe_p50(r, args, *CAL_REPS)
         print(f"  target≈{target:,.0f} -> search p50 {search_p50:.2f}ms")
