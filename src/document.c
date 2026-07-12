@@ -753,9 +753,11 @@ FIELD_BULK_INDEXER(tagIndexer) {
     tidx->suffix = NewTrieMap();
   }
 
+  size_t numRecords;
   ctx->spec->stats.invertedSize +=
-      TagIndex_Index(tidx, (const char **)fdata->tags, array_len(fdata->tags), aCtx->doc->docId);
-  ctx->spec->stats.numRecords++;
+      TagIndex_IndexWithRecords(tidx, (const char **)fdata->tags, array_len(fdata->tags),
+                                aCtx->doc->docId, &numRecords);
+  ctx->spec->stats.numRecords += numRecords;
   return 0;
 }
 
