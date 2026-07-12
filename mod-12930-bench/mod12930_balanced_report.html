@@ -106,7 +106,7 @@ FT.AGGREGATE idx "*=&gt;[KNN {K} @text_vector $vector AS vector_distance]"
 
   <div class="card">
     <h2 id="t2">p50 latency by contender</h2>
-    <p class="sub">One panel per WINDOW, grouped by dataset size. Subqueries are calibrated to similar latency per (size, window) cell; the hybrid bar above them is branch work plus merge overhead.</p>
+    <p class="sub">One panel per WINDOW, grouped by dataset size. Subqueries are calibrated to similar latency per (size, window) cell — the SEARCH bars are not the native scaling of one fixed text query, but a per-cell re-tuned query matched to the vector subquery's latency. The hybrid bar above them is branch work plus merge overhead.</p>
     <div class="legend" id="legend-m"></div>
     <div class="panels" id="chart-main"></div>
   </div>
@@ -497,8 +497,10 @@ function renderDegradation() {
     `Degradation with dataset size — hybrid vs its subqueries — workers=${w0}, no loader`;
   document.getElementById("deg-sub").textContent =
     `Raw p50 latencies side by side (no derived metrics). X = dataset size (log scale), one panel per K/WINDOW. ` +
-    `Text queries are engineered per cell so the text subquery's latency correlates with the vector ` +
-    `subquery's; the calibrated |matches| is the knob (shown in the tooltip with the achieved balance ratio).`;
+    `Note: the SEARCH line is NOT the native scaling of one fixed text query — the text query is re-tuned ` +
+    `per cell to match the vector subquery's latency (calibrated |matches| is the knob; see tooltip and ` +
+    `balance ratio). This keeps the two subqueries comparable for the hybrid-vs-subqueries analysis; ` +
+    `a fixed text query would instead scale with its own |matches|.`;
   const SC = [
     { key: "hybrid_linear", name: "FT.HYBRID (LINEAR)", v: "--s-hyblin" },
     { key: "search_branch", name: "SEARCH branch", v: "--s-search" },
