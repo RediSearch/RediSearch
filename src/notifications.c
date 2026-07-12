@@ -955,10 +955,15 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
 
-  RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
-  if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
-                                    "topology will not be refreshed automatically");
+  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
+  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
+  // before the Enterprise flow fully supports it (e.g. connections auth).
+  if (!IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
+                                      "topology will not be refreshed automatically");
+    }
   }
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
