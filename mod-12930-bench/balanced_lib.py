@@ -67,14 +67,17 @@ def _probe_p50(r, args_list, n_warm, n_timed):
     return float(np.percentile(lat, 50) * 1000)
 
 
-def calibrate(r, df, pool, q_emb, n, depth):
+def calibrate(r, df, pool, q_emb, n, depth, bias=1.0):
     """Geometric bisection on the target match count until the SEARCH mirror p50 lands
     within CAL_TOL of the VSIM mirror p50 at this depth. Balance may be unreachable
     (text maxes out below the vector branch, e.g. 10K at k=1000) — recorded, not fatal."""
     vsim_args = [B.vsim_branch(None, q_emb[i].tobytes(), fields=False, **depth)
                  for i in range(64)]
     vsim_p50 = _probe_p50(r, vsim_args, *CAL_REPS)
-    print(f"n={n} k/w={depth['k']}/{depth['window']}: vsim p50={vsim_p50:.2f}ms — calibrating")
+    cal_target = vsim_p50 * bias  # bias>1 aims the text side slightly above vsim (still
+                                  # judged against the same tolerance band)
+    print(f"n={n} k/w={depth['k']}/{depth['window']}: vsim p50={vsim_p50:.2f}ms "
+          f"(target x{bias}) — calibrating")
 
     lo, hi = min(200.0, 0.002 * n), 1.0 * n
     target, search_p50 = hi, None
@@ -90,12 +93,12 @@ def calibrate(r, df, pool, q_emb, n, depth):
         args = [B.search_branch(q, v, fields=False, **depth) for q, v in qs]
         search_p50 = _probe_p50(r, args, *CAL_REPS)
         print(f"  target≈{target:,.0f} -> search p50 {search_p50:.2f}ms")
-        dev = abs(search_p50 - vsim_p50)
+        dev = abs(search_p50 - cal_target)
         if best is None or dev < best[0]:
             best = (dev, target, search_p50)
-        if dev <= CAL_TOL * vsim_p50:
+        if dev <= CAL_TOL * cal_target:
             break
-        if search_p50 < vsim_p50:
+        if search_p50 < cal_target:
             lo = target
         else:
             hi = target

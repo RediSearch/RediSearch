@@ -7,19 +7,27 @@ from time import sleep
 import bench_lib as B
 import balanced_lib as BAL
 
-CELLS = [(100_000, dict(k=250, window=500)), (500_000, dict(k=10, window=20))]
+# 500K cells re-calibrated with a slight high-side bias (search aims ~5% above vsim)
+# so the largest corpus does not undercut 100K's text workload.
+CELLS = [(500_000, dict(k=10, window=20)),
+         (500_000, dict(k=50, window=100)),
+         (500_000, dict(k=250, window=500))]
+BIAS = 1.05
 
 titles, texts, emb, corpus_max = B.load_data()
 q_emb = emb[corpus_max:]
 out = json.load(open("results_balanced_full.json"))
 
+loaded_n = None
 for n, depth in CELLS:
     print(f"===== patching size={n} k/w={depth['k']}/{depth['window']}")
-    r = B.start_redis(workers=6)
-    B.load_corpus(r, titles, texts, emb, n)
-    df, pool = BAL._df_pool(texts, n)
-    B.set_workers(r, 2)
-    qset, cal = BAL.calibrate(r, df, pool, q_emb, n, depth)
+    if loaded_n != n:
+        r = B.start_redis(workers=6)
+        B.load_corpus(r, titles, texts, emb, n)
+        df, pool = BAL._df_pool(texts, n)
+        B.set_workers(r, 2)
+        loaded_n = n
+    qset, cal = BAL.calibrate(r, df, pool, q_emb, n, depth, bias=BIAS)
 
     ok_lin = ok_rrf = 0
     for q, vec in qset[:B.GATE_QUERIES]:
@@ -49,8 +57,6 @@ for n, depth in CELLS:
                              balance_ratio=cal["balance_ratio"], balanced=cal["balanced"],
                              **depth, **stats))
             print(f"{name:14s} fields={fname:10s} p50={stats['p50_ms']:.2f}ms")
-    B.stop_redis()
-
     key = lambda x: (x["size"], x["window"])
     out["results"] = [x for x in out["results"] if key(x) != (n, depth["window"])] + rows
     out["gates"] = [x for x in out["gates"] if key(x) != (n, depth["window"])] + [gate]
@@ -60,6 +66,7 @@ for n, depth in CELLS:
 out["results"].sort(key=lambda x: (x["size"], x["window"], x["fields"], x["contender"]))
 out["gates"].sort(key=lambda x: (x["size"], x["window"]))
 out["meta"]["calibration"].sort(key=lambda x: (x["size"], x["window"]))
+B.stop_redis()
 with open("results_balanced_full.json", "w") as f:
     json.dump(out, f, indent=2, default=str)
 print("patched results_balanced_full.json")
