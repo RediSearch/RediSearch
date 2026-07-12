@@ -209,12 +209,16 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  IndexStats *stats) {
+                                  IndexStats *stats, size_t *numRecords) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
                        .metrics = MetricsVec_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
+  uint32_t numDocs = InvertedIndex_NumDocs(iv);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  if (InvertedIndex_NumDocs(iv) > numDocs) {
+    (*numRecords)++;
+  }
   IndexStats_BlockCountAdd(stats, r.blocks_added);
   return r.mem_growth + sz;
 }
@@ -225,12 +229,14 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
                                      t_docId docId, IndexStats *stats) {
   if (!values) return;
+  size_t numRecords = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats);
+      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats, &numRecords);
     }
   }
+  stats->numRecords += numRecords;
 }
 
 /* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
@@ -242,12 +248,19 @@ static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
  *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
  *     them.
  *
- * Both modes populate `idx->suffix` and bump `stats->numRecords`. Infallible. */
+ * Record accounting follows the phase that writes the posting:
+ *   - Memory mode writes postings inline in `TagIndex_WritePostings` and counts
+ *     only records accepted by the inverted index.
+ *   - Disk mode reaches this function after the batch commit, so committed tag
+ *     values are counted here while applying the matching in-memory metadata.
+ * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
   if (!values) return;
+  size_t numRecords = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (!tok) continue;
+    numRecords++;
     size_t len = strlen(tok);
     if (idx->diskSpec) {
       TrieMap_Add(idx->values, tok, len, NULL, NULL);
@@ -256,7 +269,9 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
       addSuffixTrieMap(idx->suffix, tok, len);
     }
   }
-  stats->numRecords++;
+  if (idx->diskSpec) {
+    stats->numRecords += numRecords;
+  }
 }
 
 /* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag
