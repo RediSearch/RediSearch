@@ -97,6 +97,23 @@ th.l, td.l { text-align: left; }
     <span class="flabel" id="w-note"></span>
   </div>
 
+  <div class="card">
+    <h2>The commands</h2>
+    <p class="sub">FT.HYBRID and its two subquery equivalents, run standalone under identical conditions. K/WINDOW per the cell; output is always the top 10. In loader mode, hybrid and vsim add <code>LOAD 2 @title @text</code> and search uses <code>RETURN 2 title text</code> instead of <code>NOCONTENT</code>.</p>
+    <pre style="font-size:12px; line-height:1.55; overflow:auto; background:var(--page); padding:12px; border-radius:8px;">
+FT.HYBRID idx SEARCH &lt;text&gt; SCORER BM25STD YIELD_SCORE_AS text_score
+              VSIM @text_vector $vector KNN 2 K {K} YIELD_SCORE_AS vector_score
+              COMBINE LINEAR 8 ALPHA 0.3 BETA 0.7 WINDOW {W} YIELD_SCORE_AS combined_score
+              LIMIT 0 10 PARAMS 2 vector &lt;blob&gt;          <span style="color:var(--ink-muted)"># RRF variant: COMBINE RRF 6 CONSTANT 60 WINDOW {W} ...</span>
+
+FT.SEARCH idx &lt;text&gt; SCORER BM25STD WITHSCORES NOCONTENT LIMIT {W-10} 10 DIALECT 2
+              <span style="color:var(--ink-muted)"># search-subquery equivalent: same top-{W} heap (offset+num), same 10-row reply</span>
+
+FT.AGGREGATE idx "*=&gt;[KNN {K} @text_vector $vector AS vector_distance]"
+              SORTBY 2 @vector_distance ASC MAX {K} LIMIT 0 10 PARAMS 2 vector &lt;blob&gt; DIALECT 2
+              <span style="color:var(--ink-muted)"># vector-subquery equivalent: same K-deep KNN and sort, same 10-row reply</span></pre>
+  </div>
+
   <div class="card" id="degradation-card">
     <h2 id="deg-title">Degradation with dataset size — hybrid vs its subqueries</h2>
     <p class="sub" id="deg-sub"></p>
