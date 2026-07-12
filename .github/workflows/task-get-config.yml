@@ -128,7 +128,7 @@ jobs:
               },
               "macos-26": {
                   "x86_64": {
-                      'env': 'macos-26-large',
+                      'env': 'macos-26-intel',
                       'name': 'macOS 26 x86_64',
                       'enable_lto': '0' # Currently not possible on macOS.
                   },
