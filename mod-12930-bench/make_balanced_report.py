@@ -97,13 +97,6 @@ th.l, td.l { text-align: left; }
     <span class="flabel" id="w-note"></span>
   </div>
 
-  <div class="card">
-    <h2 id="merger-title">Merger overhead — C as % of max(search, vsim)</h2>
-    <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (calibrated |matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: no loader (keys+scores only); right: with loader (documents read from the keyspace).</p>
-    <div class="legend" id="legend-c"></div>
-    <div class="panels" id="chart-c-top"></div>
-  </div>
-
   <div class="card" id="degradation-card">
     <h2 id="deg-title">Degradation with dataset size — hybrid vs its subqueries</h2>
     <p class="sub" id="deg-sub"></p>
@@ -116,6 +109,13 @@ th.l, td.l { text-align: left; }
     <p class="sub">One panel per WINDOW, grouped by dataset size. Branches are calibrated to equal latency per (size, window) — the hybrid bar above them is branch work + C.</p>
     <div class="legend" id="legend-m"></div>
     <div class="panels" id="chart-main"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="merger-title">Merger overhead — hybrid − max(search, vsim), in ms</h2>
+    <p class="sub">Raw subtraction, no division — read it against the latency charts above. Grouped by WINDOW, one bar per corpus size (calibrated |matches| in the tooltip). Left: no loader (keys+scores only); right: with loader (documents read from the keyspace).</p>
+    <div class="legend" id="legend-c"></div>
+    <div class="panels" id="chart-c-top"></div>
   </div>
 
   <div class="card">
@@ -199,8 +199,6 @@ function cOf(size, window, workers, fields) {
   if (cx) {
     tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(cx.c, 1) + " ms",
       `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=${WMAX}, no loader`));
-    tiles.appendChild(tile("C vs slowest branch", fmt(100 * cx.c / cx.maxBr, 0) + "%",
-      `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=${WMAX}`));
   }
   const h0 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 0, fields: "none" });
   const hx = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: WMAX, fields: "none" });
@@ -402,7 +400,7 @@ function matchesOf(size, window) {
 }
 function renderMerger() {
   document.getElementById("merger-title").textContent =
-    `Merger overhead — C as % of max(search, vsim) — workers=${state.workers}`;
+    `Merger overhead — hybrid − max(search, vsim), in ms — workers=${state.workers}`;
   legend("legend-c", SIZES.map((s, i) => ({ name: sizeName(s) + " docs", v: SIZE_V[i] })));
   const top = document.getElementById("chart-c-top"); top.textContent = "";
   FIELDS.forEach(fields => {
@@ -411,18 +409,17 @@ function renderMerger() {
       cols: SIZES.map((s, i) => {
         const c = cOf(s, w, state.workers, fields);
         if (!c) return { value: 0, color: css(SIZE_V[i]), tooltip: [{ text: "no data" }] };
-        const pct = 100 * c.c / c.maxBr;
         const mm = matchesOf(s, w);
-        return { value: pct, color: css(SIZE_V[i]),
-          dlabel: s === SIZES[SIZES.length - 1] ? fmt(pct, 0) + "%" : null,
-          tooltip: [{ text: fmt(pct, 0) + "% of the slowest branch" },
+        return { value: c.c, color: css(SIZE_V[i]),
+          dlabel: s === SIZES[SIZES.length - 1] ? fmt(c.c) : null,
+          tooltip: [{ text: `${fmt(c.c)} ms` },
                     { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
-                    { text: `C ${fmt(c.c)} ms · slowest branch ${fmt(c.maxBr)} ms · hybrid ${fmt(c.hy)} ms` },
-                    { text: `W=${w} · ${loaderName(fields)} · |matches|≈${fmt(mm || 0, 0)}` }] };
+                    { text: `hybrid ${fmt(c.hy)} ms − slowest subquery ${fmt(c.maxBr)} ms` },
+                    { text: `W=${w} · ${loaderName(fields)} · calibrated |matches|≈${fmt(mm || 0, 0)}` }] };
       }),
     }));
     const p = panelBox(top, loaderName(fields), "");
-    p.appendChild(columnPanel(groups, { refLines: [100], width: 420 }));
+    p.appendChild(columnPanel(groups, { width: 420 }));
   });
 }
 
