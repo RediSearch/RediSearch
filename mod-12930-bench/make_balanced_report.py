@@ -99,7 +99,7 @@ th.l, td.l { text-align: left; }
 
   <div class="card">
     <h2 id="merger-title">Merger overhead — C as % of max(search, vsim)</h2>
-    <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (|matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: keys only; right: with document loading.</p>
+    <p class="sub">C = hybrid mean − max(search, vsim). Grouped by WINDOW, one bar per corpus size (calibrated |matches| in the tooltip). Hairline = 100%: C as expensive as the slowest subquery. Left: no loader (keys+scores only); right: with loader (documents read from the keyspace).</p>
     <div class="legend" id="legend-c"></div>
     <div class="panels" id="chart-c-top"></div>
   </div>
@@ -168,6 +168,7 @@ const rows = f => DATA.results.filter(r => Object.entries(f).every(([k, v]) => r
 const row1 = f => rows(f)[0];
 const fmt = (x, d) => x >= 1000 ? Math.round(x).toLocaleString("en-US")
   : x.toFixed(d !== undefined ? d : (x >= 100 ? 0 : x >= 10 ? 1 : 2));
+const loaderName = f => f === "none" ? "loader (keyspace access): no" : "loader (keyspace access): yes";
 const sizeName = s => s >= 1000 ? (s / 1000) + "K" : String(s);
 
 function cOf(size, window, workers, fields) {
@@ -197,7 +198,7 @@ function cOf(size, window, workers, fields) {
   const cx = cOf(big, wBig, WMAX, "none");
   if (cx) {
     tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(cx.c, 1) + " ms",
-      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=${WMAX}, fields=none`));
+      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=${WMAX}, no loader`));
     tiles.appendChild(tile("C vs slowest branch", fmt(100 * cx.c / cx.maxBr, 0) + "%",
       `at WINDOW=${wBig}, ${sizeName(big)} docs, workers=${WMAX}`));
   }
@@ -417,10 +418,10 @@ function renderMerger() {
           tooltip: [{ text: fmt(pct, 0) + "% of the slowest branch" },
                     { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
                     { text: `C ${fmt(c.c)} ms · slowest branch ${fmt(c.maxBr)} ms · hybrid ${fmt(c.hy)} ms` },
-                    { text: `W=${w} · fields=${fields} · |matches|≈${fmt(mm || 0, 0)}` }] };
+                    { text: `W=${w} · ${loaderName(fields)} · |matches|≈${fmt(mm || 0, 0)}` }] };
       }),
     }));
-    const p = panelBox(top, `fields=${fields}`, "");
+    const p = panelBox(top, loaderName(fields), "");
     p.appendChild(columnPanel(groups, { refLines: [100], width: 420 }));
   });
 }
@@ -434,7 +435,7 @@ function renderMain() {
     const hdr = document.createElement("div");
     hdr.style.flexBasis = "100%";
     hdr.style.cssText += "color:var(--ink-2);font-size:12.5px;font-weight:600;margin:8px 0 0";
-    hdr.textContent = `fields=${fields}`;
+    hdr.textContent = loaderName(fields);
     box.appendChild(hdr);
     WINDOWS.forEach(w => {
       const cal = DATA.meta.calibration.filter(c => c.window === w)
@@ -448,7 +449,7 @@ function renderMain() {
           return { value: r.p50_ms, color: css(c.v),
             dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
             tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
-                      { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · fields=${fields}` },
+                      { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · ${loaderName(fields)}` },
                       { text: `calibrated |matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
         }),
       }));
@@ -486,7 +487,7 @@ function renderTable() {
   const t = document.getElementById("results-table");
   t.textContent = "";
   const hr = document.createElement("tr");
-  ["contender", "size", "K/W", "workers", "fields", "QPS", "mean ms", "p50", "p90", "p99", "p99.9"].forEach((h, i) => th(hr, h, i < 5 ? "l" : ""));
+  ["contender", "size", "K/W", "workers", "loader", "QPS", "mean ms", "p50", "p90", "p99", "p99.9"].forEach((h, i) => th(hr, h, i < 5 ? "l" : ""));
   t.appendChild(hr);
   const nameOf = k => (CONTENDERS.find(c => c.key === k) || { name: k }).name;
   [...DATA.results].filter(r => r.workers === state.workers).sort((a, b) =>
@@ -496,7 +497,7 @@ function renderTable() {
     .forEach(r => {
       const tr = document.createElement("tr");
       td(tr, nameOf(r.contender), "l"); td(tr, sizeName(r.size), "l"); td(tr, `${r.k}/${r.window}`, "l");
-      td(tr, String(r.workers), "l"); td(tr, r.fields, "l");
+      td(tr, String(r.workers), "l"); td(tr, r.fields === "none" ? "no" : "yes", "l");
       td(tr, fmt(r.qps, 0)); td(tr, fmt(r.mean_ms)); td(tr, fmt(r.p50_ms));
       td(tr, fmt(r.p90_ms)); td(tr, fmt(r.p99_ms)); td(tr, fmt(r.p999_ms));
       t.appendChild(tr);
@@ -506,7 +507,7 @@ function renderTable() {
 function renderDegradation() {
   const w0 = state.workers;
   document.getElementById("deg-title").textContent =
-    `Degradation with dataset size — hybrid vs its subqueries — workers=${w0}, fields=none`;
+    `Degradation with dataset size — hybrid vs its subqueries — workers=${w0}, no loader`;
   document.getElementById("deg-sub").textContent =
     `Raw p50 latencies side by side (no derived metrics), x = dataset size (log scale), ` +
     `one panel per K/WINDOW. The text queries are engineered per cell so the text ` +
