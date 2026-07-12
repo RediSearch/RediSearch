@@ -433,6 +433,71 @@ TEST_F(TrieTest, testSubtreeMaxScoreCoversIncrAndSplit) {
   TrieType_Free(t);
 }
 
+// Add a UTF-8 key directly to a raw root node, bypassing the Trie wrapper so
+// the test owns the root pointer and can walk the structure afterwards.
+static void addRaw(TrieNode **root, const char *s, float score, TrieAddOp op) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode_Add(root, runes, len, NULL, score, op, NULL, 1);
+  runeBufFree(&buf);
+}
+
+// Recursively assert that every node keeps its children ordered by descending
+// subtreeMaxScore — the order the score-mode iterator relies on to visit
+// high-scoring branches first.
+static void assertChildrenScoreOrdered(const TrieNode *n) {
+  TrieNode **children = TrieNode_Children(n);
+  for (t_len i = 0; i < TrieNode_NumChildren(n); i++) {
+    if (i + 1 < TrieNode_NumChildren(n)) {
+      EXPECT_GE(children[i]->subtreeMaxScore, children[i + 1]->subtreeMaxScore)
+          << "children out of descending subtreeMaxScore order";
+    }
+    assertChildrenScoreOrdered(children[i]);
+  }
+}
+
+// The insert path restores child order with a single-element rotation instead of
+// a full sort. Storm a small trie with rank-crossing INCRs, then verify both the
+// order invariant and (via exact lookups) that the rotation kept the parallel
+// child-key array consistent with the children.
+TEST_F(TrieTest, testScoreOrderMaintainedAfterIncrStorm) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  const char *keys[] = {"alpha", "alps", "beer", "beet", "bee", "gamma", "gap", "delta"};
+  const size_t numKeys = sizeof(keys) / sizeof(keys[0]);
+  float expected[numKeys];
+
+  for (size_t i = 0; i < numKeys; i++) {
+    addRaw(&root, keys[i], 1.0f, ADD_REPLACE);
+    expected[i] = 1.0f;
+  }
+
+  // Uneven, shifting deltas so sibling ranks keep crossing at every level and
+  // the rotation has to move children by more than one slot.
+  for (int round = 0; round < 20; round++) {
+    for (size_t i = 0; i < numKeys; i++) {
+      float delta = (float)((i + round) % 4 + 1);
+      addRaw(&root, keys[i], delta, ADD_INCR);
+      expected[i] += delta;
+    }
+    assertChildrenScoreOrdered(root);
+  }
+
+  for (size_t i = 0; i < numKeys; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, expected[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
+}
+
 /* leave for future benchmarks if needed
 TEST_F(TrieTest, testbenchmark) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);

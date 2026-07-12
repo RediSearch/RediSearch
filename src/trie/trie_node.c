@@ -61,6 +61,7 @@ typedef struct {
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
+inline static int __trieNode_Cmp_Score(const void *p1, const void *p2);
 
 #define updateScore(n, value)                             \
 do {                                                      \
@@ -302,8 +303,9 @@ static TrieAddChildResult __trieNode_addChild_lex(
 }
 
 // Score-mode child placement. Children are kept sorted by descending
-// subtreeMaxScore; a recursed update may invalidate that order, so we check the
-// two neighbours and re-sort if needed.
+// subtreeMaxScore; a recursed update may invalidate that order. Bounds only
+// grow during an insert, so the updated child can only be out of order towards
+// the front: rotate it left into place instead of re-sorting the whole array.
 static TrieAddChildResult __trieNode_addChild_score(
     TrieNode *n, const rune *str, t_len len, t_len offset, RSPayload *payload, float score,
     TrieAddOp op, TrieFreeCallback freecb, size_t numDocs) {
@@ -321,11 +323,16 @@ static TrieAddChildResult __trieNode_addChild_score(
       TrieNode_Children(n)[idx] = child;
       // the recursion left child->subtreeMaxScore correct; fold it upward
       updateScore(n, child->subtreeMaxScore);
-      // check if the order was kept and fix as necessary
-      if (n->numChildren > 1) {
-        if ((idx > 0 && child->subtreeMaxScore > TrieNode_Children(n)[idx - 1]->subtreeMaxScore) ||
-            (idx < n->numChildren - 2 && child->subtreeMaxScore < TrieNode_Children(n)[idx + 1]->subtreeMaxScore)) {
-          __trieNode_sortChildren(n);
+      TrieNode **children = TrieNode_Children(n);
+      int dst = idx;
+      while (dst > 0 && __trieNode_Cmp_Score(&children[dst - 1], &child) > 0) {
+        dst--;
+      }
+      if (dst < idx) {
+        memmove(&children[dst + 1], &children[dst], (idx - dst) * sizeof(TrieNode *));
+        children[dst] = child;
+        for (int i = dst; i <= idx; i++) {
+          *__trieNode_childKey(n, i) = children[i]->str[0];
         }
       }
       return (TrieAddChildResult){.node = n, .rc = rc};
