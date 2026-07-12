@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "trie/trie_node.h"
+#include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
 #include "redismock/redismock.h"
 
@@ -389,6 +390,45 @@ TEST_F(TrieTest, testScoreOrder) {
   checkNext(iter, "helen");
   checkNext(iter, "help");
   TrieIterator_Free(iter);
+
+  TrieType_Free(t);
+}
+
+// Fetch a node by its UTF-8 key through the public wrapper, so the test reads
+// subtreeMaxScore without reaching into the opaque Trie struct for its root.
+static TrieNode *getNode(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *n = Trie_GetNode(t, runes, len, true, NULL);
+  runeBufFree(&buf);
+  return n;
+}
+
+// Regression test for the subtreeMaxScore staleness bug. subtreeMaxScore is the
+// branch-and-bound upper bound Trie_CollectFuzzy (FT.SUGGET) prunes on, so it
+// must always cover a node's own score and every descendant's. The buggy code
+// folded only the score *delta* into the bound on two insert paths, leaving it
+// under-estimated and causing valid suggestions to be silently pruned.
+TEST_F(TrieTest, testSubtreeMaxScoreCoversIncrAndSplit) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  // ADD_INCR path: "beer"/"beet" share the internal node "bee". INCR "beer" by 3
+  // (5 -> 8); the buggy code folded only the delta (3), leaving the bounds at 5.
+  Trie_InsertStringBuffer(t, "beer", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beet", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beer", 4, 3.0, 1, NULL, 1);
+
+  // Split-exact path: "zoom" is one compressed node; inserting its proper prefix
+  // "zoo" splits it and makes "zoo" terminal with score 9. The buggy code never
+  // folded that score into the split node's bound, leaving it at "zoom"'s 5.
+  Trie_InsertStringBuffer(t, "zoom", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "zoo", 3, 9.0, 0, NULL, 1);
+
+  EXPECT_FLOAT_EQ(getNode(t, "beer")->score, 8.0f);      // INCR applied the delta
+  EXPECT_GE(getNode(t, "beer")->subtreeMaxScore, 8.0f);  // bound covers the total
+  EXPECT_GE(getNode(t, "bee")->subtreeMaxScore, 8.0f);   // ancestor covers descendant
+  EXPECT_GE(getNode(t, "zoo")->subtreeMaxScore, 9.0f);   // split node folded its score
 
   TrieType_Free(t);
 }
