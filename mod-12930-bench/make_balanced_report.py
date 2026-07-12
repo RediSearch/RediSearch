@@ -183,6 +183,7 @@ function cOf(size, window, workers, fields) {
 (function () {
   const m = DATA.meta;
   document.getElementById("meta").appendChild(document.createTextNode(
+    `Dataset: dbpedia (filipecosta90/dbpedia-openai-1M, 512-dim embeddings), HASH docs, HNSW cosine FLOAT32; text queries built from held-out dataset rows. ` +
     `Text queries are engineered per (size, window) cell so the text subquery's latency correlates with the vector subquery's (±${Math.round(100 * m.cal_tol)}%). ` +
     `Output: top-${m.out_k}. ${m.n_query_set} distinct queries, ${m.n_timed} timed repetitions per cell (after ${m.n_warmup} warm-up).`));
   function tile(label, value, note) {
