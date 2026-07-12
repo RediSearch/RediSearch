@@ -31,12 +31,15 @@ TEST_F(TagIndexTest, testCreate) {
   for (d = 1; d <= N; d++) {
     TagIndex_Index(NULL, idx, &v[0], v.size(), d, &stats);
     const size_t sz = stats.invertedSize;
+    const size_t numRecords = stats.numRecords;
     // make sure repeating push of the same vector doesn't get indexed
     TagIndex_Index(NULL, idx, &v[0], v.size(), d, &stats);
     ASSERT_EQ(sz, stats.invertedSize);
+    ASSERT_EQ(numRecords, stats.numRecords);
   }
 
   ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
+  ASSERT_EQ(N * v.size(), stats.numRecords);
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
@@ -61,6 +64,7 @@ TEST_F(TagIndexTest, testCreate) {
   // And after the first insert the buffer capacity is 1 byte
   size_t last_block_size = 24 + 8 + 48 + 1;
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
+  ASSERT_EQ(N * v.size() + v2.size(), stats.numRecords);
 
   MockQueryEvalCtx mockQctx(N, N);
   QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
@@ -80,6 +84,19 @@ TEST_F(TagIndexTest, testCreate) {
   //        TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQ(N + 1, n);
   it->Free(it);
+  TagIndex_Free(idx);
+}
+
+TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
+  TagIndex *idx = NewTagIndex(NULL, 0);
+  const char *v[] = {"foo", "foo", "bar"};
+  IndexStats stats = {0};
+
+  TagIndex_Index(NULL, idx, &v[0], 3, 1, &stats);
+
+  ASSERT_EQ(2u, stats.numRecords);
+  ASSERT_EQ(2u, TrieMap_NUniqueKeys(idx->values));
+
   TagIndex_Free(idx);
 }
 
