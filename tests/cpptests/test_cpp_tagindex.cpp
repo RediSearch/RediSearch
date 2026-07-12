@@ -97,6 +97,19 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   TagIndex_Free(idx);
 }
 
+TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
+  TagIndex *idx = NewTagIndex();
+  const char *v[] = {"foo", "foo", "bar"};
+  size_t numRecords;
+
+  TagIndex_IndexWithRecords(idx, &v[0], 3, 1, &numRecords);
+
+  ASSERT_EQ(2u, numRecords);
+  ASSERT_EQ(2u, TrieMap_NUniqueKeys(idx->values));
+
+  TagIndex_Free(idx);
+}
+
 #define TEST_MY_SEP(sep, str)                            \
   orig = s = strdup(str);                                \
   token = TagIndex_SepString(sep, &s, &tokenLen, false); \
