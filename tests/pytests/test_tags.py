@@ -186,6 +186,39 @@ def testTagIndex_OnReopen(env:Env): # issue MOD-8011
     # Read from the cursor, should not crash
     env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
 
+@skip(cluster=True)
+def testTagMultiValueNumRecordsAfterGC(env):
+    n_docs = 100
+    tags_per_doc = 5
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+               't', 'TAG', 'SEPARATOR', ',').ok()
+
+    def tags_value(doc_id, offset):
+        tags = [f'tag{doc_id + offset + tag_id}' for tag_id in range(tags_per_doc)]
+        tags.append(tags[0].upper())
+        return ','.join(tags)
+
+    for doc_id in range(n_docs):
+        conn.execute_command('HSET', f'doc:{doc_id}', 't', tags_value(doc_id, 0))
+
+    waitForIndex(env, 'idx')
+    forceInvokeGC(env, 'idx')
+    info = index_info(env, 'idx')
+    env.assertEqual(n_docs, int(info['num_docs']))
+    env.assertEqual(n_docs * tags_per_doc, int(info['num_records']))
+
+    for doc_id in range(n_docs):
+        conn.execute_command('HSET', f'doc:{doc_id}', 't', tags_value(doc_id, n_docs * tags_per_doc))
+
+    waitForIndex(env, 'idx')
+    forceInvokeGC(env, 'idx')
+    info = index_info(env, 'idx')
+    env.assertEqual(n_docs, int(info['num_docs']))
+    env.assertEqual(n_docs * tags_per_doc, int(info['num_records']))
+    env.assertEqual(tags_per_doc, int(float(info['records_per_doc_avg'])))
+
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
 
