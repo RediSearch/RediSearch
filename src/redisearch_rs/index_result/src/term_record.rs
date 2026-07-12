@@ -67,6 +67,22 @@ pub enum RawTermRecord<R: Ref> {
 #[cheadergen::config(export)]
 pub type RSTermRecord<'a> = RawTermRecord<Active<'a>>;
 
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawTermRecord` are layout-identical. Only `size_of`/`align_of` are checked:
+// `offset_of!` cannot address `#[repr(u8)]` enum variant fields. The variant
+// payloads that carry `R` are guarded one level deeper — `RawOffsetSlice`
+// (`offsets.rs`) and `SharedPtr` (`ref_mode`) — so the internals this block
+// cannot see are still pinned. Part of the recursive net backing the
+// conversions on `RawIndexResult` (see `core/mod.rs`).
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, size_of};
+    type A = RawTermRecord<Active<'static>>;
+    type S = RawTermRecord<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 // Manual (rather than derived) because the `Owned` variant stores
 // `Option<SharedPtr<R, RSQueryTerm>>`, which only implements `PartialEq` in
 // `Active` mode. Compares the dereferenced query term and the byte view of

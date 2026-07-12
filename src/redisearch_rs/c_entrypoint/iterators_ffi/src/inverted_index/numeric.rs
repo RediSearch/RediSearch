@@ -12,86 +12,7 @@ use std::ptr::{self, NonNull};
 use ffi::{FieldSpec, RSGlobalConfig};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
-use query_node_type::QueryNodeType;
-use rqe_iterator_type::IteratorType;
-use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    open_numeric_or_geo_index, profile_print,
-};
-
-/// Wrapper around [`NumericIteratorVariant`].
-pub(super) struct NumericIterator<'index> {
-    /// The iterator variant (unfiltered, filtered numeric, or geo).
-    iterator: NumericIteratorVariant<'index>,
-}
-
-impl<'index> NumericIterator<'index> {
-    /// Wrap a variant for use by [`crate::inverted_index::geo`].
-    pub(super) const fn new(iterator: NumericIteratorVariant<'index>) -> Self {
-        Self { iterator }
-    }
-}
-
-impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
-    #[inline(always)]
-    fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
-        self.iterator.current()
-    }
-
-    #[inline(always)]
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
-    {
-        self.iterator.read()
-    }
-
-    #[inline(always)]
-    fn skip_to(
-        &mut self,
-        doc_id: u64,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        self.iterator.skip_to(doc_id)
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        self.iterator.revalidate(spec)
-    }
-
-    #[inline(always)]
-    fn rewind(&mut self) {
-        self.iterator.rewind()
-    }
-
-    #[inline(always)]
-    fn num_estimated(&self) -> usize {
-        self.iterator.num_estimated()
-    }
-
-    #[inline(always)]
-    fn last_doc_id(&self) -> u64 {
-        self.iterator.last_doc_id()
-    }
-
-    #[inline(always)]
-    fn at_eof(&self) -> bool {
-        self.iterator.at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        IteratorType::InvIdxNumeric
-    }
-
-    fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
-        1.0
-    }
-}
+use rqe_iterators::{IteratorsConfig, open_numeric_or_geo_index};
 
 ///
 /// # Safety
@@ -154,66 +75,25 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
 
     // SAFETY: 3. guarantees flt is valid and non-null.
     let flt_ref = unsafe { &*flt };
-    // SAFETY: RSGlobalConfig is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
     // SAFETY: 4. guarantees config is valid and non-null.
     let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
-
     // SAFETY: 1. guarantees ctx is valid and non-null.
-    let sctx = unsafe { NonNull::new_unchecked(ctx as *mut ffi::RedisSearchCtx) };
+    let sctx = unsafe { &*ctx };
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
+    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
+    let compress = unsafe { RSGlobalConfig.numericCompress };
 
-    let node_type = if flt_ref.is_numeric_filter() {
-        QueryNodeType::Numeric
-    } else {
-        QueryNodeType::Geo
-    };
-
-    // SAFETY: 1. guarantees sctx.spec is valid and non-null.
-    let spec_ptr = unsafe { sctx.as_ref() }.spec;
-    // SAFETY: 1. guarantees sctx.spec is valid and non-null.
-    let spec = unsafe { &mut *spec_ptr };
-    // SAFETY: 3. guarantees flt.field_spec is valid and non-null.
-    let fs = unsafe { &mut *(flt_ref.field_spec as *mut ffi::FieldSpec) };
-    // SAFETY: 1.–3. are forwarded from this function's safety contract.
-    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
-        return ptr::null_mut();
-    };
-
-    // SAFETY: 1. and 5.
-    let variants = unsafe { NumericIteratorVariant::from_tree(tree, sctx, flt_ref, field_ctx) };
-    if variants.is_empty() {
-        return ptr::null_mut();
+    // SAFETY: preconditions 1–3/5 map directly to those of
+    // `build_numeric_filter_iterator`.
+    unsafe {
+        rqe_iterators::build_numeric_filter_iterator(
+            sctx,
+            flt_ref,
+            min_union_iter_heap,
+            field_ctx,
+            compress,
+        )
     }
-
-    let children: Vec<CRQEIterator> = variants
-        .into_iter()
-        .map(|iterator| {
-            let ptr = RQEIteratorWrapper::boxed_new(NumericIterator::new(iterator));
-            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-            let ptr = unsafe { NonNull::new_unchecked(ptr) };
-            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-            unsafe { CRQEIterator::new(ptr) }
-        })
-        .collect();
-
-    crate::union::build_union_from_children(
-        children,
-        true,
-        min_union_iter_heap,
-        node_type,
-        ptr::null(),
-        1.0,
-    )
-}
-
-impl profile_print::ProfilePrint for NumericIterator<'_> {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut profile_print::ProfilePrintCtx<'_>,
-    ) {
-        self.iterator.print_profile(map, ctx);
-    }
+    .map_or(ptr::null_mut(), NonNull::as_ptr)
 }

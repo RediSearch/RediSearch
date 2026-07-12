@@ -4702,14 +4702,14 @@ def test_dual_tls():
             env.assertContains('tls-port', node)
             env.assertNotEqual(node['port'], node['tls-port'], message=node)
 
-    # Verify we choose the tls-port when we have both
+    # Verify we choose the regular port when tls-cluster is disabled, even when tls-port exists.
     our_info = [to_dict(node) for node in to_dict(env.cmd('SEARCH.CLUSTERINFO'))['shards']]
     for node in our_info:
         env.assertContains(node['id'], node_to_info)
         redis_node = node_to_info[node['id']]
-        env.assertEqual(node['port'], redis_node['tls-port'])
+        env.assertEqual(node['port'], redis_node['port'])
 
-    # Verify we manage to create an index (connecting to all other nodes with tls)
+    # Verify we manage to create an index (connecting to all other nodes without TLS)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     for conn in env.getOSSMasterNodesConnectionList():
         env.assertEqual(conn.execute_command('FT._LIST'), ['idx'])

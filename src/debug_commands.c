@@ -12,6 +12,7 @@
 #include "debug_commands.h"
 #include "indexes.h"
 #include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -1980,6 +1981,23 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
 }
 
+// The debug scanner limit/pause knobs (SET_MAX_SCANNED_DOCS, SET_PAUSE_ON_SCANNED_DOCS,
+// SET_PAUSE_BEFORE_SCAN, SET_PAUSE_ON_OOM, SET_PAUSE_BEFORE_OOM_RETRY) and the
+// GET_DEBUG_SCANNER_STATUS readout are implemented entirely by DebugIndexes_ScanProc on the
+// synchronous RAM scan path — it is what enforces the doc limits, flips the pause flag, and
+// advances DebugIndexesScanner.status. In disk mode the scan is dispatched to
+// Indexes_AsyncScanAndReindexTask, which never invokes that proc; the DebugIndexesScanner would
+// be allocated but never driven, so these controls would silently never take effect and any
+// client polling GET_DEBUG_SCANNER_STATUS for PAUSED would hang. Reject them up front instead
+// (mirrors TERMINATE_BG_POOL), until/unless the hooks are implemented in the async driver.
+static bool rejectDiskDebugScannerControl(RedisModuleCtx *ctx, const char *cmd) {
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_ReplyWithErrorFormat(ctx, "%s is not supported when disk is enabled", cmd);
+    return true;
+  }
+  return false;
+}
+
 /**
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
@@ -1989,6 +2007,9 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_MAX_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long max_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
@@ -2014,6 +2035,9 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_SCANNED_DOCS")) {
+    return REDISMODULE_OK;
   }
   long long pause_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
@@ -2054,6 +2078,9 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "GET_DEBUG_SCANNER_STATUS")) {
+    return REDISMODULE_OK;
+  }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
@@ -2091,6 +2118,9 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_SCAN")) {
+    return REDISMODULE_OK;
+  }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
@@ -2115,6 +2145,9 @@ DEBUG_COMMAND(setPauseOnOOM) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_ON_OOM")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2142,6 +2175,17 @@ DEBUG_COMMAND(terminateBgPool) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // When disk is enabled, initial indexing runs as async batches whose completion
+  // callback (done_cb) is dispatched on the main thread. ReindexPool_ThreadPoolDestroy()
+  // joins the worker threads from the main thread, but a worker that is mid-batch is
+  // itself blocked waiting for that main-thread done_cb to run. Tearing the pool down
+  // here would therefore deadlock the main thread against the worker. Reject the command
+  // in disk mode instead of risking the deadlock.
+  if (SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(
+        ctx, "TERMINATE_BG_POOL is not supported when disk is enabled");
+  }
+
   ReindexPool_ThreadPoolDestroy();
   // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
 
@@ -2157,6 +2201,9 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "SET_PAUSE_BEFORE_OOM_RETRY")) {
+    return REDISMODULE_OK;
   }
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
@@ -2174,6 +2221,39 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_SIMULATE_ASYNC_OOM <true/false>
+ *
+ * Test hook: force the AsyncScan reindex driver to take its OOM terminal branch after
+ * the next batch, so the OOM-surfacing path (scan_failed_OOM + FT.INFO "background
+ * indexing status") can be exercised deterministically. Engine OOM is otherwise not
+ * reproducible from the module side. Only effective in ENABLE_ASSERT builds.
+ */
+DEBUG_COMMAND(setSimulateAsyncOOM) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  // The AsyncScan reindex driver only runs in disk mode, so the OOM hook is a no-op
+  // elsewhere — reject rather than silently accept a flag that will never fire.
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "SET_SIMULATE_ASYNC_OOM is only supported in disk mode");
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.simulateAsyncOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_SIMULATE_ASYNC_OOM'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
  */
 DEBUG_COMMAND(debugScannerUpdateConfig) {
@@ -2182,6 +2262,9 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
+  }
+  if (rejectDiskDebugScannerControl(ctx, "DEBUG_SCANNER_UPDATE_CONFIG")) {
+    return REDISMODULE_OK;
   }
 
   IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
@@ -2375,6 +2458,9 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
     return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_SIMULATE_ASYNC_OOM", op)) {
+    return setSimulateAsyncOOM(ctx, argv+1, argc-1);
   }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);

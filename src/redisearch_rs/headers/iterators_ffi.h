@@ -160,6 +160,15 @@ QueryIterator *NewEmptyIterator(void);
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 
 /**
+ *
+ * # Safety
+ *
+ * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ */
+NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
+
+/**
  * Creates a new iterator over a list of sorted document IDs.
  *
  * # Safety
@@ -202,6 +211,27 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
 /**
+ * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
+ *
+ * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
+ * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
+ * Each range is queried via the numeric range tree; per-record distance filtering is applied
+ * by `FilterGeoReader` in the `inverted_index` crate.
+ *
+ * # Safety
+ *
+ * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
+ *    lifetime of all returned iterators.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
+ * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
+ *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
+ *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
+ *      freed by `GeoFilter_Free`.
+ * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
+ */
+QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
+
+/**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
@@ -236,27 +266,6 @@ bool IsWildcardIterator(const QueryIterator *it);
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void Hybrid_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
- * Creates an iterator over all geo-encoded index entries within the radius specified by `gf`.
- *
- * Geo fields are stored as sorted numeric geohash values. A radius query maps to up to 9
- * contiguous geohash ranges (the cell containing the centre point and its 8 neighbours).
- * Each range is queried via the numeric range tree; per-record distance filtering is applied
- * by `FilterGeoReader` in the `inverted_index` crate.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a `RedisSearchCtx`, remaining valid for the
- *    lifetime of all returned iterators.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an `IndexSpec`.
- * 3. `gf` must be a valid non-NULL pointer to a `GeoFilter`.
- *    - `gf.fieldSpec` must be a valid non-NULL pointer to a `FieldSpec`.
- *    - `gf.numericFilters` must be NULL on entry; it is populated by this function and
- *      freed by `GeoFilter_Free`.
- * 4. `config` must be a valid non-NULL pointer to an `IteratorsConfig`.
- */
-QueryIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, GeoFilter *gf, const struct IteratorsConfig *config);
 
 /**
  * Creates a new missing-field inverted index iterator.
@@ -314,6 +323,19 @@ QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weig
 void Profile_AddIters(QueryIterator * *root);
 
 /**
+ * Creates a new metric iterator sorted by score.
+ *
+ * # Safety
+ *
+ * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
+ * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
+ *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ */
+QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+
+/**
  * Create a new intersection iterator.
  *
  * Takes ownership of both the `its` array and all child iterators it contains.
@@ -336,17 +358,49 @@ void Profile_AddIters(QueryIterator * *root);
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
- * Creates a new metric iterator sorted by score.
+ * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
+ *
+ * # Returns
+ *
+ * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
+ *   for it yet).
+ * - `NULL` if no sub-ranges in the tree match the filter.
+ * - A single iterator if exactly one sub-range matches.
+ * - A union iterator over all matching sub-ranges otherwise.
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
- * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
- * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
- *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ *    for the lifetime of the returned iterator.
+ * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
+ *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
+ *    returned iterator.
+ * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
+ * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ *    index (not a field mask).
  */
-QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
+QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
+
+/**
+ * Creates a new union iterator, applying reduction rules and choosing between
+ * flat and heap variants based on the number of children.
+ *
+ * Takes ownership of both the `its` array and all child iterators it contains.
+ *
+ * # Safety
+ *
+ * 1. `its` must be a valid non-null pointer to an array of `num`
+ *    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
+ *    Ownership is transferred to this function.
+ * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
+ *    callbacks are set.
+ * 3. Null entries in `its` are treated as empty iterators.
+ * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
+ * 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
+ *    the returned iterator — the requirement of [`build_union`].
+ */
+QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
 
 /**
  * Creates a new wildcard iterator from a query evaluation context.
@@ -424,15 +478,6 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
- *
- * # Safety
- *
- * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
- * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
- */
-NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
-
-/**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
  *
  * # Safety
@@ -484,6 +529,17 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducerCtxFn free_ctx, void *ctx, bool yields_metric, bool sorted_by_id, size_t num_estimated, enum MetricType type_);
 
 /**
+ * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
+ * sequential read mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
+ */
+void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
  * Print iterator profile tree as a Redis reply.
  *
  * This is the FFI entry point called from C `Profile_PrintCommon`.
@@ -507,31 +563,6 @@ QueryIterator *NewLazyVectorRangeIterator(ProduceResultsFn produce, FreeProducer
  *    that has been profile-wrapped via `Profile_AddIters`.
  */
 void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
-
-/**
- * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
- *
- * # Returns
- *
- * - `NULL` if the index doesn't exist for this field (i.e., no documents have been indexed
- *   for it yet).
- * - `NULL` if no sub-ranges in the tree match the filter.
- * - A single iterator if exactly one sub-range matches.
- * - A union iterator over all matching sub-ranges otherwise.
- *
- * # Safety
- *
- * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
- *    for the lifetime of the returned iterator.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_spec` field
- *    is a valid non-NULL pointer to a [`FieldSpec`], remaining valid for the lifetime of the
- *    returned iterator.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
- * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
- *    index (not a field mask).
- */
-QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new tag inverted index iterator.
@@ -569,24 +600,6 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
- * Creates a new union iterator, applying reduction rules and choosing between
- * flat and heap variants based on the number of children.
- *
- * Takes ownership of both the `its` array and all child iterators it contains.
- *
- * # Safety
- *
- * 1. `its` must be a valid non-null pointer to an array of `num`
- *    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
- *    Ownership is transferred to this function.
- * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
- *    callbacks are set.
- * 3. Null entries in `its` are treated as empty iterators.
- * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
- */
-QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.
@@ -653,17 +666,6 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
  */
 RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
-
-/**
- * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
- * sequential read mode.
- *
- * # Safety
- *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
- *    created via [`NewUnionIterator`].
- */
-void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based

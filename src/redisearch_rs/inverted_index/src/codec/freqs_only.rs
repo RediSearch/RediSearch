@@ -53,6 +53,7 @@ impl Decoder for FreqsOnly {
         RSIndexResult::build_virt().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,

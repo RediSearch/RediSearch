@@ -949,28 +949,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
-  RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
-
-  const FieldSpec *fs = node->nn.nf->fieldSpec;
-  if (q->sctx->spec->diskSpec) {
-    return SearchDisk_NewNumericIterator(q->sctx->spec->diskSpec, q->sctx, node->nn.nf, fs->index, q->status);
-  }
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  return NewNumericFilterIterator(q->sctx, node->nn.nf, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
-}
-
-static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
-                                              double weight) {
-  RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
-
-  if (!GeoFilter_Validate(node->gn.gf, q->status)) {
-    return NULL;
-  }
-
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
-}
-
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
 
@@ -1062,26 +1040,6 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     child_it->Free(child_it);
   }
   return it;
-}
-
-static QueryIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_UNION, "query node type should be union")
-  // Parsers and expanders always create unions with 2+ children.
-  RS_ASSERT(QueryNode_NumChildren(qn) > 1);
-
-  // recursively eval the children
-  QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
-  for (size_t i = 0; i < QueryNode_NumChildren(qn); ++i) {
-    qn->children[i]->opts.fieldMask &= qn->opts.fieldMask;
-    iters[i] = Query_EvalNode_Rs(q, qn->children[i]);
-  }
-
-  // We want to get results with all the matching children (`quickExit == false`), unless:
-  // 1. We are a `Not` sub-tree, so we only care about the set of IDs
-  // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
-  QueryIterator *ret = NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_UNION, NULL, q->config);
-  return ret;
 }
 
 /**
@@ -1425,12 +1383,13 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_OPTIONAL:
     case QN_NOT:
     case QN_PHRASE:
+    case QN_UNION:
+    case QN_NUMERIC:
+    case QN_GEO:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
       return Query_EvalTokenNode(q, n);
-    case QN_UNION:
-      return Query_EvalUnionNode(q, n);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
     case QN_PREFIX:
@@ -1439,10 +1398,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
-    case QN_NUMERIC:
-      return Query_EvalNumericNode(q, n);
-    case QN_GEO:
-      return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:

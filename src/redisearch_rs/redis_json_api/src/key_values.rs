@@ -14,7 +14,7 @@ use std::{ffi::c_void, ptr::NonNull};
 
 // An iterators over key value pairs if the json value is an object
 pub struct KeyValuesIterator<'a> {
-    ptr: NonNull<c_void>,
+    ptr: Option<NonNull<c_void>>,
     // Get the next key-value pair
     // The caller gains ownership of `key_name`
     // The caller must pass 'ptr' which was allocated with allocJson
@@ -34,8 +34,10 @@ pub struct KeyValuesIterator<'a> {
 
 impl Drop for KeyValuesIterator<'_> {
     fn drop(&mut self) {
-        // Safety: caller has promised `ptr` is valid upon construction
-        unsafe { (self.free)(self.ptr.as_ptr()) }
+        if let Some(ptr) = self.ptr {
+            // Safety: caller has promised `ptr` is valid upon construction
+            unsafe { (self.free)(ptr.as_ptr()) }
+        }
     }
 }
 
@@ -49,9 +51,9 @@ impl<'a> KeyValuesIterator<'a> {
     /// # Safety
     ///
     /// 1. `ctx` must be a valid Redis module context.
-    /// 2. `ptr` must be a valid ptr obtained from `getKeyValues`.
+    /// 2. `ptr` must be a valid ptr obtained from `getKeyValues` if `Some`.
     pub(crate) unsafe fn from_non_null(
-        ptr: NonNull<c_void>,
+        ptr: Option<NonNull<c_void>>,
         ctx: *mut ffi::RedisModuleCtx,
         api: &'a RedisJsonApi,
         len: usize,
@@ -86,7 +88,7 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
         let value = JsonValue::new(self.api);
 
         // Safety: `JsonValue::new` calls `allocJson` and correctly tracks ownership
-        let status = unsafe { (self.next)(self.ptr.as_ptr(), &raw mut key, value.ptr) };
+        let status = unsafe { (self.next)(self.ptr?.as_ptr(), &raw mut key, value.ptr) };
 
         if status == ffi::REDISMODULE_OK as i32 {
             let key = RedisString::from_redis_module_string(self.ctx.cast(), key.cast());

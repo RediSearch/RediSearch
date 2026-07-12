@@ -2197,9 +2197,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Flex (disk) mode registers lower aggregate-cap defaults (see config.h).
+  // Keyed on real disk enablement (resolved before config registration), not
+  // _SIMULATE_IN_FLEX, which is itself a config applied only after registration.
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
+      ctx, "search-max-aggregate-results",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
+                             : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
@@ -2208,7 +2213,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      ctx, "search-max-aggregate-groups",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_GROUPS_FLEX : DEFAULT_MAX_AGGREGATE_GROUPS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
@@ -2308,7 +2314,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
+      ctx, "search-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
@@ -2473,7 +2480,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", TimeoutPolicy_Return,
+      ctx, "search-on-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_TIMEOUT_POLICY_FLEX : DEFAULT_TIMEOUT_POLICY,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,

@@ -17,6 +17,7 @@
 #include "hybrid/vector_query_utils.h"
 #include "spec.h"
 #include "search_ctx.h"
+#include "config.h"
 #include "rmalloc.h"
 // #include "index.h"
 #include "aggregate/aggregate.h"
@@ -167,8 +168,8 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 500);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
@@ -187,8 +188,8 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 500);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 500);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
   ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);

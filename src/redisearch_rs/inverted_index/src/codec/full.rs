@@ -139,6 +139,7 @@ impl Decoder for Full {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
@@ -233,6 +234,7 @@ impl Decoder for FullWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
