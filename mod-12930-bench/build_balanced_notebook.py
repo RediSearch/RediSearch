@@ -70,14 +70,17 @@ c['C_pct_of_max'] = (100 * c['C_ms'] / c['max_branch'])
 c['gain_hint'] = None
 c.round(2)""")
 
-md("### Parallelism gain per depth (`p50(w0)/p50(w_max)`, fields=none)")
+md("### Parallelism gain per depth (`p50(w0)/p50(w_max)`, fields=none) — only when both were measured")
 
-code("""wmax = df['workers'].max()
-p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
-        columns='workers', values='p50_ms', sort=False)
-p.columns = [f'w{c}' for c in p.columns]
-p['gain'] = (p['w0'] / p[f'w{wmax}']).round(2)
-p.round(2)""")
+code("""ws = sorted(df['workers'].unique())
+if len(ws) > 1 and 0 in ws:
+    p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
+            columns='workers', values='p50_ms', sort=False)
+    p.columns = [f'w{c}' for c in p.columns]
+    p['gain'] = (p['w0'] / p[f'w{max(ws)}']).round(2)
+    display(p.round(2))
+else:
+    print(f'single workers setting measured ({ws}) — gain not applicable')""")
 
 md("""## Merger scenario sweep
 
