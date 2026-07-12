@@ -150,8 +150,9 @@ jobs:
           echo "Covered PRs: ${{ steps.check.outputs.covered-prs }}"
 
   # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
-  # Pinned to a redis/redis unstable commit because the module requires
-  # RedisModule_GetClusterNodeSlotRanges (MOD-15868), which is not in any Redis release yet.
+  # Pinned to the head of redis/redis#15350 (not merged yet) because the module requires
+  # RedisModule_GetClusterNodeSlotRanges (MOD-15868) and RedisModuleEvent_ClusterTopologyChange
+  # (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
@@ -160,7 +161,7 @@ jobs:
     #   repo: redis/redis
     runs-on: ubuntu-slim
     outputs:
-      tag: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
+      tag: e2d25443c2cd53b0564db395561f8d92bc916621
     steps:
       - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
 
