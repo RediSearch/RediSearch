@@ -243,8 +243,7 @@ static bool SyncPoint_ArmInternal(const char *name, long long auto_release_ms) {
   // Other threads calling SyncPoint_FindByName iterate up to `count`,
   // so we must fully initialize before incrementing count.
   SyncPointState *sp = &globalSyncPointCtx.points[idx];
-  strncpy(sp->name, name, SYNC_POINT_NAME_MAX_LEN - 1);
-  sp->name[SYNC_POINT_NAME_MAX_LEN - 1] = '\0';
+  snprintf(sp->name, SYNC_POINT_NAME_MAX_LEN, "%s", name);
   atomic_store(&sp->auto_release_ms, auto_release_ms);
   atomic_store(&sp->armed, true);
   // Note: We intentionally do NOT reset sp->waiting here.
@@ -1485,19 +1484,15 @@ end:
 
 static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, RedisModule_Reply *reply) {
   char buf[1024] = {0};
-  snprintf(buf, sizeof(buf), "(0x%x):", dmd->flags);
-  if (dmd->flags & Document_Deleted) {
-    strcat(buf, "Deleted,");
-  }
-  if (dmd->flags & Document_HasPayload) {
-    strcat(buf, "HasPayload,");
-  }
-  if (dmd->flags & Document_HasSortVector) {
-    strcat(buf, "HasSortVector,");
-  }
-  if (dmd->flags & Document_HasOffsetVector) {
-    strcat(buf, "HasOffsetVector,");
-  }
+  size_t len = (size_t)snprintf(buf, sizeof(buf), "(0x%x):", dmd->flags);
+  if (dmd->flags & Document_Deleted)
+    len += (size_t)snprintf(buf + len, sizeof(buf) - len, "Deleted,");
+  if (dmd->flags & Document_HasPayload)
+    len += (size_t)snprintf(buf + len, sizeof(buf) - len, "HasPayload,");
+  if (dmd->flags & Document_HasSortVector)
+    len += (size_t)snprintf(buf + len, sizeof(buf) - len, "HasSortVector,");
+  if (dmd->flags & Document_HasOffsetVector)
+    snprintf(buf + len, sizeof(buf) - len, "HasOffsetVector,");
   RedisModule_Reply_CString(reply, name);
   RedisModule_Reply_CString(reply, buf);
 }
