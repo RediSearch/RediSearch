@@ -106,21 +106,21 @@ th.l, td.l { text-align: left; }
 
   <div class="card">
     <h2 id="t2">p50 latency by contender</h2>
-    <p class="sub">One panel per WINDOW, grouped by dataset size. Branches are calibrated to equal latency per (size, window) — the hybrid bar above them is branch work + C.</p>
+    <p class="sub">One panel per WINDOW, grouped by dataset size. Subqueries are calibrated to similar latency per (size, window) cell; the hybrid bar above them is branch work plus merge overhead.</p>
     <div class="legend" id="legend-m"></div>
     <div class="panels" id="chart-main"></div>
   </div>
 
   <div class="card">
     <h2 id="merger-title">Merger overhead — hybrid − max(search, vsim), in ms</h2>
-    <p class="sub">Raw subtraction, no division — read it against the latency charts above. Grouped by WINDOW, one bar per corpus size (calibrated |matches| in the tooltip). Left: no loader (keys+scores only); right: with loader (documents read from the keyspace).</p>
+    <p class="sub">Raw subtraction, no division — read it against the latency charts above. Grouped by WINDOW, one bar per corpus size (calibrated |matches| in the tooltip). Left: no loader (keys and scores only). Right: with loader (documents read from the keyspace).</p>
     <div class="legend" id="legend-c"></div>
     <div class="panels" id="chart-c-top"></div>
   </div>
 
   <div class="card">
     <h2>Calibration &amp; gates</h2>
-    <p class="sub">balance_ratio = search p50 / vsim p50 at calibration (balanced within ±20%). Gates: FT.HYBRID ≡ untimed oracle fusion, tie-aware.</p>
+    <p class="sub">Balance ratio = search p50 / vsim p50 at calibration (a cell counts as balanced within ±20%). Gates: FT.HYBRID must match the untimed two-query oracle fusion (tie-aware).</p>
     <table id="gates-table"></table>
   </div>
 
@@ -168,7 +168,7 @@ const rows = f => DATA.results.filter(r => Object.entries(f).every(([k, v]) => r
 const row1 = f => rows(f)[0];
 const fmt = (x, d) => x >= 1000 ? Math.round(x).toLocaleString("en-US")
   : x.toFixed(d !== undefined ? d : (x >= 100 ? 0 : x >= 10 ? 1 : 2));
-const loaderName = f => f === "none" ? "loader (keyspace access): no" : "loader (keyspace access): yes";
+const loaderName = f => f === "none" ? "Loader (keyspace access): no" : "Loader (keyspace access): yes";
 const sizeName = s => s >= 1000 ? (s / 1000) + "K" : String(s);
 
 function cOf(size, window, workers, fields) {
@@ -183,8 +183,8 @@ function cOf(size, window, workers, fields) {
 (function () {
   const m = DATA.meta;
   document.getElementById("meta").appendChild(document.createTextNode(
-    `text queries engineered per (size, window) so text-subquery latency correlates with the vector subquery's (±${Math.round(100 * m.cal_tol)}%) · ` +
-    `output top-${m.out_k} · ${m.n_query_set} distinct queries, ${m.n_timed} timed reps/cell (after ${m.n_warmup} warm-up)`));
+    `Text queries are engineered per (size, window) cell so the text subquery's latency correlates with the vector subquery's (±${Math.round(100 * m.cal_tol)}%). ` +
+    `Output: top-${m.out_k}. ${m.n_query_set} distinct queries, ${m.n_timed} timed repetitions per cell (after ${m.n_warmup} warm-up).`));
   function tile(label, value, note) {
     const t = document.createElement("div"); t.className = "tile";
     const l = document.createElement("div"); l.className = "lbl"; l.textContent = label;
@@ -193,17 +193,6 @@ function cOf(size, window, workers, fields) {
     t.append(l, v, n); return t;
   }
   const tiles = document.getElementById("tiles");
-  const big = SIZES[SIZES.length - 1], wBig = WINDOWS[WINDOWS.length - 1];
-  const WMAX = Math.max(...WORKERS);
-  const cx = cOf(big, wBig, WMAX, "none");
-  if (cx) {
-    tiles.appendChild(tile(`C at WINDOW=${wBig}`, fmt(cx.c, 1) + " ms",
-      `hybrid − max(search, vsim) · ${sizeName(big)} docs, workers=${WMAX}, no loader`));
-  }
-  const h0 = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: 0, fields: "none" });
-  const hx = row1({ contender: "hybrid_linear", size: big, window: wBig, workers: WMAX, fields: "none" });
-  if (h0 && hx) tiles.appendChild(tile("Parallelism gain", "×" + fmt(h0.p50_ms / hx.p50_ms, 2),
-    `hybrid p50 w0/w${WMAX} at WINDOW=${wBig} — ceiling 2×, Amdahl-capped by C`));
 })();
 
 /* ---------- filters / tooltip / panels (shared helpers) ---------- */
@@ -415,7 +404,7 @@ function renderMerger() {
           tooltip: [{ text: `${fmt(c.c)} ms` },
                     { text: sizeName(s) + " docs", color: css(SIZE_V[i]) },
                     { text: `hybrid ${fmt(c.hy)} ms − slowest subquery ${fmt(c.maxBr)} ms` },
-                    { text: `W=${w} · ${loaderName(fields)} · calibrated |matches|≈${fmt(mm || 0, 0)}` }] };
+                    { text: `W=${w} · ${loaderName(fields).toLowerCase()} · calibrated |matches|≈${fmt(mm || 0, 0)}` }] };
       }),
     }));
     const p = panelBox(top, loaderName(fields), "");
@@ -446,7 +435,7 @@ function renderMain() {
           return { value: r.p50_ms, color: css(c.v),
             dlabel: c.key === "hybrid_linear" ? fmt(r.p50_ms) : null,
             tooltip: [{ text: `${fmt(r.p50_ms)} ms p50` }, { text: c.name, color: css(c.v) },
-                      { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · ${loaderName(fields)}` },
+                      { text: `${sizeName(size)} docs · W=${w} · workers=${state.workers} · ${loaderName(fields).toLowerCase()}` },
                       { text: `calibrated |matches|≈${fmt(r.matches_mean, 0)} · p90 ${fmt(r.p90_ms)} · p99 ${fmt(r.p99_ms)} ms` }] };
         }),
       }));
@@ -506,10 +495,9 @@ function renderDegradation() {
   document.getElementById("deg-title").textContent =
     `Degradation with dataset size — hybrid vs its subqueries — workers=${w0}, no loader`;
   document.getElementById("deg-sub").textContent =
-    `Raw p50 latencies side by side (no derived metrics), x = dataset size (log scale), ` +
-    `one panel per K/WINDOW. The text queries are engineered per cell so the text ` +
-    `subquery's latency correlates with the vector subquery's (calibrated |matches| is ` +
-    `the knob — shown in the tooltip, with the achieved balance ratio).`;
+    `Raw p50 latencies side by side (no derived metrics). X = dataset size (log scale), one panel per K/WINDOW. ` +
+    `Text queries are engineered per cell so the text subquery's latency correlates with the vector ` +
+    `subquery's; the calibrated |matches| is the knob (shown in the tooltip with the achieved balance ratio).`;
   const SC = [
     { key: "hybrid_linear", name: "FT.HYBRID (LINEAR)", v: "--s-hyblin" },
     { key: "search_branch", name: "SEARCH branch", v: "--s-search" },
@@ -540,7 +528,7 @@ function render() {
   renderDegradation();
   syncW();
   document.getElementById("table-sub").textContent =
-    `The full table view (workers=${state.workers}) — every number reachable without hover.`;
+    `The full table view (workers=${state.workers}) — every number is reachable without hovering.`;
   renderMerger(); renderMain(); renderTable();
 }
 render();
