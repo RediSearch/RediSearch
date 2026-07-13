@@ -336,6 +336,20 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #ifndef MAX_WORKER_THREADS
 #define MAX_WORKER_THREADS (1 << 4)
 #endif
+// Hard ceiling for build-time MAX_WORKER_THREADS overrides (MOD-16610). The shared SVS
+// vector-indexing thread pool is sized to WORKERS and physically resized synchronously on
+// the Redis main thread by CONFIG SET WORKERS; each new SVS thread boots through a
+// busy-spin handshake, so the resize cost grows superlinearly with the thread count —
+// tens of seconds at WORKERS=2000, long enough to time out cluster-management operations.
+// SVS threads are compute-bound, so worker counts beyond the shard's core count add no
+// throughput anyway; capping at 24 keeps the resize in the milliseconds. The cap also
+// preserves the SVS pool's scheduling invariant (reserve jobs saturate the worker pool,
+// so concurrent SVS jobs never over-rent the pool), which relies on both pools having
+// the same size.
+#if MAX_WORKER_THREADS > 24
+#undef MAX_WORKER_THREADS
+#define MAX_WORKER_THREADS 24
+#endif
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
