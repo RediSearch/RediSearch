@@ -77,7 +77,7 @@ jobs:
 
       - name: Run Codex triage
         id: ai_triage
-        uses: ./.github/actions/codex-ci-triage
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
         with:
           openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/nightly-triage.md

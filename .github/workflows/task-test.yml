@@ -409,7 +409,7 @@ jobs:
       - name: Record standalone failures to flaky DB
         if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_standalone.txt
@@ -450,7 +450,7 @@ jobs:
       - name: Record coordinator failures to flaky DB
         if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_coordinator.txt
