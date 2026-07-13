@@ -71,7 +71,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: e2d25443c2cd53b0564db395561f8d92bc916621
+        default: 8897348030c20bcd26841bc7d3ec7227f8187aeb
       rejson-branch:
         type: string
         default: master
