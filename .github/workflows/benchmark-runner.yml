@@ -27,10 +27,12 @@ on:
         description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
       redis_ref:
         type: string
-        # Keep in sync with the pinned redis/redis commit the test CI uses
-        # (get-latest-redis-tag in event-pull_request.yml / event-merge-to-queue.yml).
+        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
+        # DB hosts' default: pinned to the same redis/redis commit the test CI
+        # uses (get-latest-redis-tag in event-pull_request.yml /
+        # event-merge-to-queue.yml) — keep in sync.
         default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
-        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default. TODO: reset the default to '' once Redis 8.10 is GA and becomes the DB hosts' default."
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
       extended:
@@ -53,10 +55,12 @@ on:
         description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
       redis_ref:
         type: string
-        # Keep in sync with the pinned redis/redis commit the test CI uses
-        # (get-latest-redis-tag in event-pull_request.yml / event-merge-to-queue.yml).
+        # TEMPORARY default, reset to "" once Redis 8.10 is GA and becomes the
+        # DB hosts' default: pinned to the same redis/redis commit the test CI
+        # uses (get-latest-redis-tag in event-pull_request.yml /
+        # event-merge-to-queue.yml) — keep in sync.
         default: "3869512c920d4e865b54384bce5fcb6a4e06ae0d"
-        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default. TODO: reset the default to '' once Redis 8.10 is GA and becomes the DB hosts' default."
+        description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
