@@ -214,21 +214,36 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 }
 
 /* Index a vector of pre-processed tags for a docId */
-void TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
-                    IndexStats *stats) {
-  if (!values) return;
-  size_t numRecords = 0;
+size_t TagIndex_Index_(TagIndex *idx, const char **values, size_t n, t_docId docId,
+                       size_t *numRecords) {
+  if (!values) {
+    if (numRecords) {
+      *numRecords = 0;
+    }
+    return 0;
+  }
+
+  size_t ret = 0;
+  size_t records = 0;
   for (size_t ii = 0; ii < n; ++ii) {
     const char *tok = values[ii];
     if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, &numRecords);
+      ret += tagIndex_Put(idx, tok, strlen(tok), docId, &records);
 
       if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
         addSuffixTrieMap(idx->suffix, tok, strlen(tok));
       }
     }
   }
-  stats->numRecords += numRecords;
+
+  if (numRecords) {
+    *numRecords = records;
+  }
+  return ret;
+}
+
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId) {
+  return TagIndex_Index_(idx, values, n, docId, NULL);
 }
 
 static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,

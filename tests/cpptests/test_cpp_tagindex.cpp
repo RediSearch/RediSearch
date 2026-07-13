@@ -25,20 +25,22 @@ TEST_F(TagIndexTest, testCreate) {
   // for (auto s : v) {
   //   printf("V[n]: %s\n", s);
   // }
-  IndexStats stats = {0};
+  size_t totalSZ = 0;
+  size_t totalRecords = 0;
   t_docId d;
   for (d = 1; d <= N; d++) {
-    TagIndex_Index(idx, &v[0], v.size(), d, &stats);
-    const size_t invertedSize = stats.invertedSize;
-    const size_t numRecords = stats.numRecords;
+    size_t numRecords = 0;
+    size_t sz = TagIndex_Index_(idx, &v[0], v.size(), d, &numRecords);
+    totalSZ += sz;
+    totalRecords += numRecords;
     // make sure repeating push of the same vector doesn't get indexed
-    TagIndex_Index(idx, &v[0], v.size(), d, &stats);
-    ASSERT_EQ(invertedSize, stats.invertedSize);
-    ASSERT_EQ(numRecords, stats.numRecords);
+    sz = TagIndex_Index_(idx, &v[0], v.size(), d, &numRecords);
+    ASSERT_EQ(0, sz);
+    ASSERT_EQ(0, numRecords);
   }
 
   ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
-  ASSERT_EQ(N * v.size(), stats.numRecords);
+  ASSERT_EQ(N * v.size(), totalRecords);
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
@@ -52,18 +54,20 @@ TEST_F(TagIndexTest, testCreate) {
 
   // Each index block is 48 bytes + its buffer capacity + the header of the block vector
   size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (buffer_cap + 48) * num_blocks));
-  ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
+  ASSERT_EQ(expectedTotalSZ, totalSZ);
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
-  TagIndex_Index(idx, &v2[0], v2.size(), ++d, &stats);
+  size_t numRecords = 0;
+  size_t sz = TagIndex_Index_(idx, &v2[0], v2.size(), ++d, &numRecords);
+  totalRecords += numRecords;
   // A base inverted index is 24 bytes
   // The header of the block vector is 8 bytes
   // An index block is 48 bytes
   // And after the first insert the buffer capacity is 1 byte
   size_t last_block_size = 24 + 8 + 48 + 1;
-  ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
-  ASSERT_EQ(N * v.size() + v2.size(), stats.numRecords);
+  ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
+  ASSERT_EQ(N * v.size() + v2.size(), totalRecords);
 
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
@@ -90,8 +94,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   ASSERT_FALSE(idx == NULL);
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
-  IndexStats stats = {0};
-  TagIndex_Index(idx, &v[0], v.size(), docId, &stats);
+  TagIndex_Index(idx, &v[0], v.size(), docId);
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
@@ -106,11 +109,11 @@ TEST_F(TagIndexTest, testSkipToLastId) {
 TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   TagIndex *idx = NewTagIndex();
   const char *v[] = {"foo", "foo", "bar"};
-  IndexStats stats = {0};
+  size_t numRecords = 0;
 
-  TagIndex_Index(idx, &v[0], 3, 1, &stats);
+  TagIndex_Index_(idx, &v[0], 3, 1, &numRecords);
 
-  ASSERT_EQ(2u, stats.numRecords);
+  ASSERT_EQ(2u, numRecords);
   ASSERT_EQ(2u, TrieMap_NUniqueKeys(idx->values));
 
   TagIndex_Free(idx);
