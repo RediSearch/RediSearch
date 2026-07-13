@@ -20,19 +20,20 @@ test = false
 bench = false
 
 [dependencies]
-ffi.workspace = true
 cheadergen.workspace = true
-rqe_core.workspace = true
-libc.workspace = true
+ffi.workspace = true
 field.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
-numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
+libc.workspace = true
 numeric_range_tree.workspace = true
+numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 query_node_type.workspace = true
+redis-module.workspace = true
 redis_reply.workspace = true
+rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true

@@ -632,6 +632,7 @@ dependencies = [
  "enumflags2",
  "query_node_type",
  "query_term",
+ "redis-module",
  "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",
@@ -731,6 +732,7 @@ dependencies = [
  "ffi",
  "fork_gc",
  "index_spec",
+ "redis-module",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -792,9 +794,9 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "decorum",
- "ffi",
  "geo",
  "query_error",
+ "redis-module",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1069,6 +1071,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "field_spec",
+ "redis-module",
  "rm_array",
  "workspace_hack",
 ]
@@ -1167,6 +1170,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_node_type",
+ "redis-module",
  "redis_reply",
  "rqe_core",
  "rqe_iterator_type",
@@ -1368,7 +1372,7 @@ dependencies = [
 name = "module_init_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
+ "redis-module",
  "tracing",
  "tracing_redismodule",
  "workspace_hack",
@@ -2017,9 +2021,9 @@ dependencies = [
 name = "redis_reply"
 version = "0.0.1"
 dependencies = [
- "ffi",
  "insta",
  "proptest",
+ "redis-module",
  "redis_mock",
  "workspace_hack",
 ]
@@ -2241,7 +2245,7 @@ dependencies = [
 name = "rm_array"
 version = "0.0.1"
 dependencies = [
- "ffi",
+ "redis-module",
  "workspace_hack",
 ]
 
@@ -2303,6 +2307,7 @@ dependencies = [
  "query_error",
  "query_term",
  "query_term_ffi",
+ "redis-module",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
@@ -2340,6 +2345,7 @@ dependencies = [
  "itertools 0.15.0",
  "query_term",
  "rand 0.10.1",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -2363,6 +2369,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_range_tree_ffi",
  "query_error",
+ "redis-module",
  "redis_mock",
  "rqe_core",
  "rqe_iterators",
@@ -2783,6 +2790,7 @@ dependencies = [
  "criterion",
  "ffi",
  "proptest",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "string_utils",
@@ -3135,7 +3143,7 @@ name = "tracing_redismodule"
 version = "0.0.1"
 dependencies = [
  "anstyle-query",
- "ffi",
+ "redis-module",
  "tracing",
  "tracing-core",
  "tracing-subscriber",
@@ -3381,6 +3389,7 @@ dependencies = [
  "ffi",
  "libc",
  "query_error",
+ "redis-module",
  "redis_mock",
  "value",
  "workspace_hack",

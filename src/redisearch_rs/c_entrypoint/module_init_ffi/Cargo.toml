@@ -12,9 +12,9 @@ test = false
 bench = false
 
 [dependencies]
-tracing_redismodule.workspace = true
+redis-module.workspace = true
 tracing = { workspace = true }
-ffi.workspace = true
+tracing_redismodule.workspace = true
 workspace_hack.workspace = true
 
 

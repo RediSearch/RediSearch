@@ -42,7 +42,7 @@ impl<'a> JsonPath<'a> {
     /// 1. `ctx` must be a valid Redis module context
     pub unsafe fn parse(
         path: &CStr,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         api: &'a RedisJsonApi,
     ) -> Result<Self, RedisString> {
         let vtable = api.vtable();
@@ -50,7 +50,7 @@ impl<'a> JsonPath<'a> {
             .pathParse
             .expect("RedisJSON API function `pathParse` not available");
 
-        let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut err_msg: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.)
         let ptr = unsafe { path_parse(path.as_ptr(), ctx, &raw mut err_msg) };

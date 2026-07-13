@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
-rqe_core.workspace = true
 field.workspace = true
 geo.workspace = true
 index_result.workspace = true
@@ -23,12 +22,14 @@ inverted_index = { workspace = true, features = ["test_utils"] }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = [
     "test_utils",
 ] }
-numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
-numeric_range_tree = { workspace = true, features = ["test-utils"] }
-rqe_iterators = { path = "../rqe_iterators" }
 libc.workspace = true
+numeric_range_tree = { workspace = true, features = ["test-utils"] }
+numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 query_error.workspace = true
+redis-module.workspace = true
 redis_mock.workspace = true
+rqe_core.workspace = true
+rqe_iterators = { path = "../rqe_iterators" }
 ttl_table.workspace = true
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 workspace_hack.workspace = true

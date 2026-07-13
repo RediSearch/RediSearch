@@ -20,12 +20,12 @@ pub struct KeyValuesIterator<'a> {
     // The caller must pass 'ptr' which was allocated with allocJson
     next: unsafe extern "C" fn(
         iter: ffi::JSONKeyValuesIterator,
-        key_name: *mut *mut ffi::RedisModuleString,
+        key_name: *mut *mut redis_module::RedisModuleString,
         ptr: ffi::RedisJSONPtr,
     ) -> i32,
     // Free the iterator
     free: unsafe extern "C" fn(ptr: ffi::JSONKeyValuesIterator),
-    ctx: *mut ffi::RedisModuleCtx,
+    ctx: *mut redis_module::RedisModuleCtx,
     api: &'a RedisJsonApi,
     // Remaining items. Probed at construction from the source object via
     // `getLen`.
@@ -54,7 +54,7 @@ impl<'a> KeyValuesIterator<'a> {
     /// 2. `ptr` must be a valid ptr obtained from `getKeyValues` if `Some`.
     pub(crate) unsafe fn from_non_null(
         ptr: Option<NonNull<c_void>>,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         api: &'a RedisJsonApi,
         len: usize,
     ) -> Self {
@@ -84,13 +84,13 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     fn next(&mut self) -> Option<Self::Item> {
-        let mut key: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut key: *mut redis_module::RedisModuleString = std::ptr::null_mut();
         let value = JsonValue::new(self.api);
 
         // Safety: `JsonValue::new` calls `allocJson` and correctly tracks ownership
         let status = unsafe { (self.next)(self.ptr?.as_ptr(), &raw mut key, value.ptr) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             let key = RedisString::from_redis_module_string(self.ctx.cast(), key.cast());
             self.remaining = self.remaining.saturating_sub(1);
             Some((key, value))

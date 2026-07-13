@@ -51,7 +51,7 @@ use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
 struct ModuleCtx {
-    ctx: ptr::NonNull<ffi::RedisModuleCtx>,
+    ctx: ptr::NonNull<redis_module::RedisModuleCtx>,
 }
 
 impl ModuleCtx {
@@ -60,7 +60,7 @@ impl ModuleCtx {
         redis_mock::init_redis_module_mock();
 
         let ctx = unsafe {
-            let get_thread_safe_context = ffi::RedisModule_GetThreadSafeContext
+            let get_thread_safe_context = redis_module::RedisModule_GetThreadSafeContext
                 .expect("RedisModule_GetThreadSafeContext not implemented");
             get_thread_safe_context(ptr::null_mut())
         };
@@ -76,7 +76,7 @@ impl ModuleCtx {
         }
     }
 
-    const fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
+    const fn as_ptr(&self) -> *mut redis_module::RedisModuleCtx {
         self.ctx.as_ptr()
     }
 }
@@ -84,7 +84,7 @@ impl ModuleCtx {
 impl Drop for ModuleCtx {
     fn drop(&mut self) {
         unsafe {
-            let free_thread_safe_context = ffi::RedisModule_FreeThreadSafeContext
+            let free_thread_safe_context = redis_module::RedisModule_FreeThreadSafeContext
                 .expect("RedisModule_FreeThreadSafeContext not implemented");
             free_thread_safe_context(self.ctx.as_ptr());
         }

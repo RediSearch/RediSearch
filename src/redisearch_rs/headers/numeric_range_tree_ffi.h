@@ -33,6 +33,8 @@ typedef enum ApplyGcEntryStatus {
   DeserializationError,
 } ApplyGcEntryStatus;
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
 /**
  * Filter details to apply to numeric values
  */
@@ -194,7 +196,7 @@ const struct NumericRange *NumericRangeNode_GetRange(const struct NumericRangeNo
  * - `ctx` must be a valid Redis module context.
  * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
-void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRangeTree *t);
+void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
 /**
  * Get the estimated cardinality (number of distinct values) for a range.
@@ -262,7 +264,7 @@ uint32_t NumericRangeTree_IncrementRevisionId(struct NumericRangeTree *t);
  * - `ctx` must be a valid Redis module context.
  * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
-void NumericRangeTree_DebugDumpIndex(RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
+void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
 
 /**
  * Advance the iterator and return the next node.
@@ -330,7 +332,7 @@ size_t NumericRangeTree_GetNumEntries(const struct NumericRangeTree *t);
  * - `ctx` must be a valid Redis module context.
  * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
-void NumericRangeTree_DebugDumpTree(RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
+void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
 
 /**
  * Free a [`NumericRangeTreeIterator`].

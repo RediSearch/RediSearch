@@ -24,13 +24,13 @@ use value::SharedValue;
 const JSON_ROOT: &CStr = c"$";
 
 pub struct JsonDocumentFormat<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
     api_version: u32,
 }
 
 pub struct JsonFieldLoader<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
     api_version: u32,
@@ -38,7 +38,7 @@ pub struct JsonFieldLoader<'a> {
 
 impl<'a> JsonDocumentFormat<'a> {
     pub const fn new(
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
         api_version: u32,
     ) -> Self {
@@ -156,7 +156,7 @@ impl FieldLoader for JsonFieldLoader<'_> {
 ///
 /// Multi-value is supported with `apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST`.
 fn json_iter_to_value(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
     api_version: u32,
 ) -> Result<Option<SharedValue>, SerializeError> {
@@ -207,7 +207,7 @@ fn json_iter_to_value(
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
 fn json_iter_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     iter: redis_json_api::ResultsIter<'_>,
 ) -> SharedValue {
     debug_assert!(!iter.is_empty(), "should be checked by caller");
@@ -220,7 +220,7 @@ fn json_iter_to_value_expanded(
 }
 
 fn json_val_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     json: JsonValueRef,
 ) -> SharedValue {
     match json.get_type() {
@@ -253,7 +253,10 @@ fn json_val_to_value_expanded(
     }
 }
 
-fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) -> SharedValue {
+fn json_val_to_value(
+    ctx: NonNull<redis_module::RedisModuleCtx>,
+    json: JsonValueRef<'_>,
+) -> SharedValue {
     // Currently `getJSON` cannot fail here also the other japi APIs below
     match json.get_type() {
         JsonType::String => {

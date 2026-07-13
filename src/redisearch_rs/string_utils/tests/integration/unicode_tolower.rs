@@ -40,7 +40,8 @@ mod ffi_comparison {
             // SAFETY: `RedisModule_Free` is a `static mut` populated during the
             // test's allocator setup and not mutated while the test runs, so
             // reading it here is sound.
-            let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+            let rm_free =
+                unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
             // SAFETY: `ret` was allocated by `rm_malloc` (via `unicode_tolower_fn`).
             unsafe {
                 rm_free(ret.cast::<c_void>());
