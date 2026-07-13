@@ -43,8 +43,8 @@ use super::core::{InvIndIterator, RawInvIndIterator};
 /// * `R` - The type of the numeric reader.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
-pub struct RawNumeric<Rf: Ref, R, E = NoOpChecker> {
-    it: RawInvIndIterator<Rf, R, E>,
+pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, R, E>,
     /// The numeric range tree and its revision ID, used to detect changes during revalidation.
     range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
@@ -55,7 +55,7 @@ pub struct RawNumeric<Rf: Ref, R, E = NoOpChecker> {
 
 /// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<Active<'index>, R, E>;
+pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>, R, E>;
 
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {

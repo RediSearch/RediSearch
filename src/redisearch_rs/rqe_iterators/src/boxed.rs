@@ -76,9 +76,12 @@ use crate::{
 /// what lets the [`RQEDynIterator`] sibling exist as a free blanket impl.
 pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     /// The suspended counterpart of this iterator. Carries no live
-    /// references into the index and can therefore be held across a lock
-    /// release/reacquire cycle.
-    type Suspended: RQESuspendedIterator + 'static;
+    /// references into the *index* (those are weakened to raw pointers on
+    /// suspend), but may still borrow query-pipeline data for `'index` — see
+    /// the `'query` parameter on [`RQESuspendedIterator`]. It can therefore be
+    /// held across a lock release/reacquire cycle: the index pointers are
+    /// re-validated on resume, while the query-pipeline borrows stay live.
+    type Suspended: RQESuspendedIterator<'index> + 'index;
 
     /// Transition to the suspended state.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
@@ -87,14 +90,28 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
 /// Concrete-typed suspended iterator trait — counterpart of
 /// [`RQEIteratorBoxed`].
 ///
-/// Implementers are typically the `Raw…<Suspended, …>` instantiations of
-/// the same `#[repr(C)]` struct used in active mode. The `'static` bound
-/// reflects the absence of live index references: a suspended iterator
-/// can be held across a lock release.
-pub trait RQESuspendedIterator: 'static {
+/// Implementers are typically the `Raw…<Suspended, 'query>` instantiations of
+/// the same `#[repr(C)]` struct used in active mode.
+///
+/// The `'query` parameter is the lifetime of the **query-pipeline** data the
+/// iterator borrows — e.g. the `RLookupKey` a metric result yields against, or
+/// a term record's borrowed query term. Unlike index-derived pointers (which
+/// are weakened to raw pointers on suspend and re-validated via the spec guard
+/// on resume), query-pipeline data is *not* invalidated by concurrent index
+/// mutation, so it stays a live borrow across the whole suspend/resume cycle.
+/// That is why this trait carries `'query` instead of a `'static` bound: a
+/// suspended iterator holds no live *index* references, but may still borrow
+/// query-pipeline data for `'query`.
+pub trait RQESuspendedIterator<'query> {
     /// The active counterpart this iterator resumes into, parameterised by
-    /// the lifetime of the held read guard.
-    type Resumed<'index>: RQEIteratorBoxed<'index>;
+    /// the lifetime of the freshly re-acquired read guard.
+    ///
+    /// `'query: 'index` is required because the retained query-pipeline
+    /// borrows must outlive the (shorter) guard window the iterator is
+    /// resumed into.
+    type Resumed<'index>: RQEIteratorBoxed<'index>
+    where
+        'query: 'index;
 
     /// Resume from the suspended state, re-acquiring references into the
     /// index and re-validating the iterator's state against any changes
@@ -120,7 +137,9 @@ pub trait RQESuspendedIterator: 'static {
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
-    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>;
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>
+    where
+        'query: 'index;
 
     /// Read the cached `last_doc_id` from the suspended state without
     /// resuming. Composite iterators use this during resume to compare
@@ -147,7 +166,7 @@ pub trait RQESuspendedIterator: 'static {
 /// produces it for every concrete iterator.
 pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
     /// Type-erased counterpart of [`RQEIteratorBoxed::suspend`].
-    fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator;
+    fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index>;
 }
 
 /// Dyn-safe sibling of [`RQESuspendedIterator`].
@@ -155,12 +174,14 @@ pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
 /// As with [`RQEDynIterator`], implementers don't write this directly — the
 /// blanket bridge below produces it from any
 /// `T: RQESuspendedIterator`.
-pub trait RQEDynSuspendedIterator: 'static {
+pub trait RQEDynSuspendedIterator<'query> {
     /// Type-erased counterpart of [`RQESuspendedIterator::resume`].
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
-    ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError>;
+    ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError>
+    where
+        'query: 'index;
 
     fn last_doc_id(&self) -> t_docId;
 
@@ -178,10 +199,13 @@ pub struct TypeErasedRQEIterator<'index>(pub Box<dyn RQEDynIterator<'index> + 'i
 
 /// Type-erased, suspended iterator.
 ///
-/// Newtype around `Box<dyn RQEDynSuspendedIterator>`. Mirrors
-/// [`TypeErasedRQEIterator`] in the suspended state.
+/// Newtype around `Box<dyn RQEDynSuspendedIterator<'query> + 'query>`. Mirrors
+/// [`TypeErasedRQEIterator`] in the suspended state. Carries the `'query`
+/// lifetime of the borrowed query-pipeline data (see [`RQESuspendedIterator`]).
 #[repr(transparent)]
-pub struct TypeErasedRQESuspendedIterator(pub Box<dyn RQEDynSuspendedIterator>);
+pub struct TypeErasedRQESuspendedIterator<'query>(
+    pub Box<dyn RQEDynSuspendedIterator<'query> + 'query>,
+);
 
 impl<'index> TypeErasedRQEIterator<'index> {
     /// Wrap a concrete iterator into the type-erased wrapper.
@@ -190,10 +214,10 @@ impl<'index> TypeErasedRQEIterator<'index> {
     }
 }
 
-impl TypeErasedRQESuspendedIterator {
+impl<'query> TypeErasedRQESuspendedIterator<'query> {
     /// Wrap a concrete suspended iterator into the type-erased wrapper.
-    pub fn new<S: RQESuspendedIterator>(iter: Box<S>) -> Self {
-        Self(iter as Box<dyn RQEDynSuspendedIterator>)
+    pub fn new<S: RQESuspendedIterator<'query> + 'query>(iter: Box<S>) -> Self {
+        Self(iter as Box<dyn RQEDynSuspendedIterator<'query> + 'query>)
     }
 }
 
@@ -275,39 +299,46 @@ where
 /// concrete iterator already implements.
 impl<'index, T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T {
     #[inline(always)]
-    fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator {
+    fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index> {
         let suspended = <T as RQEIteratorBoxed<'index>>::suspend(self);
-        TypeErasedRQESuspendedIterator(suspended as Box<dyn RQEDynSuspendedIterator>)
+        TypeErasedRQESuspendedIterator(
+            suspended as Box<dyn RQEDynSuspendedIterator<'index> + 'index>,
+        )
     }
 }
 
 /// Bridge concrete suspended iterators into the dyn-safe sibling.
-impl<S: RQESuspendedIterator> RQEDynSuspendedIterator for S {
+impl<'query, S: RQESuspendedIterator<'query> + 'query> RQEDynSuspendedIterator<'query> for S {
     #[inline(always)]
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
-    ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError> {
+    ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
         // This bridge is the *only* place the resumed iterator is type-erased:
         // the concrete impl hands back its `Box<Self::Resumed>`, which we wrap
         // into a `TypeErasedRQEIterator`. `Aborted` carries nothing, so it maps
         // straight through. (The already-erased forwarding impl on
         // `TypeErasedRQESuspendedIterator` deliberately double-boxes; see there.)
-        Ok(match <S as RQESuspendedIterator>::resume(self, guard)? {
-            ResumeOutcome::Ok(it) => ResumeOutcome::Ok(TypeErasedRQEIterator::new(it)),
-            ResumeOutcome::Moved(it) => ResumeOutcome::Moved(TypeErasedRQEIterator::new(it)),
-            ResumeOutcome::Aborted => ResumeOutcome::Aborted,
-        })
+        Ok(
+            match <S as RQESuspendedIterator<'query>>::resume(self, guard)? {
+                ResumeOutcome::Ok(it) => ResumeOutcome::Ok(TypeErasedRQEIterator::new(it)),
+                ResumeOutcome::Moved(it) => ResumeOutcome::Moved(TypeErasedRQEIterator::new(it)),
+                ResumeOutcome::Aborted => ResumeOutcome::Aborted,
+            },
+        )
     }
 
     #[inline(always)]
     fn last_doc_id(&self) -> t_docId {
-        <S as RQESuspendedIterator>::last_doc_id(self)
+        <S as RQESuspendedIterator<'query>>::last_doc_id(self)
     }
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        <S as RQESuspendedIterator>::num_estimated(self)
+        <S as RQESuspendedIterator<'query>>::num_estimated(self)
     }
 }
 
@@ -383,7 +414,7 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
 /// participates in the new suspend/resume surface (its `Suspended`
 /// counterpart is [`TypeErasedRQESuspendedIterator`]).
 impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
-    type Suspended = TypeErasedRQESuspendedIterator;
+    type Suspended = TypeErasedRQESuspendedIterator<'index>;
 
     #[inline(always)]
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
@@ -394,14 +425,20 @@ impl<'index> RQEIteratorBoxed<'index> for TypeErasedRQEIterator<'index> {
 
 /// Forwarding [`RQESuspendedIterator`] impl on [`TypeErasedRQESuspendedIterator`]
 /// so the dyn-erased pair behaves like any other concrete iterator pair.
-impl RQESuspendedIterator for TypeErasedRQESuspendedIterator {
-    type Resumed<'index> = TypeErasedRQEIterator<'index>;
+impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'query> {
+    type Resumed<'index>
+        = TypeErasedRQEIterator<'index>
+    where
+        'query: 'index;
 
     #[inline(always)]
     fn resume<'index>(
         self: Box<Self>,
         guard: &IndexSpecReadGuard<'index>,
-    ) -> Result<ResumeOutcome<Box<TypeErasedRQEIterator<'index>>>, RQEIteratorError> {
+    ) -> Result<ResumeOutcome<Box<TypeErasedRQEIterator<'index>>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
         let TypeErasedRQESuspendedIterator(inner) = *self;
         // `Self::Resumed` is the already-erased `TypeErasedRQEIterator`, so the
         // concrete `ResumeOutcome<Box<Self::Resumed>>` shape forces a

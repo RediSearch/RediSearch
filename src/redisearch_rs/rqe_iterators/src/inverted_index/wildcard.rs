@@ -41,13 +41,13 @@ use rqe_core::RS_FIELDMASK_ALL;
 /// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 #[repr(C)]
-pub struct RawWildcard<Rf: Ref, E: DecodedBy> {
-    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>>,
+pub struct RawWildcard<'query, Rf: Ref, E: DecodedBy> {
+    it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>>,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Wildcard<'index, E> = RawWildcard<Active<'index>, E>;
+pub type Wildcard<'index, E> = RawWildcard<'index, Active<'index>, E>;
 
 impl<'index, E> Wildcard<'index, E>
 where

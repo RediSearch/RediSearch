@@ -33,7 +33,7 @@ pub type IdListUnsorted<'index> = IdList<'index, false>;
 /// instantiation that implements [`RQEIterator`]. The struct owns its data
 /// (the list of document IDs); the only `Rf`-dependent field is `result`.
 #[repr(C)]
-pub struct RawIdList<Rf: Ref, const SORTED: bool> {
+pub struct RawIdList<'query, Rf: Ref, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: OwnedSlice<DocId>,
@@ -41,12 +41,12 @@ pub struct RawIdList<Rf: Ref, const SORTED: bool> {
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 }
 
 /// Alias for an [`Active`] [`RawIdList`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type IdList<'index, const SORTED: bool> = RawIdList<Active<'index>, SORTED>;
+pub type IdList<'index, const SORTED: bool> = RawIdList<'index, Active<'index>, SORTED>;
 
 impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Creates a new ID list iterator.

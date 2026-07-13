@@ -78,7 +78,7 @@ use index_spec::IndexSpecReadGuard;
 /// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
 #[repr(C)]
-pub struct RawUnionTrimmed<Rf: Ref, I> {
+pub struct RawUnionTrimmed<'query, Rf: Ref, I> {
     /// All child iterators. The cursor only visits children in the trimmed
     /// window `[trim_start..trim_end)`. Children outside the window are kept
     /// alive (not dropped) so that profile display can query them by index.
@@ -97,12 +97,12 @@ pub struct RawUnionTrimmed<Rf: Ref, I> {
     /// Whether all children in the active window have been exhausted.
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 }
 
 /// Alias for an [`Active`] [`RawUnionTrimmed`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type UnionTrimmed<'index, I> = RawUnionTrimmed<Active<'index>, I>;
+pub type UnionTrimmed<'index, I> = RawUnionTrimmed<'index, Active<'index>, I>;
 
 impl<'index, I> UnionTrimmed<'index, I>
 where
