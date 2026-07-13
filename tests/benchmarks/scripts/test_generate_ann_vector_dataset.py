@@ -33,18 +33,6 @@ class GenerateAnnVectorDatasetTest(unittest.TestCase):
                 generator.write_csv_row(output, fields)
             self.assertEqual(read_binary_csv(path), [fields])
 
-    def test_line_safe_vector_blob_removes_physical_newlines(self) -> None:
-        vector = np.array([0x3F0D0A0D, 0xBF8A0D0A], dtype=np.uint32).view(np.float32)
-        stats = generator.SanitizationStats()
-
-        blob = generator.vector_blob(vector, stats)
-
-        self.assertNotIn(b"\n", blob)
-        self.assertNotIn(b"\r", blob)
-        self.assertGreater(stats.adjusted_bytes, 0)
-        self.assertEqual(stats.adjusted_vectors, 1)
-        self.assertTrue(np.isfinite(np.frombuffer(blob, dtype="<f4")).all())
-
     def test_generates_real_setup_knn_and_per_query_range_rows(self) -> None:
         train = np.arange(24, dtype=np.float32).reshape(6, 4)
         test = np.arange(12, dtype=np.float32).reshape(3, 4) / 10
@@ -64,7 +52,6 @@ class GenerateAnnVectorDatasetTest(unittest.TestCase):
             setup_path = root / "setup.csv"
             knn_path = root / "knn.csv"
             range_path = root / "range.csv"
-            stats = generator.SanitizationStats()
             with h5py.File(source_path, "r") as dataset:
                 validated = generator.validate_dataset(dataset, 5, 2, 2)
                 (
@@ -76,10 +63,10 @@ class GenerateAnnVectorDatasetTest(unittest.TestCase):
                     dimension,
                 ) = validated
                 self.assertEqual((vector_count, query_count, dimension), (5, 2, 4))
-                generator.write_setup(setup_path, train_data, vector_count, "smoke", 2, stats)
-                generator.write_knn_queries(knn_path, test_data, query_count, stats)
+                generator.write_setup(setup_path, train_data, vector_count, "smoke", 2)
+                generator.write_knn_queries(knn_path, test_data, query_count)
                 min_radius, max_radius = generator.write_range_queries(
-                    range_path, test_data, distance_data, query_count, 2, stats
+                    range_path, test_data, distance_data, query_count, 2
                 )
 
             setup_rows = read_binary_csv(setup_path)

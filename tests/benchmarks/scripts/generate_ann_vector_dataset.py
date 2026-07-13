@@ -17,7 +17,6 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterable
 
@@ -27,15 +26,6 @@ import numpy as np
 
 DEFAULT_SOURCE = "https://ann-benchmarks.com/glove-100-angular.hdf5"
 DEFAULT_DATASET_NAME = "glove-100-angular-1183514"
-UNSAFE_LINE_BYTES = (b"\n"[0], b"\r"[0])
-
-
-@dataclass
-class SanitizationStats:
-    adjusted_bytes: int = 0
-    adjusted_vectors: int = 0
-    max_absolute_delta: float = 0.0
-    max_relative_delta: float = 0.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,34 +112,8 @@ def resolve_source(source: str, temp_dir: Path) -> Path:
     return path
 
 
-def line_safe_vectors(vectors: np.ndarray, stats: SanitizationStats) -> np.ndarray:
-    """Avoid physical newlines because FTSB scans input one line at a time."""
-    original = np.ascontiguousarray(vectors, dtype="<f4")
-    converted = original.copy()
-    raw = converted.view(np.uint8).reshape(converted.shape[0], -1)
-    unsafe = (raw == UNSAFE_LINE_BYTES[0]) | (raw == UNSAFE_LINE_BYTES[1])
-    if not unsafe.any():
-        return converted
-
-    stats.adjusted_bytes += int(np.count_nonzero(unsafe))
-    stats.adjusted_vectors += int(np.count_nonzero(np.any(unsafe, axis=1)))
-    raw[raw == UNSAFE_LINE_BYTES[0]] = UNSAFE_LINE_BYTES[0] + 1
-    raw[raw == UNSAFE_LINE_BYTES[1]] = UNSAFE_LINE_BYTES[1] - 1
-
-    changed_components = unsafe.reshape(converted.shape[0], converted.shape[1], 4).any(axis=2)
-    absolute_delta = np.abs(converted[changed_components] - original[changed_components])
-    relative_delta = absolute_delta / np.maximum(
-        np.abs(original[changed_components]), np.finfo(np.float32).tiny
-    )
-    stats.max_absolute_delta = max(stats.max_absolute_delta, float(np.max(absolute_delta)))
-    stats.max_relative_delta = max(stats.max_relative_delta, float(np.max(relative_delta)))
-    if not np.isfinite(converted).all():
-        raise ValueError("Line-safe FLOAT32 conversion produced a non-finite component")
-    return converted
-
-
-def vector_blob(vector: np.ndarray, stats: SanitizationStats) -> bytes:
-    converted = line_safe_vectors(np.asarray(vector).reshape(1, -1), stats)[0]
+def vector_blob(vector: np.ndarray) -> bytes:
+    converted = np.asarray(vector, dtype="<f4")
     if not np.isfinite(converted).all():
         raise ValueError("Dataset contains a non-finite vector component")
     return converted.tobytes(order="C")
@@ -161,7 +125,6 @@ def write_setup(
     vector_count: int,
     dataset_name: str,
     batch_size: int,
-    stats: SanitizationStats,
 ) -> None:
     with output_path.open("wb") as output:
         for batch_start in range(0, vector_count, batch_size):
@@ -171,7 +134,6 @@ def write_setup(
                 raise ValueError(
                     f"Dataset contains non-finite values in vectors {batch_start}:{batch_end}"
                 )
-            vectors = line_safe_vectors(vectors, stats)
             for offset, vector in enumerate(vectors):
                 doc_id = batch_start + offset
                 write_csv_row(
@@ -189,9 +151,7 @@ def write_setup(
             print(f"Wrote {batch_end:,}/{vector_count:,} setup vectors", file=sys.stderr)
 
 
-def write_knn_queries(
-    output_path: Path, test: h5py.Dataset, query_count: int, stats: SanitizationStats
-) -> None:
+def write_knn_queries(output_path: Path, test: h5py.Dataset, query_count: int) -> None:
     query = "*=>[KNN 10 @vector $query AS vector_distance]"
     with output_path.open("wb") as output:
         for query_id in range(query_count):
@@ -207,7 +167,7 @@ def write_knn_queries(
                     "PARAMS",
                     2,
                     "query",
-                    vector_blob(test[query_id], stats),
+                    vector_blob(test[query_id]),
                     "NOCONTENT",
                     "DIALECT",
                     2,
@@ -224,7 +184,6 @@ def write_range_queries(
     distances: h5py.Dataset,
     query_count: int,
     neighbor_rank: int,
-    stats: SanitizationStats,
 ) -> tuple[float, float]:
     query = "@vector:[VECTOR_RANGE $radius $query]"
     radii = np.asarray(distances[:query_count, neighbor_rank - 1], dtype=np.float64)
@@ -249,7 +208,7 @@ def write_range_queries(
                     "radius",
                     float(radius),
                     "query",
-                    vector_blob(test[query_id], stats),
+                    vector_blob(test[query_id]),
                     "NOCONTENT",
                     "DIALECT",
                     2,
@@ -322,24 +281,11 @@ def main() -> int:
             range_path = (
                 args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.RANGE.csv"
             )
-            sanitization = SanitizationStats()
 
-            write_setup(
-                setup_path,
-                train,
-                vector_count,
-                args.dataset_name,
-                args.batch_size,
-                sanitization,
-            )
-            write_knn_queries(knn_path, test, query_count, sanitization)
+            write_setup(setup_path, train, vector_count, args.dataset_name, args.batch_size)
+            write_knn_queries(knn_path, test, query_count)
             min_radius, max_radius = write_range_queries(
-                range_path,
-                test,
-                distances,
-                query_count,
-                args.range_neighbor_rank,
-                sanitization,
+                range_path, test, distances, query_count, args.range_neighbor_rank
             )
 
     manifest = {
@@ -353,12 +299,6 @@ def main() -> int:
         "range_neighbor_rank": args.range_neighbor_rank,
         "range_radius_min": min_radius,
         "range_radius_max": max_radius,
-        "ftsb_line_sanitization": {
-            "adjusted_bytes": sanitization.adjusted_bytes,
-            "adjusted_vectors": sanitization.adjusted_vectors,
-            "max_absolute_delta": sanitization.max_absolute_delta,
-            "max_relative_delta": sanitization.max_relative_delta,
-        },
         "files": [file_metadata(path) for path in (setup_path, knn_path, range_path)],
     }
     manifest_path = args.output_dir / f"{args.dataset_name}.manifest.json"
