@@ -50,6 +50,15 @@ extern DebugCTX globalDebugCtx;
 // cap — the engine may deliver more or fewer keys per batch.
 #define ASYNC_SCAN_BATCH_SIZE_HINT_DEFAULT 100
 
+// While parked behind the vector flat-buffer throttle, re-check (under the GIL) that the index
+// still exists every this many backoff iterations. FT.DROPINDEX / FLUSHDB invalidate the weak
+// spec ref without setting scanner->cancelled, and the throttle is global (another disk-vector
+// index can hold it engaged after ours is gone), so the throttle clearing is not a reliable
+// wake-up for a drop. At ASYNC_SCAN_BUSY_BACKOFF_US per iteration this bounds the "sleeping on a
+// dropped spec" window to ~1s. Dropping mid-scan is rare, so a coarse interval keeps GIL churn
+// during a long throttle wait negligible while still guaranteeing eventual teardown.
+#define ASYNC_SCAN_THROTTLE_DROP_RECHECK_ITERS 1000
+
 // Per-cursor driver state, shared between the reindexPool worker (which owns the
 // cursor lifecycle) and the callbacks (which run on the main thread under the GIL).
 // done_cb signals the condvar the worker waits on; the engine provides no waiter.
@@ -376,6 +385,25 @@ out:
 // relies on: it serializes the read of scanner->cancelled against IndexesScanner_Cancel
 // (main thread, under the GIL) instead of racing it.
 //
+// Fold a dropped index into scanner->cancelled, taking the GIL for the check. FT.DROPINDEX /
+// FLUSHDB invalidate the weak spec ref WITHOUT calling IndexesScanner_Cancel, so promoting the
+// ref is how we notice a drop; a dead ref is collapsed into scanner->cancelled. Acquires and
+// releases the GIL itself, so call it only when the GIL is NOT already held (i.e. from the
+// throttle backoff wait, which sleeps GIL-released). Sites that already hold the GIL inline the
+// promote instead.
+static void Indexes_AsyncScanCancelIfDropped(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+  RedisModule_ThreadSafeContextLock(ctx);
+  if (!scanner->cancelled) {
+    StrongRef live_ref = IndexSpecRef_Promote(scanner->spec_ref);
+    if (!StrongRef_Get(live_ref)) {
+      scanner->cancelled = true;
+    } else {
+      IndexSpecRef_Release(live_ref);
+    }
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+}
+
 // Returns the result code of the next NextBatch, to drive from. Sets *out_terminal when the
 // scan was cancelled or the spec was dropped between batches — the cursor has been aborted
 // and the caller must tear down (already logged here); the returned code is meaningless then.
@@ -408,23 +436,41 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   // progress while we sleep; sleeping with the GIL released also keeps the main thread free
   // to run the reads / memory-freeing commands that let the system recover. Re-check
   // scanner->cancelled each iteration so an FT.DROP / FT.ALTER detected mid-scan tears down
-  // promptly instead of blocking behind the throttle. Mirrors the BUSY backoff below.
-  if (SearchDisk_IsThrottling() && !scanner->cancelled) {
+  // promptly, and periodically re-promote the weak spec ref (see below) so a drop that does
+  // NOT set scanner->cancelled cannot leave us parked forever. Mirrors the BUSY backoff below.
+  //
+  // Skip the wait if the just-finished batch tripped scanFailedOnOOM: the OOM branch below must
+  // abort the cursor and surface the background-indexing failure promptly, not sit behind a
+  // throttle that (for a disk vector index also under flat-buffer back-pressure) may be slow or
+  // stuck to clear. OOM is only ever set by key_cb during a batch, never during this wait, so
+  // gating entry is sufficient; the loop condition re-checks it defensively.
+  if (SearchDisk_IsThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
     RedisModule_Log(ctx, "debug",
                     "AsyncScan: index %s throttled (vector flat buffer full); backing off",
                     scanner->spec_name_for_logs);
     size_t backoffIters = 0;
-    do {
+    while (SearchDisk_IsThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
-      ++backoffIters;
-    } while (SearchDisk_IsThrottling() && !scanner->cancelled);
+      // FT.DROPINDEX / FLUSHDB invalidate the weak ref WITHOUT setting scanner->cancelled, and
+      // the throttle is global — another disk-vector index can hold it engaged after ours is
+      // gone — so the throttle clearing is not a reliable wake-up for a drop. Without this the
+      // worker could sleep here indefinitely on a spec that no longer exists. Every
+      // ASYNC_SCAN_THROTTLE_DROP_RECHECK_ITERS iterations, promote the weak ref under the GIL;
+      // if the spec is gone, mark the scan cancelled so the loop exits and the promotion
+      // re-check below aborts the sweep.
+      if (++backoffIters % ASYNC_SCAN_THROTTLE_DROP_RECHECK_ITERS == 0) {
+        Indexes_AsyncScanCancelIfDropped(ctx, scanner);
+      }
+    }
     // Log the transition back to indexing so the pause is bounded and observable in the
-    // logs: either the buffer drained and we resume batching, or the scan was cancelled
-    // while we waited (handled by the re-checks below). ~ms waited = iters * backoff(us)/1000.
+    // logs: either the buffer drained and we resume batching, or the scan ended (cancelled or
+    // its index dropped) while we waited (handled by the re-checks below). ~ms waited =
+    // iters * backoff(us)/1000.
     RedisModule_Log(ctx, "debug",
                     "AsyncScan: index %s throttle %s after ~%zu ms; resuming batches",
                     scanner->spec_name_for_logs,
-                    scanner->cancelled ? "wait aborted (scan cancelled)" : "cleared",
+                    scanner->cancelled ? "wait aborted (index dropped or scan cancelled)"
+                                       : "cleared",
                     (backoffIters * (size_t)ASYNC_SCAN_BUSY_BACKOFF_US) / 1000);
   }
 
