@@ -1,5 +1,5 @@
 [package]
-name = "query_node_type"
+name = "query_types"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

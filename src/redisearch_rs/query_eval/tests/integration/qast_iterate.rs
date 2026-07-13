@@ -8,7 +8,7 @@
 */
 
 use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};

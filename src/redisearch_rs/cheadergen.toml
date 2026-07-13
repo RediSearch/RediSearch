@@ -249,7 +249,7 @@ typedef uint32_t QEFlags;
 #define QEXEC_F_DEBUG                              QEFlag_Debug
 """
 
-[header.query_node_type]
+[header.query_types]
 after_includes = """
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
 #define QN_PHRASE          QueryNodeType_Phrase

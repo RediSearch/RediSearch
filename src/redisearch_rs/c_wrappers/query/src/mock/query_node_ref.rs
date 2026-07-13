@@ -17,7 +17,7 @@ use std::{
 };
 
 use inverted_index::NumericFilter;
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 use rqe_core::DocId;
 
 /// Owns a heap-allocated [`ffi::RSQueryNode`].

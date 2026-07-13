@@ -13,7 +13,7 @@
 #include "tag_index.h"
 #include "query.h"
 #include "field.h"
-#include "query_node_type.h"
+#include "query_types.h"
 #include "rqe_core.h"
 #include "rqe_iterators.h"
 // In C, timespec is a struct tag, not a typedef. Rust's libc::timespec maps to

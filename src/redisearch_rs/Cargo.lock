@@ -630,8 +630,8 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
- "query_node_type",
  "query_term",
+ "query_types",
  "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",
@@ -1166,7 +1166,7 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
- "query_node_type",
+ "query_types",
  "redis_reply",
  "rqe_core",
  "rqe_iterator_type",
@@ -1705,7 +1705,7 @@ dependencies = [
  "query",
  "query_error",
  "query_flags",
- "query_node_type",
+ "query_types",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1750,7 +1750,7 @@ dependencies = [
  "query",
  "query_error",
  "query_eval",
- "query_node_type",
+ "query_types",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -1781,16 +1781,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "query_node_type"
-version = "0.0.1"
-dependencies = [
- "cheadergen",
- "enumflags2",
- "rqe_core",
- "workspace_hack",
-]
-
-[[package]]
 name = "query_term"
 version = "0.0.1"
 dependencies = [
@@ -1804,6 +1794,16 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "query_term",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_types"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "enumflags2",
+ "rqe_core",
  "workspace_hack",
 ]
 
