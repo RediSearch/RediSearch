@@ -1299,8 +1299,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 9,
-    .patchVersion = 80,
+    .minorVersion = 4,
+    .patchVersion = 0,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
