@@ -19,6 +19,26 @@
 #include "spec.h"
 #include "config.h"
 
+// Publish a fresh {buckets, cap} view for lock-free readers and retire the
+// previous one. Writer-only (spec write lock held); the release store pairs
+// with the acquire load in the reader lookups. The old view struct is retired
+// (not freed inline) so a reader still holding it stays valid; the backing
+// array it referenced is retired separately by the caller when it is replaced.
+static void docTablePublishChains(DocTable *t) {
+  DocTableChains *view = rm_malloc(sizeof(*view));
+  view->buckets = t->buckets;
+  view->cap = t->cap;
+  DocTableChains *old = t->live;
+  __atomic_store_n(&t->live, view, __ATOMIC_RELEASE);
+  if (old) {
+    LFReclaim_Retire(old, rm_free);
+  }
+}
+
+void DMD_FreeVoid(void *p) {
+  DMD_Free((const RSDocumentMetadata *)p);
+}
+
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
@@ -29,9 +49,11 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .sortablesSize = 0,
       .maxSize = max_size,
       .dim = NewDocIdMap(),
+      .live = NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
+  docTablePublishChains(&ret);
   return ret;
 }
 
@@ -40,22 +62,30 @@ static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
 }
 
 static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
-  return docId != 0 && docId <= t->maxDocId;
+  // Relaxed atomic load: maxDocId is bumped by the writer with a relaxed RMW.
+  // A lock-free reader may observe a slightly stale value and reject a
+  // just-assigned id, which is the intended snapshot-ish semantics.
+  return docId != 0 && docId <= __atomic_load_n(&t->maxDocId, __ATOMIC_RELAXED);
 }
 
 static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
   }
+  // Capture the published bucket view with acquire ordering: it may be swapped
+  // by a concurrent grow, but the captured pointer stays valid for the duration
+  // of the read section (the old view/array is retired, not freed).
+  const DocTableChains *view = __atomic_load_n(&t->live, __ATOMIC_ACQUIRE);
   uint32_t bucketIndex = DocTable_GetBucket(t, docId);
-  if (bucketIndex >= t->cap) {
+  if (bucketIndex >= view->cap) {
     return NULL;
   }
-  // While we iterate over the chain, we have locked the index spec (R/W), so we either a writer alone or
-  // multiple readers. In any case, we can safely iterate over the chain without a lock and
-  // increment the ref count of the document metadata when we find it.
-  DMDChain *dmdChain = &t->buckets[bucketIndex];
-  for (RSDocumentMetadata *dmd = dmdChain->root; dmd != NULL; dmd = dmd->nextInChain) {
+  // Chain links are read with acquire ordering, pairing with the release stores
+  // in DocTable_Set (prepend) and DocTable_DmdUnchain (relink), so a reader
+  // never observes a half-linked node.
+  DMDChain *dmdChain = &view->buckets[bucketIndex];
+  for (RSDocumentMetadata *dmd = __atomic_load_n(&dmdChain->root, __ATOMIC_ACQUIRE); dmd != NULL;
+       dmd = __atomic_load_n(&dmd->nextInChain, __ATOMIC_ACQUIRE)) {
     if (dmd->id == docId) {
       return (dmd->flags & Document_Deleted) ? NULL : dmd;
     }
@@ -74,10 +104,15 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
   }
   DMDChain *dmdChain = &t->buckets[bucketIndex];
   RSDocumentMetadata **prev_next = &dmdChain->root;
+  // Single-writer path (spec write lock held), so the walk uses plain loads.
   for (RSDocumentMetadata *md = dmdChain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
-      *prev_next = md->nextInChain;
-      md->nextInChain = NULL;
+      // Relink the predecessor past `md` with a release store: a lock-free
+      // reader observes either the old link (still valid — `md` is retired, not
+      // freed, when its refcount later drops) or the new one. Deliberately do
+      // NOT clear md->nextInChain, so a reader parked on `md` can still walk
+      // forward to the rest of the chain.
+      __atomic_store_n(prev_next, md->nextInChain, __ATOMIC_RELEASE);
       return md;
     }
     prev_next = &md->nextInChain;
@@ -87,25 +122,27 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
 
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
-  if (dmd) {
-    DMD_Incref(dmd);
+  // Use a try-incref: on the lock-free path a concurrent deletion may have
+  // driven the node's refcount to 0 (and retired it) between the chain walk and
+  // here. A failed incref means the doc is gone, so report not-found.
+  if (dmd && DMD_TryIncref(dmd)) {
+    return dmd;
   }
-  return dmd;
+  return NULL;
 }
 
 bool DocTable_Exists(const DocTable *t, t_docId docId) {
-  if (!docId || docId > t->maxDocId) {
+  if (!DocTable_ValidateDocId(t, docId)) {
     return false;
   }
+  const DocTableChains *view = __atomic_load_n(&t->live, __ATOMIC_ACQUIRE);
   uint32_t ix = DocTable_GetBucket(t, docId);
-  if (ix >= t->cap) {
+  if (ix >= view->cap) {
     return false;
   }
-  const DMDChain *chain = t->buckets + ix;
-  if (chain == NULL) {
-    return false;
-  }
-  for (const RSDocumentMetadata *md = chain->root; md != NULL; md = md->nextInChain) {
+  const DMDChain *chain = &view->buckets[ix];
+  for (const RSDocumentMetadata *md = __atomic_load_n(&chain->root, __ATOMIC_ACQUIRE); md != NULL;
+       md = __atomic_load_n(&md->nextInChain, __ATOMIC_ACQUIRE)) {
     if (md->id == docId) {
       return !(md->flags & Document_Deleted);
     }
@@ -129,32 +166,44 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
      * the already existing chains.
      */
     size_t oldcap = t->cap;
+    size_t newcap = t->cap;
     // We grow by half of the current capacity with maximum of 1m
-    t->cap += 1 + (t->cap ? MIN(t->cap / 2, 1024 * 1024) : 1);
-    t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
-    t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
-    t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
-    t->memsize += (t->cap - oldcap) * sizeof(DMDChain);
+    newcap += 1 + (newcap ? MIN(newcap / 2, 1024 * 1024) : 1);
+    newcap = MIN(newcap, t->maxSize);  // make sure we do not excised maxSize
+    newcap = MAX(newcap, bucket + 1);  // docs[bucket] needs to be valid, so newcap > bucket
 
-    // We clear new extra allocation to Null all list pointers
-    size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
+    // Copy-on-grow rather than realloc-in-place: a lock-free reader may still be
+    // walking the old array, and rm_realloc could free it out from under them.
+    // Allocate a fresh array, copy the existing chain heads (the DMD nodes are
+    // shared, not copied), zero the tail, publish the new view, then retire the
+    // old array + view for reclamation once readers quiesce.
+    DMDChain *newBuckets = rm_calloc(newcap, sizeof(DMDChain));
+    memcpy(newBuckets, t->buckets, oldcap * sizeof(DMDChain));
+    DMDChain *oldBuckets = t->buckets;
+
+    t->buckets = newBuckets;
+    t->cap = newcap;
+    t->memsize += (newcap - oldcap) * sizeof(DMDChain);
 
     // Log DocTable capacity growth to help diagnose cases where a small number of documents
     // combined with frequent updates cause disproportionate memory usage.
     // This allows us to confirm if unexpected memory spikes are due to capacity increases.
     // Note: We do not shrink the DocTable to avoid the cost of rehashing.
     // To adjust its size, lower the search-max-doctablesize configuration value.
-    RedisModule_Log(RSDummyContext, "notice", "DocTable capacity increase from %zu to %zu", oldcap, t->cap);
+    RedisModule_Log(RSDummyContext, "notice", "DocTable capacity increase from %zu to %zu", oldcap, newcap);
 
-    memset(&t->buckets[oldcap], 0, memsetSize);
+    docTablePublishChains(t);
+    LFReclaim_Retire(oldBuckets, rm_free);
   }
 
   DMDChain *chain = &t->buckets[bucket];
   dmd->ref_count = 1; // Index reference
 
-  // Adding the dmd to the chain
-  dmd->nextInChain = chain->root;
-  chain->root = dmd;
+  // Prepend to the chain. Set nextInChain (still private to the writer) before
+  // publishing the node as the new head with a release store, so a reader that
+  // acquire-loads the head sees a fully-linked node.
+  dmd->nextInChain = __atomic_load_n(&chain->root, __ATOMIC_RELAXED);
+  __atomic_store_n(&chain->root, dmd, __ATOMIC_RELEASE);
 }
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
@@ -303,7 +352,9 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   if (xid) {
     return (RSDocumentMetadata *)DocTable_Borrow(t, xid);
   }
-  t_docId docId = ++t->maxDocId;
+  // Relaxed atomic bump: pairs with the relaxed load in DocTable_ValidateDocId
+  // so a lock-free reader's maxDocId read is race-free.
+  t_docId docId = __atomic_add_fetch(&t->maxDocId, 1, __ATOMIC_RELAXED);
 
   RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
@@ -398,6 +449,10 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  rm_free(t->live);  // the current view struct; retired views are freed via reclamation
+  // Teardown runs with no lock-free readers, so drain any objects still pending
+  // from this table's mutations rather than leaking them.
+  LFReclaim_TryReclaim();
   TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
 }
@@ -492,6 +547,8 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
     t->memsize += t->cap * sizeof(DMDChain);
+    // Republish the view: the previous one referenced the just-freed array.
+    docTablePublishChains(t);
   }
 
   for (size_t i = 1; i < t->size; i++) {
@@ -566,7 +623,7 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 }
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
-  return t->maxDocId;
+  return __atomic_load_n(&t->maxDocId, __ATOMIC_RELAXED);
 }
 
 DocIdMap NewDocIdMap() {

@@ -17,6 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+#include "util/lockfree_reclaim.h"
 
 typedef struct TrieMap TrieMap;
 
@@ -66,6 +67,17 @@ typedef struct {
   RSDocumentMetadata *root;
 } DMDChain;
 
+// Immutable, atomically-published view of the bucket array for lock-free
+// readers. `DocTable_Set` grows the table by allocating a fresh array + view,
+// publishing the new view, and retiring the old one (see lockfree_reclaim.h),
+// so a reader that captured the previous view keeps a valid pointer until it
+// leaves its read section. `buckets`/`cap` on DocTable mirror the live view for
+// the writer and the non-concurrent teardown paths.
+typedef struct {
+  DMDChain *buckets;
+  size_t cap;
+} DocTableChains;
+
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
@@ -75,6 +87,10 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
+  // Atomically-published {buckets, cap} snapshot read by lock-free lookups.
+  // Written only by the writer (under the spec write lock); loaded with acquire
+  // ordering by readers. Always mirrors `buckets`/`cap` above.
+  DocTableChains *live;
   DocIdMap dim;             // Mapping between document name to internal id
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
@@ -237,16 +253,48 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
     RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");        \
   })
 
+/* Take a reference on `md` only if it is still live (ref_count > 0). Unlike
+ * DMD_Incref, this is safe on the lock-free read path: a concurrent deletion
+ * may have driven the count to 0 and retired the node for reclamation between
+ * the chain walk finding `md` and this call. A CAS loop that refuses to
+ * resurrect a zero-count node closes that window; on failure the caller treats
+ * the document as not found. Returns true iff a reference was taken. */
+static inline bool DMD_TryIncref(RSDocumentMetadata *md) {
+  uint16_t count = __atomic_load_n(&md->ref_count, __ATOMIC_RELAXED);
+  do {
+    if (count == 0) {
+      return false;
+    }
+    RS_LOG_ASSERT(count < (1 << 16) - 1, "overflow of dmd ref_count");
+  } while (!__atomic_compare_exchange_n(&md->ref_count, &count, count + 1, true,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED));
+  return true;
+}
+
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
-/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+/* Adapter matching the lockfree_reclaim dtor signature. */
+void DMD_FreeVoid(void *);
+
+/* Decrement the refcount of the DMD object, retiring it for reclamation if
+ * we're the last reference. Retirement (rather than an immediate free) lets a
+ * lock-free reader that is mid-walk through this node finish safely; when no
+ * lock-free reader is active it degrades to an immediate DMD_Free. */
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
   if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
-    DMD_Free(dmd);
+    LFReclaim_Retire(dmd, DMD_FreeVoid);
   }
 }
+
+/* Enter/leave a lock-free read section covering a sequence of DocTable_Borrow /
+ * DocTable_Exists / DocTable_GetKey calls made WITHOUT holding the spec read
+ * lock. Every DocTable_Borrow within the section must be paired with a
+ * DMD_Return, and every ReadBegin with a ReadEnd on all return paths. Callers
+ * that hold the spec read lock do not need these. */
+static inline void DocTable_ReadBegin(void) { LFReclaim_ReadBegin(); }
+static inline void DocTable_ReadEnd(void) { LFReclaim_ReadEnd(); }
 
 /* Load the doc table from RDB. This is used for legacy RDB load only.
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.
