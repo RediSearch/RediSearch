@@ -1,0 +1,47 @@
+version: 0.5
+name: "vecsim-glove-100-angular-1183514-flat-knn"
+description: >-
+  Pure FLAT KNN server benchmark over 1,183,514 real 100-dimensional GloVe
+  embeddings. The bounded 200-query run performs exact full-index scans to
+  isolate FLOAT32 cosine distance-kernel performance through Redis without the
+  HNSW traversal or synthetic fixed-vector effects.
+
+metadata:
+  component: "vecsim"
+  dataset: "ANN-Benchmarks glove-100-angular"
+  doc_count: 1183514
+  dimension: 100
+  data_type: "FLOAT32"
+  distance_metric: "COSINE"
+  algorithm: "FLAT"
+  query_type: "KNN"
+
+timeout_seconds: 7200
+dataset_load_timeout_secs: 3600
+
+setups:
+  - oss-standalone
+  - oss-standalone-threads-6
+
+dbconfig:
+  - dataset_name: "glove-100-angular-1183514-flat"
+  - init_commands:
+    - 'FT.CREATE idx ON HASH PREFIX 1 glove-100-angular-1183514: SCHEMA vector VECTOR FLAT 8 TYPE FLOAT32 DIM 100 DISTANCE_METRIC COSINE INITIAL_CAP 1183514'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 16
+    - reporting-period: 5s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/glove-100-angular-1183514/glove-100-angular-1183514.redisearch.commands.SETUP.csv"
+    - max-token-size-mb: 1
+  - check:
+      keyspacelen: 1183514
+
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 1
+    - requests: 200
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/glove-100-angular-1183514/glove-100-angular-1183514.redisearch.commands.BENCH.KNN.csv"
+    - max-token-size-mb: 1
