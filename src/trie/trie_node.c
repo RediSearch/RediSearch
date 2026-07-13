@@ -61,7 +61,6 @@ typedef struct {
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
-inline static int __trieNode_Cmp_Score(const void *p1, const void *p2);
 
 #define updateScore(n, value)                             \
 do {                                                      \
@@ -325,10 +324,11 @@ static TrieAddChildResult __trieNode_addChild_score(
       updateScore(n, child->subtreeMaxScore);
       // the fold can only have raised child's bound, so the array is still
       // sorted except for child itself, which may now belong further left:
-      // rotate it into its slot
+      // rotate it into its slot. Compare scores only: equal-score siblings
+      // keep their existing order, as the pre-rotation update path did.
       TrieNode **children = TrieNode_Children(n);
       int dst = idx;
-      while (dst > 0 && __trieNode_Cmp_Score(&children[dst - 1], &child) > 0) {
+      while (dst > 0 && children[dst - 1]->subtreeMaxScore < child->subtreeMaxScore) {
         dst--;
       }
       if (dst < idx) {
