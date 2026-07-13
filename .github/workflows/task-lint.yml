@@ -109,76 +109,10 @@ jobs:
       - name: Cargo deny
         run: cargo install cargo-deny --locked
       - name: Lint
-        id: lint
-        continue-on-error: true
-        run: make lint
-
-      - name: Generated files
-        id: git-diff
-        continue-on-error: true
-        run: |
-          if ! git diff --exit-code; then
-            echo "Uncommitted changes found. Likely causes: stale Rust → C FFI headers under src/redisearch_rs/headers/ (run 'make generate-rust-headers' and commit) or other auto-generated artifacts produced by 'make lint'."
-            exit 1
-          fi
-      - name: License header
-        id: license-header
-        continue-on-error: true
-        run: make license-check
-      - name: Format check
-        id: fmt
-        continue-on-error: true
-        run: make fmt CHECK=1
-      - name: Security advisories
-        id: advisories
-        continue-on-error: true
         env:
           COMPARE_ADVISORIES_TO_BASE: ${{ inputs.compare-advisories-to-base }}
           ADVISORIES_BASE_REF: ${{ inputs.advisories-base-ref }}
-          MANIFEST_PATH: src/redisearch_rs/Cargo.toml
-        run: |
-          ARGS=()
-          if [[ "$COMPARE_ADVISORIES_TO_BASE" == "true" ]]; then
-            ARGS+=(--compare-to-base --base-ref "$ADVISORIES_BASE_REF")
-          fi
-          python3 scripts/cargo_deny_advisory_gate.py \
-            --manifest-path "$MANIFEST_PATH" \
-            "${ARGS[@]}"
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        id: dep-licenses
-        continue-on-error: true
-        with:
-          command: check licenses
-          arguments: --all-features
-          manifest-path: src/redisearch_rs/Cargo.toml
-      - name: Workspace hack check
-        id: workspace_hack
-        working-directory: src/redisearch_rs
-        continue-on-error: true
-        run: |
-          if ! cargo hakari generate --diff || ! cargo hakari manage-deps --dry-run; then
-            echo "Suggested fix:"
-            echo "  Run the following command in 'src/redisearch_rs' to update workspace_hack's Cargo.toml and ensure all workspace crates depend on workspace_hack:"
-            echo "    cargo hakari generate && cargo hakari manage-deps"
-            exit 1
-          fi
+        run: make lint
       - name: Show sccache stats
+        if: always()
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
-      - name: Fail if any step failed
-        if: |
-          steps.lint.outcome == 'failure' ||
-          steps.git-diff.outcome == 'failure' ||
-          steps.license-header.outcome == 'failure' ||
-          steps.fmt.outcome == 'failure' ||
-          steps.advisories.outcome == 'failure' ||
-          steps.dep-licenses.outcome == 'failure' ||
-          steps.workspace_hack.outcome == 'failure'
-        run: |
-          echo "Lint: ${{ steps.lint.outcome }}"
-          echo "Generated files: ${{ steps.git-diff.outcome }}"
-          echo "License header: ${{ steps.license-header.outcome }}"
-          echo "Format check: ${{ steps.fmt.outcome }}"
-          echo "Security advisories: ${{ steps.advisories.outcome }}"
-          echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
-          echo "Workspace hack check: ${{ steps.workspace_hack.outcome }}"
-          exit 1

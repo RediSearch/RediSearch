@@ -195,7 +195,8 @@ Development:
     WITH_RLTEST=1      Run using RLTest framework
     GDB=1              Invoke using gdb
     CLANG=1            Use lldb instead of gdb (when GDB=1)
-  make lint          Run linters
+  make lint          Run all linters (clippy, docs, fmt, licenses, advisories, hakari)
+    CHECK=1            Check formatting without modifying files
   make fmt           Format source files
     CHECK=1            Check formatting without modifying files
 
@@ -322,11 +323,6 @@ run:
 		fi; \
 	fi
 
-# Function to extract EXCLUDE_RUST_BENCHING_CRATES_LINKING_C from build.sh
-define get_rust_exclude_crates
-$(shell grep "EXCLUDE_RUST_BENCHING_CRATES_LINKING_C=" build.sh | cut -d'=' -f2 | tr -d '"' | head -n1)
-endef
-
 # Regenerate the Rust → C FFI headers under src/redisearch_rs/headers/.
 #
 # The recipe (cheadergen CLI args + env scrub) lives in
@@ -337,13 +333,8 @@ generate-rust-headers:
 	@echo "Regenerating Rust → C FFI headers via cheadergen..."
 	@$(ROOT)/src/redisearch_rs/regen_headers.sh
 
-lint: generate-rust-headers
-	@echo "Running linters for debug..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items
-	@echo "Running linters for release..."
-	@cd $(ROOT)/src/redisearch_rs && cargo clippy --workspace $(call get_rust_exclude_crates) --release -- -D warnings
-	@cd $(ROOT)/src/redisearch_rs && RUSTDOCFLAGS="-Dwarnings" cargo doc --workspace $(call get_rust_exclude_crates) --no-deps --document-private-items --release
+lint:
+	@$(ROOT)/scripts/lint.sh
 
 fmt:
 ifeq ($(CHECK),1)
