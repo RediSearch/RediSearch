@@ -15,7 +15,7 @@ pub use ffi::{
 };
 use index_result::{RSIndexResult, RSQueryTerm};
 use iterators_ffi::intersection::NewIntersectionIterator;
-use rqe_core::{DocId, RS_FIELDMASK_ALL};
+use rqe_core::DocId;
 use std::{ffi::c_void, ptr};
 
 /// Simple wrapper around the C `QueryIterator` type.
@@ -76,20 +76,6 @@ impl QueryIterator {
             *children_ptr.add(1) = child2.into_raw();
         }
         Self(unsafe { NewIntersectionIterator(children_ptr, 2, max_slop, in_order, 1.0) })
-    }
-
-    #[inline(always)]
-    pub unsafe fn new_term(ii: *mut ffi::InvertedIndex, sctx: *const ffi::RedisSearchCtx) -> Self {
-        let term = Box::into_raw(RSQueryTerm::new("term", 1, 0));
-        Self(unsafe {
-            iterators_ffi::inverted_index::NewInvIndIterator_TermQuery(
-                ii.cast_const(),
-                sctx,
-                field::FieldMaskOrIndex::Mask(RS_FIELDMASK_ALL),
-                term,
-                1.0,
-            )
-        })
     }
 
     /// Creates a new intersection iterator from child ID list iterators.
@@ -271,10 +257,5 @@ impl InvertedIndex {
                 &record as *const _ as *mut _,
             );
         }
-    }
-
-    #[inline(always)]
-    pub fn iterator_term(&self) -> QueryIterator {
-        unsafe { QueryIterator::new_term(self.ii, self.sctx) }
     }
 }
