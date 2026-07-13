@@ -205,9 +205,9 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  uint32_t numDocs = InvertedIndex_NumDocs(iv);
+  uint32_t numDocs = iv->numDocs;
   size_t written = InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec);
-  if (InvertedIndex_NumDocs(iv) > numDocs) (*numRecords)++;
+  if (iv->numDocs > numDocs) (*numRecords)++;
   return written + sz;
 }
 
