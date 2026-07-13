@@ -48,7 +48,9 @@ fi
 # --clear ensures a partial .venv left behind by a failed (e.g. network-timed-out)
 # attempt is replaced rather than causing "virtual environment already exists" on retry.
 uv venv --seed --clear
-activate_venv
+if [[ "${SKIP_VENV_PROFILE_ACTIVATION:-0}" != 1 ]]; then
+	activate_venv
+fi
 source .venv/bin/activate
 uv sync --locked --all-packages
 
