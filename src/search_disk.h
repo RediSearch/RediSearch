@@ -609,9 +609,15 @@ bool SearchDisk_IsEnabledForValidation();
  * otherwise keep filling the buffer. This accessor exposes the module-side mirror of that
  * throttle depth so the scan can voluntarily wait between batches while it is set.
  *
+ * TODO(tech-debt): the throttle mirror is a single global counter, so a scan backs off
+ * whenever ANY disk vector index is throttling, not only the one it is scanning. Because
+ * async scans already run per index, track the throttle depth per spec and have each scan
+ * consult only its own index's depth, so an unrelated index's back-pressure does not stall
+ * a scan that could keep making progress.
+ *
  * @return true if the throttle is currently raised (one or more indexes are throttling)
  */
-bool SearchDisk_IsThrottling(void);
+bool SearchDisk_IsVectorWriteThrottling(void);
 
 // Vector API wrappers
 

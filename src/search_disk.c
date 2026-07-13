@@ -522,7 +522,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
 // callers of RedisModule_Enable/DisablePostponeClients, so this counter tracks exactly the
 // throttle depth we raised. The client-postpone flag only gates external CMD_DENYOOM
 // commands; the background reindex scan does not go through command dispatch, so it consults
-// SearchDisk_IsThrottling() between batches to apply the same back-pressure to itself.
+// SearchDisk_IsVectorWriteThrottling() between batches to apply the same back-pressure to itself.
 static atomic_int vecSimThrottleDepth = 0;
 
 // Throttle callback wrappers for VecSim
@@ -550,7 +550,7 @@ static int VecSim_DisableThrottle(void) {
   return ret;
 }
 
-bool SearchDisk_IsThrottling(void) {
+bool SearchDisk_IsVectorWriteThrottling(void) {
   return atomic_load(&vecSimThrottleDepth) > 0;
 }
 

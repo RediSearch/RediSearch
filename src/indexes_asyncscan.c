@@ -444,12 +444,12 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
   // throttle that (for a disk vector index also under flat-buffer back-pressure) may be slow or
   // stuck to clear. OOM is only ever set by key_cb during a batch, never during this wait, so
   // gating entry is sufficient; the loop condition re-checks it defensively.
-  if (SearchDisk_IsThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
+  if (SearchDisk_IsVectorWriteThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
     RedisModule_Log(ctx, "debug",
                     "AsyncScan: index %s throttled (vector flat buffer full); backing off",
                     scanner->spec_name_for_logs);
     size_t backoffIters = 0;
-    while (SearchDisk_IsThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
+    while (SearchDisk_IsVectorWriteThrottling() && !scanner->cancelled && !scanner->scanFailedOnOOM) {
       usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
       // FT.DROPINDEX / FLUSHDB invalidate the weak ref WITHOUT setting scanner->cancelled, and
       // the throttle is global — another disk-vector index can hold it engaged after ours is
