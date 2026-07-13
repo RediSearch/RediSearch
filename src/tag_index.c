@@ -204,16 +204,23 @@ struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
 // Encode a single docId into a specific tag value
 // Returns the number of bytes occupied by the encoded entry plus the size of
 // the inverted index (if a new inverted index was created)
-static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
+static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
+                                  size_t *numRecords) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, &rec) + sz;
+  uint32_t numDocs = InvertedIndex_NumDocs(iv);
+  size_t written = InvertedIndex_WriteEntryGeneric(iv, &rec);
+  if (InvertedIndex_NumDocs(iv) > numDocs) {
+    (*numRecords)++;
+  }
+  return written + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, size_t n, t_docId docId, IndexStats *stats) {
   if (!values) return true;
+  size_t numRecords = 0;
 
   if (idx->diskSpec) {
     // DISK MODE: Index to disk and add tags to TrieMap with NULL sentinel
@@ -225,6 +232,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
     for (size_t ii = 0; ii < n; ++ii) {
       const char *tok = values[ii];
       if (tok) {
+        numRecords++;
         TrieMap_Add(idx->values, tok, strlen(tok), NULL, NULL);
 
         if (idx->suffix && (*tok != '\0')) {
@@ -237,7 +245,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
     for (size_t ii = 0; ii < n; ++ii) {
       const char *tok = values[ii];
       if (tok) {
-        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId);
+        stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, &numRecords);
 
         if (idx->suffix && (*tok != '\0')) { // add to suffix TrieMap
           addSuffixTrieMap(idx->suffix, tok, strlen(tok));
@@ -246,7 +254,7 @@ bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, const char **values, siz
     }
   }
 
-  stats->numRecords++;
+  stats->numRecords += numRecords;
   return true;
 }
 
