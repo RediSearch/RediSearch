@@ -29,9 +29,11 @@
 
 pub mod case_fold;
 pub mod levenshtein;
+pub mod levenshtein_nfa;
 mod utf8;
 pub mod wildcard;
 
 pub use case_fold::CaseFoldExact;
 pub use levenshtein::CaseFoldLevenshtein;
+pub use levenshtein_nfa::CaseFoldLevenshteinNfa;
 pub use wildcard::{CodepointWildcard, CodepointWildcardNfa};
