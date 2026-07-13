@@ -22,6 +22,7 @@
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include "rs_wall_clock.h"
+#include "search_disk.h"
 
 // The background-indexing debug context, owned by debug_commands.c. Read here only
 // for the SET_SIMULATE_ASYNC_OOM test hook (ENABLE_ASSERT builds).
@@ -396,6 +397,36 @@ static RedisModuleAsyncScanResult Indexes_AsyncScanDriveNextBatch(
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait(SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES);
 #endif
+
+  // Vector-index flat-buffer back-pressure. When a disk tiered vector index fills its
+  // in-memory flat buffer it raises the Redis client-postpone throttle to slow writers, but
+  // that throttle only gates client CMD_DENYOOM commands — this background scan bypasses
+  // command dispatch and would keep calling addVector, growing the buffer without bound.
+  // Wait here (GIL released) until the async insert jobs drain the buffer and clear the
+  // throttle before requesting the next batch, applying the same back-pressure to ourselves.
+  // The drain jobs run on a separate worker pool that does not need the GIL, so they make
+  // progress while we sleep; sleeping with the GIL released also keeps the main thread free
+  // to run the reads / memory-freeing commands that let the system recover. Re-check
+  // scanner->cancelled each iteration so an FT.DROP / FT.ALTER detected mid-scan tears down
+  // promptly instead of blocking behind the throttle. Mirrors the BUSY backoff below.
+  if (SearchDisk_IsThrottling() && !scanner->cancelled) {
+    RedisModule_Log(ctx, "debug",
+                    "AsyncScan: index %s throttled (vector flat buffer full); backing off",
+                    scanner->spec_name_for_logs);
+    size_t backoffIters = 0;
+    do {
+      usleep(ASYNC_SCAN_BUSY_BACKOFF_US);
+      ++backoffIters;
+    } while (SearchDisk_IsThrottling() && !scanner->cancelled);
+    // Log the transition back to indexing so the pause is bounded and observable in the
+    // logs: either the buffer drained and we resume batching, or the scan was cancelled
+    // while we waited (handled by the re-checks below). ~ms waited = iters * backoff(us)/1000.
+    RedisModule_Log(ctx, "debug",
+                    "AsyncScan: index %s throttle %s after ~%zu ms; resuming batches",
+                    scanner->spec_name_for_logs,
+                    scanner->cancelled ? "wait aborted (scan cancelled)" : "cleared",
+                    (backoffIters * (size_t)ASYNC_SCAN_BUSY_BACKOFF_US) / 1000);
+  }
 
   RedisModule_ThreadSafeContextLock(ctx);
 

@@ -1014,7 +1014,7 @@ void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
     RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
-    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM : REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
+    int optionsFlags = SearchDisk_IsEnabled() ? REDISMODULE_OPTIONS_HANDLE_IO_ERRORS | REDISMODULE_OPTIONS_REQUIRE_LOADED_KEYS_IN_RAM: REDISMODULE_OPTIONS_HANDLE_IO_ERRORS;
     RedisModule_SetModuleOptions(ctx, optionsFlags);
     if (redisVersion.majorVersion < 7 || IsEnterprise()) {
       RedisModule_Log(ctx, "notice", "Enabled diskless replication");
