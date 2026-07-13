@@ -12,15 +12,16 @@ concurrency:
 
 jobs:
   # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
-  # Pinned to a redis/redis unstable commit because the module requires
-  # RedisModule_GetClusterNodeSlotRanges (MOD-15868), which is not in any Redis release yet.
+  # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
+  # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
+  # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
     runs-on: ubuntu-slim
     outputs:
-      tag: 3869512c920d4e865b54384bce5fcb6a4e06ae0d
+      tag: 8897348030c20bcd26841bc7d3ec7227f8187aeb
     steps:
       - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
 
