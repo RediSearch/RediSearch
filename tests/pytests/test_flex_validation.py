@@ -692,8 +692,9 @@ def test_disk_vector_range_query_concurrent_writes(env: Env):
 
     def writer():
         # Dedicated connection (never shares a socket with the querier). Out-of-radius
-        # vectors are distinct: identical duplicates make the in-radius cluster unreachable
-        # to HNSW at EF_RUNTIME 64 and flake the final recall check (MOD-16860).
+        # vectors are distinct: a large corpus of identical vectors forms a dense HNSW
+        # component the greedy search can't cross out of, so range/KNN recall of the
+        # in-radius cluster can drop to zero (approximate-search artifact). See MOD-16860.
         try:
             wconn = env.getConnection()
             i = 0
