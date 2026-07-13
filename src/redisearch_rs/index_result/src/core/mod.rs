@@ -13,7 +13,7 @@ use std::ptr;
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
-use super::metrics::{MetricsVec, RawMetricsVec};
+use super::metrics::MetricsVec;
 use super::offsets::{RSOffsetVector, RawOffsetSlice};
 use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
@@ -166,7 +166,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
@@ -276,7 +276,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
@@ -312,7 +312,7 @@ pub struct RawIndexResult<'query, R: Ref> {
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
-    pub metrics: RawMetricsVec<'query>,
+    pub metrics: MetricsVec<'query>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
@@ -359,7 +359,7 @@ const _: () = {
     // The only `R`-dependent field is `data`; check its two instantiations
     // have identical size. The `metrics` field no longer depends on `R` (its
     // `RLookupKey` lives under `'query`, never weakened), so it is the same
-    // `RawMetricsVec<'static>` type on both sides — nothing to assert there.
+    // `MetricsVec<'static>` type on both sides — nothing to assert there.
     assert!(
         size_of::<RawResultData<'static, Active<'static>>>()
             == size_of::<RawResultData<'static, Suspended>>()
@@ -861,12 +861,12 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Returns a mutable reference to the metrics collection.
-    pub const fn metrics_mut(&mut self) -> &mut RawMetricsVec<'query> {
+    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'query> {
         &mut self.metrics
     }
 
     /// Returns a reference to the metrics collection.
-    pub const fn metrics_ref(&self) -> &RawMetricsVec<'query> {
+    pub const fn metrics_ref(&self) -> &MetricsVec<'query> {
         &self.metrics
     }
 
