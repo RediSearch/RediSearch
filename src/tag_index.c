@@ -214,8 +214,8 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_Index_(TagIndex *idx, const char **values, size_t n, t_docId docId,
-                       size_t *numRecords) {
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
+                      size_t *numRecords) {
   if (!values) {
     if (numRecords) {
       *numRecords = 0;
@@ -240,10 +240,6 @@ size_t TagIndex_Index_(TagIndex *idx, const char **values, size_t n, t_docId doc
     *numRecords = records;
   }
   return ret;
-}
-
-size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId) {
-  return TagIndex_Index_(idx, values, n, docId, NULL);
 }
 
 static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,
