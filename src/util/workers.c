@@ -16,8 +16,6 @@
 #include "VecSim/vec_sim.h"
 
 #include <pthread.h>
-#include <sched.h>
-#include <unistd.h>
 
 //------------------------------------------------------------------------------
 // Thread pool
@@ -48,38 +46,6 @@ static void workersThreadPool_OnDeactivation(size_t old_num) {
   RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu", old_num);
 }
 
-// CPUs this process may run on (honors affinity/pinning), never less than 1.
-static size_t effectiveCPUCount(void) {
-#ifdef __linux__
-  // Mask sized for hosts up to 4096 CPUs — a plain cpu_set_t covers only 1024, and
-  // sched_getaffinity fails with EINVAL on hosts with more.
-  unsigned long mask[4096 / (8 * sizeof(unsigned long))] = {0};
-  if (sched_getaffinity(0, sizeof(mask), (cpu_set_t *)mask) == 0) {
-    int count = CPU_COUNT_S(sizeof(mask), (cpu_set_t *)mask);
-    if (count > 0) return (size_t)count;
-  }
-#endif
-  long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
-  return nprocs > 0 ? (size_t)nprocs : 1;
-}
-
-// SVS pool threads are compute-bound, so a pool larger than the available CPUs adds no
-// throughput — and growing past them stalls the main thread for up to tens of seconds:
-// booting SVS threads busy-spin and starve each other's start-up handshakes (MOD-16610).
-// The workers thpool is intentionally NOT capped: its threads block, so exceeding the CPU
-// count is legitimate there.
-static void updateVecSimPoolSize(size_t worker_count) {
-  size_t svs_pool_size = worker_count;
-  size_t cpu_count = effectiveCPUCount();
-  if (svs_pool_size > cpu_count) {
-    RedisModule_Log(RSDummyContext, "notice",
-                    "Capping SVS thread pool size at %zu (available CPUs), %zu was requested",
-                    cpu_count, svs_pool_size);
-    svs_pool_size = cpu_count;
-  }
-  VecSim_UpdateThreadPoolSize(svs_pool_size);
-}
-
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
   RS_ASSERT(_workers_thpool == NULL);
@@ -92,7 +58,7 @@ int workersThreadPool_CreatePool(size_t worker_count) {
     workersThreadPool_OnDeactivation(worker_count);
   }
   // Set the shared SVS thread pool size to match the worker pool.
-  updateVecSimPoolSize(worker_count);
+  VecSim_UpdateThreadPoolSize(worker_count);
   return REDISMODULE_OK;
 }
 
@@ -138,7 +104,7 @@ void workersThreadPool_SetNumWorkers() {
 
   // Notify VecSim of the (possibly new) pool size. VecSim_UpdateThreadPoolSize handles all
   // transitions: 0 sets in-place mode, >0 sets async mode and resizes the shared SVS thread pool.
-  updateVecSimPoolSize(worker_count);
+  VecSim_UpdateThreadPoolSize(worker_count);
 }
 
 // return number of currently working threads
