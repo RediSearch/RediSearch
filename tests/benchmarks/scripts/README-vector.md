@@ -37,13 +37,31 @@ uv run python tests/benchmarks/scripts/generate_ann_vector_dataset.py \
   --max-queries 20
 ```
 
-The generator writes binary-safe FTSB CSV files. It does not replace vectors with text or
-base64, so Redis receives the same little-endian FLOAT32 blobs used by normal clients.
-Every query uses a distinct vector from the ANN test set. Range-query radii come from each
-query's 100th ground-truth neighbor, producing a stable, realistic result cardinality.
+The generator writes FTSB-compatible binary CSV files. FTSB currently scans one physical
+line at a time, so the generator replaces CR/LF bytes inside FLOAT32 representations with
+an adjacent byte value. The manifest records the number of adjusted vectors and maximum
+numeric perturbation. Every query uses a distinct vector from the ANN test set. Range-query
+radii come from each query's 100th ground-truth neighbor, producing a stable, realistic
+result cardinality.
 
 The generated manifest records counts, dimensions, file sizes, and SHA-256 hashes. Keep it
 with the dataset so local and CI inputs can be compared exactly.
+
+## Run Directly Against Redis
+
+The direct Python runner bypasses FTSB and sends the original binary vectors through
+redis-py. Give it a RediSearch module to start an isolated Redis server:
+
+```bash
+uv run python tests/benchmarks/scripts/run_vector_server_benchmark.py \
+  --module bin/linux-x64-release/search-community/redisearch.so \
+  --algorithm HNSW \
+  --query-type both \
+  --output /tmp/vector-server-benchmark.json
+```
+
+Use `--max-vectors` and `--max-queries` for a bounded local smoke run. Omit `--module` and
+pass `--host` and `--port` to benchmark an already-running Redis server.
 
 ## Publish For CI
 
