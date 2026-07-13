@@ -355,6 +355,13 @@ extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + Profile
 ) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
+    // SAFETY:
+    // 1. As a header-stored callback (invariant 1. in [`RQEIteratorWrapper`]),
+    //    `base` is a non-null, aligned, live header, uniquely owned until it is
+    //    consumed into the `Box` below.
+    // 2. `SkipTo` is `Copy`, so reading it through a shared reference leaves
+    //    `base` intact for that `Box::from_raw`.
+    let had_no_skip_to = unsafe { (*base).SkipTo.is_none() };
     // SAFETY: Callbacks are guaranteed to get a header pointer created by
     // `RQEIteratorWrapper::boxed_new_compound`, which uses `Box::into_raw`.
     let it = unsafe { Box::from_raw(base as *mut RQEIteratorWrapper<I>) };
@@ -362,7 +369,14 @@ extern "C" fn rust_profile_children<'index, I: ProfileChildren<'index> + Profile
     // Re-wrap with `boxed_new_inner` instead of `boxed_new_compound`: profiling is
     // a one-shot pass, so the result's children are already profiled and the
     // `ProfileChildren` callback would never be called again.
-    RQEIteratorWrapper::boxed_new_inner(profiled, None)
+    let ptr = RQEIteratorWrapper::boxed_new_inner(profiled, None);
+    if had_no_skip_to {
+        // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
+        // user today) across this rebox.
+        // SAFETY: `ptr` was just produced above and has no other alias yet.
+        unsafe { patch_vtable(ptr, |h| h.SkipTo = None) };
+    }
+    ptr
 }
 
 extern "C" fn free_iterator<'index, I: RQEIterator<'index> + 'index>(base: *mut QueryIterator) {

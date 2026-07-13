@@ -464,8 +464,16 @@ impl CRQEIterator {
             "Attempted to double-profile an iterator"
         );
         let profiled = self.profile_children();
+        let had_no_skip_to = profiled.SkipTo.is_none();
         let profile_wrapper = crate::profile::Profile::new(profiled);
-        CRQEIterator::from_rust_leaf(profile_wrapper)
+        let result = CRQEIterator::from_rust_leaf(profile_wrapper);
+        if had_no_skip_to {
+            // Preserve a root-only iterator's cleared `SkipTo` (top_k is the only
+            // user today) across the outer `Profile` rebox.
+            // SAFETY: `result` was just constructed above and has no other alias yet.
+            unsafe { crate::interop::patch_vtable(result.as_raw().as_ptr(), |h| h.SkipTo = None) };
+        }
+        result
     }
 }
 
