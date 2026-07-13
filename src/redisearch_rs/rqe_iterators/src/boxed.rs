@@ -154,9 +154,7 @@ pub trait RQESuspendedIterator<'query> {
     /// is acceptable — the underlying invariant is that the FFI consumer
     /// uses it for display only. Default returns 0 for iterators that do
     /// not maintain a cached estimate.
-    fn num_estimated(&self) -> usize {
-        0
-    }
+    fn num_estimated(&self) -> usize;
 }
 
 /// Dyn-safe sibling of [`RQEIteratorBoxed`].

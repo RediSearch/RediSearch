@@ -490,4 +490,8 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query> for SuspendedIdLis
     fn last_doc_id(&self) -> DocId {
         Self::suspended_result_doc_id(self)
     }
+
+    fn num_estimated(&self) -> usize {
+        self._num_estimated()
+    }
 }
