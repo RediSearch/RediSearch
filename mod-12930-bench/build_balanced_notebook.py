@@ -1,4 +1,5 @@
-"""Generate mod12930_balanced.ipynb — the balanced FULL suite."""
+"""Generate mod12930_balanced.ipynb. Machinery lives in bench_lib.py / balanced_lib.py /
+merger_sweep.py; the notebook is the narrative and the result tables."""
 
 import nbformat as nbf
 
@@ -7,26 +8,24 @@ cells = []
 md = lambda s: cells.append(nbf.v4.new_markdown_cell(s))
 code = lambda s: cells.append(nbf.v4.new_code_cell(s))
 
-md("""# MOD-12930 — balanced full suite
+md("""# MOD-12930 — FT.HYBRID vs its subqueries (balanced suite)
 
-Same contenders and axes as the main (imbalanced) suite, but the text query of every
-(size, depth) cell is **calibrated** so the SEARCH mirror's p50 matches the VSIM mirror's
-(±20%, geometric bisection on the target match count; the achieved ratio is recorded).
+FT.HYBRID is timed alongside its two subqueries run standalone (same K/WINDOW, same
+reply size). Per (size, depth) cell, the text query is tuned so the SEARCH subquery's
+latency is similar to the VSIM subquery's — with heavily skewed subqueries the comparison
+says little about concurrency or merge cost. Note the SEARCH numbers are therefore *not*
+the native scaling of one fixed text query.
 
-**Why balance:** with skewed branches, `hybrid ≈ max + C` and `hybrid ≈ sum + C'` fit the
-same measurement (sum − max = the small branch ≈ noise), so neither concurrency nor
-overhead is identifiable. Equal branches maximize sum − max, so the workers-0/workers-N
-pair separates "branches overlap" from "serial overhead C" and yields C twice, independently.
+**Matrix:** size (10K/100K/500K) × depth K/W (10/20, 50/100, 250/500) × workers=2 ×
+loader (keyspace access) on/off × 4 contenders. Dataset: dbpedia, 512-dim embeddings,
+HNSW cosine. Before timing, every configuration must pass a correctness gate: FT.HYBRID's
+output must equal an offline fusion of the two raw queries (tie-aware).
 
-**Matrix:** size (10K/100K/500K) × depth K/W (10/20, 50/100, 250/500 — giving the
-C(WINDOW) curve) × workers=2 × fields (none/title+text) × 4 contenders.
-A cell whose calibration cannot reach balance is recorded with `balanced=False`.""")
+Set `REUSE_RESULTS=1` to re-render tables from saved results without re-running.""")
 
 code("""import json, os
 import pandas as pd
 
-# Set REUSE_RESULTS=1 to re-render the tables from a previously saved run
-# without re-executing the benchmark.
 if os.environ.get('REUSE_RESULTS') and os.path.exists('results_balanced_full.json'):
     d = json.load(open('results_balanced_full.json'))
     results, gates, meta = d['results'], d['gates'], d['meta']
@@ -34,71 +33,41 @@ if os.environ.get('REUSE_RESULTS') and os.path.exists('results_balanced_full.jso
 else:
     import bench_lib as B
     import balanced_lib as BAL
-    titles, texts, emb, corpus_max = B.load_data()
-    results, gates, meta = BAL.run_balanced_full(titles, texts, emb, corpus_max)
+    results, gates, meta = BAL.run_balanced_full(*B.load_data())
     with open('results_balanced_full.json', 'w') as f:
         json.dump(dict(meta=meta, results=results, gates=gates), f, indent=2, default=str)
     pd.DataFrame(results).to_csv('results_balanced_full.csv', index=False)
     print('saved results_balanced_full.json / .csv')""")
 
-md("## Calibration & gates\n\n`balance_ratio` = search p50 / vsim p50 at calibration "
-   "(1.0 = perfect balance; a cell counts as balanced within ±20%).")
+md("## Calibration & gates\n\n`balance_ratio` = search p50 / vsim p50 at calibration.")
 
 code("pd.DataFrame(gates)")
 
-md("## p50 latency (ms)")
+md("## p50 latency (ms) by contender")
 
 code("""df = pd.DataFrame(results)
-pivot = df.pivot_table(index=['size', 'window', 'workers', 'fields'], columns='contender',
-                       values='p50_ms', sort=False).round(2)
-pivot[['hybrid_linear', 'hybrid_rrf', 'search_branch', 'vsim_branch']]""")
+df.pivot_table(index=['size', 'window', 'fields'], columns='contender',
+               values='p50_ms', sort=False).round(2)[
+    ['hybrid_linear', 'hybrid_rrf', 'search_branch', 'vsim_branch']]""")
 
-md("""## C — the serial overhead, and the C(WINDOW) curve
+md("""## Merger sweep
 
-fields=none. `C_w0 = hybrid − (search+vsim)`, `C_w6 = hybrid − max(search,vsim)`
-(mean latency). If depletion truly overlaps and C is genuinely serial, the two agree.
-`C/max` says how the overhead compares to running one entire branch.""")
-
-code("""m = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'workers'],
-        columns='contender', values='mean_ms', sort=False)
-mx = m[['search_branch', 'vsim_branch']].max(axis=1)
-sm = m[['search_branch', 'vsim_branch']].sum(axis=1)
-c = pd.DataFrame({'hybrid': m['hybrid_linear'], 'max_branch': mx, 'sum_branch': sm})
-c['C_ms'] = (c['hybrid'] - c['sum_branch']).where(
-    c.index.get_level_values('workers') == 0, c['hybrid'] - c['max_branch'])
-c['C_pct_of_max'] = (100 * c['C_ms'] / c['max_branch'])
-c['gain_hint'] = None
-c.round(2)""")
-
-md("### Parallelism gain per depth (`p50(w0)/p50(w_max)`, fields=none) — only when both were measured")
-
-code("""ws = sorted(df['workers'].unique())
-if len(ws) > 1 and 0 in ws:
-    p = df[df.fields == 'none'].pivot_table(index=['size', 'window', 'contender'],
-            columns='workers', values='p50_ms', sort=False)
-    p.columns = [f'w{c}' for c in p.columns]
-    p['gain'] = (p['w0'] / p[f'w{max(ws)}']).round(2)
-    display(p.round(2))
-else:
-    print(f'single workers setting measured ({ws}) — gain not applicable')""")
-
-md("""## Merger scenario sweep
-
-C = hybrid − max(search, vsim) with window, size and selectivity varied **independently**
-(the calibrated matrix above ties |matches| to the vector branch's latency). Grid:
-size × window × match-fraction (1% / 10% / 50% of corpus), fields=none.""")
+Same contenders with window, dataset size and text selectivity varied independently
+(match-fraction 1% / 10% / 50% of the corpus; the calibrated matrix above cannot separate
+these axes). Raw p50 per contender.""")
 
 code("""if os.environ.get('REUSE_RESULTS') and os.path.exists('results_merger_sweep.json'):
     sw = json.load(open('results_merger_sweep.json'))
-    sweep_results, sweep_meta = sw['results'], sw['meta']
+    sweep_results = sw['results']
     print('reusing saved results_merger_sweep.json')
 else:
     import bench_lib as B
     from merger_sweep import run_sweep
-    sweep_results, sweep_meta = run_sweep(*B.load_data())
+    sweep_results, _ = run_sweep(*B.load_data())
 
 sdf = pd.DataFrame(sweep_results)
-sdf.pivot_table(index='window', columns=['size', 'match_frac'], values='C_ms').round(2)""")
+sdf.pivot_table(index=['size', 'match_frac'], columns='window',
+                values=['hybrid_p50_ms', 'search_p50_ms', 'vsim_p50_ms']).round(2)""")
 
 nb["cells"] = cells
 nb["metadata"]["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}

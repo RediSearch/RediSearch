@@ -1,9 +1,9 @@
-"""Merger scenario sweep: C = hybrid − max(search, vsim) with window, dataset size and
-selectivity varied INDEPENDENTLY (the other suites tie or calibrate selectivity).
+"""Merger sweep: hybrid and its two subquery equivalents timed with window, dataset size
+and text selectivity varied independently (the balanced suite calibrates selectivity, so
+it cannot separate these axes).
 
-Grid: size x window x |matches| target (1% / 10% / 50% of corpus), workers=4, fields=none.
-Checks whether merger latency is connected to the scenario (|matches|, size) or only to
-WINDOW. Contenders: hybrid_linear + the two branch mirrors. Writes results_merger_sweep.json.
+Grid: size x window x match-fraction (1% / 10% / 50% of corpus), fields=none.
+Writes results_merger_sweep.json.
 """
 
 import json

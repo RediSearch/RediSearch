@@ -2,18 +2,11 @@
 Separate artifact — does NOT touch mod12930_report.html (the imbalanced suite)."""
 
 import json
-import os
 
 with open("results_balanced_full.json") as f:
     data = json.load(f)
 
-sweep = None
-if os.path.exists("results_merger_sweep.json"):
-    with open("results_merger_sweep.json") as f:
-        sweep = json.load(f)
-
-payload = json.dumps({"meta": data["meta"], "results": data["results"], "gates": data["gates"],
-                      "sweep": sweep})
+payload = json.dumps({"meta": data["meta"], "results": data["results"], "gates": data["gates"]})
 
 html = r"""<!DOCTYPE html>
 <html lang="en">

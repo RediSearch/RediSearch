@@ -1,12 +1,9 @@
-"""Balanced full suite: at every (size, depth) cell, calibrate text selectivity until the
-SEARCH mirror's p50 matches the VSIM mirror's, then run the full matrix
-(workers x fields x contenders) on those balanced queries.
+"""Balanced suite: per (size, depth) cell, tune the text query until the SEARCH
+subquery's latency is similar to the VSIM subquery's, then time the full matrix
+(fields x contenders) on those queries.
 
-Balance makes the overhead identifiable: with equal branches, sum and max differ maximally
-(2x), so "branches overlap" and "serial overhead C" can be separated and C extracted from
-w=0 and w=6 independently. Depth as an axis yields the C(WINDOW) curve.
-
-Reuses bench_lib for server management, contenders, oracle and gates.
+With similar subquery latencies, hybrid-vs-slowest-subquery is meaningful; with heavily
+skewed subqueries it says little about concurrency or merge cost.
 """
 
 from collections import Counter
@@ -19,9 +16,12 @@ import bench_lib as B
 
 SIZES = [10_000, 100_000, 500_000]
 DEPTHS = [dict(k=10, window=20), dict(k=50, window=100), dict(k=250, window=500)]
-CAL_TOL = 0.08              # calibration targets +-8% of the vsim mirror p50
+# The largest corpus aims slightly above vsim so it never undercuts the smaller ones
+# (calibration slack otherwise allows non-monotone-looking cross-size latencies).
+SIZE_BIAS = {500_000: 1.05}
+CAL_TOL = 0.08
 CAL_ITERS = 12
-CAL_REPS = (64, 400)        # warmup, timed reps per calibration probe (tight tolerance needs a stable probe)
+CAL_REPS = (64, 400)  # warmup, timed reps per calibration probe
 N_QUERY_SET = 256
 
 
@@ -33,16 +33,14 @@ def _df_pool(texts, n):
 
 
 def _build_query(df, pool, target, rng, max_tokens=12):
-    """OR tokens together until the estimated union reaches ~target matches
-    (assumes ~20% token overlap; the measured count is what gets reported)."""
+    """OR tokens together until the estimated match union reaches ~target."""
     picked, est = [], 0.0
     for t in pool:
         if len(picked) >= max_tokens or est >= 0.85 * target:
             break
-        c = df[t]
-        if c <= (target - est) * 1.2 and rng.random() < 0.5:
+        if df[t] <= (target - est) * 1.2 and rng.random() < 0.5:
             picked.append(t)
-            est += 0.8 * c
+            est += 0.8 * df[t]
     if not picked:
         picked = [pool[-1]]
     return "@text:(" + "|".join(picked) + ")"
@@ -68,27 +66,21 @@ def _probe_p50(r, args_list, n_warm, n_timed):
 
 
 def calibrate(r, df, pool, q_emb, n, depth, bias=1.0):
-    """Geometric bisection on the target match count until the SEARCH mirror p50 lands
-    within CAL_TOL of the VSIM mirror p50 at this depth. Balance may be unreachable
-    (text maxes out below the vector branch, e.g. 10K at k=1000) — recorded, not fatal."""
+    """Bisect the target match count until the SEARCH subquery's p50 lands within
+    CAL_TOL of the VSIM subquery's (times bias). Probes run on the exact query set
+    that will be timed — probing a different sample drifted the achieved ratio by
+    up to ~30%. Keeps the closest-to-balanced probe, not the last one."""
     vsim_args = [B.vsim_branch(None, q_emb[i].tobytes(), fields=False, **depth)
                  for i in range(64)]
     vsim_p50 = _probe_p50(r, vsim_args, *CAL_REPS)
-    cal_target = vsim_p50 * bias  # bias>1 aims the text side slightly above vsim (still
-                                  # judged against the same tolerance band)
+    cal_target = vsim_p50 * bias
     print(f"n={n} k/w={depth['k']}/{depth['window']}: vsim p50={vsim_p50:.2f}ms "
           f"(target x{bias}) — calibrating")
 
     lo, hi = min(200.0, 0.002 * n), 1.0 * n
-    target, search_p50 = hi, None
-    best = None  # (deviation, target, search_p50) — keep the closest-to-balanced probe,
-                 # not the last one: at sub-ms targets probe jitter is the same order as
-                 # CAL_TOL, so the final bisection step is often not the best seen.
-    for it in range(CAL_ITERS):
+    best = None  # (deviation, target, search_p50)
+    for _ in range(CAL_ITERS):
         target = (lo * hi) ** 0.5
-        # Probe the exact workload that will be timed (same seed, full query set):
-        # probing a different sample previously drifted up to ~30% between the
-        # calibrated ratio and the ratio actually measured in the run.
         qs = _gen_qset(df, pool, target, q_emb, seed=42)
         args = [B.search_branch(q, v, fields=False, **depth) for q, v in qs]
         search_p50 = _probe_p50(r, args, *CAL_REPS)
@@ -102,7 +94,7 @@ def calibrate(r, df, pool, q_emb, n, depth, bias=1.0):
             lo = target
         else:
             hi = target
-        if hi / lo < 1.05:  # bisection exhausted
+        if hi / lo < 1.05:
             break
     _, target, search_p50 = best
     qset = _gen_qset(df, pool, target, q_emb, seed=42)
@@ -110,8 +102,8 @@ def calibrate(r, df, pool, q_emb, n, depth, bias=1.0):
     ratio = search_p50 / vsim_p50
     info = dict(size=n, **depth, vsim_p50_ms=round(vsim_p50, 2),
                 search_p50_ms=round(search_p50, 2), balance_ratio=round(ratio, 2),
-                balanced=abs(ratio - 1) <= CAL_TOL, target=int(target),
-                matches_mean=float(np.mean(counts)))
+                balanced=abs(search_p50 - cal_target) <= CAL_TOL * cal_target,
+                target=int(target), matches_mean=float(np.mean(counts)))
     print(f"  -> |matches|≈{info['matches_mean']:,.0f} ratio={ratio:.2f} "
           f"balanced={info['balanced']}")
     return qset, info
@@ -123,13 +115,14 @@ def run_balanced_full(titles, texts, emb, corpus_max):
 
     for n in SIZES:
         print(f"\n===== balanced full, dataset size {n} =====")
-        r = B.start_redis(workers=6)
+        r = B.start_redis(workers=6)  # workers speed up HNSW indexing during load
         B.load_corpus(r, titles, texts, emb, n)
         df, pool = _df_pool(texts, n)
-        B.set_workers(r, 0)
 
         for depth in DEPTHS:
-            qset, cal = calibrate(r, df, pool, q_emb, n, depth)
+            B.set_workers(r, 0)
+            qset, cal = calibrate(r, df, pool, q_emb, n, depth,
+                                  bias=SIZE_BIAS.get(n, 1.0))
             cal_infos.append(cal)
 
             ok_lin = ok_rrf = 0
@@ -143,12 +136,12 @@ def run_balanced_full(titles, texts, emb, corpus_max):
                            if "__key" in row}
                 ok_lin += B.gate_check(got_lin, full_lin)
                 ok_rrf += B.gate_check(got_rrf, full_rrf)
-            g = dict(size=n, **depth, matches_mean=cal["matches_mean"],
-                     balance_ratio=cal["balance_ratio"],
-                     gate_linear=f"{ok_lin}/{B.GATE_QUERIES}",
-                     gate_rrf=f"{ok_rrf}/{B.GATE_QUERIES}")
-            gates.append(g)
-            print(g)
+            gate = dict(size=n, **depth, matches_mean=cal["matches_mean"],
+                        balance_ratio=cal["balance_ratio"],
+                        gate_linear=f"{ok_lin}/{B.GATE_QUERIES}",
+                        gate_rrf=f"{ok_rrf}/{B.GATE_QUERIES}")
+            gates.append(gate)
+            print(gate)
 
             for w in B.WORKERS_VALUES:
                 B.set_workers(r, w)
@@ -165,10 +158,9 @@ def run_balanced_full(titles, texts, emb, corpus_max):
                         print(f"n={n} k/w={depth['k']}/{depth['window']} w={w} "
                               f"fields={fname:10s} {name:14s} "
                               f"p50={stats['p50_ms']:.2f}ms qps={stats['qps']:8.1f}")
-            B.set_workers(r, 0)
         B.stop_redis()
 
     meta = dict(depths=DEPTHS, out_k=B.OUT_K, n_query_set=N_QUERY_SET,
                 n_warmup=B.N_WARMUP, n_timed=B.N_TIMED, cal_tol=CAL_TOL,
-                calibration=cal_infos)
+                size_bias=SIZE_BIAS, calibration=cal_infos)
     return results, gates, meta

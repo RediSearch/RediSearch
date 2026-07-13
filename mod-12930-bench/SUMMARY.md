@@ -72,4 +72,4 @@ are in the HTML report.
 
 On/off-CPU profiling; rerun on an isolated machine with a proper benchmarking framework
 and statistical analysis (p50–p999). Artifacts: branch `itzik-mod12930-bench` (notebook,
-results, HTML reports).
+results, HTML report).
