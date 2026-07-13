@@ -51,10 +51,13 @@ dominates and can mislead.
 ## Initial results
 
 (dbpedia, 512-dim, heavily using AI): no regression with growing result sets — hybrid
-tracks its slowest subquery consistently across all cells. The overhead (hybrid minus its
-slowest subquery) is smallest at window 20 with no loader, and grows with WINDOW as the
-merge workload itself grows. The exact commands, subquery equivalents, and full numbers
-are in the HTML report.
+tracks its slowest subquery consistently across all cells. Since the calibrated suite
+re-tunes the text query per cell, we also verified with a fixed query expression scaling
+naturally across corpus sizes (a broad query matching the whole corpus): hybrid scaled
+the same as its search subquery (both ~linear in |matches|). The overhead (hybrid minus
+its slowest subquery) is smallest at window 20 with no loader, and grows with WINDOW as
+the merge workload itself grows. The exact commands, subquery equivalents, and full
+numbers are in the HTML report.
 
 ## Disclaimers
 
