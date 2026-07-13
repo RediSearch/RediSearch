@@ -38,8 +38,8 @@ dominates and can mislead.
 - Not against a client-side implementation — too implementation-dependent.
 - Against the subquery equivalents (PRD requirement): hybrid vs max(search, vsim).
   Note: OpenSearch's `bool` baseline is a single pruned traversal — not comparable to ours.
-- Engineer text queries per cell so text latency is similar to the vector's (±20%) —
-  otherwise the comparison says little about merge cost.
+- Engineer text queries per cell so text latency is similar to the vector's (we used
+  ±8%) — otherwise the comparison says little about merge cost.
 - Axes: fixed window × growing result sets.
 - Rule out noise: parsing, cold index (warm after load; the first cold command measured
   3–4× slower), and serialization — equalize reply sizes via the LIMIT offset trick:
