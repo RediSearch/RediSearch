@@ -739,10 +739,10 @@ static void reindexDocAfterFieldExpirationGain(RedisModuleCtx *ctx, IndexSpec *s
   // table in one pass. If the schema FILTER no longer accepts the doc, delete it
   // instead — otherwise the stale entry (with a clear inline bit) keeps being
   // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
-  if (SchemaRule_ShouldIndex(spec, key, type)) {
-    IndexSpec_UpdateDoc(spec, ctx, key, type);
+  if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
+    IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
   } else {
-    IndexSpec_DeleteDoc(spec, ctx, key);
+    IndexSpec_DeleteDoc(spec, ctx, key, NULL);
   }
 }
 
