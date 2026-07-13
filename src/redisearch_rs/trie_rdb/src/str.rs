@@ -45,6 +45,29 @@ pub fn save<IO: RdbIO>(map: &StrTrieMap<TrieEntry>, writer: &mut IO, opts: RdbOp
     byte::save(map.byte_trie(), writer, opts);
 }
 
+/// Stream the entries of a serialized trie from `reader`, in stream order,
+/// into `sink`.
+///
+/// `opts` must match the [`RdbOpts`] used at save time. Each loaded key
+/// buffer is UTF-8 validated; on failure the load aborts with
+/// [`RdbError::InvalidUtf8`].
+///
+/// This is the building block for callers that store the entries in their
+/// own structure (possibly transforming keys on the way in) and would
+/// otherwise pay for an intermediate [`StrTrieMap`] build.
+pub fn load_entries<IO: RdbIO>(
+    reader: &mut IO,
+    opts: RdbOpts,
+    sink: impl FnMut(String, TrieEntry),
+) -> Result<(), RdbError> {
+    read_entries(
+        reader,
+        opts,
+        |bytes| String::from_utf8(bytes).map_err(|_| RdbError::InvalidUtf8),
+        sink,
+    )
+}
+
 /// Deserialize a [`StrTrieMap`] with an arbitrary payload type from
 /// `reader`.
 ///
@@ -58,14 +81,9 @@ pub fn load_with<P, IO: RdbIO>(
     mut payload: impl FnMut(TrieEntry) -> P,
 ) -> Result<StrTrieMap<P>, RdbError> {
     let mut map = StrTrieMap::new();
-    read_entries(
-        reader,
-        opts,
-        |bytes| String::from_utf8(bytes).map_err(|_| RdbError::InvalidUtf8),
-        |key, entry| {
-            map.insert(&key, payload(entry));
-        },
-    )?;
+    load_entries(reader, opts, |key, entry| {
+        map.insert(&key, payload(entry));
+    })?;
     Ok(map)
 }
 

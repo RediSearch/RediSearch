@@ -295,21 +295,16 @@ impl TermDictionary {
     /// [`char::to_lowercase`], and the dictionary's folded-keys invariant
     /// must hold for lookups to find them.
     pub fn rdb_load<IO: RdbIO>(reader: &mut IO) -> Result<Self, RdbError> {
-        let raw: StrTrieMap<TermEntry> =
-            str_rdb::load_with(reader, TERMS_RDB_OPTS, |entry| TermEntry {
-                score: entry.score as f32,
-                num_docs: entry.num_docs as usize,
-            })?;
         let mut dict = Self::new();
-        for (key, entry) in raw.iter() {
+        str_rdb::load_entries(reader, TERMS_RDB_OPTS, |key, entry| {
             dict.insert(
                 &key,
                 TermEntry {
-                    score: entry.score,
-                    num_docs: entry.num_docs,
+                    score: entry.score as f32,
+                    num_docs: entry.num_docs as usize,
                 },
             );
-        }
+        })?;
         Ok(dict)
     }
 
