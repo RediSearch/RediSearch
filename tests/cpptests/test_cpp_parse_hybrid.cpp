@@ -1320,9 +1320,11 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
 // ============================================================================
 
 TEST_F(ParseHybridTest, testCombineRRFWithoutArgument) {
-  // Test RANGE with missing YIELD_DISTANCE_AS value (early return before CheckEnd)
+  // Test RANGE with missing YIELD_DISTANCE_AS value
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "RRF", "0", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Explicitly specifying RRF requires at least one argument, argument count must be positive");
+  parseCommand(args);
+  // Verify default scoring type is RRF
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 }
 
 TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCount) {
