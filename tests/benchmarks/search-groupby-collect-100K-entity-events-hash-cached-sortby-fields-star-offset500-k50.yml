@@ -1,0 +1,40 @@
+version: 0.5
+name: "search-groupby-collect-100K-entity-events-hash-cached-sortby-fields-star-offset500-k50"
+description: "GROUPBY + COLLECT HASH benchmark with FIELDS * and LIMIT 500 50."
+
+metadata:
+  component: "search"
+  query_type: "groupby-collect"
+  backend: "hash"
+  projection: "fields-star"
+  window: "500-50"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+
+dbconfig:
+  - dataset_name: "groupby-collect-entity-events-100K-heavy-hash"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
+    - '"FT.CREATE" "idx:entity_events" "ON" "HASH" "PREFIX" "1" "entity:" "SCHEMA" "recordId" "NUMERIC" "SORTABLE" "entityName" "TEXT" "SORTABLE" "event_id" "AS" "eventId" "NUMERIC" "SORTABLE" "event_type" "AS" "type" "TAG" "event_target" "AS" "target" "TAG" "SORTABLE" "event_hasNotes" "AS" "hasNotes" "TAG" "event_processed" "AS" "processed" "TAG" "event_dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "event_payload" "AS" "payload" "TEXT" "NOINDEX"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-hash/groupby-collect-entity-events-100K-heavy-hash.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 100000
+
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - requests: 100000
+    - reporting-period: 1s
+    - duration: 120s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-hash/groupby-collect-entity-events-100K-heavy-hash.redisearch.commands.BENCH.QUERY_collect-fields-star-offset500-k50.csv"
