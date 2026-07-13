@@ -323,6 +323,9 @@ static TrieAddChildResult __trieNode_addChild_score(
       TrieNode_Children(n)[idx] = child;
       // the recursion left child->subtreeMaxScore correct; fold it upward
       updateScore(n, child->subtreeMaxScore);
+      // the fold can only have raised child's bound, so the array is still
+      // sorted except for child itself, which may now belong further left:
+      // rotate it into its slot
       TrieNode **children = TrieNode_Children(n);
       int dst = idx;
       while (dst > 0 && __trieNode_Cmp_Score(&children[dst - 1], &child) > 0) {
@@ -331,6 +334,7 @@ static TrieAddChildResult __trieNode_addChild_score(
       if (dst < idx) {
         memmove(&children[dst + 1], &children[dst], (idx - dst) * sizeof(TrieNode *));
         children[dst] = child;
+        // the key cache mirrors child order; refresh the rotated range
         for (int i = dst; i <= idx; i++) {
           *__trieNode_childKey(n, i) = children[i]->str[0];
         }
