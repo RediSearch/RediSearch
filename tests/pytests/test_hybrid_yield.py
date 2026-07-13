@@ -333,7 +333,7 @@ def test_hybrid_linear_combine_and_fused_score():
                     message="Results with COMBINE LINEAR count 0 should match results with COMBINE LINEAR count 4")
 
 def test_hybrid_rrf_combine_and_fused_score():
-    """Test that COMBINE with RRF method and constant of 0 is supported"""
+    """Test that COMBINE with RRF method and count of 0 is supported"""
     env = Env()
     setup_basic_index(env)
     query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
@@ -359,7 +359,7 @@ def test_hybrid_rrf_combine_and_fused_score():
     results_with_rrf, _ = get_results_from_hybrid_response(res_with_rrf)
 
     env.assertEqual(results, results_with_rrf,
-                    message="Results with COMBINE RRF constant 0 should match results with COMBINE RRF constant 60")
+                    message="Results with COMBINE RRF count 0 should match results with COMBINE RRF constant 60")
 
 def test_hybrid_multiple_yield_after_combine_error():
     """Test that multiple YIELD parameters after COMBINE keyword fail"""
