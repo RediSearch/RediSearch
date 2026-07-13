@@ -375,3 +375,36 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
         );
     })
 }
+
+/// `DocumentFormat::borrow` must not take ownership of the caller's key handle:
+/// dropping the loader must leave the handle open for the caller to close. This
+/// is the invariant that lets the AsyncScan `key_cb` reuse its pinned handle.
+#[test]
+#[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+fn borrow_does_not_close_caller_handle() {
+    redis_mock::init_redis_module_mock();
+
+    let key_name_bytes = CString::new("doc:1").unwrap();
+    with_ctx(KeyType::Hash, &[], |ctx| {
+        let format = HashDocumentFormat::new(ctx, false);
+        let key_name = make_redis_string(&key_name_bytes);
+
+        // Open a raw handle ourselves so we (not the loader) own it.
+        // Safety: the mock accepts any mode; `key_name.inner` is a mock string.
+        let raw_key = unsafe {
+            redis_module::raw::RedisModule_OpenKey.unwrap()(ctx.cast().as_ptr(), key_name.inner, 0)
+        };
+
+        {
+            // Safety: `raw_key` is a valid, open handle that outlives the loader.
+            let open_key = unsafe { raw_key.cast::<ffi::RedisModuleKey>().as_ref().unwrap() };
+            let _loader = format.borrow(open_key, &key_name).unwrap();
+            // `_loader` is dropped here; a borrowed handle must NOT be closed.
+        }
+
+        // We still own the handle, so we can close it exactly once. A double close
+        // (had `borrow` taken ownership) would abort the process.
+        // Safety: `raw_key` was opened above and has not been closed.
+        unsafe { redis_module::raw::RedisModule_CloseKey.unwrap()(raw_key) };
+    })
+}

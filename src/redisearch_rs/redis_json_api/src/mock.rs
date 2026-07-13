@@ -76,7 +76,7 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     nextKeyValue: Some(next_key_value),
     freeJson: Some(free_json),
     getArray: None,
-    getJsonFromHandle: None,
+    getJsonFromHandle: Some(get_json_from_handle),
 };
 
 /// View a `RedisJSON` handle as the `serde_json::Value` node it points at.
@@ -156,6 +156,23 @@ unsafe extern "C" fn open_key_with_flags(
 ) -> ffi::RedisJSON {
     // Safety: ensured by caller (1.)
     let state = unsafe { &*ctx.cast::<MockState>() };
+    match &state.doc {
+        Some(value) => ptr::from_ref(value).cast(),
+        None => ptr::null(),
+    }
+}
+
+/// Resolve an already-open key handle to the mock document's JSON root. The mock
+/// represents the handle by the same [`MockState`] pointer as the context.
+///
+/// # Safety
+///
+/// 1. `key` must be a [valid], non-null pointer to a mock context created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_json_from_handle(key: *mut ffi::RedisModuleKey) -> ffi::RedisJSON {
+    // Safety: ensured by caller (1.)
+    let state = unsafe { &*key.cast::<MockState>() };
     match &state.doc {
         Some(value) => ptr::from_ref(value).cast(),
         None => ptr::null(),
