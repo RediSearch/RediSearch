@@ -144,13 +144,10 @@ jobs:
           python3 scripts/cargo_deny_advisory_gate.py \
             --manifest-path "$MANIFEST_PATH" \
             "${ARGS[@]}"
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Dependency licenses
         id: dep-licenses
         continue-on-error: true
-        with:
-          command: check licenses
-          arguments: --all-features
-          manifest-path: src/redisearch_rs/Cargo.toml
+        run: cargo-deny --manifest-path src/redisearch_rs/Cargo.toml --all-features check licenses
       - name: Workspace hack check
         id: workspace_hack
         working-directory: src/redisearch_rs

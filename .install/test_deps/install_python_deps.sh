@@ -29,11 +29,28 @@ activate_venv() {
 	fi
 }
 
+# On musl (Alpine), uv's standalone CPython is clang-built and bakes
+# clang-only flags (--rtlib=compiler-rt) into its sysconfig, so sdist-only
+# deps (psutil, ml-dtypes) fail to compile with the system gcc — build
+# them with the clang toolchain the LTO setup already installed instead.
+# Prefer CPython 3.13 when uv can provide it for the current platform: the
+# locked scipy/numpy versions have cp313 musllinux wheels, while Alpine edge
+# may ship a newer system Python that forces source builds. On platforms where
+# uv cannot provide 3.13, keep the distro Python fallback.
+if [[ -f /etc/alpine-release ]]; then
+    export CC=clang CXX=clang++
+    if uv python list 3.13 2>/dev/null | grep -q .; then
+        export UV_PYTHON=3.13
+    fi
+fi
+
 # Create a virtual environment for Python tests, with `pip` pre-installed (--seed).
 # --clear ensures a partial .venv left behind by a failed (e.g. network-timed-out)
 # attempt is replaced rather than causing "virtual environment already exists" on retry.
 uv venv --seed --clear
-activate_venv
+if [[ "${SKIP_VENV_PROFILE_ACTIVATION:-0}" != 1 ]]; then
+	activate_venv
+fi
 source .venv/bin/activate
 uv sync --locked --all-packages
 
