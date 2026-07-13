@@ -49,7 +49,10 @@ pub struct RawIdListLazy<'query, Rf: Ref, const SORTED: bool> {
     num_estimated_hint: usize,
 }
 
+/// Alias for an [`Active`] [`RawIdListLazy`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
 pub type IdListLazy<'index, const SORTED: bool> = RawIdListLazy<'index, Active<'index>, SORTED>;
+/// Alias for a [`Suspended`] [`RawIdListLazy`].
 pub type SuspendedIdListLazy<'query, const SORTED: bool> = RawIdListLazy<'query, Suspended, SORTED>;
 
 // Compile-time proof that the `IdListLazy` and its suspended counterpart are layout-identical.

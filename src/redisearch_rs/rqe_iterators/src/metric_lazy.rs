@@ -54,7 +54,11 @@ pub struct RawMetricLazy<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     num_estimated_hint: usize,
 }
 
+/// Alias for an [`Active`] [`RawMetricLazy`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
 pub type MetricLazy<'index, const SORTED: bool> = RawMetricLazy<'index, Active<'index>, SORTED>;
+/// Alias for an [`Active`] [`RawMetricLazy`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
 pub type SuspendedMetricLazy<'query, const SORTED: bool> = RawMetricLazy<'query, Suspended, SORTED>;
 
 // Compile-time proof that the `MetricLazy` and its suspended counterpart are layout-identical.
