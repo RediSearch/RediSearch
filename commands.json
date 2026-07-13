@@ -2394,18 +2394,24 @@
                     "token": "ADHOC"
                   },
                   {
-                    "name": "batches",
-                    "type": "pure-token",
-                    "token": "BATCHES"
+                    "name": "batches_policy",
+                    "type": "block",
+                    "arguments": [
+                      {
+                        "name": "batches",
+                        "type": "pure-token",
+                        "token": "BATCHES"
+                      },
+                      {
+                        "name": "batch_size_value",
+                        "type": "integer",
+                        "token": "BATCH_SIZE",
+                        "optional": true,
+                        "since": "8.4.3"
+                      }
+                    ]
                   }
                 ]
-              },
-              {
-                "name": "batch_size_value",
-                "type": "integer",
-                "token": "BATCH_SIZE",
-                "optional": true,
-                "since": "8.4.3"
               }
             ]
           }

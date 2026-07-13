@@ -2611,19 +2611,26 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
                   },
                   {
-                    .name = "batches",
-                    .token = "BATCHES",
-                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                    .name = "batches_policy",
+                    .type = REDISMODULE_ARG_TYPE_BLOCK,
+                    .subargs = (RedisModuleCommandArg[]){
+                      {
+                        .name = "batches",
+                        .token = "BATCHES",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                      },
+                      {
+                        .name = "batch_size_value",
+                        .token = "BATCH_SIZE",
+                        .since = "8.4.3",
+                        .type = REDISMODULE_ARG_TYPE_INTEGER,
+                        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                      },
+                      {0}
+                    },
                   },
                   {0}
                 },
-              },
-              {
-                .name = "batch_size_value",
-                .token = "BATCH_SIZE",
-                .since = "8.4.3",
-                .type = REDISMODULE_ARG_TYPE_INTEGER,
-                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
               },
               {0}
             },
