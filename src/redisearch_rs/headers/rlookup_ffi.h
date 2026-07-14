@@ -67,14 +67,14 @@ typedef struct RSSortingVectorSlice {
   size_t len;
 } RSSortingVectorSlice;
 
-typedef struct RLookupLoadAllOptions {
+typedef struct LoadAllKeysOptions {
   RedisSearchCtx *sctx;
   const RSDocumentMetadata *dmd;
   bool force_string;
   struct QueryError *status;
-} RLookupLoadAllOptions;
+} LoadAllKeysOptions;
 
-typedef struct RLookupLoadIndividualOptions {
+typedef struct LoadIndividualKeysOptions {
   RedisSearchCtx *sctx;
   const RSDocumentMetadata *dmd;
   /**
@@ -87,7 +87,7 @@ typedef struct RLookupLoadIndividualOptions {
   bool force_load;
   bool cached_only;
   struct QueryError *status;
-} RLookupLoadIndividualOptions;
+} LoadIndividualKeysOptions;
 
 /**
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
@@ -631,14 +631,14 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *looku
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
  * 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
- * 3. `opts` must be a [valid], non-null pointer to an [`RLookupLoadAllOptions`] whose `sctx`,
+ * 3. `opts` must be a [valid], non-null pointer to an [`LoadAllKeysOptions`] whose `sctx`,
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, struct RLookupLoadAllOptions *opts);
+int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadAllKeysOptions *opts);
 
 /**
  * Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
@@ -647,14 +647,17 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
  * 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
- * 3. `opts` must be a [valid], non-null pointer to an [`RLookupLoadIndividualOptions`] whose
+ * 3. `opts` must be a [valid], non-null pointer to an [`LoadIndividualKeysOptions`] whose
  *    `sctx`, `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
+ * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
+ *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
+ *    pointer to a properly initialized key that outlives this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, struct RLookupLoadIndividualOptions *opts);
+int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadIndividualKeysOptions *opts);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list.

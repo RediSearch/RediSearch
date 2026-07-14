@@ -2231,6 +2231,7 @@ version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
  "cheadergen",
+ "document",
  "document_metadata",
  "ffi",
  "libc",

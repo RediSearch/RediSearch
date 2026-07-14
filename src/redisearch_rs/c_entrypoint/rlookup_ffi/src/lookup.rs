@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use document::DocumentType;
 use document_metadata::DocumentMetadata;
-use ffi::DocumentType;
 use libc::size_t;
 use query_error::opaque::OpaqueQueryError;
 use query_error::{QueryError, QueryErrorCode};
@@ -658,7 +658,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 
 #[repr(C)]
 #[cheadergen::config(export)]
-pub struct RLookupLoadAllOptions {
+pub struct LoadAllKeysOptions {
     pub sctx: *mut ffi::RedisSearchCtx,
     pub dmd: *const ffi::RSDocumentMetadata,
     pub force_string: bool,
@@ -667,7 +667,7 @@ pub struct RLookupLoadAllOptions {
 
 #[repr(C)]
 #[cheadergen::config(export)]
-pub struct RLookupLoadIndividualOptions {
+pub struct LoadIndividualKeysOptions {
     pub sctx: *mut ffi::RedisSearchCtx,
     pub dmd: *const ffi::RSDocumentMetadata,
     /// Explicit list of keys to load. If `nkeys == 0`, every loadable schema
@@ -686,7 +686,7 @@ pub struct RLookupLoadIndividualOptions {
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
 /// 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
-/// 3. `opts` must be a [valid], non-null pointer to an [`RLookupLoadAllOptions`] whose `sctx`,
+/// 3. `opts` must be a [valid], non-null pointer to an [`LoadAllKeysOptions`] whose `sctx`,
 ///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
@@ -696,7 +696,7 @@ pub struct RLookupLoadIndividualOptions {
 pub unsafe extern "C" fn RLookup_LoadDocumentAll(
     lookup: Option<NonNull<OpaqueRLookup>>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
-    opts: Option<NonNull<RLookupLoadAllOptions>>,
+    opts: Option<NonNull<LoadAllKeysOptions>>,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
@@ -744,13 +744,21 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 
     match res {
         Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) if err.is_stale_document() => {
+            tracing::debug!(
+                ?dmd,
+                "rlookup::load_document::load_all_keys skipped stale document: {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
         Err(err) => {
             tracing::error!(
-                lookup = ?lookup,
-                dst_row = ?dst_row,
-                dmd = ?dmd,
-                search_ctx = ?search_ctx,
-                force_string = ?opts.force_string,
+                ?lookup,
+                ?dst_row,
+                ?dmd,
+                ?search_ctx,
+                ?opts.force_string,
                 "rlookup::load_document::load_all_keys failed with {err:?}"
             );
 
@@ -765,17 +773,20 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
 /// 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
-/// 3. `opts` must be a [valid], non-null pointer to an [`RLookupLoadIndividualOptions`] whose
+/// 3. `opts` must be a [valid], non-null pointer to an [`LoadIndividualKeysOptions`] whose
 ///    `sctx`, `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
+/// 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
+///    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
+///    pointer to a properly initialized key that outlives this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     lookup: Option<NonNull<OpaqueRLookup>>,
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
-    opts: Option<NonNull<RLookupLoadIndividualOptions>>,
+    opts: Option<NonNull<LoadIndividualKeysOptions>>,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
@@ -805,22 +816,17 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     // the duration of this call: the lookup outlives us, and `load_specific`
     // does not mutate the key list.
     let key_ptrs: Vec<*const RLookupKey<'_>> = if opts.nkeys > 0 {
-        // SAFETY: caller (3.) — `opts.keys` points to `nkeys` valid
+        debug_assert!(!opts.keys.is_null(), "keys must be non-null when nkeys > 0");
+        // SAFETY: caller (5.) — `opts.keys` points to `nkeys` valid
         // `*const ffi::RLookupKey`. `ffi::RLookupKey` and `RLookupKey` share a
         // layout (the C `RLookupKey` mirrors the Rust definition via cheadergen).
         let raw = unsafe { slice::from_raw_parts(opts.keys, opts.nkeys) };
         raw.iter().map(|&p| p.cast::<RLookupKey<'_>>()).collect()
     } else {
-        let iter = lookup
-            .iter()
-            .filter(|k| k.flags.contains(RLookupKeyFlag::SchemaSrc));
-        if opts.cached_only && !opts.force_load {
-            iter.filter(|k| k.flags.contains(RLookupKeyFlag::SvSrc))
-                .map(ptr::from_ref)
-                .collect()
-        } else {
-            iter.map(ptr::from_ref).collect()
-        }
+        lookup
+            .schema_src_keys(opts.cached_only, opts.force_load)
+            .map(ptr::from_ref)
+            .collect()
     };
     // SAFETY: see comment on `key_ptrs` above — pointees are valid for the
     // duration of this call.
@@ -854,14 +860,24 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 
     match res {
         Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) if err.is_stale_document() => {
+            tracing::debug!(
+                ?dmd,
+                "rlookup::load_document::load_specific_keys skipped stale document: {err:?}"
+            );
+
+            status.set_code(err.to_query_error_code());
+
+            ffi::REDISMODULE_ERR as i32
+        }
         Err(err) => {
             tracing::error!(
-                lookup = ?lookup,
-                dst_row = ?dst_row,
-                dmd =?dmd,
-                search_ctx = ?search_ctx,
-                force_load = ?opts.force_load,
-                cached_only = ?opts.cached_only,
+                ?lookup,
+                ?dst_row,
+                ?dmd,
+                ?search_ctx,
+                ?opts.force_load,
+                ?opts.cached_only,
                 "rlookup::load_document::load_specific_keys failed with {err:?}"
             );
 

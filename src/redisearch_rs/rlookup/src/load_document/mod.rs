@@ -76,6 +76,12 @@ impl LoadFieldError {
             Self::JsonUnsupported => QueryErrorCode::UnsuppType,
         }
     }
+
+    /// Whether this error is the expected outcome of a document being deleted,
+    /// expiring, or changing type between the iterator and the loader.
+    pub const fn is_stale_document(&self) -> bool {
+        matches!(self, Self::KeyNotFound | Self::WrongKeyType)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -91,6 +97,14 @@ pub enum LoadAllError {
     /// Failed to serialize JSON value to string.
     #[error(transparent)]
     JsonSerialization(#[from] redis_json_api::SerializeError),
+}
+
+impl LoadAllError {
+    /// Whether this error is the expected outcome of a document being deleted,
+    /// expiring, or changing type between the iterator and the loader.
+    pub const fn is_stale_document(&self) -> bool {
+        matches!(self, Self::OpenKeyFailed | Self::JsonRootMissing)
+    }
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {

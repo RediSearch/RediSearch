@@ -955,7 +955,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      RLookupLoadAllOptions opts = {
+      LoadAllKeysOptions opts = {
           .sctx = self->sctx,
           .dmd = dmd,
           .force_string = true,
@@ -963,7 +963,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
       };
       ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      RLookupLoadIndividualOptions opts = {
+      LoadIndividualKeysOptions opts = {
           .sctx = self->sctx,
           .dmd = dmd,
           .keys = self->keys,

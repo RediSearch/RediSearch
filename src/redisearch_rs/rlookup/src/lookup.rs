@@ -404,6 +404,23 @@ impl<'a> RLookup<'a> {
         self.keys.rowlen
     }
 
+    /// Returns the schema-source keys eligible for individual document loading.
+    ///
+    /// Mirrors the C `loadIndividualKeys` selection for the "load every loadable
+    /// key" case (`nkeys == 0`): only keys flagged [`RLookupKeyFlag::SchemaSrc`]
+    /// are considered, and when `cached_only` is set without `force_load` the set
+    /// is further restricted to keys backed by the sorting vector
+    /// ([`RLookupKeyFlag::SvSrc`]).
+    pub fn schema_src_keys(
+        &self,
+        cached_only: bool,
+        force_load: bool,
+    ) -> impl Iterator<Item = &RLookupKey<'a>> {
+        self.iter()
+            .filter(|k| k.flags.contains(RLookupKeyFlag::SchemaSrc))
+            .filter(move |k| !cached_only || force_load || k.flags.contains(RLookupKeyFlag::SvSrc))
+    }
+
     /// `open_key`, when `Some`, is an already-open handle for `key_name` that the loader
     /// reuses instead of opening the document by name; it is borrowed, not closed here.
     pub fn load_rule_fields(
@@ -1332,5 +1349,80 @@ mod tests {
         res.fieldPath =
             unsafe { ffi::NewHiddenString(field_path.as_ptr(), field_path.count_bytes(), false) };
         res
+    }
+
+    /// Build an [`RLookup`] whose key list mirrors the selection cases exercised by
+    /// `schema_src_keys`: a non-schema key (must never be selected), a schema key
+    /// without a sorting-vector source, and a schema key with one.
+    fn rlookup_with_selection_keys<'a>() -> RLookup<'a> {
+        let mut rlookup = RLookup::new();
+        rlookup.keys.push(RLookupKey::new(
+            c"query_only",
+            make_bitflags!(RLookupKeyFlag::QuerySrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_no_sv",
+            make_bitflags!(RLookupKeyFlag::SchemaSrc),
+        ));
+        rlookup.keys.push(RLookupKey::new(
+            c"schema_sv",
+            make_bitflags!(RLookupKeyFlag::{SchemaSrc | SvSrc}),
+        ));
+        rlookup
+    }
+
+    fn selected_names<'a>(
+        rlookup: &'a RLookup<'a>,
+        cached_only: bool,
+        force_load: bool,
+    ) -> Vec<CString> {
+        rlookup
+            .schema_src_keys(cached_only, force_load)
+            .map(|k| k.name().as_ref().to_owned())
+            .collect()
+    }
+
+    // Non-schema keys (e.g. QuerySrc) are never selected for individual loading.
+    #[test]
+    fn schema_src_keys_excludes_non_schema_keys() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, false, false);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // `cached_only && !force_load` restricts the selection to sorting-vector-backed keys.
+    #[test]
+    fn schema_src_keys_cached_only_restricts_to_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, false);
+        assert_eq!(names, vec![c"schema_sv".to_owned()]);
+    }
+
+    // `force_load` overrides `cached_only`: all schema keys are selected again.
+    #[test]
+    fn schema_src_keys_force_load_overrides_cached_only() {
+        let rlookup = rlookup_with_selection_keys();
+        let names = selected_names(&rlookup, true, true);
+        assert_eq!(
+            names,
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+    }
+
+    // Without `cached_only`, the SvSrc flag has no effect on the selection.
+    #[test]
+    fn schema_src_keys_not_cached_only_ignores_sv_src() {
+        let rlookup = rlookup_with_selection_keys();
+        assert_eq!(
+            selected_names(&rlookup, false, true),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
+        assert_eq!(
+            selected_names(&rlookup, false, false),
+            vec![c"schema_no_sv".to_owned(), c"schema_sv".to_owned()]
+        );
     }
 }

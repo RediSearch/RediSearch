@@ -1017,7 +1017,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RSValue *rv = NULL;
   IndexSpecCache *spcache = NULL;
   ExprEval evaluator = {0};
-  RLookupLoadIndividualOptions opts = {0};
+  LoadIndividualKeysOptions opts = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
   dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
@@ -1038,7 +1038,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  opts = (RLookupLoadIndividualOptions){
+  opts = (LoadIndividualKeysOptions){
       .sctx = sctx,
       .dmd = dmd,
       .force_string = false,
