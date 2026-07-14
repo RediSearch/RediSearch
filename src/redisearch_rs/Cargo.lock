@@ -1804,6 +1804,8 @@ dependencies = [
  "cheadergen",
  "enumflags2",
  "rqe_core",
+ "strum",
+ "thiserror",
  "workspace_hack",
 ]
 
