@@ -21,8 +21,13 @@
 //! are not valid UTF-8 never match.
 //!
 //! - [`case_fold`]: [`CaseFoldExact`] — case-insensitive exact match.
+//! - [`wildcard`]: [`CodepointWildcard`] — wildcard matching where `?`
+//!   consumes one codepoint, plus its trie automaton
+//!   ([`CodepointWildcardNfa`]).
 
 pub mod case_fold;
 mod utf8;
+pub mod wildcard;
 
 pub use case_fold::CaseFoldExact;
+pub use wildcard::{CodepointWildcard, CodepointWildcardNfa};
