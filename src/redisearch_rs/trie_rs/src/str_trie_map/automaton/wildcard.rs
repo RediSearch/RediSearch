@@ -335,7 +335,7 @@ mod tests {
         // Literals compare codepoints, case-sensitively.
         ("café", "café", true),
         ("café", "CAFÉ", false),
-        ("caf?", "café", true),
+        ("clich?", "cliché", true),
         // * matches any run of codepoints, including none.
         ("*", "", true),
         ("*", "日本語", true),

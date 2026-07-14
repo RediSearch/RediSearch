@@ -62,7 +62,7 @@ fn agrees_with_oracle_on_seed_patterns() {
     let trie = build_trie();
 
     for pattern in [
-        "*", "", "entr?", "entr*", "*é", "*é*", "caf?", "caf*", "?????", "日*", "*語", " έ*",
+        "*", "", "entr?", "entr*", "*é", "*é*", "ca?é", "ca*", "?????", "日*", "*語", " έ*",
         "*n*", "xyz*",
     ] {
         assert_eq!(
