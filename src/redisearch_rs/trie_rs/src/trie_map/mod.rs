@@ -22,7 +22,7 @@ use crate::trie_map::{
     node::Node,
     utils::strip_prefix,
 };
-use rqe_wildcard::{Token, WildcardPattern};
+use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -234,39 +234,34 @@ impl<Data> TrieMap<Data> {
         // while the NFA arms simply drop it on return.
         match WildcardBackend::for_pattern(&pattern) {
             WildcardBackend::U64 => {
-                let nfa = WildcardNfa::<u64>::compile(&pattern);
-                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardIter::U64(iter)
+                WildcardIter::U64(self.automaton_iter(WildcardNfa::<u64>::compile(&pattern)))
             }
             WildcardBackend::U128 => {
-                let nfa = WildcardNfa::<u128>::compile(&pattern);
-                let iter = self.automaton_iter_with_prefix_shortcut(pattern.tokens(), nfa);
-                WildcardIter::U128(iter)
+                WildcardIter::U128(self.automaton_iter(WildcardNfa::<u128>::compile(&pattern)))
             }
             WildcardBackend::Filter => WildcardIter::Filter(self.wildcard_filter_iter(pattern)),
         }
     }
 
-    fn automaton_iter_with_prefix_shortcut<A: Automaton>(
-        &self,
-        tokens: &[Token<'_>],
-        automaton: A,
-    ) -> AutomatonIter<'_, Data, A> {
+    /// Iterate over the entries accepted by `automaton`, in lexicographical
+    /// key order. See [`Automaton`] for the state-machine contract and
+    /// [`AutomatonIter`] for the traversal it drives.
+    ///
+    /// If the automaton reports a [literal prefix](Automaton::literal_prefix),
+    /// the traversal jumps straight to the subtree containing every key with
+    /// that prefix instead of descending from the root.
+    pub fn automaton_iter<A: Automaton>(&self, automaton: A) -> AutomatonIter<'_, Data, A> {
         let Some(root) = self.root.as_ref() else {
             return AutomatonIter::empty(automaton);
         };
-        // If the pattern starts with a literal, jump straight to the subtree
-        // containing every key with that prefix and let the iterator pick up
-        // from there.
-        if let Some(Token::Literal(lit)) = tokens.first() {
-            match root.find_root_for_prefix(lit) {
+        match automaton.literal_prefix() {
+            Some(prefix) => match root.find_root_for_prefix(prefix) {
                 Some((subroot, subroot_prefix)) => {
                     AutomatonIter::new(Some(subroot), subroot_prefix, automaton)
                 }
                 None => AutomatonIter::empty(automaton),
-            }
-        } else {
-            AutomatonIter::new(Some(root), Vec::new(), automaton)
+            },
+            None => AutomatonIter::new(Some(root), Vec::new(), automaton),
         }
     }
 
