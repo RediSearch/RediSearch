@@ -12,7 +12,7 @@
 //!
 //! Gated behind the `test-utils` feature.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -88,6 +88,13 @@ pub struct MockScoreSource {
     /// reranking (the default); `Some` map rescores any retained doc it
     /// contains and leaves the rest untouched.
     rerank_scores: Option<HashMap<DocId, f64>>,
+    /// Doc ids reported expired by [`ScoreSource::is_expired`]. Empty by default.
+    expired: HashSet<DocId>,
+    /// Number of [`ScoreSource::check_timeout`] calls after which it starts
+    /// reporting a fired deadline. `None` (default) never times out.
+    timeout_after_n_checks: Option<usize>,
+    /// Count of [`ScoreSource::check_timeout`] calls so far.
+    n_timeout_checks: usize,
 }
 
 impl MockScoreSource {
@@ -113,6 +120,9 @@ impl MockScoreSource {
             batch_strategy: Box::new(batch_strategy),
             num_estimated,
             rerank_scores: None,
+            expired: HashSet::new(),
+            timeout_after_n_checks: None,
+            n_timeout_checks: 0,
         }
     }
 
@@ -128,6 +138,19 @@ impl MockScoreSource {
     /// of labels with no exact distance.
     pub fn with_rerank(mut self, scores: Vec<(DocId, f64)>) -> Self {
         self.rerank_scores = Some(scores.into_iter().collect());
+        self
+    }
+
+    /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
+    pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
+        self.expired = docs.into_iter().collect();
+        self
+    }
+
+    /// Make [`ScoreSource::check_timeout`] report a fired deadline from its
+    /// `n`-th call onward (1-based).
+    pub fn with_timeout_after(mut self, n: usize) -> Self {
+        self.timeout_after_n_checks = Some(n);
         self
     }
 }
@@ -151,6 +174,10 @@ impl ScoreSource for MockScoreSource {
         self.scores.get(&doc_id).copied()
     }
 
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.expired.contains(&result.doc_id)
+    }
+
     fn num_estimated(&self) -> usize {
         self.num_estimated
     }
@@ -168,6 +195,17 @@ impl ScoreSource for MockScoreSource {
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         (self.batch_strategy)(heap_count, k)
+    }
+
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        self.n_timeout_checks += 1;
+        if self
+            .timeout_after_n_checks
+            .is_some_and(|n| self.n_timeout_checks >= n)
+        {
+            return Err(RQEIteratorError::TimedOut);
+        }
+        Ok(())
     }
 
     fn should_rerank(&self) -> bool {

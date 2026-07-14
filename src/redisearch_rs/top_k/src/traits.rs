@@ -118,6 +118,16 @@ pub trait ScoreSource {
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
 
+    /// Whether `result` is no longer valid and must not be surfaced
+    /// (e.g. its field has expired).
+    ///
+    /// Queried on the result about to be yielded, so the answer must reflect
+    /// the document's current state rather than state captured during
+    /// collection. The default never expires.
+    fn is_expired(&self, _result: &RSIndexResult) -> bool {
+        false
+    }
+
     /// Called at the start of an adhoc scan, before any
     /// [`lookup_score`](Self::lookup_score) call in that scan.
     ///
@@ -206,6 +216,10 @@ pub trait ScoreSource {
     /// - `heap_count` — number of results currently in the heap.
     /// - `k` — the target number of results.
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy;
+
+    /// Poll the query deadline, returning [`RQEIteratorError::TimedOut`] once
+    /// it has been reached.
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
 
     /// The [`IteratorType`] that the wrapping [`TopKIterator`] should report.
     ///

@@ -30,4 +30,5 @@ redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
 ]}
 rqe_core.workspace = true
 rqe_iterators = {workspace = true, features = ["unittest"]}
+rqe_iterators_test_utils.workspace = true
 vector_score_source = {path = ".", features = ["unittest"]}

@@ -15,12 +15,14 @@
 #[expect(clippy::undocumented_unsafe_blocks)]
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod mock_context;
+pub mod mock_expiration;
 #[expect(clippy::undocumented_unsafe_blocks)]
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
 use index_spec::IndexSpecReadGuard;
 pub use mock_context::MockContext;
+pub use mock_expiration::MockExpirationChecker;
 use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator, TypeErasedRQESuspendedIterator};
 pub use test_context::{GlobalGuard, TestContext};
 
