@@ -301,6 +301,27 @@ static TrieAddChildResult __trieNode_addChild_lex(
   return (TrieAddChildResult){.node = n, .rc = TRIE_OK_NEW};
 }
 
+/* Restore descending-subtreeMaxScore child order after children[idx]'s bound
+ * rose: rotate it left into its slot, keeping the child-key cache in sync.
+ * Strict comparison so equal-score siblings keep their order (the tie order
+ * callers like FT.SUGGET observe). */
+void __trieNode_rotateChildIntoPlace(TrieNode *n, int idx) {
+  TrieNode **children = TrieNode_Children(n);
+  TrieNode *child = children[idx];
+  int dst = idx;
+  while (dst > 0 && children[dst - 1]->subtreeMaxScore < child->subtreeMaxScore) {
+    dst--;
+  }
+  if (dst < idx) {
+    memmove(&children[dst + 1], &children[dst], (idx - dst) * sizeof(TrieNode *));
+    children[dst] = child;
+    // the key cache mirrors child order; refresh the rotated range
+    for (int i = dst; i <= idx; i++) {
+      *__trieNode_childKey(n, i) = children[i]->str[0];
+    }
+  }
+}
+
 // Score-mode child placement. Children are kept sorted by descending
 // subtreeMaxScore; a recursed update may invalidate that order. Bounds only
 // grow during an insert, so the updated child can only be out of order towards
@@ -322,24 +343,9 @@ static TrieAddChildResult __trieNode_addChild_score(
       TrieNode_Children(n)[idx] = child;
       // the recursion left child->subtreeMaxScore correct; fold it upward
       updateScore(n, child->subtreeMaxScore);
-      // the fold can only have raised child's bound, so the array is still
-      // sorted except for child itself, which may now belong further left:
-      // rotate it into its slot. Compare scores only, with strict inequality:
-      // equal-score siblings must keep their existing order, which callers
-      // like FT.SUGGET observe as the tie order of equally-scored results.
-      TrieNode **children = TrieNode_Children(n);
-      int dst = idx;
-      while (dst > 0 && children[dst - 1]->subtreeMaxScore < child->subtreeMaxScore) {
-        dst--;
-      }
-      if (dst < idx) {
-        memmove(&children[dst + 1], &children[dst], (idx - dst) * sizeof(TrieNode *));
-        children[dst] = child;
-        // the key cache mirrors child order; refresh the rotated range
-        for (int i = dst; i <= idx; i++) {
-          *__trieNode_childKey(n, i) = children[i]->str[0];
-        }
-      }
+      // the fold can only have raised child's bound, so it may now belong
+      // further left; restore the order
+      __trieNode_rotateChildIntoPlace(n, idx);
       return (TrieAddChildResult){.node = n, .rc = rc};
     }
     // keep the index that fits the score

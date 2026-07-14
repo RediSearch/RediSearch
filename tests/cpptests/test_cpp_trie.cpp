@@ -498,6 +498,66 @@ TEST_F(TrieTest, testScoreOrderMaintainedAfterIncrStorm) {
   TrieNode_Free(root, NULL);
 }
 
+// Assert the first rune of each child of root, in child-array order.
+static void assertChildOrder(TrieNode *root, const char *firstRunes) {
+  size_t expected = strlen(firstRunes);
+  ASSERT_EQ(TrieNode_NumChildren(root), expected);
+  TrieNode **children = TrieNode_Children(root);
+  for (size_t i = 0; i < expected; i++) {
+    EXPECT_EQ(children[i]->str[0], (rune)firstRunes[i]) << "child " << i;
+  }
+}
+
+// Whitebox tests for __trieNode_rotateChildIntoPlace: raise one child's bound,
+// rotate, check order, tie stability, and key-cache consistency.
+TEST_F(TrieTest, testRotateChildIntoPlace) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  // descending scores append in order: children are [delta, charlie, bravo, alpha]
+  addRaw(&root, "delta", 9.0f, ADD_REPLACE);
+  addRaw(&root, "charlie", 7.0f, ADD_REPLACE);
+  addRaw(&root, "bravo", 5.0f, ADD_REPLACE);
+  addRaw(&root, "alpha", 3.0f, ADD_REPLACE);
+  assertChildOrder(root, "dcba");
+  TrieNode **children = TrieNode_Children(root);
+
+  // no-move: bravo's bound rises but stays below its left neighbor
+  children[2]->subtreeMaxScore = 6.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // tie stability: bound rises to exactly charlie's; no move
+  children[2]->subtreeMaxScore = 7.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // multi-slot move: alpha's bound rises past bravo and charlie but not delta
+  children[3]->subtreeMaxScore = 8.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "dacb");
+
+  // move to front: bravo's bound rises past everything
+  children[3]->subtreeMaxScore = 10.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "bdac");
+
+  // key cache stayed in sync: every key still reachable by exact lookup
+  const char *keys[] = {"alpha", "bravo", "charlie", "delta"};
+  const float scores[] = {3.0f, 5.0f, 7.0f, 9.0f};
+  for (size_t i = 0; i < 4; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, scores[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
+}
+
 /* leave for future benchmarks if needed
 TEST_F(TrieTest, testbenchmark) {
   Trie *t = NewTrie(trieFreeCb, Trie_Sort_Lex);
