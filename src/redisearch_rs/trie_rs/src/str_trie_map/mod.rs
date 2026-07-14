@@ -144,17 +144,16 @@ impl<Data> StrTrieMap<Data> {
         iter::RangeIter::build_from(&self.inner, filter)
     }
 
-    /// Wildcard iteration over UTF-8 keys with codepoint-aware semantics.
+    /// Yield every entry whose key matches the wildcard `pattern`, in
+    /// lexicographical key order.
     ///
-    /// Differs from [`TrieMap::wildcard_iter`], which matches pattern tokens
-    /// against raw bytes — here `?` matches one codepoint, not one byte.
-    pub fn wildcard_iter<'tm>(
-        &'tm self,
-        _pattern: &str,
-    ) -> impl Iterator<Item = (String, &'tm Data)> + 'tm {
-        todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
-        #[expect(unreachable_code)]
-        std::iter::empty()
+    /// Codepoint semantics: `?` matches one codepoint (`entr?` matches
+    /// `entré`), `*` any run of codepoints. Differs from
+    /// [`TrieMap::wildcard_iter`], which matches raw bytes. Matching is
+    /// case-sensitive. See [`CodepointWildcard`](automaton::CodepointWildcard)
+    /// for the matching model.
+    pub fn wildcard_iter(&self, pattern: &str) -> iter::WildcardIter<'_, Data> {
+        iter::WildcardIter::new(&self.inner, pattern)
     }
 }
 
