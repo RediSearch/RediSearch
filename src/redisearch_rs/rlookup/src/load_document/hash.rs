@@ -16,6 +16,7 @@ use redis_module::RedisString;
 use redis_module::key::RedisKey;
 use redis_module::{KeyType, ScanKeyCursor};
 use std::ffi::CStr;
+use std::mem::ManuallyDrop;
 use std::ptr::{self, NonNull};
 use std::slice;
 use value::{SharedValue, Value};
@@ -26,10 +27,27 @@ pub struct HashDocumentFormat {
     force_string: bool,
 }
 
+/// An open hash key handle, either owned or borrowed.
+#[derive(Debug)]
+enum HashKey {
+    Owned(RedisKey),
+    /// `ManuallyDrop` keeps [`RedisKey`]'s destructor from closing a handle we borrow.
+    Borrowed(ManuallyDrop<RedisKey>),
+}
+
+impl HashKey {
+    fn get(&self) -> &RedisKey {
+        match self {
+            Self::Owned(k) => k,
+            Self::Borrowed(k) => k,
+        }
+    }
+}
+
 /// Represents an open hash document ready to load values from.
 #[derive(Debug)]
 pub struct HashFieldLoader<'a> {
-    key: RedisKey,
+    key: HashKey,
     key_name: &'a RedisString,
 }
 
@@ -76,7 +94,37 @@ impl DocumentFormat for HashDocumentFormat {
             HashOpenError::WrongType => LoadFieldError::WrongKeyType,
         })?;
 
-        Ok(HashFieldLoader { key, key_name })
+        Ok(HashFieldLoader {
+            key: HashKey::Owned(key),
+            key_name,
+        })
+    }
+
+    fn borrow<'key>(
+        &'key self,
+        open_key: &'key ffi::RedisModuleKey,
+        key_name: &'key RedisString,
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
+        // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`, and the
+        // returned loader is bounded by `'key`. `ManuallyDrop` (see `HashKey::Borrowed`) keeps
+        // us from closing a handle we do not own.
+        let key = unsafe {
+            RedisKey::from_raw_parts(
+                self.ctx.cast().as_ptr(),
+                ptr::from_ref(open_key).cast_mut().cast(),
+            )
+        };
+
+        debug_assert_eq!(
+            key.key_type(),
+            KeyType::Hash,
+            "borrowed handle must reference a hash key"
+        );
+
+        Ok(HashFieldLoader {
+            key: HashKey::Borrowed(ManuallyDrop::new(key)),
+            key_name,
+        })
     }
 
     fn load_all(
@@ -150,7 +198,7 @@ impl FieldLoader for HashFieldLoader<'_> {
             None => return Ok(()),
         };
 
-        let val = if let Some(val) = self.key.hash_get(path.to_bytes())? {
+        let val = if let Some(val) = self.key.get().hash_get(path.to_bytes())? {
             let coerce = if kk.flags.contains(RLookupKeyFlag::Numeric) {
                 HashCoerceType::Double
             } else {
