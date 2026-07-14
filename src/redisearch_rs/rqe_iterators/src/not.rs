@@ -13,8 +13,8 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -115,8 +115,21 @@ impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {
 impl<'index, I, TC> RQEIterator<'index> for Not<'index, I, TC>
 where
     I: RQEIterator<'index>,
-    TC: TimeoutContext,
+    TC: TimeoutContext + 'static,
 {
+    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
+        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
+        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
+        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
+        // [`RQEIterator`] contract (see [`MaybeEmpty::suspend`]).
+        // Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -242,25 +255,6 @@ where
     }
 }
 
-impl<'index, I, TC> RQEIteratorBoxed<'index> for Not<'index, I, TC>
-where
-    I: RQEIteratorBoxed<'index>,
-    TC: TimeoutContext + 'index + 'static,
-{
-    type Suspended = RawNot<'index, Suspended, I::Suspended, TC>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNot` is `#[repr(C)]`. The only `Rf`-dependent field
-        // is `result: RawIndexResult<Rf>`, layout-compatible across `Rf`
-        // via `SharedPtr` transparency. `MaybeEmpty<I>` and
-        // `MaybeEmpty<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract (see [`MaybeEmpty::suspend`]).
-        // Box::from_raw reuses the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNot<'index, Suspended, I::Suspended, TC>) }
-    }
-}
-
 impl<'query, S, TC> RQESuspendedIterator<'query> for RawNot<'query, Suspended, S, TC>
 where
     S: RQESuspendedIterator<'query>,
@@ -322,10 +316,29 @@ where
     }
 }
 
+/// Trait for NOT iterators ([`Not`] and [`crate::not_optimized::NotOptimized`]).
+pub trait NotIterator<'index>: RQEIterator<'index> {
+    // Those methods are used by profile.c to wrap the child iterator.
+    // They can be removed once this code is ported to Rust.
+    /// Get a shared reference to the child iterator, or `None` if unset.
+    fn child(&self) -> Option<&dyn crate::RQEDynIterator<'index>>;
+}
+
+impl<'index, TC> NotIterator<'index> for Not<'index, TypeErasedRQEIterator<'index>, TC>
+where
+    TC: TimeoutContext + 'static,
+{
+    fn child(&self) -> Option<&dyn crate::RQEDynIterator<'index>> {
+        self.child
+            .as_ref()
+            .map(|c| c as &dyn crate::RQEDynIterator<'index>)
+    }
+}
+
 impl<'index, TC> crate::interop::ProfileChildren<'index>
     for Not<'index, crate::c2rust::CRQEIterator, TC>
 where
-    TC: TimeoutContext + 'index + 'static,
+    TC: TimeoutContext + 'static,
 {
     fn profile_children(self) -> Self {
         Not {
@@ -338,9 +351,9 @@ where
     }
 }
 
-impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+impl<'query, Rf: Ref, I, TC> ProfilePrint for RawNot<'query, Rf, I, TC>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

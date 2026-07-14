@@ -645,10 +645,83 @@ mod optional_iterator_with_empty_child_test {
 mod optional_iterator_non_sequential_reads {
     use super::*;
 
+    #[repr(C)]
     struct ReadStepIterator<'index, const N: usize> {
         read_steps: [DocId; N],
         read_step: usize,
         result: index_result::RSIndexResult<'index>,
+    }
+
+    /// Suspended counterpart of [`ReadStepIterator`].
+    ///
+    /// The iterator holds only owned data (its `result` is a freshly-built
+    /// numeric [`RSIndexResult`] that borrows nothing), so the suspended form
+    /// is byte-identical to the active form at any lifetime.
+    ///
+    /// `#[repr(C)]` so the layout matches [`ReadStepIterator`] for the
+    /// `suspend`/`resume` pointer relabel.
+    #[repr(C)]
+    struct ReadStepIteratorSuspended<const N: usize> {
+        read_steps: [DocId; N],
+        read_step: usize,
+        result: index_result::RSIndexResult<'static>,
+    }
+
+    impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query>
+        for ReadStepIteratorSuspended<N>
+    {
+        type Resumed<'a>
+            = ReadStepIterator<'a, N>
+        where
+            'query: 'a;
+
+        fn resume<'a>(
+            self: Box<Self>,
+            _guard: &index_spec::IndexSpecReadGuard<'a>,
+        ) -> Result<
+            rqe_iterators::ResumeOutcome<Box<Self::Resumed<'a>>>,
+            rqe_iterators::RQEIteratorError,
+        >
+        where
+            'query: 'a,
+        {
+            let raw = Box::into_raw(self);
+            // SAFETY: `ReadStepIterator<'a, N>` and `ReadStepIteratorSuspended<N>`
+            // have identical layout (both `#[repr(C)]`, same fields; the lifetime
+            // parameter is phantom as `result` borrows nothing).
+            let active = unsafe { Box::from_raw(raw as *mut ReadStepIterator<'a, N>) };
+            Ok(rqe_iterators::ResumeOutcome::Ok(active))
+        }
+
+        fn last_doc_id(&self) -> DocId {
+            self.result.doc_id
+        }
+
+        fn num_estimated(&self) -> usize {
+            N
+        }
+    }
+
+    impl<'index, const N: usize> rqe_iterators::profile_print::ProfilePrint
+        for ReadStepIterator<'index, N>
+    {
+        fn print_profile(
+            &self,
+            map: &mut redis_reply::MapBuilder<'_>,
+            _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+        ) {
+            map.kv_simple_string(c"Type", c"READ STEP");
+        }
+    }
+
+    impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for ReadStepIteratorSuspended<N> {
+        fn print_profile(
+            &self,
+            map: &mut redis_reply::MapBuilder<'_>,
+            _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+        ) {
+            map.kv_simple_string(c"Type", c"READ STEP");
+        }
     }
 
     impl<'index, const N: usize> ReadStepIterator<'index, N> {
@@ -662,6 +735,14 @@ mod optional_iterator_non_sequential_reads {
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
+        type Suspended = ReadStepIteratorSuspended<N>;
+
+        fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+            let raw = Box::into_raw(self);
+            // SAFETY: layout-identical (see [`ReadStepIteratorSuspended`]).
+            unsafe { Box::from_raw(raw as *mut ReadStepIteratorSuspended<N>) }
+        }
+
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
             Some(&mut self.result)
         }

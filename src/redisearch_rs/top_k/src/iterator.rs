@@ -17,8 +17,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    TypeErasedRQEIterator,
 };
 
 use crate::{
@@ -94,7 +94,7 @@ enum Phase {
 /// instantiations are layout-compatible: `result: RawIndexResult<Rf>` differs
 /// only in the validity of internal [`SharedPtr`](ref_mode::SharedPtr) fields
 /// (transparent over `Rf`), and the child field varies via `I` vs
-/// `I::Suspended` (layout-compatible by the [`RQEIteratorBoxed`] contract).
+/// `I::Suspended` (layout-compatible by the [`RQEIterator`] contract).
 /// `S` is identical across modes because [`ScoreSource`] is unparameterized.
 #[repr(C)]
 pub struct RawTopK<'index, Rf: Ref, S, I>
@@ -109,7 +109,7 @@ where
     heap: TopKHeap,
     /// Holds the in-progress batch for the Unfiltered path.
     ///
-    /// Dropped on [`suspend`](RQEIteratorBoxed::suspend) and re-acquired on the
+    /// Dropped on [`suspend`](RQEIterator::suspend) and re-acquired on the
     /// next [`read`](RQEIterator::read) after [`resume`](RQESuspendedIterator::resume),
     /// since the batch cursor may carry references that are only valid while
     /// the spec read lock is held.
@@ -132,10 +132,10 @@ where
 
 /// Alias for an [`Active`] [`RawTopK`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type TopKIterator<'index, S, I = Box<dyn RQEIterator<'index> + 'index>> =
+pub type TopKIterator<'index, S, I = TypeErasedRQEIterator<'index>> =
     RawTopK<'index, Active<'index>, S, I>;
 
-impl<'index, S> TopKIterator<'index, S, Box<dyn RQEIterator<'index> + 'index>>
+impl<'index, S> TopKIterator<'index, S, TypeErasedRQEIterator<'index>>
 where
     S: ScoreSource + 'index,
 {
@@ -396,9 +396,30 @@ where
 
 impl<'index, S, I> RQEIterator<'index> for TopKIterator<'index, S, I>
 where
-    S: ScoreSource + 'index,
-    I: RQEIterator<'index> + 'index,
+    S: ScoreSource + 'static,
+    I: RQEIterator<'index>,
 {
+    type Suspended = RawTopK<'static, Suspended, S, I::Suspended>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Drop the in-flight batch and reset phase BEFORE the type cast.
+        // A `ScoreSource::Batch` may borrow from the source's live state; any
+        // such borrow is invalid once the spec read lock is released. We pay
+        // for a fresh `collect()` on resume — see [`prepare_unfiltered_direct`].
+        self.direct_batch = None;
+        self.phase = Phase::NotStarted;
+
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTopK` is `#[repr(C)]`. The only `Rf`-dependent field is
+        // `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
+        // [`SharedPtr`](ref_mode::SharedPtr) transparency. `Option<I>` and
+        // `Option<I::Suspended>` are layout-compatible by the
+        // [`RQEIterator`] contract. `S` is unchanged because
+        // [`ScoreSource`] is unparameterized over `Rf`. `Box::from_raw` reuses
+        // the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTopK<'static, Suspended, S, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.has_current {
@@ -561,33 +582,6 @@ impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
     }
 }
 
-impl<'index, S, I> RQEIteratorBoxed<'index> for TopKIterator<'index, S, I>
-where
-    S: ScoreSource + 'static,
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawTopK<'static, Suspended, S, I::Suspended>;
-
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // Drop the in-flight batch and reset phase BEFORE the type cast.
-        // A `ScoreSource::Batch` may borrow from the source's live state; any
-        // such borrow is invalid once the spec read lock is released. We pay
-        // for a fresh `collect()` on resume — see [`prepare_unfiltered_direct`].
-        self.direct_batch = None;
-        self.phase = Phase::NotStarted;
-
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawTopK` is `#[repr(C)]`. The only `Rf`-dependent field is
-        // `result: RawIndexResult<Rf>`, layout-compatible across `Rf` via
-        // [`SharedPtr`](ref_mode::SharedPtr) transparency. `Option<I>` and
-        // `Option<I::Suspended>` are layout-compatible by the
-        // [`RQEIteratorBoxed`] contract. `S` is unchanged because
-        // [`ScoreSource`] is unparameterized over `Rf`. `Box::from_raw` reuses
-        // the same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawTopK<'static, Suspended, S, I::Suspended>) }
-    }
-}
-
 impl<'query, S, IS> RQESuspendedIterator<'query> for RawTopK<'static, Suspended, S, IS>
 where
     S: ScoreSource + 'static,
@@ -625,7 +619,10 @@ where
         } = *self;
 
         // `suspend` always resets these — assert as an internal invariant.
-        debug_assert!(direct_batch.is_none(), "direct_batch must be dropped on suspend");
+        debug_assert!(
+            direct_batch.is_none(),
+            "direct_batch must be dropped on suspend"
+        );
         debug_assert!(
             matches!(phase, Phase::NotStarted),
             "phase must be NotStarted on suspend"
@@ -703,5 +700,21 @@ impl<'index, S: ScoreSource + 'index + 'static> rqe_iterators::interop::ProfileC
                 .map(rqe_iterators::c2rust::CRQEIterator::into_profiled),
             ..self
         }
+    }
+}
+
+// `RQEIterator` requires `ProfilePrint`. The top-k iterator is the KNN /
+// vector-scoring leaf; it prints a "VECTOR" leaf. (Label chosen to match the
+// vector query surface — confirm against the intended `FT.PROFILE` output.)
+impl<'index, Rf: Ref, S, I> rqe_iterators::profile_print::ProfilePrint for RawTopK<'index, Rf, S, I>
+where
+    S: ScoreSource,
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"VECTOR", map);
     }
 }

@@ -18,8 +18,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     wildcard::WildcardIterator,
@@ -120,6 +119,24 @@ where
     W: RQEIterator<'index>,
     I: RQEIterator<'index>,
 {
+    type Suspended = RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
+        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
+        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
+        // layout-compatible with `W::Suspended`/`I::Suspended` by the
+        // [`RQEIterator`] contract, and `MaybeEmpty<I>` likewise
+        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
+        // heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>,
+            )
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.last_doc_id != 0
@@ -271,35 +288,6 @@ where
     }
 }
 
-impl<'index, W, I> RQEIteratorBoxed<'index> for OptionalOptimized<'index, W, I>
-where
-    // Marker enforced at construction (`new`), not on the suspend/resume path —
-    // the suspend/resume impls only move the wildcard child through the box
-    // cast, so `W: RQEIteratorBoxed` suffices. This drops the recursive
-    // `for<'a> …: WildcardIterator + RQEIteratorBoxed<Suspended = …>` HRTB,
-    // which is otherwise unsatisfiable once `'query` narrows on resume.
-    W: RQEIteratorBoxed<'index>,
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawOptionalOptimized` is `#[repr(C)]`. The only
-        // `Rf`-dependent field is `virt: RawIndexResult<Rf>`, layout-
-        // compatible across `Rf` via `SharedPtr` transparency. `W`/`I` are
-        // layout-compatible with `W::Suspended`/`I::Suspended` by the
-        // [`RQEIteratorBoxed`] contract, and `MaybeEmpty<I>` likewise
-        // (see [`MaybeEmpty::suspend`]). Box::from_raw reuses the same
-        // heap allocation.
-        unsafe {
-            Box::from_raw(
-                raw as *mut RawOptionalOptimized<'index, Suspended, W::Suspended, I::Suspended>,
-            )
-        }
-    }
-}
-
 impl<'query, WS, IS> RQESuspendedIterator<'query> for RawOptionalOptimized<'query, Suspended, WS, IS>
 where
     WS: RQESuspendedIterator<'query>,
@@ -429,7 +417,7 @@ where
 impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
 where
-    W: crate::RQEIteratorBoxed<'index> + 'index,
+    W: crate::RQEIterator<'index> + 'index,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {
@@ -444,10 +432,9 @@ where
     }
 }
 
-impl<'index, W, I> ProfilePrint for OptionalOptimized<'index, W, I>
+impl<'query, Rf: Ref, W, I> ProfilePrint for RawOptionalOptimized<'query, Rf, W, I>
 where
-    W: crate::WildcardIterator<'index>,
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_single_child(c"OPTIONAL", self.child(), map);

@@ -15,8 +15,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IdList, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IdList, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     deferred::{ProducedResults, Producer},
     id_list::{RawIdList, SuspendedIdList},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -33,7 +33,7 @@ use crate::{
 ///
 /// `#[repr(C)]` so the active/suspended versions are layout-compatible, enabling the
 /// allocation-preserving whole-struct cast
-/// in [`RQEIteratorBoxed::suspend`].
+/// in [`RQEIterator::suspend`].
 #[repr(C)]
 pub struct RawIdListLazy<'query, Rf: Ref, const SORTED: bool> {
     /// The wrapped ID list, empty until [`producer`](Self::producer) runs.
@@ -115,6 +115,28 @@ impl<'query, Rf: Ref, const SORTED: bool> RawIdListLazy<'query, Rf, SORTED> {
 }
 
 impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORTED> {
+    type Suspended = SuspendedIdListLazy<'index, SORTED>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let active = Box::into_raw(self);
+
+        // Suspend the wrapped id list in place, leaving the outer
+        // allocation (and the `Rf`-independent `producer`) untouched.
+        //
+        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
+        // preserving `active`'s provenance over the whole allocation for the outer
+        // cast below.
+        let inner_slot = unsafe { &raw mut (*active).inner };
+        // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
+        // unaliased (this function owns `self`). Suspending is a safe widening conversion.
+        unsafe { IdList::<'index, SORTED>::suspend_in_place(inner_slot) };
+
+        // SAFETY: `IdListLazy` and `SuspendedIdListLazy` are both `#[repr(C)]` with identical
+        // field layout. `Box::from_raw` reuses the same heap allocation as `Box::into_raw`,
+        // so the address is unchanged.
+        unsafe { Box::from_raw(active.cast::<SuspendedIdListLazy<'index, SORTED>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.inner.current()
@@ -167,33 +189,9 @@ impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORT
     }
 }
 
-impl<const SORTED: bool> ProfilePrint for IdListLazy<'_, SORTED> {
+impl<'query, Rf: Ref, const SORTED: bool> ProfilePrint for RawIdListLazy<'query, Rf, SORTED> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.inner.print_profile(map, ctx);
-    }
-}
-
-impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdListLazy<'index, SORTED> {
-    type Suspended = SuspendedIdListLazy<'index, SORTED>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = Box::into_raw(self);
-
-        // Suspend the wrapped id list in place, leaving the outer
-        // allocation (and the `Rf`-independent `producer`) untouched.
-        //
-        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
-        // preserving `active`'s provenance over the whole allocation for the outer
-        // cast below.
-        let inner_slot = unsafe { &raw mut (*active).inner };
-        // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
-        // unaliased (this function owns `self`). Suspending is a safe widening conversion.
-        unsafe { IdList::<'index, SORTED>::suspend_in_place(inner_slot) };
-
-        // SAFETY: `IdListLazy` and `SuspendedIdListLazy` are both `#[repr(C)]` with identical
-        // field layout. `Box::from_raw` reuses the same heap allocation as `Box::into_raw`,
-        // so the address is unchanged.
-        unsafe { Box::from_raw(active.cast::<SuspendedIdListLazy<'index, SORTED>>()) }
     }
 }
 

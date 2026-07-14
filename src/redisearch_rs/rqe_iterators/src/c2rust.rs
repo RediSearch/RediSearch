@@ -11,17 +11,14 @@
 
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator,
-    ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    IteratorStatus_ITERATOR_TIMEOUT, IteratorType, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
 };
 use rqe_core::DocId;
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome, interop::RQEIteratorWrapper,
-    intersection::Intersection,
-    profile_print,
-    profile_print::ProfilePrint,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -181,7 +178,7 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I: RQEIterator<'index> + profile_print::ProfilePrint + 'index,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
@@ -213,6 +210,33 @@ impl CRQEIterator {
 }
 
 impl<'index> RQEIterator<'index> for CRQEIterator {
+    /// `CRQEIterator` wraps an opaque C handle that owns its own validity
+    /// state. There is no Rust-side state to flip between modes; the
+    /// suspended counterpart is the same type.
+    type Suspended = CRQEIterator;
+
+    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
+    ///
+    /// Chains the suspend signal to the wrapped C iterator so it can drop any
+    /// lock-dependent state before the spec read lock is released. For a Rust
+    /// iterator nested under a `CRQEIterator` wrapper (the common case for
+    /// composite children), this triggers the inner wrapper's typestate flip
+    /// from Active to Suspended.
+    ///
+    /// Every C iterator's vtable installs either `Default_Suspend` (no-op)
+    /// or the `RQEIteratorWrapper`'s `suspend_callback`, so the callback
+    /// pointer is guaranteed non-null.
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null (all C iterators set Suspend to either
+        // `Default_Suspend` or `RQEIteratorWrapper::suspend_callback`).
+        let callback = unsafe { self.Suspend.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`); the
+        // C-side callback is safe to call per invariant 4.
+        unsafe { callback(self.header.as_ptr()) };
+        self
+    }
+
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Read.unwrap_unchecked() };
@@ -487,35 +511,6 @@ impl profile_print::ProfilePrint for CRQEIterator {
         // entry was set at construction time by RQEIteratorWrapper::boxed_new
         // or by the C iterator constructor.
         unsafe { call_print_profile(ptr, map, ctx) };
-    }
-}
-
-impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
-    /// `CRQEIterator` wraps an opaque C handle that owns its own validity
-    /// state. There is no Rust-side state to flip between modes; the
-    /// suspended counterpart is the same type.
-    type Suspended = CRQEIterator;
-
-    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
-    ///
-    /// Chains the suspend signal to the wrapped C iterator so it can drop any
-    /// lock-dependent state before the spec read lock is released. For a Rust
-    /// iterator nested under a `CRQEIterator` wrapper (the common case for
-    /// composite children), this triggers the inner wrapper's typestate flip
-    /// from Active to Suspended.
-    ///
-    /// Every C iterator's vtable installs either `Default_Suspend` (no-op)
-    /// or the `RQEIteratorWrapper`'s `suspend_callback`, so the callback
-    /// pointer is guaranteed non-null.
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
-        // callback is non-null (all C iterators set Suspend to either
-        // `Default_Suspend` or `RQEIteratorWrapper::suspend_callback`).
-        let callback = unsafe { self.Suspend.unwrap_unchecked() };
-        // SAFETY: the handle is unique (consumed by value into `self`); the
-        // C-side callback is safe to call per invariant 4.
-        unsafe { callback(self.header.as_ptr()) };
-        self
     }
 }
 

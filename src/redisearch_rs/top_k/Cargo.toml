@@ -27,6 +27,7 @@ inverted_index.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+redis_reply.workspace = true
 ref_mode.workspace = true
 workspace_hack.workspace = true
 

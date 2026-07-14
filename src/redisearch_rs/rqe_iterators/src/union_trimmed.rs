@@ -50,8 +50,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -233,6 +232,25 @@ impl<'index, I> RQEIterator<'index> for UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the children Vec is reachable and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
+        // byte-rewritten as `Vec<I::Suspended>` contents) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.at_eof()).then_some(&mut self.result)
@@ -320,30 +338,6 @@ where
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the children Vec is reachable and unaliased.
-        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-        for child in children.iter_mut() {
-            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
-        }
-        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
-        // byte-rewritten as `Vec<I::Suspended>` contents) and
-        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
-        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
-    }
-}
-
 impl<'query, S> RQESuspendedIterator<'query> for RawUnionTrimmed<'query, Suspended, S>
 where
     S: RQESuspendedIterator<'query>,
@@ -377,5 +371,18 @@ where
 
     fn num_estimated(&self) -> usize {
         self.num_estimated
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `RQEIterator: ProfilePrint` supertrait and is not reached in practice.
+impl<Rf: Ref, I> crate::profile_print::ProfilePrint for RawUnionTrimmed<'_, Rf, I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }

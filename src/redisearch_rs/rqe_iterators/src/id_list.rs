@@ -16,8 +16,8 @@ use rqe_core::DocId;
 use std::cmp::Ordering;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
@@ -46,6 +46,7 @@ pub struct RawIdList<'query, Rf: Ref, const SORTED: bool> {
     /// # Invariant
     ///
     /// `result`'s kind is either virtual or metric.
+    /// If its kind is metric, its `RLookupKey` handles are required to outlive the iterator.
     result: RawIndexResult<'query, Rf>,
 }
 
@@ -261,6 +262,20 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
+    type Suspended = SuspendedIdList<'index, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let active: *mut Self = Box::into_raw(self);
+
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
+        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
+        let suspended_ptr = unsafe { IdList::<'index, SORTED_BY_ID>::suspend_in_place(active) };
+
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // address is unchanged and every field is now valid at the suspended type.
+        unsafe { Box::from_raw(suspended_ptr) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -320,7 +335,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 }
 
-impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
+impl<'query, Rf: Ref, const SORTED: bool> ProfilePrint for RawIdList<'query, Rf, SORTED> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         if SORTED {
             ctx.print_leaf(c"ID-LIST-SORTED", map);
@@ -434,22 +449,6 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     )]
     fn num_estimated(&self) -> usize {
         self.ids.len()
-    }
-}
-
-impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {
-    type Suspended = SuspendedIdList<'index, SORTED>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active: *mut Self = Box::into_raw(self);
-
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is non-null, aligned, and
-        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
-        let suspended_ptr = unsafe { IdList::<'index, SORTED>::suspend_in_place(active) };
-
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
-        // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr) }
     }
 }
 

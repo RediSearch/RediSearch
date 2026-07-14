@@ -14,41 +14,26 @@ use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IteratorsConfig, NumericIteratorVariant, RQEIteratorBoxed, RQEIteratorError,
+    IteratorsConfig, NumericIteratorVariant, RQEIterator, RQEIteratorError,
     RQESuspendedIterator, ResumeOutcome,
     interop::{InnerState, RQEIteratorWrapper},
-    open_numeric_or_geo_index,
+    open_numeric_or_geo_index, profile_print,
 };
 
 /// Suspended counterpart of [`NumericIterator`] — produced by
-/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+/// [`RQEIterator::suspend`] and consumed by [`RQESuspendedIterator::resume`].
 ///
 /// `#[repr(C)]` matches the layout of [`NumericIterator`] so that
-/// [`RQEIteratorBoxed::suspend`] / [`RQESuspendedIterator::resume`]
+/// [`RQEIterator::suspend`] / [`RQESuspendedIterator::resume`]
 /// can perform whole-`Box` pointer casts that preserve the heap
 /// allocation across the cycle — see
 /// [`super::tag::TagIteratorSuspended`] for the same argument.
 #[repr(C)]
 pub(super) struct NumericIteratorSuspended<'query> {
     filter: Option<NonNull<NumericFilter>>,
-    iterator: <NumericIteratorVariant<'query> as RQEIteratorBoxed<'query>>::Suspended,
+    iterator: <NumericIteratorVariant<'query> as RQEIterator<'query>>::Suspended,
 }
 
-impl<'index> RQEIteratorBoxed<'index> for NumericIterator<'index> {
-    type Suspended = NumericIteratorSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `NumericIterator<'index>` and `NumericIteratorSuspended`
-        // are both `#[repr(C)]` with the same field order and
-        // layout-compatible fields (`filter` is mode-independent; the
-        // `iterator` field's Active/Suspended counterparts are
-        // layout-compatible via `NumericIteratorVariant`'s own
-        // `#[repr(C, u8)]` design). `Box::from_raw` reuses the same
-        // heap allocation.
-        unsafe { Box::from_raw(raw as *mut NumericIteratorSuspended) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for NumericIteratorSuspended<'query> {
     type Resumed<'a>
@@ -183,7 +168,21 @@ impl<'query> NumericIteratorSuspended<'query> {
     }
 }
 
-impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
+impl<'index> RQEIterator<'index> for NumericIterator<'index> {
+    type Suspended = NumericIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `NumericIterator<'index>` and `NumericIteratorSuspended`
+        // are both `#[repr(C)]` with the same field order and
+        // layout-compatible fields (`filter` is mode-independent; the
+        // `iterator` field's Active/Suspended counterparts are
+        // layout-compatible via `NumericIteratorVariant`'s own
+        // `#[repr(C, u8)]` design). `Box::from_raw` reuses the same
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut NumericIteratorSuspended<'index>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         self.iterator.current()
@@ -233,6 +232,28 @@ impl<'index> rqe_iterators::RQEIterator<'index> for NumericIterator<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl profile_print::ProfilePrint for NumericIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        profile_print::ProfilePrint::print_profile(&self.iterator, map, ctx);
+    }
+}
+
+/// Suspended counterpart — required by the `RQESuspendedIterator: ProfilePrint`
+/// supertrait so `FT.PROFILE` can print a suspended tree.
+impl profile_print::ProfilePrint for NumericIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        profile_print::ProfilePrint::print_profile(&self.iterator, map, ctx);
     }
 }
 

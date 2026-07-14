@@ -9,9 +9,8 @@
 
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
-    maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator, maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
@@ -24,26 +23,19 @@ struct Infinite<'index>(index_result::RSIndexResult<'index>);
 #[repr(C)]
 struct InfiniteSuspended(index_result::RSIndexResult<'static>);
 
-impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
-    type Suspended = InfiniteSuspended;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
-        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
-        // borrows, so the lifetime parameter is phantom and the layouts
-        // are byte-identical. Box::from_raw reuses the same heap.
-        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
-    }
-}
-
-impl RQESuspendedIterator for InfiniteSuspended {
-    type Resumed<'a> = Infinite<'a>;
+impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended {
+    type Resumed<'a>
+        = Infinite<'a>
+    where
+        'query: 'a;
 
     fn resume<'a>(
         self: Box<Self>,
         _guard: &index_spec::IndexSpecReadGuard<'a>,
-    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError> {
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical — see [`Infinite::suspend`].
         let active = unsafe { Box::from_raw(raw as *mut Infinite<'a>) };
@@ -60,6 +52,17 @@ impl RQESuspendedIterator for InfiniteSuspended {
 }
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
+    type Suspended = InfiniteSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
+        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
+        // borrows, so the lifetime parameter is phantom and the layouts
+        // are byte-identical. Box::from_raw reuses the same heap.
+        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
+    }
+
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         Some(&mut self.0)
     }
@@ -290,5 +293,25 @@ mod via_resume {
         revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
             .expect("resume failed")
             .expect_ok();
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for Infinite<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for InfiniteSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
     }
 }

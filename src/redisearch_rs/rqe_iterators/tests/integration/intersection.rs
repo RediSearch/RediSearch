@@ -11,7 +11,7 @@
 
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, SkipToOutcome, id_list::IdListSorted,
+    IteratorType, RQEIterator, SkipToOutcome, TypeErasedRQEIterator, id_list::IdListSorted,
     intersection::Intersection, profile::Profile,
 };
 
@@ -1033,7 +1033,9 @@ mod via_resume {
 #[cfg(not(miri))]
 mod slop_and_order {
     use crate::utils::Mock;
-    use rqe_iterators::{RQEIterator, SkipToOutcome, intersection::Intersection};
+    use rqe_iterators::{
+        RQEIterator, SkipToOutcome, TypeErasedRQEIterator, intersection::Intersection,
+    };
 
     /// Build the shared foo/bar intersection used by slop/order tests.
     ///
@@ -1046,11 +1048,14 @@ mod slop_and_order {
     fn make_intersection(
         max_slop: Option<u32>,
         in_order: bool,
-    ) -> Intersection<'static, Box<dyn RQEIterator<'static> + 'static>> {
+    ) -> Intersection<'static, TypeErasedRQEIterator<'static>> {
         let foo: Mock<'_, 4> = Mock::new_with_positions([1, 2, 3, 4], [1, 1, 2, 1]);
         let bar: Mock<'_, 3> = Mock::new_with_positions([1, 3, 4], [2, 1, 3]);
         Intersection::new_with_slop_order(
-            vec![Box::new(foo), Box::new(bar)],
+            vec![
+                TypeErasedRQEIterator::new(Box::new(foo)),
+                TypeErasedRQEIterator::new(Box::new(bar)),
+            ],
             1.0,
             false,
             max_slop,
@@ -1218,8 +1223,8 @@ mod slop_and_order {
         let bar: Mock<'_, 1> = Mock::new_with_positions([1], [1]);
         let mut ii = Intersection::new_with_slop_order(
             vec![
-                Box::new(foo) as Box<dyn RQEIterator<'static> + 'static>,
-                Box::new(bar),
+                TypeErasedRQEIterator::new(Box::new(foo)),
+                TypeErasedRQEIterator::new(Box::new(bar)),
             ],
             1.0,
             false,
@@ -1245,10 +1250,8 @@ fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
     // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
     // Wrapped in Profile → intersection_sort_weight forwards to child, so sort key is still 2.0.
     let inner_children_count = 5;
-    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
-        .map(|_| {
-            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
-        })
+    let inner_children: Vec<TypeErasedRQEIterator<'static>> = (0..inner_children_count)
+        .map(|_| TypeErasedRQEIterator::new(Box::new(IdListSorted::new(docs.clone()))))
         .collect();
     let inner = Profile::new(Intersection::new(inner_children, 1.0, false));
 
@@ -1259,8 +1262,8 @@ fn sort_weight_profile_wrapped_nested_intersection_sorts_first() {
     // because its sort weight (0.2) is lower than the plain child's (1.0).
     let outer = Intersection::new(
         vec![
-            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
-            Box::new(inner),
+            TypeErasedRQEIterator::new(Box::new(plain)),
+            TypeErasedRQEIterator::new(Box::new(inner)),
         ],
         1.0,
         false,
@@ -1279,10 +1282,8 @@ fn sort_weight_nested_intersection_sorts_first() {
 
     // Inner intersection: 5 children, num_estimated = 10 → sort key 10 * (1/5) = 2.0.
     let inner_children_count = 5;
-    let inner_children: Vec<Box<dyn RQEIterator<'static> + 'static>> = (0..inner_children_count)
-        .map(|_| {
-            Box::new(IdListSorted::new(docs.clone())) as Box<dyn RQEIterator<'static> + 'static>
-        })
+    let inner_children: Vec<TypeErasedRQEIterator<'static>> = (0..inner_children_count)
+        .map(|_| TypeErasedRQEIterator::new(Box::new(IdListSorted::new(docs.clone()))))
         .collect();
     let inner = Intersection::new(inner_children, 1.0, false);
 
@@ -1292,8 +1293,8 @@ fn sort_weight_nested_intersection_sorts_first() {
     // Pass plain first — after construction the inner must sort to index 0.
     let outer = Intersection::new(
         vec![
-            Box::new(plain) as Box<dyn RQEIterator<'static> + 'static>,
-            Box::new(inner),
+            TypeErasedRQEIterator::new(Box::new(plain)),
+            TypeErasedRQEIterator::new(Box::new(inner)),
         ],
         1.0,
         false,
@@ -1310,7 +1311,7 @@ fn sort_weight_nested_intersection_sorts_first() {
 
 mod reducer {
     use rqe_iterators::{
-        Empty, RQEIterator, Wildcard,
+        Empty, RQEIterator, TypeErasedRQEIterator, Wildcard,
         intersection::{NewIntersectionIterator, new_intersection_iterator},
     };
 
@@ -1318,7 +1319,7 @@ mod reducer {
 
     /// Heap-erased iterator, required to mix `Mock<N>`, `Empty`, and `Wildcard`
     /// in a single `Vec` passed to `new_intersection_iterator`.
-    type DynIter = Box<dyn RQEIterator<'static> + 'static>;
+    type DynIter = TypeErasedRQEIterator<'static>;
 
     // Rule 0: an empty child list is trivially empty.
     #[test]
@@ -1335,9 +1336,9 @@ mod reducer {
     #[test]
     fn empty_child_yields_empty() {
         let children: Vec<DynIter> = vec![
-            Box::new(Mock::new([1u64, 2, 3])),
-            Box::new(Empty),
-            Box::new(Mock::new([1u64, 2, 3, 4, 5])),
+            TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3]))),
+            TypeErasedRQEIterator::new(Box::new(Empty)),
+            TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3, 4, 5]))),
         ];
         assert!(matches!(
             new_intersection_iterator(children),
@@ -1350,10 +1351,10 @@ mod reducer {
     #[test]
     fn wildcard_children_are_removed() {
         let children: Vec<DynIter> = vec![
-            Box::new(Mock::new([1u64, 2, 3])),
-            Box::new(Wildcard::new(30, 1.0)),
-            Box::new(Mock::new([1u64, 2, 3])),
-            Box::new(Wildcard::new(1000, 1.0)),
+            TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3]))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(30, 1.0))),
+            TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3]))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(1000, 1.0))),
         ];
         let NewIntersectionIterator::Proceed(cs) = new_intersection_iterator(children) else {
             panic!("expected Proceed, got a different variant");
@@ -1367,10 +1368,10 @@ mod reducer {
     #[test]
     fn all_wildcard_children_returns_last() {
         let children: Vec<DynIter> = vec![
-            Box::new(Wildcard::new(10, 1.0)),
-            Box::new(Wildcard::new(20, 1.0)),
-            Box::new(Wildcard::new(30, 1.0)),
-            Box::new(Wildcard::new(40, 1.0)), // last — expected to survive
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(10, 1.0))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(20, 1.0))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(30, 1.0))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(40, 1.0))), // last — expected to survive
         ];
         let NewIntersectionIterator::Single(iter) = new_intersection_iterator(children) else {
             panic!("expected Single, got a different variant");
@@ -1384,9 +1385,9 @@ mod reducer {
     #[test]
     fn single_real_child_yields_single() {
         let children: Vec<DynIter> = vec![
-            Box::new(Mock::new([1u64, 2, 3])),
-            Box::new(Wildcard::new(30, 1.0)),
-            Box::new(Wildcard::new(30, 1.0)),
+            TypeErasedRQEIterator::new(Box::new(Mock::new([1u64, 2, 3]))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(30, 1.0))),
+            TypeErasedRQEIterator::new(Box::new(Wildcard::new(30, 1.0))),
         ];
         assert!(matches!(
             new_intersection_iterator(children),

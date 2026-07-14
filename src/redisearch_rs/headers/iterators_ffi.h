@@ -629,16 +629,6 @@ QueryNodeType GetUnionIteratorQueryNodeType(const QueryIterator *it);
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 
 /**
- * Get the metric type used by this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- */
-enum MetricType GetMetricType(const QueryIterator *header);
-
-/**
  * Returns the query string pointer stored in the union iterator, or null.
  *
  * # Safety
@@ -647,6 +637,16 @@ enum MetricType GetMetricType(const QueryIterator *header);
  *    created via [`NewUnionIterator`].
  */
 const char *GetUnionIteratorQueryString(const QueryIterator *it);
+
+/**
+ * Get the metric type used by this metric iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
+ * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ */
+enum MetricType GetMetricType(const QueryIterator *header);
 
 /**
  * Creates a new term inverted index iterator for querying term fields.
@@ -742,19 +742,6 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
 double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
- * Gets the maximum range value for profiling a numeric iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * The maximum range value from the filter, or positive infinity if no filter was provided.
- */
-double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
-
-/**
  * Creates a new tag inverted index iterator.
  *
  * # Parameters
@@ -779,8 +766,9 @@ double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
  *
  * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between revalidation calls, since the revalidation
- *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
+ * 2. `idx` must remain valid across suspend/resume cycles (see
+ *    [`rqe_iterators::RQESuspendedIterator::resume`]), since resume
+ *    detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
  * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
  *    iterator.
@@ -818,6 +806,19 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  * 6. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
  */
 QueryIterator *NewInvIndIterator_MissingQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex field_index);
+
+/**
+ * Gets the maximum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * The maximum range value from the filter, or positive infinity if no filter was provided.
+ */
+double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
 
 /**
  *

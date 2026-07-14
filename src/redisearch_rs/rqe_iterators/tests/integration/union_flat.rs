@@ -136,7 +136,7 @@ fn into_trimmed_quick_flat_trims_asc() {
 
 mod via_resume {
     use crate::utils::{Mock, MockRevalidateResult};
-    use rqe_iterators::{ResumeOutcome, RQEIterator, TypeErasedRQEIterator, UnionFullFlat};
+    use rqe_iterators::{RQEIterator, ResumeOutcome, TypeErasedRQEIterator, UnionFullFlat};
     use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
     #[test]
@@ -145,8 +145,12 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
         let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
-        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -174,8 +178,12 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
         let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Move);
-        child1.data().set_revalidate_result(MockRevalidateResult::Move);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -200,8 +208,12 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
         let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Abort);
-        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -234,8 +246,12 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
         let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Abort);
-        child1.data().set_revalidate_result(MockRevalidateResult::Abort);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -261,8 +277,12 @@ mod via_resume {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child0: Mock<'_, 3> = Mock::new([10, 30, 50]);
         let child1: Mock<'_, 3> = Mock::new([10, 40, 60]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
-        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -294,8 +314,12 @@ mod via_resume {
         // Read past child 0's EOF so it's swap-removed into the dead tail.
         let child0: Mock<'_, 2> = Mock::new([10, 20]);
         let child1: Mock<'_, 5> = Mock::new([5, 15, 25, 35, 45]);
-        child0.data().set_revalidate_result(MockRevalidateResult::Ok);
-        child1.data().set_revalidate_result(MockRevalidateResult::Ok);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
 
         let children = vec![
             TypeErasedRQEIterator::new(Box::new(child0)),
@@ -321,9 +345,8 @@ mod via_resume {
             .expect_ok();
 
         // Continue reading: must surface the rest of child1 and never repeat 20.
-        let remaining: Vec<_> = std::iter::from_fn(|| {
-            union.read().unwrap().map(|r| r.doc_id)
-        }).collect();
+        let remaining: Vec<_> =
+            std::iter::from_fn(|| union.read().unwrap().map(|r| r.doc_id)).collect();
         assert_eq!(remaining, [35, 45]);
     }
 }

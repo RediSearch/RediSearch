@@ -37,7 +37,7 @@ pub fn revalidate_via_resume<'borrow, 'index>(
     spec: &'borrow IndexSpecReadGuard<'index>,
 ) -> Result<ResumeOutcome<TypeErasedRQEIterator<'index>>, rqe_iterators::RQEIteratorError> {
     let suspended =
-        <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIteratorBoxed<'index>>::suspend(
+        <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIterator<'index>>::suspend(
             Box::new(it),
         );
     // Resume via the dyn path: it yields a single `TypeErasedRQEIterator`,

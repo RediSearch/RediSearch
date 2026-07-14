@@ -68,7 +68,7 @@ pub unsafe extern "C" fn InvIndIterator_GetReaderFlags(
             // flags directly instead of casting to a concrete wrapper type, because
             // the iterator may have been created by either
             // `NewInvIndIterator_WildcardQuery` (RQEIteratorWrapper<WildcardIterator>)
-            // or `NewWildcardIterator` (RQEIteratorWrapper<Box<dyn RQEIterator>>).
+            // or `NewWildcardIterator` (RQEIteratorWrapper<TypeErasedRQEIterator>).
             ffi::IndexFlags_Index_DocIdsOnly
         }
         IteratorType::InvIdxTerm => {

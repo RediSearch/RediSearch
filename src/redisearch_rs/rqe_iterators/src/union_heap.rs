@@ -15,8 +15,7 @@ use rqe_core::DocId;
 
 use crate::utils::DocIdMinHeap;
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -347,6 +346,30 @@ impl<'index, I, const QUICK_EXIT: bool> RQEIterator<'index> for UnionHeap<'index
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
+        unsafe { Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>) }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -437,36 +460,6 @@ where
     }
 }
 
-impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
-    for UnionHeap<'index, I, QUICK_EXIT>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk children: dispatch each child's `suspend` through the trait
-        // so dyn-erased `I` correctly transitions its vtable. See
-        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
-        // for the rest of this function, so the children Vec is reachable
-        // and unaliased.
-        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-        for child in children.iter_mut() {
-            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
-        }
-        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
-        // rewritten as `Vec<I::Suspended>` contents), `result:
-        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
-        // a heap of plain doc-ids/indices (no `Rf` in its types).
-        unsafe { Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>) }
-    }
-}
-
 impl<'query, S, const QUICK_EXIT: bool> RQESuspendedIterator<'query>
     for RawUnionHeap<'query, Suspended, S, QUICK_EXIT>
 where
@@ -533,15 +526,14 @@ where
             .weight(saved_weight)
             .build();
 
-        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> =
-            Box::new(UnionHeap {
-                children: active_children,
-                num_estimated,
-                num_active: num_children,
-                is_eof,
-                result,
-                heap: DocIdMinHeap::with_capacity(num_children),
-            });
+        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> = Box::new(UnionHeap {
+            children: active_children,
+            num_estimated,
+            num_active: num_children,
+            is_eof,
+            result,
+            heap: DocIdMinHeap::with_capacity(num_children),
+        });
 
         if active.is_eof || saved_last_doc_id == 0 {
             return Ok(ResumeOutcome::Ok(active));
@@ -626,5 +618,20 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             result: self.result,
             heap: self.heap,
         }
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `RQEIterator: ProfilePrint` supertrait and is not reached in practice.
+impl<Rf: Ref, I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
+    for RawUnionHeap<'_, Rf, I, QUICK_EXIT>
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }

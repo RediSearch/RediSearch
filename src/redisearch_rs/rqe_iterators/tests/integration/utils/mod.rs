@@ -15,21 +15,23 @@ pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidate
 pub(crate) use wildcard_helper::WildcardHelper;
 
 use index_result::RSIndexResult;
-use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
+use rqe_iterators::{
+    IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, TypeErasedRQEIterator,
+};
 
 /// A mock iterator that produces results with a specific [`FieldMask`](inverted_index::FieldMask).
 ///
 /// Each [`read`](RQEIterator::read) yields the next doc_id from the
 /// pre-configured list with the fixed `mask` written into
 /// `RSIndexResult::field_mask`.
-pub(crate) struct FieldMaskMock {
+pub(crate) struct FieldMaskMock<'index> {
     doc_ids: Vec<u64>,
     next: usize,
-    result: RSIndexResult<'static>,
+    result: RSIndexResult<'index>,
     mask: inverted_index::FieldMask,
 }
 
-impl FieldMaskMock {
+impl<'index> FieldMaskMock<'index> {
     pub(crate) fn new(doc_ids: Vec<u64>, mask: inverted_index::FieldMask) -> Self {
         Self {
             doc_ids,
@@ -40,12 +42,20 @@ impl FieldMaskMock {
     }
 }
 
-impl RQEIterator<'static> for FieldMaskMock {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
+impl<'index> rqe_iterators::RQEIterator<'index> for FieldMaskMock<'index> {
+    type Suspended = FieldMaskMockSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `FieldMaskMock` and `FieldMaskMockSuspended` have identical layout.
+        unsafe { Box::from_raw(raw as *mut FieldMaskMockSuspended) }
+    }
+
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
     }
 
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.next >= self.doc_ids.len() {
             return Ok(None);
         }
@@ -58,7 +68,7 @@ impl RQEIterator<'static> for FieldMaskMock {
     fn skip_to(
         &mut self,
         doc_id: u64,
-    ) -> Result<Option<SkipToOutcome<'_, 'static>>, RQEIteratorError> {
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         while self.next < self.doc_ids.len() && self.doc_ids[self.next] < doc_id {
             self.next += 1;
         }
@@ -101,6 +111,46 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 }
 
+/// Suspended counterpart of [`FieldMaskMock`].
+///
+/// Layout-identical to [`FieldMaskMock`] (the lifetime parameter is phantom
+/// in the test helper — `result` borrows nothing).
+pub(crate) struct FieldMaskMockSuspended {
+    _doc_ids: Vec<u64>,
+    _next: usize,
+    _result: RSIndexResult<'static>,
+    _mask: inverted_index::FieldMask,
+}
+
+impl<'query> rqe_iterators::RQESuspendedIterator<'query> for FieldMaskMockSuspended {
+    type Resumed<'a>
+        = FieldMaskMock<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<rqe_iterators::ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical (see [`FieldMaskMock`]'s suspend).
+        let active = unsafe { Box::from_raw(raw as *mut FieldMaskMock<'a>) };
+        // The legacy `resume` always reported `VALIDATE_OK`.
+        Ok(rqe_iterators::ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self._result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self._doc_ids.len()
+    }
+}
+
 use rqe_core::DocId;
 use std::collections::BTreeSet;
 
@@ -113,42 +163,50 @@ pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<D
     docs
 }
 
-/// Create a single [`Mock`] child and return it as a boxed trait object
+/// Create a single [`Mock`] child and return it as a [`TypeErasedRQEIterator`]
 /// together with a handle to its [`MockData`].
 pub(crate) fn create_mock_1<const N: usize>(
     doc_ids: [DocId; N],
-) -> (Box<dyn RQEIterator<'static>>, MockData) {
+) -> (TypeErasedRQEIterator<'static>, MockData) {
     let mock = Mock::new(doc_ids);
     let data = mock.data();
-    (Box::new(mock), data)
+    (TypeErasedRQEIterator::new(Box::new(mock)), data)
 }
 
-/// Create two [`Mock`] children and return them as a `Vec` of boxed trait
-/// objects together with a two-element array of [`MockData`] handles.
+/// Create two [`Mock`] children and return them as a `Vec` of
+/// [`TypeErasedRQEIterator`]s together with a two-element array of
+/// [`MockData`] handles.
 pub(crate) fn create_mock_2<const A: usize, const B: usize>(
     a: [DocId; A],
     b: [DocId; B],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 2]) {
+) -> (Vec<TypeErasedRQEIterator<'static>>, [MockData; 2]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
     let data = [m1.data(), m2.data()];
-    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(m1), Box::new(m2)];
+    let children: Vec<TypeErasedRQEIterator<'static>> = vec![
+        TypeErasedRQEIterator::new(Box::new(m1)),
+        TypeErasedRQEIterator::new(Box::new(m2)),
+    ];
     (children, data)
 }
 
-/// Create three [`Mock`] children and return them as a `Vec` of boxed trait
-/// objects together with a three-element array of [`MockData`] handles.
+/// Create three [`Mock`] children and return them as a `Vec` of
+/// [`TypeErasedRQEIterator`]s together with a three-element array of
+/// [`MockData`] handles.
 pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
     a: [DocId; A],
     b: [DocId; B],
     c: [DocId; C],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, [MockData; 3]) {
+) -> (Vec<TypeErasedRQEIterator<'static>>, [MockData; 3]) {
     let m1 = Mock::new(a);
     let m2 = Mock::new(b);
     let m3 = Mock::new(c);
     let data = [m1.data(), m2.data(), m3.data()];
-    let children: Vec<Box<dyn RQEIterator<'static>>> =
-        vec![Box::new(m1), Box::new(m2), Box::new(m3)];
+    let children: Vec<TypeErasedRQEIterator<'static>> = vec![
+        TypeErasedRQEIterator::new(Box::new(m1)),
+        TypeErasedRQEIterator::new(Box::new(m2)),
+        TypeErasedRQEIterator::new(Box::new(m3)),
+    ];
     (children, data)
 }
 
@@ -159,9 +217,9 @@ pub(crate) fn create_mock_3<const A: usize, const B: usize, const C: usize>(
 pub(crate) fn create_union_children(
     num_children: usize,
     base_result_set: &[u64],
-) -> (Vec<Box<dyn RQEIterator<'static>>>, Vec<DocId>) {
+) -> (Vec<TypeErasedRQEIterator<'static>>, Vec<DocId>) {
     let mut expected = BTreeSet::new();
-    let children: Vec<Box<dyn RQEIterator<'static>>> = (1..=num_children)
+    let children: Vec<TypeErasedRQEIterator<'static>> = (1..=num_children)
         .map(|i| {
             let doc_ids: Vec<DocId> = base_result_set.iter().map(|&x| x * i as u64).collect();
             expected.extend(doc_ids.iter().copied());
@@ -169,4 +227,24 @@ pub(crate) fn create_union_children(
         })
         .collect();
     (children, expected.into_iter().collect())
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for FieldMaskMock<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"FIELD MASK MOCK");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for FieldMaskMockSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"FIELD MASK MOCK");
+    }
 }

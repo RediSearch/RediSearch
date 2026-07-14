@@ -17,8 +17,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, SkipToOutcomeRaw,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, SkipToOutcomeRaw,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 use index_spec::IndexSpecReadGuard;
@@ -153,6 +153,18 @@ impl<'query, Rf: Ref, R, E> RawInvIndIterator<'query, Rf, R, E> {
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
     }
+
+    /// Returns the query term bytes regardless of mode, if available.
+    ///
+    /// Reads the term through [`RawTermRecord::query_term_owned`](index_result::RawTermRecord::query_term_owned),
+    /// which returns the owned/borrowed query term (query-pipeline data that
+    /// stays live across the suspend/resume cycle) without dereferencing an
+    /// index-gated `SharedPtr`. This lets `FT.PROFILE` print the term even when
+    /// the iterator has been suspended at the unlock site. Returns [`None`] if
+    /// the result is not a term result or carries no owned query term.
+    pub(crate) fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.result.as_term()?.query_term_owned()?.as_bytes()
+    }
 }
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
@@ -194,15 +206,6 @@ where
             read_impl,
             skip_to_impl,
         }
-    }
-
-    /// Returns the current query term bytes, if available.
-    ///
-    /// The term is stored in the iterator's result and is set during
-    /// construction. Returns [`None`] if the result is not a term result
-    /// or the term has no string representation.
-    pub fn query_term_bytes(&self) -> Option<&[u8]> {
-        self.result.as_term()?.query_term()?.as_bytes()
     }
 
     /// Default read implementation, without any additional filtering.
@@ -349,7 +352,9 @@ where
 
         // The seeker found a record but it's expired. Fall back to read to get the next valid record.
         // This matches the C implementation behavior in InvIndIterator_SkipTo_CheckExpiration.
-        match self.read()? {
+        // Call the stored read fn-pointer directly rather than the `RQEIterator::read` trait
+        // method, so this inherent helper doesn't require the iterator's (stronger) suspend bounds.
+        match (self.read_impl)(self)? {
             Some(_) => {
                 // Found a valid record, it must be greater than the requested doc_id.
                 // It cannot be equal to the requested doc_id because multi-values indices are only
@@ -366,9 +371,41 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
 {
+    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Reuse the same allocation so external pointers into the iterator
+        // interior (composite aggregate results) stay valid across the cycle.
+        let active: *mut Self = Box::into_raw(self);
+
+        // SAFETY: `active` just came from a `Box`, so it is non-null, aligned,
+        // initialized, and unaliased (we own it). `&raw mut` forms a field
+        // pointer without creating a reference, leaving provenance over the
+        // whole allocation intact for the cast below.
+        let result_slot = unsafe { &raw mut (*active).result };
+        // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
+        // and is unaliased. Suspending only loosens validity, so there is no
+        // further precondition. Converting the `Rf`-carrying `result` field
+        // through the canonical in-place conversion — rather than folding it
+        // into the blanket struct reinterpretation below — keeps the
+        // borrowed-data transition explicit and auditable.
+        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+
+        // SAFETY: `result` is now the suspended form; the remaining `Rf`-dependent
+        // fields (`reader`, the `fn` pointers) are handled by reinterpreting the
+        // whole `#[repr(C)]` struct, which is sound by invariant 1 on
+        // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
+        // `R`. `Box::from_raw` reuses the same allocation, so the box address is
+        // preserved.
+        unsafe {
+            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E>>())
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         Some(&mut self.result)
@@ -455,8 +492,9 @@ where
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader,
+    E: ExpirationChecker + 'static,
 {
     /// Re-seek the iterator to its previous `last_doc_id` after a GC
     /// cycle invalidated the cached block offset.
@@ -499,44 +537,6 @@ where
             Ok(Some(SkipToOutcome::Found(_))) => ValidateStatus_VALIDATE_OK,
             Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) => ValidateStatus_VALIDATE_MOVED,
             Err(_) => ValidateStatus_VALIDATE_ABORTED,
-        }
-    }
-}
-
-impl<'index, R, E> RQEIteratorBoxed<'index> for InvIndIterator<'index, R, E>
-where
-    R: IndexReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    E: ExpirationChecker + 'static,
-{
-    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Reuse the same allocation so external pointers into the iterator
-        // interior (composite aggregate results) stay valid across the cycle.
-        let active: *mut Self = Box::into_raw(self);
-
-        // SAFETY: `active` just came from a `Box`, so it is non-null, aligned,
-        // initialized, and unaliased (we own it). `&raw mut` forms a field
-        // pointer without creating a reference, leaving provenance over the
-        // whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*active).result };
-        // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
-        // and is unaliased. Suspending only loosens validity, so there is no
-        // further precondition. Converting the `Rf`-carrying `result` field
-        // through the canonical in-place conversion — rather than folding it
-        // into the blanket struct reinterpretation below — keeps the
-        // borrowed-data transition explicit and auditable.
-        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
-
-        // SAFETY: `result` is now the suspended form; the remaining `Rf`-dependent
-        // fields (`reader`, the `fn` pointers) are handled by reinterpreting the
-        // whole `#[repr(C)]` struct, which is sound by invariant 1 on
-        // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
-        // `R`. `Box::from_raw` reuses the same allocation, so the box address is
-        // preserved.
-        unsafe {
-            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E>>())
         }
     }
 }
@@ -635,5 +635,19 @@ where
         // matches the active `num_estimated` and keeps FT.PROFILE introspection
         // of a suspended iterator meaningful.
         self.num_docs_field() as usize
+    }
+}
+
+// `RawInvIndIterator` is always wrapped by a typed iterator (`Numeric`, `Term`,
+// `Tag`, `Missing`, `Wildcard`) that prints the real `FT.PROFILE` type; this
+// impl exists only to satisfy the `RQEIterator: ProfilePrint` supertrait and is
+// not reached in practice.
+impl<Rf: Ref, R, E> crate::profile_print::ProfilePrint for RawInvIndIterator<'_, Rf, R, E> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"INVERTED INDEX", map);
     }
 }

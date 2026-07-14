@@ -10,8 +10,8 @@
 //! Supporting types for [`MetricLazy`].
 
 use crate::{
-    IteratorType, Metric, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, Metric, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     deferred::{ProducedResults, Producer},
     metric::{MetricType, RawMetric, SuspendedMetric},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -39,7 +39,7 @@ pub type MetricLazySortedByScore<'index> = MetricLazy<'index, false>;
 ///
 /// `#[repr(C)]` so it is layout-compatible with its suspended counterpart
 /// [`SuspendedMetricLazy`], enabling the allocation-preserving whole-struct
-/// cast in [`RQEIteratorBoxed::suspend`].
+/// cast in [`RQEIterator::suspend`].
 #[repr(C)]
 pub struct RawMetricLazy<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     /// The wrapped metric iterator, empty until [`producer`](Self::producer) runs.
@@ -137,6 +137,29 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetricLazy<'query, Rf, SORTED
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index, SORTED_BY_ID> {
+    type Suspended = SuspendedMetricLazy<'index, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let active = Box::into_raw(self);
+
+        // Suspend the wrapped metric's base id list `result` field in place, leaving the
+        // outer allocation (and the `Rf`-independent `producer`) untouched.
+        //
+        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
+        // preserving `active`'s provenance over the whole allocation for the outer
+        // cast below.
+        let inner_slot = unsafe { &raw mut (*active).inner };
+        // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
+        // unaliased (this function owns `self`). Suspending is a safe widening conversion.
+        let _ = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(inner_slot) };
+
+        // SAFETY: `MetricLazy` and `SuspendedMetricLazy` are both `#[repr(C)]` with identical
+        // field layout: `inner` is now the suspended metric, `producer` is `Producer<'static>` in
+        // both variants, and `produced`/`num_estimated_hint` carry no lifetime. `Box::from_raw`
+        // reuses the same heap allocation as `Box::into_raw`, so the address is unchanged.
+        unsafe { Box::from_raw(active.cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.inner.current()
@@ -192,36 +215,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index
     }
 }
 
-impl<const SORTED_BY_ID: bool> ProfilePrint for MetricLazy<'_, SORTED_BY_ID> {
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> ProfilePrint for RawMetricLazy<'query, Rf, SORTED_BY_ID> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.inner.print_profile(map, ctx);
-    }
-}
-
-impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index>
-    for MetricLazy<'index, SORTED_BY_ID>
-{
-    type Suspended = SuspendedMetricLazy<'index, SORTED_BY_ID>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = Box::into_raw(self);
-
-        // Suspend the wrapped metric's base id list `result` field in place, leaving the
-        // outer allocation (and the `Rf`-independent `producer`) untouched.
-        //
-        // SAFETY: `&raw mut` forms a field pointer without creating a reference,
-        // preserving `active`'s provenance over the whole allocation for the outer
-        // cast below.
-        let inner_slot = unsafe { &raw mut (*active).inner };
-        // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
-        // unaliased (this function owns `self`). Suspending is a safe widening conversion.
-        let _ = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(inner_slot) };
-
-        // SAFETY: `MetricLazy` and `SuspendedMetricLazy` are both `#[repr(C)]` with identical
-        // field layout: `inner` is now the suspended metric, `producer` is `Producer<'static>` in
-        // both variants, and `produced`/`num_estimated_hint` carry no lifetime. `Box::from_raw`
-        // reuses the same heap allocation as `Box::into_raw`, so the address is unchanged.
-        unsafe { Box::from_raw(active.cast::<SuspendedMetricLazy<'index, SORTED_BY_ID>>()) }
     }
 }
 
