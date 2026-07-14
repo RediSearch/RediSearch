@@ -160,9 +160,9 @@ use rqe_wildcard::WildcardPattern;
 /// given pattern. See the module documentation for the selection criteria.
 pub enum WildcardIter<'tm, 'p, Data> {
     /// `u64`-backed NFA — pattern has ≤ 63 atoms.
-    U64(AutomatonIter<'tm, Data, WildcardNfa<u64>>),
+    U64(AutomatonIter<'tm, Data, WildcardNfa<'p, u64>>),
     /// `u128`-backed NFA — pattern has 64..=127 atoms.
-    U128(AutomatonIter<'tm, Data, WildcardNfa<u128>>),
+    U128(AutomatonIter<'tm, Data, WildcardNfa<'p, u128>>),
     /// Filter-based fallback — pattern has ≥ 128 atoms.
     Filter(WildcardFilterIter<'tm, 'p, Data>),
 }
