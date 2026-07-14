@@ -41,6 +41,13 @@ if [[ -f /etc/alpine-release ]]; then
     export CC=clang CXX=clang++
     if uv python list 3.13 2>/dev/null | grep -q .; then
         export UV_PYTHON=3.13
+        # Persist to the whole job, not just this script's process. The test
+        # harness runs `uv run python3 -m RLTest`, and `uv run` re-provisions the
+        # venv; without UV_PYTHON in scope it falls back to the system CPython
+        # 3.12, relinking .venv. pip is installed under python3.13/site-packages,
+        # so the 3.12 interpreter can't import it and RedisJSON's readies getpy3
+        # (`python3 -m pip --version`) fails with "Cannot find python3 interpreter".
+        [[ -n "${GITHUB_ENV:-}" ]] && echo "UV_PYTHON=3.13" >> "$GITHUB_ENV"
     fi
 fi
 
