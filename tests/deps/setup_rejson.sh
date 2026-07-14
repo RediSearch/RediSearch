@@ -67,31 +67,6 @@ if [[ -f /etc/os-release ]]; then
 	fi
 fi
 
-# [DEBUG MOD-16514 — temporary] Capture the python3/pip state readies getpy3
-# will see for this RedisJSON build (the actual failure point). Revert before merge.
-if [[ -f /etc/alpine-release ]]; then
-	echo "===== PIP DIAG (before RedisJSON make) ====="
-	echo "PATH=$PATH"
-	echo "type -a python3:"; type -a python3 2>&1 || true
-	echo "ls -la .venv/bin/python*:"; ls -la "${GITHUB_WORKSPACE:-$ROOT}/.venv/bin/"python* 2>&1 || true
-	p3="$(command -v python3)"; echo "command -v python3: $p3 | readlink -f: $(readlink -f "$p3" 2>&1)"
-	python3 - <<'PYEOF' 2>&1 || true
-import sys, os, importlib.util, traceback
-print("version:", sys.version.replace(chr(10), " "))
-print("executable:", sys.executable)
-print("prefix:", sys.prefix, "| base_prefix:", sys.base_prefix)
-print("VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"), "| LD_LIBRARY_PATH:", os.environ.get("LD_LIBRARY_PATH"))
-print("sys.path:", sys.path)
-print("find_spec(pip):", importlib.util.find_spec("pip"))
-try:
-    import pip; print("import pip OK:", pip.__file__)
-except Exception:
-    print("import pip FAILED:"); traceback.print_exc()
-PYEOF
-	echo "-- python3 -m pip --version:"; python3 -m pip --version 2>&1 || true
-	echo "===== END PIP DIAG ====="
-fi
-
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 # RedisJSON's Makefile expects cargo to write to `$(BINDIR)/target/release/`
 # (no target-triple subdirectory). But build.sh exports

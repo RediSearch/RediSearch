@@ -41,6 +41,13 @@ if [[ -f /etc/alpine-release ]]; then
     export CC=clang CXX=clang++
     if uv python list 3.13 2>/dev/null | grep -q .; then
         export UV_PYTHON=3.13
+        # Persist to the whole job, not just this script's process. The test
+        # harness runs `uv run python3 -m RLTest`, and `uv run` re-provisions the
+        # venv; without UV_PYTHON in scope it falls back to the system CPython
+        # 3.12, relinking .venv. pip is installed under python3.13/site-packages,
+        # so the 3.12 interpreter can't import it and RedisJSON's readies getpy3
+        # (`python3 -m pip --version`) fails with "Cannot find python3 interpreter".
+        [[ -n "${GITHUB_ENV:-}" ]] && echo "UV_PYTHON=3.13" >> "$GITHUB_ENV"
     fi
 fi
 
@@ -56,32 +63,3 @@ uv sync --locked --all-packages
 
 # List installed packages
 uv run pip list
-
-# [DEBUG MOD-16514 — temporary] On Alpine, capture why `python3 -m pip` is
-# import-broken (RedisJSON's readies getpy3 needs it). Revert before merge.
-if [[ -f /etc/alpine-release ]]; then
-	echo "===== PIP DIAG (install_python_deps end) ====="
-	command -v python3 && readlink -f "$(command -v python3)"
-	python3 - <<'PYEOF' 2>&1 || true
-import sys, os, importlib.util, traceback
-print("exe:", sys.executable)
-print("prefix:", sys.prefix, "| base_prefix:", sys.base_prefix)
-print("VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"))
-print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
-print("PYTHONHOME:", os.environ.get("PYTHONHOME"))
-print("LD_LIBRARY_PATH:", os.environ.get("LD_LIBRARY_PATH"))
-print("sys.path:", sys.path)
-print("find_spec(pip):", importlib.util.find_spec("pip"))
-for sp in sys.path:
-    try:
-        e = [x for x in os.listdir(sp) if x.lower().startswith("pip")]
-        if e: print("pip-ish in", sp, ":", e)
-    except Exception:
-        pass
-try:
-    import pip; print("import pip OK:", pip.__file__)
-except Exception:
-    print("import pip FAILED:"); traceback.print_exc()
-PYEOF
-	echo "===== END PIP DIAG ====="
-fi
