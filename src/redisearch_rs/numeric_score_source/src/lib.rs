@@ -35,15 +35,15 @@ pub use source::{AllValid, DocValidity, NumericScoreSource};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_iterators::RQEIterator;
+use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIterator};
 use top_k::{TopKIterator, TopKMode};
 
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
 /// Construct one with [`new_numeric_top_k_unfiltered`] or
 /// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index, V = AllValid> =
-    TopKIterator<'index, NumericScoreSource<'index, V>>;
+pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker> =
+    TopKIterator<'index, NumericScoreSource<'index, V, E>>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -60,10 +60,14 @@ fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
 /// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
 /// with no child) performs the selection. The sort direction is taken from the
 /// `source` (`SORTBY field ASC`/`DESC`).
-pub fn new_numeric_top_k_unfiltered<'index, V: DocValidity + 'index>(
-    source: NumericScoreSource<'index, V>,
+pub fn new_numeric_top_k_unfiltered<
+    'index,
+    V: DocValidity + 'index,
+    E: ExpirationChecker + 'index,
+>(
+    source: NumericScoreSource<'index, V, E>,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V> {
+) -> NumericTopKIterator<'index, V, E> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
@@ -72,11 +76,15 @@ pub fn new_numeric_top_k_unfiltered<'index, V: DocValidity + 'index>(
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
 /// child filter, and the heap keeps the top `k` by numeric value.
-pub fn new_numeric_top_k_filtered<'index, V: DocValidity + 'index>(
-    source: NumericScoreSource<'index, V>,
+pub fn new_numeric_top_k_filtered<
+    'index,
+    V: DocValidity + 'index,
+    E: ExpirationChecker + 'index,
+>(
+    source: NumericScoreSource<'index, V, E>,
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V> {
+) -> NumericTopKIterator<'index, V, E> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(
         source,

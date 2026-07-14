@@ -32,12 +32,12 @@ impl NumericScoreBatch {
         Self { items, pos: 0 }
     }
 
-    /// Drop records whose doc id fails `keep`, preserving the strictly
+    /// Drop records for which `keep` returns `false`, preserving the strictly
     /// increasing doc-id order. Called before the batch is consumed, so `pos`
     /// stays at `0`.
-    pub(crate) fn retain(&mut self, keep: impl Fn(DocId) -> bool) {
+    pub(crate) fn retain(&mut self, keep: impl Fn(DocId, f64) -> bool) {
         debug_assert_eq!(self.pos, 0, "retain must run before the batch is read");
-        self.items.retain(|&(doc_id, _)| keep(doc_id));
+        self.items.retain(|&(doc_id, score)| keep(doc_id, score));
     }
 }
 
