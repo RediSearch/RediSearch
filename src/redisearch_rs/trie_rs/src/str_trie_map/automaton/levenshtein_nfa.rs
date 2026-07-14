@@ -433,6 +433,7 @@ mod tests {
     /// in-bounds distance. The alphabet includes a multi-byte codepoint so
     /// codepoint (not byte) semantics are exercised throughout.
     #[test]
+    #[cfg_attr(miri, ignore = "exhaustive ~27k-case sweep is too slow under miri")]
     fn agrees_with_dp_row_exhaustively() {
         const ALPHABET: [char; 3] = ['a', 'B', 'é'];
         let needles = ["", "ab", "aBé", "ébba", "aaaa"];
