@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod case_insensitive_iter;
 mod empty_short_circuits;
 mod range_iter;
 mod return_value_contracts;

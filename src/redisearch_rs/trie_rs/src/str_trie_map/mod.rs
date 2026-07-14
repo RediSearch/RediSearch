@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod automaton;
 pub mod iter;
 
 use crate::TrieMap;
@@ -123,6 +124,13 @@ impl<Data> StrTrieMap<Data> {
     /// memchr semantics would match every term.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
+    }
+
+    /// Yield every entry whose key equals `needle` after per-codepoint case
+    /// folding, in lexicographical key order. See
+    /// [`CaseFoldExact`](automaton::CaseFoldExact) for the matching model.
+    pub fn case_insensitive_iter(&self, needle: &str) -> iter::CaseInsensitiveIter<'_, Data> {
+        iter::CaseInsensitiveIter::new(&self.inner, needle)
     }
 
     /// Iterate over entries with keys inside `filter`, in lexicographical
