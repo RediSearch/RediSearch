@@ -138,7 +138,6 @@ pub struct NumericScoreSource<'index, V: DocValidity = AllValid> {
     num_iterations: usize,
     /// Drops records for doc ids it reports invalid (deleted or expired) before
     /// they reach the top-k heap. [`AllValid`] keeps every record.
-    #[expect(dead_code)]
     validity: V,
 }
 
@@ -316,7 +315,16 @@ impl<'index, V: DocValidity> ScoreSource for NumericScoreSource<'index, V> {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        Ok(self.ranges.next_n(self.range_batch_size)?)
+        let Some(mut batch) = self.ranges.next_n(self.range_batch_size)? else {
+            return Ok(None);
+        };
+        // Drop entries the index still holds for deleted or expired documents;
+        // the range tree only sheds them at GC time. The gate keeps the common
+        // no-filtering case free of the per-record check.
+        if self.validity.may_filter() {
+            batch.retain(|doc_id| self.validity.is_valid(doc_id));
+        }
+        Ok(Some(batch))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
