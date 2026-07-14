@@ -98,8 +98,9 @@ pub unsafe extern "C" fn TimeToLiveTable_Destroy(table: *mut *mut TimeToLiveTabl
 /// afterwards.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`] (no
-///    other reference to it must exist for the duration of the call).
+///  - `table` must point to a valid, initialized [`TimeToLiveTable`]. Reads may
+///    run concurrently (lock-free), but there must be no concurrent writer:
+///    `_Add` / `_Remove` are serialized by the caller (the spec write lock).
 ///  - `field_expirations` must have been produced by [`FieldExpirations_Empty`]
 ///    or [`FieldExpirations_WithCapacity`] and must be non-empty.
 ///    Sortedness and uniqueness-by-`index` are carried by the type itself.
@@ -111,8 +112,9 @@ pub unsafe extern "C" fn TimeToLiveTable_Add(
     field_expirations: FieldExpirations,
 ) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
-    // SAFETY: caller guarantees pointer validity and exclusive access.
-    let inner = unsafe { &mut *table };
+    // SAFETY: caller guarantees pointer validity; the table's lock-free design
+    // permits shared `&` access for the single-writer add.
+    let inner = unsafe { &*table };
     // SAFETY: caller upholds `add`'s preconditions (documented above).
     unsafe { inner.add_unchecked(doc_id, field_expirations) };
 }
@@ -120,13 +122,15 @@ pub unsafe extern "C" fn TimeToLiveTable_Add(
 /// Remove the entry for `doc_id`, if any. No-op if absent.
 ///
 /// # Safety
-///  - `table` must point to a valid, initialized [`TimeToLiveTable`] with
-///    no other live references.
+///  - `table` must point to a valid, initialized [`TimeToLiveTable`]. Reads may
+///    run concurrently (lock-free); there must be no concurrent writer
+///    (`_Add` / `_Remove` are serialized by the caller's spec write lock).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TimeToLiveTable_Remove(table: *mut TimeToLiveTable, doc_id: DocId) {
     debug_assert!(!table.is_null(), "table cannot be NULL");
-    // SAFETY: caller guarantees pointer validity and exclusive access.
-    let inner = unsafe { &mut *table };
+    // SAFETY: caller guarantees pointer validity; the table's lock-free design
+    // permits shared `&` access for the single-writer remove.
+    let inner = unsafe { &*table };
     let _ = inner.remove(doc_id);
 }
 
@@ -268,7 +272,7 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldMaskSatisfiesPredicate(
 ///  - If non-null, `table` must point to a valid, initialized
 ///    [`TimeToLiveTable`].
 #[unsafe(no_mangle)]
-pub const unsafe extern "C" fn TimeToLiveTable_NAllocatedBuckets(
+pub unsafe extern "C" fn TimeToLiveTable_NAllocatedBuckets(
     table: *const TimeToLiveTable,
 ) -> usize {
     if table.is_null() {

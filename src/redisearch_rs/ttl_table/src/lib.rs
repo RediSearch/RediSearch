@@ -9,20 +9,28 @@
 
 //! A per-(document-field) time-to-live table
 //!
-//! Data layout and growth strategy:
+//! Data layout and concurrency:
 //!
 //! - A direct-modulo bucket array (`slot = doc_id % max_size`) — no hashing,
 //!   so monotonically allocated docIds map to sequential slots and the CPU
-//!   prefetcher can stream upcoming bucket headers into L1.
-//! - Per-bucket contiguous-vec collision chains (a [`MediumThinVec`] of entries),
-//!   grown by `MediumThinVec`'s native exponential strategy (doubling, seeded at
-//!   4), as are the per-entry field-expiration lists.
+//!   prefetcher can stream upcoming bucket slots into L1.
+//! - Each slot is an atomic pointer to an **immutable** bucket (a boxed slice
+//!   of entries). A slot is never mutated in place: `add`/`remove` build a new
+//!   bucket (copy-on-write of that one slot's short collision chain), publish
+//!   it with a release store, and retire the old bucket for safe reclamation.
 //! - Lazy growth: the bucket array starts empty and grows geometrically
 //!   (+1.5×, capped at `1 << 20` and clamped to `max_size`) only as `add`
-//!   demands more slots.
-//! - No shrink-on-delete: empty buckets are released, but the bucket array
-//!   itself keeps its high-water-mark length so churning indexes don't
-//!   thrash on realloc.
+//!   demands more slots. Growth allocates a fresh array, copies the slot
+//!   pointers (buckets are shared, not copied), publishes it, and retires the
+//!   old array — never `realloc`, so a concurrent reader is never left holding
+//!   a freed array.
+//!
+//! This makes reads **lock-free**: a reader loads the published array and slot
+//! pointers with acquire ordering and walks an immutable bucket without any
+//! lock, while a single writer mutates under the spec write lock. Reclamation
+//! of retired buckets/arrays is deferred until no reader is in flight (see
+//! [`reclaim`]). Methods take `&self`; callers must guarantee a single writer
+//! (the spec write lock provides this).
 //!
 //! The table holds only field-level (HEXPIRE) expirations; document-level
 //! TTL lives directly on `RSDocumentMetadata::expirationTimeNs` so the
@@ -31,12 +39,15 @@
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 
-use std::{iter::Chain, num::NonZeroUsize, ops::Deref};
+mod reclaim;
+
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::{iter::Chain, num::NonZeroUsize, ops::Deref, ptr};
 
 use ffi::t_expirationTimePoint as timespec;
 pub use field::FieldExpirationPredicate;
 use rqe_core::{DocId, FieldIndex, FieldMask};
-use thin_vec::{AlignedU32, MediumThinVec, ThinVec};
+use thin_vec::{AlignedU32, ThinVec};
 
 /// A single field's expiration record.
 ///
@@ -194,7 +205,9 @@ const TTL_BUCKET_INITIAL_CAP: usize = 64;
 const TTL_BUCKET_MAX_GROW_STEP: usize = 1 << 20;
 
 /// A document's record in a [`TimeToLiveTable`] bucket's collision chain.
-#[derive(Debug)]
+///
+/// `Clone` is used for the copy-on-write of a slot's chain on `add`/`remove`.
+#[derive(Debug, Clone)]
 pub struct TimeToLiveEntry {
     /// The document id
     pub doc_id: DocId,
@@ -202,20 +215,64 @@ pub struct TimeToLiveEntry {
     pub field_expirations: FieldExpirations,
 }
 
-/// Direct-modulo bucket array with contiguous-vec collision chains.
+/// An immutable published bucket: one slot's collision chain.
 ///
-/// See the module-level documentation for the rationale. The bucket array
-/// length (`buckets.len()`) always satisfies `buckets.len() <= max_size`.
+/// Never mutated after publication; `add`/`remove` build a fresh `Bucket` and
+/// swap the slot pointer, retiring the old one.
 #[derive(Debug)]
-pub struct TimeToLiveTable {
-    /// The bucket array.
-    buckets: Vec<MediumThinVec<TimeToLiveEntry>>,
-    /// Modulus for the slot formula. Captured at construction and never
-    /// changes.
-    max_size: usize,
-    /// Number of stored document
-    count: usize,
+struct Bucket {
+    entries: Box<[TimeToLiveEntry]>,
 }
+
+/// An immutable published bucket array. Grown by allocating a fresh array and
+/// copying the (shared) slot pointers, then retiring the old array — so a
+/// concurrent reader is never left holding a freed array. Each slot is either
+/// null (empty) or owns one `Box<Bucket>`.
+#[derive(Debug)]
+struct BucketArray {
+    slots: Box<[AtomicPtr<Bucket>]>,
+}
+
+/// Reclamation destructor for a retired `Box<Bucket>`.
+///
+/// # Safety
+/// `p` must be a `*mut Bucket` from `Box::into_raw`, retired exactly once.
+unsafe fn drop_bucket(p: usize) {
+    // SAFETY: caller contract — `p` is a once-retired `Box<Bucket>` raw pointer.
+    drop(unsafe { Box::from_raw(p as *mut Bucket) });
+}
+
+/// Reclamation destructor for a retired `Box<BucketArray>`. Frees only the slot
+/// array; the buckets it referenced are shared with the successor array.
+///
+/// # Safety
+/// `p` must be a `*mut BucketArray` from `Box::into_raw`, retired exactly once.
+unsafe fn drop_bucket_array(p: usize) {
+    // SAFETY: caller contract — `p` is a once-retired `Box<BucketArray>` raw
+    // pointer. `AtomicPtr`'s drop does not touch the pointees, so shared buckets
+    // are left intact.
+    drop(unsafe { Box::from_raw(p as *mut BucketArray) });
+}
+
+/// Direct-modulo, lock-free-read time-to-live table.
+///
+/// See the module-level documentation. Reads are lock-free; a single writer
+/// (the spec write lock) mutates via `&self` using atomic publish + deferred
+/// reclamation.
+pub struct TimeToLiveTable {
+    /// Atomically-published bucket array. Never null after construction.
+    array: AtomicPtr<BucketArray>,
+    /// Modulus for the slot formula. Captured at construction; never changes.
+    max_size: usize,
+    /// Number of stored documents.
+    count: AtomicUsize,
+}
+
+// `TimeToLiveTable` is `Send + Sync` automatically (`AtomicPtr`/`AtomicUsize`
+// are both). That is sound here because all shared state is accessed through
+// atomics and immutable published buckets: the single-writer invariant (spec
+// write lock) rules out write-write races, and readers only ever observe
+// published, retire-protected memory.
 
 impl TimeToLiveTable {
     /// Creates an empty table with `max_size` as the fixed modulus for
@@ -223,16 +280,32 @@ impl TimeToLiveTable {
     ///
     /// The bucket array starts empty and grows on demand.
     pub fn new(max_size: NonZeroUsize) -> Self {
+        let empty = Box::new(BucketArray {
+            slots: Box::new([]),
+        });
         Self {
-            buckets: Vec::new(),
+            array: AtomicPtr::new(Box::into_raw(empty)),
             max_size: max_size.into(),
-            count: 0,
+            count: AtomicUsize::new(0),
         }
     }
 
     /// Returns `true` if the table holds no entries.
-    pub const fn is_empty(&self) -> bool {
-        self.count == 0
+    pub fn is_empty(&self) -> bool {
+        self.count.load(Ordering::Relaxed) == 0
+    }
+
+    /// Load the currently-published bucket array.
+    ///
+    /// The returned reference is valid for as long as the caller holds a
+    /// [`reclaim`] pin (readers) or the single-writer invariant holds (writer).
+    #[inline]
+    fn array(&self) -> &BucketArray {
+        // SAFETY: `array` is published at construction and only ever replaced
+        // (never nulled) by the single writer; the old array is retired, not
+        // freed inline, so this pointer is valid under a reader pin / on the
+        // writer thread.
+        unsafe { &*self.array.load(Ordering::Acquire) }
     }
 
     /// Inserts a document's per-field expirations.
@@ -241,7 +314,7 @@ impl TimeToLiveTable {
     ///
     /// Panics if `field_expirations` is empty or if `doc_id` is already present
     /// in the table.
-    pub fn add(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
+    pub fn add(&self, doc_id: DocId, field_expirations: FieldExpirations) {
         assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -268,7 +341,7 @@ impl TimeToLiveTable {
     /// [`field_mask_satisfies_predicate`](Self::field_mask_satisfies_predicate)),
     /// which assume them when scanning the per-bucket chain and the
     /// per-entry field-expiration list.
-    pub unsafe fn add_unchecked(&mut self, doc_id: DocId, field_expirations: FieldExpirations) {
+    pub unsafe fn add_unchecked(&self, doc_id: DocId, field_expirations: FieldExpirations) {
         debug_assert!(
             !field_expirations.is_empty(),
             "TTL table add requires at least one field expiration"
@@ -277,49 +350,87 @@ impl TimeToLiveTable {
         let slot = self.slot(doc_id);
         self.grow_to(slot);
 
-        let slot = &mut self.buckets[slot];
+        let array = self.array();
+        let old = array.slots[slot].load(Ordering::Acquire);
 
-        debug_assert!(
-            !slot.iter().any(|e| e.doc_id == doc_id),
-            "duplicate docId in TTL table"
-        );
-
-        // `MediumThinVec::push` grows the chain exponentially when full.
-        slot.push(TimeToLiveEntry {
+        // Copy-on-write the slot's short collision chain: clone the existing
+        // entries, append the new one, and publish as a fresh immutable bucket.
+        let mut entries: Vec<TimeToLiveEntry> = if old.is_null() {
+            Vec::with_capacity(1)
+        } else {
+            // SAFETY: `old` is a published bucket; single-writer means it is not
+            // being mutated, and it is not freed while we hold the writer role.
+            let old_bucket = unsafe { &*old };
+            debug_assert!(
+                !old_bucket.entries.iter().any(|e| e.doc_id == doc_id),
+                "duplicate docId in TTL table"
+            );
+            old_bucket.entries.to_vec()
+        };
+        entries.push(TimeToLiveEntry {
             doc_id,
             field_expirations,
         });
-        self.count += 1;
+        let new_bucket = Box::into_raw(Box::new(Bucket {
+            entries: entries.into_boxed_slice(),
+        }));
+
+        array.slots[slot].store(new_bucket, Ordering::Release);
+        if !old.is_null() {
+            // SAFETY: `old` was just unlinked from the slot (RETIRE-AFTER-UNLINK)
+            // and is retired exactly once here.
+            unsafe { reclaim::retire(old as usize, drop_bucket) };
+        }
+        self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Removes the entry for `doc_id`, if any. No-op if absent.
     ///
-    /// Uses swap-last deletion (O(1)) and does not shrink the bucket, unless
-    /// it is empty.
-    pub fn remove(&mut self, doc_id: DocId) -> Option<TimeToLiveEntry> {
+    /// Copy-on-write: publishes a fresh bucket without the entry (or null when
+    /// the chain empties) and retires the old bucket. Returns a clone of the
+    /// removed entry, since the old bucket is immutable and shared.
+    pub fn remove(&self, doc_id: DocId) -> Option<TimeToLiveEntry> {
         let slot = self.slot(doc_id);
-        if slot >= self.buckets.len() {
+        let array = self.array();
+        if slot >= array.slots.len() {
             return None;
         }
-        let bucket = &mut self.buckets[slot];
-        if let Some(pos) = bucket.iter().position(|e| e.doc_id == doc_id) {
-            let removed = bucket.swap_remove(pos);
-            self.count -= 1;
-
-            // Remove allocated memory. This frees the old buffer.
-            if bucket.is_empty() {
-                *bucket = MediumThinVec::new();
-            }
-
-            Some(removed)
-        } else {
-            None
+        let old = array.slots[slot].load(Ordering::Acquire);
+        if old.is_null() {
+            return None;
         }
+        // SAFETY: `old` is a published bucket; single-writer means it is stable
+        // and not freed while we hold the writer role.
+        let old_bucket = unsafe { &*old };
+        let pos = old_bucket.entries.iter().position(|e| e.doc_id == doc_id)?;
+
+        let removed = old_bucket.entries[pos].clone();
+        if old_bucket.entries.len() == 1 {
+            // Chain empties: publish null so the slot is free again.
+            array.slots[slot].store(ptr::null_mut(), Ordering::Release);
+        } else {
+            let entries: Vec<TimeToLiveEntry> = old_bucket
+                .entries
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| (i != pos).then(|| e.clone()))
+                .collect();
+            let new_bucket = Box::into_raw(Box::new(Bucket {
+                entries: entries.into_boxed_slice(),
+            }));
+            array.slots[slot].store(new_bucket, Ordering::Release);
+        }
+        // SAFETY: `old` was just unlinked from the slot (RETIRE-AFTER-UNLINK)
+        // and is retired exactly once here.
+        unsafe { reclaim::retire(old as usize, drop_bucket) };
+        self.count.fetch_sub(1, Ordering::Relaxed);
+        Some(removed)
     }
 
-    /// Return the number of buckets currently allocated.
-    pub const fn n_allocated_buckets(&self) -> usize {
-        self.buckets.len()
+    /// Return the number of bucket slots currently allocated (the published
+    /// array length — the lazy-growth high-water mark).
+    pub fn n_allocated_buckets(&self) -> usize {
+        self.array().slots.len()
     }
 
     /// Returns the per-field expiration list stored for `doc_id`, or `None`
@@ -357,6 +468,9 @@ impl TimeToLiveTable {
         predicate: FieldExpirationPredicate,
         expiration_point: &timespec,
     ) -> bool {
+        // Lock-free read section: keeps the bucket `find_entry` returns alive
+        // for the whole scan (no borrow escapes this call).
+        let _guard = reclaim::pin();
         let Some(entry) = self.find_entry(doc_id) else {
             // the document did not have a ttl for itself or its fields
             // if predicate is FieldExpirationPredicate::Default, at least one field is valid
@@ -421,6 +535,9 @@ impl TimeToLiveTable {
         ft_id_to_field_index: &[u16],
         wide: bool,
     ) -> bool {
+        // Lock-free read section: keeps the entry's bucket alive across the
+        // mask walk (no borrow escapes this call).
+        let _guard = reclaim::pin();
         let entry = self.find_entry(doc_id);
         if wide {
             verify_mask::<FieldMask>(
@@ -450,14 +567,20 @@ impl TimeToLiveTable {
         }
     }
 
-    /// Ensures `buckets[slot]` is allocated.
+    /// Ensures the published array has a slot for `slot`.
     ///
-    /// The first grow seeds at `TTL_BUCKET_INITIAL_CAP`,
-    /// subsequent grows are `+1 + min(cap/2, TTL_BUCKET_MAX_GROW_STEP)`,
-    /// all clamped to `max_size` and rounded up to cover the requested `slot`.
-    fn grow_to(&mut self, slot: usize) {
+    /// The first grow seeds at `TTL_BUCKET_INITIAL_CAP`, subsequent grows are
+    /// `+1 + min(cap/2, TTL_BUCKET_MAX_GROW_STEP)`, all clamped to `max_size`
+    /// and rounded up to cover the requested `slot`. Growth allocates a fresh
+    /// array, copies the (shared) slot pointers, publishes it with a release
+    /// store, and retires the old array — never `realloc`, so a concurrent
+    /// reader is never left holding a freed array.
+    ///
+    /// Writer-only (single writer under the spec write lock).
+    fn grow_to(&self, slot: usize) {
         debug_assert!(slot < self.max_size);
-        let cap = self.buckets.len();
+        let old_array = self.array();
+        let cap = old_array.slots.len();
         if slot < cap {
             return;
         }
@@ -475,13 +598,64 @@ impl TimeToLiveTable {
             newcap = slot + 1;
         }
 
-        self.buckets.resize_with(newcap, MediumThinVec::new);
+        // Copy existing slot pointers (buckets are shared with the old array),
+        // null-fill the tail.
+        let mut new_slots: Vec<AtomicPtr<Bucket>> = Vec::with_capacity(newcap);
+        for i in 0..newcap {
+            let p = if i < cap {
+                old_array.slots[i].load(Ordering::Acquire)
+            } else {
+                ptr::null_mut()
+            };
+            new_slots.push(AtomicPtr::new(p));
+        }
+        let new_array = Box::into_raw(Box::new(BucketArray {
+            slots: new_slots.into_boxed_slice(),
+        }));
+        let old = self.array.swap(new_array, Ordering::AcqRel);
+        // SAFETY: the old array is now unreachable to new readers
+        // (RETIRE-AFTER-UNLINK); its slot storage is retired here exactly once.
+        // The buckets it referenced are shared with `new_array` and are NOT
+        // freed by `drop_bucket_array`.
+        unsafe { reclaim::retire(old as usize, drop_bucket_array) };
     }
 
+    /// Locate the entry for `doc_id`. The returned reference borrows a published
+    /// bucket; the caller must hold a [`reclaim`] pin (readers) or be the single
+    /// writer for it to stay valid.
     fn find_entry(&self, doc_id: DocId) -> Option<&TimeToLiveEntry> {
+        let array = self.array();
         let slot = self.slot(doc_id);
-        let bucket = self.buckets.get(slot)?;
-        bucket.iter().find(|e| e.doc_id == doc_id)
+        let bucket_ptr = array.slots.get(slot)?.load(Ordering::Acquire);
+        if bucket_ptr.is_null() {
+            return None;
+        }
+        // SAFETY: a non-null slot points to a published immutable `Bucket`, kept
+        // alive by the caller's pin / the single-writer invariant.
+        let bucket = unsafe { &*bucket_ptr };
+        bucket.entries.iter().find(|e| e.doc_id == doc_id)
+    }
+}
+
+impl Drop for TimeToLiveTable {
+    fn drop(&mut self) {
+        // Teardown runs with no lock-free readers in flight; flush anything this
+        // table retired, then free the live array and its buckets.
+        reclaim::try_reclaim();
+        let array_ptr = *self.array.get_mut();
+        if array_ptr.is_null() {
+            return;
+        }
+        // SAFETY: `&mut self` gives exclusive access; `array_ptr` was published
+        // by this table via `Box::into_raw` and is freed exactly once here.
+        let array = unsafe { Box::from_raw(array_ptr) };
+        for slot in array.slots.iter() {
+            let b = slot.load(Ordering::Acquire);
+            if !b.is_null() {
+                // SAFETY: each non-null slot owns exactly one `Box<Bucket>`.
+                drop(unsafe { Box::from_raw(b) });
+            }
+        }
     }
 }
 
@@ -798,7 +972,7 @@ mod tests {
         // absent. Per docs: if the document has no entry, both predicates
         // return true.
         const MAX: usize = 8;
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, PAST)]));
 
         let unknown_collider: u64 = DOC_ID_1 + MAX as u64;
@@ -826,7 +1000,7 @@ mod tests {
         const DOC_ID_1_COLLIDER_1: u64 = DOC_ID_1 + MAX as u64;
         const DOC_ID_1_COLLIDER_2: u64 = DOC_ID_1 + (MAX as u64) * 2;
 
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
 
         // ensure collisions
         assert_eq!(t.slot(DOC_ID_1), t.slot(DOC_ID_1_COLLIDER_1));
@@ -867,7 +1041,7 @@ mod tests {
         const MAX: usize = 8;
         const DOC_ID_1_COLLIDER: u64 = DOC_ID_1 + MAX as u64;
 
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
         t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
 
         // Slot collider
@@ -884,86 +1058,9 @@ mod tests {
     }
 
     #[test]
-    fn remove_reclaims_emptied_bucket_allocation() {
-        const MAX: usize = 8;
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-
-        let slot = t.slot(DOC_ID_1);
-
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        // The single insert allocated the chain buffer.
-        assert!(t.buckets[slot].capacity() > 0);
-
-        t.remove(DOC_ID_1);
-        // Draining the chain to empty must release the buffer, not just drop
-        // `len` to 0. `MediumThinVec::new()` is the non-allocating sentinel, so
-        // capacity == 0.
-        assert!(t.is_empty());
-        assert_eq!(t.buckets[slot].capacity(), 0);
-    }
-
-    #[test]
-    fn slot_reallocates_only_when_needed() {
-        const MAX: usize = 8;
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-
-        let slot = t.slot(DOC_ID_1);
-
-        // `MediumThinVec`'s native growth seeds capacity at 4 on the first push.
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 4);
-
-        // Same bucket
-        const DOC_ID_2: DocId = DOC_ID_1 + MAX as DocId;
-        assert_eq!(slot, t.slot(DOC_ID_2));
-
-        // Spare capacity is still available: no reallocation.
-        t.add(DOC_ID_2, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 4);
-
-        t.remove(DOC_ID_1);
-
-        // Same bucket
-        const DOC_ID_3: DocId = DOC_ID_1 + 2 * MAX as DocId;
-        assert_eq!(slot, t.slot(DOC_ID_3));
-
-        // Reusing the freed slot stays within the high-water-mark capacity.
-        t.add(DOC_ID_3, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        assert_eq!(t.buckets[slot].capacity(), 4);
-    }
-
-    #[test]
-    fn remove_keeps_allocation_until_bucket_fully_drains() {
-        // Confirms the deliberate two-way split: a chain that still holds
-        // entries keeps its capacity at the high-water mark (no realloc churn);
-        // only a fully drained chain is freed.
-        const MAX: usize = 8;
-        const COLLIDER: u64 = DOC_ID_1 + MAX as u64;
-
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
-        let slot = t.slot(DOC_ID_1);
-        assert_eq!(slot, t.slot(COLLIDER)); // same bucket
-
-        t.add(DOC_ID_1, fes([fe(FIELD_INDEX_1, FUTURE)]));
-        t.add(COLLIDER, fes([fe(FIELD_INDEX_1, PAST)]));
-        let peak_cap = t.buckets[slot].capacity();
-        assert!(peak_cap >= t.buckets[slot].len());
-
-        // One entry left: allocation is retained at the high-water mark.
-        t.remove(DOC_ID_1);
-        assert!(!t.buckets[slot].is_empty());
-        assert_eq!(t.buckets[slot].capacity(), peak_cap);
-
-        // Last entry gone: allocation is released.
-        t.remove(COLLIDER);
-        assert!(t.is_empty());
-        assert_eq!(t.buckets[slot].capacity(), 0);
-    }
-
-    #[test]
     fn max_size_one_collapses_every_doc_to_slot_zero() {
         const MAX: usize = 1;
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let t = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
         t.add(0, fes([fe(FIELD_INDEX_1, FUTURE)]));
         t.add(1, fes([fe(FIELD_INDEX_1, PAST)]));
         t.add(2, fes([fe(FIELD_INDEX_1, FUTURE)]));
@@ -1016,7 +1113,7 @@ mod tests {
         // bucket and stay distinguishable, then removes the middle layer to
         // confirm swap-last does not corrupt the outer entries.
         const CAP: u64 = 32;
-        let mut t = TimeToLiveTable::new(NonZeroUsize::new(CAP as usize).unwrap());
+        let t = TimeToLiveTable::new(NonZeroUsize::new(CAP as usize).unwrap());
 
         for x in 1u64..8 {
             assert_eq!(t.slot(x), t.slot(x + CAP));
@@ -1136,5 +1233,70 @@ mod tests {
         // Deliberately violates the precondition (3 < 5) to exercise the panic
         // branch; the call is expected to abort the test via panic.
         list.push(fe(3, FUTURE));
+    }
+
+    // Four lock-free readers hammer `field_satisfies_predicate` (no lock, only
+    // the reclamation pin inside each call) while a single writer inserts and
+    // deletes, driving per-bucket copy-on-write, deferred reclamation, and
+    // array growth. Must never crash / use-after-free; the boolean result may
+    // legitimately vary as the writer mutates concurrently.
+    #[test]
+    fn concurrent_lock_free_reads_during_writes() {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        use std::thread;
+
+        const MAX: usize = 256;
+        const N: u64 = 20_000;
+
+        let table = TimeToLiveTable::new(NonZeroUsize::new(MAX).unwrap());
+        let stop = AtomicBool::new(false);
+        let hi = AtomicU64::new(0);
+
+        let table = &table;
+        let stop = &stop;
+        let hi = &hi;
+
+        thread::scope(|s| {
+            for r in 0..4u64 {
+                s.spawn(move || {
+                    let mut seed = 0x9e37_79b9_7f4a_7c15u64 ^ r;
+                    while !stop.load(Ordering::Acquire) {
+                        let n = hi.load(Ordering::Acquire);
+                        if n == 0 {
+                            thread::yield_now();
+                            continue;
+                        }
+                        for _ in 0..128 {
+                            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                            let id = 1 + (seed % n);
+                            let _ = table.field_satisfies_predicate(
+                                id,
+                                FIELD_INDEX_1,
+                                FieldExpirationPredicate::Default,
+                                &NOW,
+                            );
+                        }
+                    }
+                });
+            }
+            s.spawn(move || {
+                for i in 1..=N {
+                    table.add(i, fes([fe(FIELD_INDEX_1, FUTURE)]));
+                    hi.store(i, Ordering::Release);
+                    if i > 40 && i % 3 == 0 {
+                        let _ = table.remove(i - 23);
+                    }
+                }
+                stop.store(true, Ordering::Release);
+            });
+        });
+
+        // A survivor that was never deleted still resolves after all the churn.
+        assert!(table.field_satisfies_predicate(
+            1,
+            FIELD_INDEX_1,
+            FieldExpirationPredicate::Default,
+            &NOW,
+        ));
     }
 }
