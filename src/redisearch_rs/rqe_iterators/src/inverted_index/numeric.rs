@@ -14,12 +14,11 @@ use crate::{
     SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
-    interop::RQEIteratorWrapper,
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
 use ffi::{
     FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
-    QueryNodeType, RSGlobalConfig, RedisSearchCtx,
+    QueryNodeType, RedisSearchCtx,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -44,8 +43,8 @@ use super::core::{InvIndIterator, RawInvIndIterator};
 /// * `R` - The type of the numeric reader.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
-pub struct RawNumeric<Rf: Ref, R, E = NoOpChecker> {
-    it: RawInvIndIterator<Rf, R, E>,
+pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, R, E>,
     /// The numeric range tree and its revision ID, used to detect changes during revalidation.
     range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
@@ -56,7 +55,7 @@ pub struct RawNumeric<Rf: Ref, R, E = NoOpChecker> {
 
 /// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<Active<'index>, R, E>;
+pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>, R, E>;
 
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {
@@ -589,7 +588,7 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
 }
 
 /// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
-/// field's [`NumericRangeTree`], returning a C-ABI [`QueryIterator`] pointer.
+/// field's [`NumericRangeTree`].
 ///
 /// Opens the field's range tree, collects one iterator per matching sub-range
 /// (a [`NumericIteratorVariant`] each), and combines them with
@@ -597,8 +596,9 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
 /// the union is [`Numeric`](QueryNodeType::Numeric) or [`Geo`](QueryNodeType::Geo)
 /// depending on the filter.
 ///
-/// Returns NULL when the index does not exist for the field (nothing indexed
-/// yet) or when no sub-range matches the filter.
+/// Returns [`None`] — an empty (matchless) result, not an error — when the index
+/// does not exist for the field (nothing indexed yet) or when no sub-range
+/// matches the filter.
 ///
 /// # Safety
 ///
@@ -613,10 +613,8 @@ pub unsafe fn build_numeric_filter_iterator(
     flt: &NumericFilter,
     min_union_iter_heap: usize,
     field_ctx: &field::FieldFilterContext,
-) -> *mut QueryIterator {
-    // SAFETY: `RSGlobalConfig` is initialised by the time any index is created.
-    let compress = unsafe { RSGlobalConfig.numericCompress };
-
+    compress: bool,
+) -> Option<NonNull<QueryIterator>> {
     let node_type = if flt.is_numeric_filter() {
         QueryNodeType::Numeric
     } else {
@@ -630,32 +628,22 @@ pub unsafe fn build_numeric_filter_iterator(
     // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
     // is the right type. We never create the tree here (`create_if_missing` is
     // false), so the `fs.tree` ownership precondition is trivially upheld.
-    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }) else {
-        return std::ptr::null_mut();
-    };
+    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }?;
 
     // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
     // index (3).
     let variants =
         unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
     if variants.is_empty() {
-        return std::ptr::null_mut();
+        return None;
     }
 
     let children: Vec<CRQEIterator> = variants
         .into_iter()
-        .map(|variant| {
-            let ptr = RQEIteratorWrapper::boxed_new(variant);
-            // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
-            let ptr = unsafe { NonNull::new_unchecked(ptr) };
-            // SAFETY: `ptr` is a valid, uniquely-owned `QueryIterator`.
-            unsafe { CRQEIterator::new(ptr) }
-        })
+        .map(CRQEIterator::from_rust_leaf)
         .collect();
 
-    // SAFETY: `q_str` is `None` and `node_type` is `Numeric` or `Geo`, both
-    // union-compatible, satisfying the requirements of `build_union`.
-    unsafe {
-        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, None, 1.0)
-    }
+    let iter =
+        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
+    Some(iter)
 }

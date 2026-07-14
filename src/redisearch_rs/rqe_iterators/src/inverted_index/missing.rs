@@ -50,8 +50,8 @@ use super::{InvIndIterator, core::RawInvIndIterator};
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
 #[repr(C)]
-pub struct RawMissing<Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
-    it: RawInvIndIterator<Rf, RawIndexReaderCore<Rf, E>, C>,
+pub struct RawMissing<'query, Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, C>,
     field_index: FieldIndex,
     /// Owned copy of the field name, extracted from the spec at construction
     /// time. Owning the string means the iterator no longer borrows from
@@ -63,7 +63,7 @@ pub struct RawMissing<Rf: Ref, E: DecodedBy, C = crate::expiration_checker::NoOp
 /// Alias for an [`Active`] [`RawMissing`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Missing<'index, E, C = crate::expiration_checker::NoOpChecker> =
-    RawMissing<Active<'index>, E, C>;
+    RawMissing<'index, Active<'index>, E, C>;
 
 impl<'index, E, C> Missing<'index, E, C>
 where

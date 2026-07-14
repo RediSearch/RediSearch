@@ -147,6 +147,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geo_index.h",
+        fns: &["GeoFilter_Validate"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -201,7 +207,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/numeric_filter.h",
-        fns: &["NewNumericFilter"],
+        fns: &["NewNumericFilter", "NumericFilter_Free"],
         types: &[],
         vars: &[],
     },
@@ -520,8 +526,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "query_error.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
-    // `QueryNodeType` is taken by value in `src/query_node.h`.
-    "query_node_type.h",
+    // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
+    // also includes it for the scorer- and expander-name macros
+    // (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`, ...), whose single source
+    // of truth is the Rust `query_types` crate.
+    "query_types.h",
     // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
     "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
@@ -563,11 +572,6 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
     "varint_ffi.h",
-    // `src/ext/default.h` includes `query_eval.h` for the scorer- and
-    // expander-name macros (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`,
-    // ...), whose single source of truth is the Rust `query_eval` crate. These
-    // are string `#define`s, so a forward declaration isn't applicable.
-    "query_eval.h",
 ];
 
 /// Types defined in Rust (re-exported from their owning crate in
@@ -588,7 +592,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
 const BLOCKLIST_FILES: &[&str] = &[
     ".*/document_rs.h",
     ".*/numeric_range_tree.h",
-    ".*/query_node_type.h",
+    ".*/query_types.h",
     ".*/query_term.h",
     ".*/query_term_ffi.h",
     ".*/rqe_iterator_type.h",

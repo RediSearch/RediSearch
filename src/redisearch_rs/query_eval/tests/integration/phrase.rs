@@ -9,8 +9,8 @@
 
 //! QN_PHRASE → Intersection
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval};
-use query_node_type::QueryNodeType;
+use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
@@ -34,7 +34,7 @@ fn eval_phrase_single_child_returns_child() {
     phrase.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node)
+    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -104,7 +104,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -164,7 +164,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -225,7 +225,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -280,7 +280,7 @@ mod phrase {
         phrase.set_children(&[missing_child.as_ptr(), ids_child.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 
@@ -336,7 +336,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -359,11 +359,11 @@ mod phrase {
 //
 // These exercise the intersection-reducer shortcircuits (`Empty`, `Single`) and
 // the slop/in-order resolution, which depend only on the node options, the
-// lightweight `MockQueryEvalCtx`, and the process-wide `RSGlobalConfig`.
+// lightweight `MockQueryEvalCtx`, and the evaluator configuration passed in.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: the multi-child path reads the C `RSGlobalConfig`
-// static, which Miri cannot access.
+// Disabled under Miri: building a multi-child node calls the C `array_new_sz`
+// foreign function (via `set_children`), which Miri cannot execute.
 #[cfg(not(miri))]
 mod phrase_reducer {
     use super::*;
@@ -384,7 +384,7 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 
@@ -415,7 +415,7 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeRef::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node)
+        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 

@@ -3112,7 +3112,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   searchRequestCtx *req = rCtx->searchCtx;
 
   // Number of results to actually return
-  size_t num = req->requestedResultsCount;
+  size_t num = req->offset + req->limit;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
@@ -3178,7 +3178,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    for (int i = 0; i < qlen && i < num; ++i) {
+    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 
@@ -4748,24 +4748,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (isClusterEnabled) {
-      // Init the topology updater cron loop.
-      InitRedisTopologyUpdater(ctx);
-    } else {
-      // We are not in cluster mode. No need to init the topology updater cron loop.
-      // Set the number of shards to 1 to indicate the topology is "set"
-      NumShards = 1;
-      // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
-      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
-      all_slots->num_ranges = 1;
-      all_slots->ranges[0].start = 0;
-      all_slots->ranges[0].end = 16383;
-      ASM_StateMachine_SetLocalSlots(all_slots);
-      rm_free(all_slots);
-    }
-  }
-
   size_t num_connections_per_shard;
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
@@ -4779,6 +4761,22 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   MR_InitLocalNodeId();
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (isClusterEnabled) {
+      // Start the topology updater and fetch the initial topology. Must come after MR_Init
+      // and MR_InitLocalNodeId, as the initial fetch feeds the topology into the MR layer.
+      InitRedisTopologyUpdater(ctx);
+    } else {
+      // We are not in cluster mode. No need to init the topology updater.
+      // Set the number of shards to 1 to indicate the topology is "set"
+      NumShards = 1;
+      // Setting all slots for the case where we send/test internal commands directly from client
+      // (potentially with _SLOTS_INFO)
+      static const RedisModuleSlotRangeArray all_slots = {1, {{0, 16383}}};
+      ASM_StateMachine_SetLocalSlots(&all_slots);
+    }
+  }
 
   return REDISMODULE_OK;
 }

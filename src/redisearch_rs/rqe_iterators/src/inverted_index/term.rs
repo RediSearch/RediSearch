@@ -35,14 +35,14 @@ use super::core::{InvIndIterator, RawInvIndIterator};
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
-pub struct RawTerm<Rf: Ref, R, E = crate::expiration_checker::NoOpChecker> {
-    it: RawInvIndIterator<Rf, R, E>,
+pub struct RawTerm<'query, Rf: Ref, R, E = crate::expiration_checker::NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, R, E>,
 }
 
 /// Alias for an [`Active`] [`RawTerm`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Term<'index, R, E = crate::expiration_checker::NoOpChecker> =
-    RawTerm<Active<'index>, R, E>;
+    RawTerm<'index, Active<'index>, R, E>;
 
 impl<'index, R, E> Term<'index, R, E>
 where

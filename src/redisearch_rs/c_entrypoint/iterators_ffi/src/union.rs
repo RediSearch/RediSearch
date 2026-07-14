@@ -21,7 +21,7 @@ use rqe_iterators::{
     IteratorsConfig, RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
-    union_opaque::{UnionOpaque, build_union},
+    union_opaque::{UnionOpaque, build_union, build_union_with_q_str},
 };
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
@@ -98,25 +98,26 @@ pub unsafe extern "C" fn NewUnionIterator(
     // SAFETY: its was allocated via rm_malloc per the function's safety contract (1).
     unsafe { free_iterators_array(its) };
 
-    let q_str = if q_str.is_null() {
-        None
+    let union = if q_str.is_null() {
+        build_union(children, quick_exit, min_union_iter_heap, type_, weight)
     } else {
         // SAFETY: by contract (5), a non-null `q_str` is a valid, NUL-terminated
         // C string that outlives the returned iterator.
-        Some(unsafe { CStr::from_ptr(q_str) })
+        let q_str = unsafe { CStr::from_ptr(q_str) };
+        // SAFETY: by contract (5), `q_str` outlives the returned iterator.
+        unsafe {
+            build_union_with_q_str(
+                children,
+                quick_exit,
+                min_union_iter_heap,
+                type_,
+                q_str,
+                weight,
+            )
+        }
     };
 
-    // SAFETY: by contract (5), `q_str` outlives the returned iterator.
-    unsafe {
-        build_union(
-            children,
-            quick_exit,
-            min_union_iter_heap,
-            type_,
-            q_str,
-            weight,
-        )
-    }
+    union.as_ptr()
 }
 
 // ============================================================================

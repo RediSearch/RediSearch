@@ -240,8 +240,11 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   ctx = sctx->redisCtx;
   nitems = sctx->spec->numFields;
 
-  // Reuse the caller's already-open, pinned handle when provided instead of opening
-  // the same key a second time; a borrowed handle must not be closed below.
+  // Reuse the caller's already-open, pinned handle when provided (e.g. the async scan
+  // key callback) instead of opening the same key a second time; a borrowed handle must
+  // not be closed below. The handle stays open for the whole function: the RedisJSON root
+  // and every iterator derived from it are views into the value the key holds, so closing
+  // the key before the field loop finishes would leave them dangling.
   k = openKey ? openKey
               : RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
@@ -253,16 +256,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
     doc->docExpirationTime = GetKeyExpirationTime(k);
   }
 
-  if (!openKey) {
-    RedisModule_CloseKey(k);
-  }
-
-  if (openKey) {
-    //TODO: Analyze if we do not need to close key and we can always use this path
-    jsonRoot = japi->isJSON(openKey) ? (RedisJSON)RedisModule_ModuleTypeGetValue(openKey) : NULL;
-  } else {
-    jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
-  }
+  // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
+  // module type and returns the root without opening the key a second time by name.
+  jsonRoot = japi->getJsonFromHandle(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -309,8 +305,14 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   rv = REDISMODULE_OK;
 
 done:
+  // Free the iterator before closing the key: it is a view into the JSON value the key
+  // holds, so it must not outlive the handle.
   if (jsonIter) {
     japi->freeIter(jsonIter);
+  }
+  // Only close a handle we opened ourselves; a borrowed `openKey` is the caller's.
+  if (k && k != openKey) {
+    RedisModule_CloseKey(k);
   }
   return rv;
 }

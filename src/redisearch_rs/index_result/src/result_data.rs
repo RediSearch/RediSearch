@@ -23,19 +23,19 @@ use super::term_record::RawTermRecord;
 #[cheadergen::config(prefix_with_name)]
 #[derive(Debug)]
 #[repr(u8)]
-pub enum RawResultData<R: Ref> {
-    Union(RawAggregateResult<R>) = 1,
-    Intersection(RawAggregateResult<R>) = 2,
-    Term(RawTermRecord<R>) = 4,
+pub enum RawResultData<'query, R: Ref> {
+    Union(RawAggregateResult<'query, R>) = 1,
+    Intersection(RawAggregateResult<'query, R>) = 2,
+    Term(RawTermRecord<'query, R>) = 4,
     Virtual = 8,
     Numeric(f64) = 16,
     Metric(f64) = 32,
-    HybridMetric(RawAggregateResult<R>) = 64,
+    HybridMetric(RawAggregateResult<'query, R>) = 64,
 }
 
 /// The [`Active`] instantiation of [`RawResultData`].
 #[cheadergen::config(export)]
-pub type RSResultData<'a> = RawResultData<Active<'a>>;
+pub type RSResultData<'a> = RawResultData<'a, Active<'a>>;
 
 // Compile-time proof that the `Active` and `Suspended` instantiations of
 // `RawResultData` are layout-identical. Only `size_of`/`align_of` are checked:
@@ -47,8 +47,8 @@ pub type RSResultData<'a> = RawResultData<Active<'a>>;
 const _: () = {
     use ref_mode::Suspended;
     use std::mem::{align_of, size_of};
-    type A = RawResultData<Active<'static>>;
-    type S = RawResultData<Suspended>;
+    type A = RawResultData<'static, Active<'static>>;
+    type S = RawResultData<'static, Suspended>;
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -68,7 +68,7 @@ impl<'a> PartialEq for RSResultData<'a> {
     }
 }
 
-impl<R: Ref> RawResultData<R> {
+impl<'query, R: Ref> RawResultData<'query, R> {
     pub const fn kind(&self) -> RSResultKind {
         match self {
             Self::Union(_) => RSResultKind::Union,

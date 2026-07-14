@@ -34,17 +34,17 @@ use crate::{IteratorType, QueryError, RQEIteratorPrintable};
 /// references into the index (it's a pure counter); the only `Rf`-dependent
 /// field is `result`.
 #[repr(C)]
-pub struct RawWildcard<Rf: Ref> {
+pub struct RawWildcard<'query, Rf: Ref> {
     // Supposed to be the max id in the index
     top_id: DocId,
 
     /// A reusable result object to avoid allocations on each `read` call.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Wildcard<'index> = RawWildcard<Active<'index>>;
+pub type Wildcard<'index> = RawWildcard<'index, Active<'index>>;
 
 impl Wildcard<'_> {
     pub fn new(top_id: DocId, weight: f64) -> Self {

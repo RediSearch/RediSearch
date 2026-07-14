@@ -10,13 +10,114 @@
 //! C-callable bindings for the Rust query-evaluation dispatcher
 //! ([`query_eval::eval`]).
 
-use std::ptr::NonNull;
+use std::{
+    ffi::{CStr, c_char},
+    ptr::NonNull,
+};
 
 use ffi::{
-    AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions,
-    RedisSearchCtx,
+    AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, QueryNodeOptions, RSQueryNode,
+    RSSearchOptions, RedisSearchCtx,
 };
-use query_eval::{QueryEvalContext, QueryNodeRef, eval};
+use query_eval::{
+    QueryEvalContext, QueryNodeRef, eval,
+    eval::Config,
+    scorers::{BuiltInScorer, slop_forces_offsets},
+};
+
+/// Snapshot the evaluator's configuration from the process-wide
+/// [`ffi::RSGlobalConfig`].
+///
+/// This is the single point where the query evaluator reads the global config;
+/// the resulting [`Config`] is threaded through evaluation as a parameter.
+fn eval_config() -> Config {
+    // SAFETY: `RSGlobalConfig` is the process-wide config instance, fully
+    // initialised before any query is evaluated, and read-only here. Each field
+    // is a `Copy` scalar read directly out of the static, without forming a
+    // reference to it.
+    let numeric_compress = unsafe { ffi::RSGlobalConfig.numericCompress };
+    // SAFETY: as above.
+    let prioritize_intersect_union_children =
+        unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+
+    Config {
+        numeric_compress,
+        prioritize_intersect_union_children,
+    }
+}
+
+/// Resolve a C scorer name to a built-in [`BuiltInScorer`], applying the configured
+/// default when `scorer_name` is null.
+///
+/// Returns [`None`] when the resolved name is unset or not a built-in name (a
+/// custom scorer) — cases the caller treats conservatively (as needing term
+/// offsets).
+///
+/// # Safety
+///
+/// `scorer_name` must be null or a valid NUL-terminated C string.
+unsafe fn resolve_scorer(scorer_name: *const c_char) -> Option<BuiltInScorer> {
+    // A null scorer name means "use the configured default scorer".
+    let name = if scorer_name.is_null() {
+        // SAFETY: `RSGlobalConfig` is the process-wide config, read-only here;
+        // `defaultScorer` is a `Copy` pointer read directly out of the static.
+        unsafe { ffi::RSGlobalConfig.defaultScorer }
+    } else {
+        scorer_name
+    };
+
+    NonNull::new(name.cast_mut()).and_then(|ptr| {
+        // SAFETY: `name` is non-null here and points to a valid NUL-terminated C
+        // string: either `scorer_name` (by this function's contract) or, in the
+        // default branch, `RSGlobalConfig.defaultScorer`, which the config layer
+        // guarantees is a valid NUL-terminated C string.
+        BuiltInScorer::from_c_str(unsafe { CStr::from_ptr(ptr.as_ptr()) })
+    })
+}
+
+/// Whether the scorer named `scorer_name` needs term offset data.
+///
+/// A null `scorer_name` falls back to the configured default scorer
+/// ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
+/// otherwise unrecognised name conservatively needs offsets.
+///
+/// # Safety
+///
+/// `scorer_name` must be null or a valid NUL-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scorerNeedsOffsets(scorer_name: *const c_char) -> bool {
+    // SAFETY: `scorer_name` upholds this function's contract (null or a valid
+    // NUL-terminated C string).
+    let scorer = unsafe { resolve_scorer(scorer_name) };
+    scorer.is_none_or(BuiltInScorer::needs_offsets)
+}
+
+/// Whether a query node needs term offset data.
+///
+/// # Safety
+///
+/// `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
+/// null or point to a valid [`QueryNodeOptions`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn queryNeedsOffsets(
+    scorer_name: *const c_char,
+    opts: *const QueryNodeOptions,
+) -> bool {
+    // A phrase/slop constraint forces offsets regardless of the scorer, so check
+    // it first and return before resolving the scorer — which would otherwise
+    // read the process-wide default scorer needlessly. A null `opts` carries no
+    // such constraint.
+    // SAFETY: `opts` is null or a valid `QueryNodeOptions` (this function's contract).
+    if let Some(opts) = unsafe { opts.as_ref() }
+        && slop_forces_offsets(opts.max_slop, opts.in_order)
+    {
+        return true;
+    }
+    // No phrase/slop constraint: the scorer alone decides.
+    // SAFETY: `scorer_name` upholds this function's contract (null or a valid
+    // NUL-terminated C string).
+    unsafe { scorerNeedsOffsets(scorer_name) }
+}
 
 /// Evaluate a single query AST node, producing the corresponding
 /// [`QueryIterator`].
@@ -47,7 +148,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // borrowed only for the duration of this call.
     let node = unsafe { QueryNodeRef::new(n) };
 
-    match eval::eval_node(&mut ctx, &node) {
+    match eval::eval_node(&mut ctx, &node, eval_config()) {
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
@@ -132,5 +233,5 @@ pub unsafe extern "C" fn QAST_Iterate(
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    eval::qast_iterate(&mut ctx, &node).into_c_iterator()
+    eval::qast_iterate(&mut ctx, &node, eval_config()).into_c_iterator()
 }

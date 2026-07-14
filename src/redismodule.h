@@ -598,7 +598,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_KEY 17
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
-#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE 20
+#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
 
 /* RL Extension: Use IDs >= 1000 to maintain ABI compatibility with OSS Redis */
 #define REDISMODULE_EVENT_SHARDING 1000
@@ -741,6 +742,10 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
     },
+    RedisModuleEvent_ClusterTopologyChange = {
+        REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE,
+        1
+    },
     RedisModuleEvent_SSTReplication = {
         REDISMODULE_EVENT_SST_REPLICATION,
         1
@@ -855,6 +860,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
+
+/* RedisModuleEvent_ClusterTopologyChange has no meaningful subevent. */
+#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 0
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -1019,6 +1027,26 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 } RedisModuleClusterSlotMigrationTrimInfoV1;
 
 #define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
+
+/* Reason flags reported in RedisModuleClusterTopologyChangeInfo.change_flags.
+ * More than one bit may be set when several changes were collapsed into a
+ * single (debounced) RedisModuleEvent_ClusterTopologyChange notification. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster, or its address changed. */
+
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
+
+typedef struct RedisModuleClusterTopologyChangeInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint64_t change_flags;  /* Bitmask of REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*
+                               reasons that contributed to this notification. */
+} RedisModuleClusterTopologyChangeInfoV1;
+
+#define RedisModuleClusterTopologyChangeInfo RedisModuleClusterTopologyChangeInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */

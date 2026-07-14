@@ -20,9 +20,9 @@ use inverted_index::NumericFilter;
 use query::mock::MockQueryNode;
 use query_eval::{
     QueryEvalContext, QueryNodeRef,
-    eval::{self, EvalResult},
+    eval::{self, Config, EvalResult},
 };
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, IteratorsConfig, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
@@ -99,7 +99,7 @@ impl NumericFixture {
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeRef::new(self.node.as_non_null()) };
-        eval::eval_node(&mut self.ctx, &node_ref).map(|e| e.into_boxed())
+        eval::eval_node(&mut self.ctx, &node_ref, Config::default()).map(|e| e.into_boxed())
     }
 }
 

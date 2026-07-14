@@ -521,45 +521,6 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
-/**
- * @brief Check if a scorer uses GetSlop (term proximity) for scoring
- *
- * Scorers that use GetSlop need offset data to calculate term proximity.
- * Default to true for unknown/custom scorers for safety.
- */
-static bool scorerNeedsOffsets(const char *scorerName) {
-  if (!scorerName) {
-    scorerName = RSGlobalConfig.defaultScorer;
-  }
-  // Scorers that do NOT need offsets (don't use GetSlop)
-  if (!strcmp(scorerName, BM25_STD_SCORER_NAME) ||
-      !strcmp(scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) ||
-      !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME) ||
-      !strcmp(scorerName, DISMAX_SCORER_NAME) ||
-      !strcmp(scorerName, DOCSCORE_SCORER) ||
-      !strcmp(scorerName, HAMMINGDISTANCE_SCORER)) {
-    return false;
-  }
-  // TFIDF, TFIDF.DOCNORM, BM25 (legacy), and custom scorers need offsets
-  return true;
-}
-
-/**
- * @brief Check if a query needs offset data
- *
- * Offsets are needed if:
- * 1. The query has phrase/slop constraints (maxSlop >= 0 or inOrder)
- * 2. The scorer uses GetSlop for proximity-based scoring
- */
-static bool queryNeedsOffsets(const char *scorerName, const QueryNodeOptions *opts) {
-  // Check if query has phrase/slop constraints that require offsets for filtering
-  if (opts && (opts->maxSlop >= 0 || opts->inOrder)) {
-    return true;
-  }
-  // Check if scorer uses GetSlop for proximity-based scoring
-  return scorerNeedsOffsets(scorerName);
-}
-
 QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
 
@@ -947,17 +908,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, areq_timed_out, areq);
 #endif
   return AREQ_TimedOut(areq);
-}
-
-static QueryIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
-                                              double weight) {
-  RS_LOG_ASSERT(node->type == QN_GEO, "query node type should be geo");
-
-  if (!GeoFilter_Validate(node->gn.gf, q->status)) {
-    return NULL;
-  }
-
-  return NewGeoRangeIterator(q->sctx, node->gn.gf, q->config);
 }
 
 static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1396,6 +1346,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_PHRASE:
     case QN_UNION:
     case QN_NUMERIC:
+    case QN_GEO:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
     case QN_TOKEN:
@@ -1408,8 +1359,6 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
       return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
-    case QN_GEO:
-      return Query_EvalGeofilterNode(q, n, n->opts.weight);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:

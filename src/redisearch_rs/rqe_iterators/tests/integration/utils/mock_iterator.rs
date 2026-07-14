@@ -517,13 +517,18 @@ impl<'index, const N: usize> rqe_iterators::RQEIteratorBoxed<'index> for Mock<'i
     }
 }
 
-impl<const N: usize> rqe_iterators::RQESuspendedIterator for MockSuspended<N> {
-    type Resumed<'a> = Mock<'a, N>;
+impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for MockSuspended<N> {
+    type Resumed<'a>
+        = Mock<'a, N>
+    where
+        'query: 'a;
 
     fn resume<'a>(
         mut self: Box<Self>,
         _guard: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<rqe_iterators::ResumeOutcome<Box<Mock<'a, N>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
     {
         // Honour the [`MockRevalidateResult`] configured on the mock's
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
@@ -800,13 +805,18 @@ impl<'index> rqe_iterators::RQEIteratorBoxed<'index> for MockVec<'index> {
     }
 }
 
-impl rqe_iterators::RQESuspendedIterator for MockVecSuspended {
-    type Resumed<'a> = MockVec<'a>;
+impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
+    type Resumed<'a>
+        = MockVec<'a>
+    where
+        'query: 'a;
 
     fn resume<'a>(
         mut self: Box<Self>,
         _guard: &index_spec::IndexSpecReadGuard<'a>,
     ) -> Result<rqe_iterators::ResumeOutcome<Box<MockVec<'a>>>, rqe_iterators::RQEIteratorError>
+    where
+        'query: 'a,
     {
         // Honour the [`MockRevalidateResult`] configured on the mock's
         // [`MockData`] — mirrors what `MockVec::revalidate` does on the legacy

@@ -9,7 +9,7 @@
 
 //! Safe wrapper around [`ffi::QueryEvalCtx`].
 
-use std::ptr::NonNull;
+use std::{ffi::CStr, ptr::NonNull};
 
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
@@ -20,6 +20,8 @@ use rqe_iterators::{
     utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
 };
 use search_disk::SearchDiskHandle;
+
+use query_types::scorers::{BuiltInScorer, RequestedScorer};
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
@@ -60,6 +62,10 @@ impl QueryEvalContext {
     ///    context, but for the lifetime of every timeout context and iterator
     ///    derived from it (e.g. via
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
+    ///    The `opts.scorerName` pointer may be null (no scorer requested); when
+    ///    non-null it must point to a valid NUL-terminated C string that stays
+    ///    valid for at least the lifetime of the returned context (read by
+    ///    [`scorer`](QueryEvalContext::scorer)).
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -117,6 +123,29 @@ impl QueryEvalContext {
         self.opts().flags & ffi::RSSearchFlags_Search_InOrder != 0
     }
 
+    /// The scorer this query requested, as a [`RequestedScorer`].
+    ///
+    /// This reports only the query's own choice; it does **not** apply any
+    /// default. A null scorer name is [`Unset`](RequestedScorer::Unset); a
+    /// set name resolves to [`BuiltIn`](RequestedScorer::BuiltIn) when it
+    /// matches a built-in, otherwise [`Custom`](RequestedScorer::Custom)
+    /// carrying the requested name. The caller decides the fallback for each
+    /// variant.
+    pub fn scorer(&self) -> RequestedScorer<'_> {
+        let Some(ptr) = NonNull::new(self.opts().scorerName.cast_mut()) else {
+            return RequestedScorer::Unset;
+        };
+        // SAFETY: invariant (2) of `new` guarantees `opts` is valid and that its
+        // `scorerName`, non-null here, points to a valid NUL-terminated C string
+        // that stays valid for at least the lifetime of the returned context, and
+        // thus of `&self` — which bounds the returned `RequestedScorer`'s borrow.
+        let name = unsafe { CStr::from_ptr(ptr.as_ptr()) };
+        match BuiltInScorer::from_c_str(name) {
+            Some(scorer) => RequestedScorer::BuiltIn(scorer),
+            None => RequestedScorer::Custom(name),
+        }
+    }
+
     /// The [`query_error::QueryError`] accumulator for reporting evaluation
     /// errors and warnings (e.g. max-prefix-expansion limits).
     ///
@@ -138,6 +167,12 @@ impl QueryEvalContext {
             )
             .expect("status pointer is null")
         }
+    }
+
+    /// Raw pointer to the [`ffi::QueryError`] accumulator, for passing to C
+    /// functions that report errors into it.
+    pub const fn status_ptr(&self) -> *mut ffi::QueryError {
+        self.as_ref().status
     }
 
     /// Double pointer to the metric-requests array.

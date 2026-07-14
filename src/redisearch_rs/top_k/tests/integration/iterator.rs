@@ -17,9 +17,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError,
-    c2rust::CRQEIterator,
-    interop::{ProfileChildren, RQEIteratorWrapper},
+    IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
 };
 use top_k::{
     BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
@@ -136,13 +134,7 @@ fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
 /// typed-child `TopKIterator` variant (which supports [`ProfileChildren`]) can
 /// be exercised in tests.
 fn make_crqe_child(ids: Vec<DocId>) -> CRQEIterator {
-    let it = IdList::<true>::new(ids);
-    let ptr = RQEIteratorWrapper::boxed_new(it);
-    // SAFETY: `boxed_new` returns a non-null `Box::into_raw` pointer.
-    let ptr = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
-    // SAFETY: `ptr` is a valid, owning, non-null `QueryIterator` pointer produced
-    // by `RQEIteratorWrapper::boxed_new`, satisfying all `CRQEIterator::new` preconditions.
-    unsafe { CRQEIterator::new(ptr) }
+    CRQEIterator::from_rust_leaf(IdList::<true>::new(ids))
 }
 
 // ── State machine ─────────────────────────────────────────────────────────────

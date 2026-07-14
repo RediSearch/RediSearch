@@ -280,11 +280,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
             scope.0.rerank(&mut entries);
-            // Re-push to restore heap order under the (possibly) new scores.
-            // The count never exceeded k, so every entry is retained.
-            for ScoredResult { doc_id, score } in entries {
-                self.heap.push(doc_id, score);
-            }
+            // Restore heap order under the (possibly) new scores. The count
+            // never exceeded k, so every entry is retained and a bulk rebuild
+            // needs no eviction.
+            self.heap.rebuild_from(entries);
         }
 
         drop(scope);
