@@ -2579,6 +2579,12 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
                   {0}
                 },
               },
@@ -2619,17 +2625,17 @@ int SetFtHybridInfo(RedisModuleCommand *cmd) {
                     .type = REDISMODULE_ARG_TYPE_INTEGER,
                     .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                   },
+                  {
+                    .name = "yield_score_as",
+                    .token = "YIELD_SCORE_AS",
+                    .type = REDISMODULE_ARG_TYPE_STRING,
+                    .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                  },
                   {0}
                 },
               },
               {0}
             },
-          },
-          {
-            .name = "yield_score_as",
-            .token = "YIELD_SCORE_AS",
-            .type = REDISMODULE_ARG_TYPE_STRING,
-            .flags = REDISMODULE_CMD_ARG_OPTIONAL,
           },
           {0}
         },
