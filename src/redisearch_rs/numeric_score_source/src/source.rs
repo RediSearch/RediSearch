@@ -22,6 +22,41 @@ use top_k::{BatchStrategy, ScoreSource};
 use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
 
+/// Reports whether a doc id still resolves to a valid result document — one that
+/// is neither deleted nor expired.
+///
+/// The numeric index keeps entries for such documents until GC reclaims them, so
+/// the source drops them before they reach the top-k heap. This mirrors the
+/// result processor's per-document validity check: the numeric optimizer's
+/// bounded heap must hold `k` *valid* survivors, and a downstream drop cannot
+/// retroactively admit the live document a stale entry displaced.
+pub trait DocValidity {
+    /// Returns `true` if `doc_id` still resolves to a valid result document.
+    fn is_valid(&self, doc_id: DocId) -> bool;
+
+    /// Fast-path gate: `false` lets the source skip filtering entirely.
+    fn may_filter(&self) -> bool {
+        true
+    }
+}
+
+/// A [`DocValidity`] that treats every document as valid, for when no doc table
+/// is available (the default) or validity filtering is not wanted.
+#[derive(Clone, Copy, Default)]
+pub struct AllValid;
+
+impl DocValidity for AllValid {
+    #[inline(always)]
+    fn is_valid(&self, _doc_id: DocId) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn may_filter(&self) -> bool {
+        false
+    }
+}
+
 /// Default number of value-ordered ranges materialized into a single batch.
 ///
 /// Larger batches amortize the per-batch child rewind in the surrounding
@@ -70,7 +105,7 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
 /// - TODO: MOD-14948 Performance validation
-pub struct NumericScoreSource<'index> {
+pub struct NumericScoreSource<'index, V: DocValidity = AllValid> {
     /// Value-ordered range stream over the numeric index.
     ranges: NumericRangeIterator<'index>,
     /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
@@ -101,6 +136,10 @@ pub struct NumericScoreSource<'index> {
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
+    /// Drops records for doc ids it reports invalid (deleted or expired) before
+    /// they reach the top-k heap. [`AllValid`] keeps every record.
+    #[expect(dead_code)]
+    validity: V,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -181,6 +220,32 @@ impl<'index> NumericScoreSource<'index> {
             child_estimate,
             heap_old_size: 0,
             num_iterations: 0,
+            validity: AllValid,
+        }
+    }
+}
+
+impl<'index, V: DocValidity> NumericScoreSource<'index, V> {
+    /// Attach a document-validity oracle, dropping records for doc ids it reports
+    /// invalid (deleted or expired) from every batch. This is the source's
+    /// equivalent of the numeric optimizer's per-document validity check, keeping
+    /// entries that survive in the index until GC out of the top-k results.
+    pub fn with_validity<V2: DocValidity>(self, validity: V2) -> NumericScoreSource<'index, V2> {
+        NumericScoreSource {
+            validity,
+            ranges: self.ranges,
+            filter: self.filter,
+            initial_offset: self.initial_offset,
+            initial_limit: self.initial_limit,
+            ascending: self.ascending,
+            range_batch_size: self.range_batch_size,
+            num_estimated: self.num_estimated,
+            retry_enabled: self.retry_enabled,
+            num_docs: self.num_docs,
+            child_estimate: self.child_estimate,
+            last_limit_estimate: self.last_limit_estimate,
+            heap_old_size: self.heap_old_size,
+            num_iterations: self.num_iterations,
         }
     }
 
@@ -247,7 +312,7 @@ impl<'index> NumericScoreSource<'index> {
     }
 }
 
-impl<'index> ScoreSource for NumericScoreSource<'index> {
+impl<'index, V: DocValidity> ScoreSource for NumericScoreSource<'index, V> {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {

@@ -31,7 +31,7 @@ pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
 pub use score_batch::NumericScoreBatch;
-pub use source::NumericScoreSource;
+pub use source::{AllValid, DocValidity, NumericScoreSource};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
@@ -42,7 +42,8 @@ use top_k::{TopKIterator, TopKMode};
 ///
 /// Construct one with [`new_numeric_top_k_unfiltered`] or
 /// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index> = TopKIterator<'index, NumericScoreSource<'index>>;
+pub type NumericTopKIterator<'index, V = AllValid> =
+    TopKIterator<'index, NumericScoreSource<'index, V>>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -59,10 +60,10 @@ fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
 /// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
 /// with no child) performs the selection. The sort direction is taken from the
 /// `source` (`SORTBY field ASC`/`DESC`).
-pub fn new_numeric_top_k_unfiltered<'index>(
-    source: NumericScoreSource<'index>,
+pub fn new_numeric_top_k_unfiltered<'index, V: DocValidity + 'index>(
+    source: NumericScoreSource<'index, V>,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index> {
+) -> NumericTopKIterator<'index, V> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
@@ -71,11 +72,11 @@ pub fn new_numeric_top_k_unfiltered<'index>(
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
 /// child filter, and the heap keeps the top `k` by numeric value.
-pub fn new_numeric_top_k_filtered<'index>(
-    source: NumericScoreSource<'index>,
+pub fn new_numeric_top_k_filtered<'index, V: DocValidity + 'index>(
+    source: NumericScoreSource<'index, V>,
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index> {
+) -> NumericTopKIterator<'index, V> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(
         source,
