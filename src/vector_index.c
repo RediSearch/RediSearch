@@ -237,9 +237,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
-      // it, fall back to the index's create-time RERANK default so the pre-filtered
-      // ADHOC_BF hybrid path reranks consistently with topKQuery and BATCHES (MOD-16803).
-      // diskCtx.indexName is non-NULL exactly for disk-backed vector fields.
+      // it, fall back to the index's create-time RERANK default
       if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
           qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
         qParams.hnswDiskRuntimeParams.shouldRerank =
