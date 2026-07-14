@@ -125,15 +125,16 @@ where
     /// result and used during revalidation to look up the tag's inverted index
     /// through `lookup`.
     ///
-    /// `lookup` must resolve tags in the container that holds the inverted
-    /// index `reader` reads from.
-    ///
     /// `weight` is the scoring weight applied to the result record.
     ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
+    /// 3. `lookup` must resolve tags in the container that holds the inverted
+    ///    index `reader` reads from. Otherwise revalidation may wrongly
+    ///    conclude the reader's index is still alive after GC freed it,
+    ///    leading to a use-after-free.
     pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
