@@ -27,8 +27,9 @@ typedef enum tm_iter_mode {
  * Opaque type wrapping a [`TrieMap<*mut c_void>`](crate::TrieMap) for FFI use.
  *
  * This type is intended to be passed across the FFI boundary as an opaque
- * pointer. It can be instantiated with `TrieMapOpaque(crate::TrieMap::new())`
- * and the inner [`crate::TrieMap`] can be accessed via the public field.
+ * pointer. Construct it by wrapping a fresh [`crate::TrieMap::new`] in the
+ * tuple field; the inner [`crate::TrieMap`] is then reachable via that public
+ * field.
  */
 typedef struct TrieMap TrieMap;
 
