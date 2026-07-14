@@ -21,6 +21,14 @@ on:
         type: string
         default: master
         description: "branch to use for rejson"
+      fork_gc_run_interval:
+        type: string
+        default: ""
+        description: "Sweep knob: override FORK_GC_RUN_INTERVAL (seconds) at module load for this run. Empty = each benchmark's baked value. Only affects benchmarks whose module config sets it (the COW mixed bench)."
+      fork_gc_clean_threshold:
+        type: string
+        default: ""
+        description: "Sweep knob: override FORK_GC_CLEAN_THRESHOLD at module load for this run. Empty = each benchmark's baked value."
   workflow_call:
     inputs:
       extended:
@@ -31,6 +39,12 @@ on:
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
         default: ""
       benchmark_filter:
+        type: string
+        default: ""
+      fork_gc_run_interval:
+        type: string
+        default: ""
+      fork_gc_clean_threshold:
         type: string
         default: ""
       notify_failure:
@@ -255,6 +269,8 @@ jobs:
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      fork_gc_run_interval: ${{ inputs.fork_gc_run_interval }}
+      fork_gc_clean_threshold: ${{ inputs.fork_gc_clean_threshold }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-16-primaries:

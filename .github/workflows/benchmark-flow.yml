@@ -43,6 +43,14 @@ on:
         type: string
         default: x86_64
         description: "CPU arch the built .so targets. Passed to `redisbench-admin run-remote --architecture <arch>` so terraform picks the matching oss-standalone-redisearch-m7[-aarch64] dir. Valid: `x86_64` | `aarch64`."
+      fork_gc_run_interval:
+        type: string
+        default: ""
+        description: "If non-empty, override FORK_GC_RUN_INTERVAL in the selected benchmarks' module-configuration-parameters before running. Applied at module load (a runtime FT.CONFIG SET would only reach one of the cluster primaries). Must be a non-negative integer."
+      fork_gc_clean_threshold:
+        type: string
+        default: ""
+        description: "If non-empty, override FORK_GC_CLEAN_THRESHOLD in the selected benchmarks' module-configuration-parameters before running. Must be a non-negative integer."
 
 jobs:
   benchmark-steps:
@@ -132,6 +140,39 @@ jobs:
           # matching linux-aarch64-release tree so rejson_module_path resolves.
           BINROOT: ${{ format('{0}/bin/linux-{1}-release', github.workspace, inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
         run: ./tests/deps/setup_rejson.sh
+
+      - name: Override fork-GC params at module load (optional sweep knob)
+        if: ${{ steps.benchmark-filter.outputs.skip != 'true' && (inputs.fork_gc_run_interval != '' || inputs.fork_gc_clean_threshold != '') }}
+        working-directory: tests/benchmarks
+        env:
+          FORK_GC_RUN_INTERVAL: ${{ inputs.fork_gc_run_interval }}
+          FORK_GC_CLEAN_THRESHOLD: ${{ inputs.fork_gc_clean_threshold }}
+          BENCHMARK_GLOB: ${{ steps.benchmark-filter.outputs.effective_glob }}
+        run: |
+          # Sweep knob: patch the FORK_GC_* lines in the selected benchmarks'
+          # module-configuration-parameters so the value is applied at module load on
+          # every cluster primary. A runtime FT.CONFIG SET is node-local and would leave
+          # 7/8 primaries on the baked value, defeating the comparison. No-op for
+          # benchmarks that don't set these params.
+          is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
+          if [ -n "$FORK_GC_RUN_INTERVAL" ] && ! is_uint "$FORK_GC_RUN_INTERVAL"; then
+            echo "::error::fork_gc_run_interval must be a non-negative integer, got '$FORK_GC_RUN_INTERVAL'"; exit 1
+          fi
+          if [ -n "$FORK_GC_CLEAN_THRESHOLD" ] && ! is_uint "$FORK_GC_CLEAN_THRESHOLD"; then
+            echo "::error::fork_gc_clean_threshold must be a non-negative integer, got '$FORK_GC_CLEAN_THRESHOLD'"; exit 1
+          fi
+          shopt -s nullglob
+          for f in ${BENCHMARK_GLOB}; do
+            [ -f "$f" ] || continue
+            if [ -n "$FORK_GC_RUN_INTERVAL" ]; then
+              sed -i -E "s/^([[:space:]]*)FORK_GC_RUN_INTERVAL:.*/\1FORK_GC_RUN_INTERVAL: ${FORK_GC_RUN_INTERVAL}/" "$f"
+            fi
+            if [ -n "$FORK_GC_CLEAN_THRESHOLD" ]; then
+              sed -i -E "s/^([[:space:]]*)FORK_GC_CLEAN_THRESHOLD:.*/\1FORK_GC_CLEAN_THRESHOLD: ${FORK_GC_CLEAN_THRESHOLD}/" "$f"
+            fi
+            echo "== ${f} (fork-GC after override) =="
+            grep -nE 'FORK_GC_(RUN_INTERVAL|CLEAN_THRESHOLD)' "$f" || echo "  (no FORK_GC_* lines to patch)"
+          done
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         if: steps.benchmark-filter.outputs.skip != 'true'
