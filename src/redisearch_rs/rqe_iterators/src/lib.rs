@@ -72,6 +72,7 @@ pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use geo_shape::{GeoShape, MemTracker, NoTracker};
 pub use id_list::IdList;
+pub use id_list_lazy::IdListLazy;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
@@ -79,6 +80,8 @@ pub use inverted_index::{
     build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
     new_geo_range_iterator, open_numeric_or_geo_index,
 };
+pub use metric::Metric;
+pub use metric_lazy::MetricLazy;
 pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{

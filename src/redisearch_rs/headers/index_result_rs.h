@@ -28,7 +28,7 @@ typedef struct RLookupKey RLookupKey;
 /**
  * A single metric: a borrowed key and a numeric value.
  */
-typedef struct RawMetricEntry {
+typedef struct MetricEntry {
   /**
    * Borrowed reference to the lookup key that identifies this metric,
    * or `None` when the metric has no associated key.
@@ -49,7 +49,7 @@ typedef struct RawMetricEntry {
    * The metric value (e.g. vector distance, score).
    */
   double value;
-} RawMetricEntry;
+} MetricEntry;
 
 /**
  * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
@@ -58,28 +58,23 @@ typedef struct RawMetricEntry {
 typedef struct RSOffsetVector RSOffsetSlice;
 
 /**
- * Lifetime-parameterised alias for [`RawMetricEntry`].
- */
-typedef struct RawMetricEntry MetricEntry;
-
-/**
  * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
  *
  * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
  * from C. The pointed-to data is valid as long as the originating
  * [`MetricsVec`] is not mutated or dropped.
  */
-typedef struct RawMetricsSlice {
+typedef struct MetricsSlice {
   /**
    * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
    * when `len == 0`.
    */
-  const struct RawMetricEntry *data;
+  const struct MetricEntry *data;
   /**
    * Number of entries.
    */
   size_t len;
-} RawMetricsSlice;
+} MetricsSlice;
 
 #ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
 #define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
@@ -91,15 +86,15 @@ typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
 } ThinVec_Box_RawIndexResult_Active__u16;
 #endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
 
-#ifndef THINVEC_RAWMETRICENTRY__U64_DEFINED
-#define THINVEC_RAWMETRICENTRY__U64_DEFINED
+#ifndef THINVEC_METRICENTRY__U64_DEFINED
+#define THINVEC_METRICENTRY__U64_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_RawMetricEntry__u64 {
+typedef struct ThinVec_MetricEntry__u64 {
   struct Header_u64 *ptr;
-} ThinVec_RawMetricEntry__u64;
-#endif /* THINVEC_RAWMETRICENTRY__U64_DEFINED */
+} ThinVec_MetricEntry__u64;
+#endif /* THINVEC_METRICENTRY__U64_DEFINED */
 
 /**
  * A dynamically-sized collection of [`MetricEntry`] values.
@@ -110,12 +105,7 @@ typedef struct ThinVec_RawMetricEntry__u64 {
  * `repr(transparent)` over `ThinVec` means this type is pointer-sized
  * and can be embedded directly in `repr(C)` structs.
  */
-typedef struct ThinVec_RawMetricEntry__u64 RawMetricsVec;
-
-/**
- * Lifetime-parameterised alias for [`RawMetricsVec`].
- */
-typedef RawMetricsVec MetricsVec;
+typedef struct ThinVec_MetricEntry__u64 MetricsVec;
 
 #ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
 #define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
@@ -126,11 +116,6 @@ typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
   struct Header_u16 *ptr;
 } ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
 #endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
-
-/**
- * Lifetime-parameterised alias for [`RawMetricsSlice`].
- */
-typedef struct RawMetricsSlice MetricsSlice;
 
 #ifndef SHAREDPTR_ACTIVE__U8_DEFINED
 #define SHAREDPTR_ACTIVE__U8_DEFINED
@@ -596,7 +581,7 @@ typedef struct RawIndexResult_Active {
    * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
    * allocation when empty.
    */
-  RawMetricsVec metrics;
+  MetricsVec metrics;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */

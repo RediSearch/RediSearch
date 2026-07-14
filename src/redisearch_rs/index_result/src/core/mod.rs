@@ -13,7 +13,7 @@ use std::ptr;
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
-use super::metrics::{MetricsVec, RawMetricsVec};
+use super::metrics::MetricsVec;
 use super::offsets::{RSOffsetVector, RawOffsetSlice};
 use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
@@ -166,7 +166,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
@@ -276,7 +276,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
         }
     }
@@ -312,7 +312,7 @@ pub struct RawIndexResult<'query, R: Ref> {
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
-    pub metrics: RawMetricsVec<'query>,
+    pub metrics: MetricsVec<'query>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
@@ -359,7 +359,7 @@ const _: () = {
     // The only `R`-dependent field is `data`; check its two instantiations
     // have identical size. The `metrics` field no longer depends on `R` (its
     // `RLookupKey` lives under `'query`, never weakened), so it is the same
-    // `RawMetricsVec<'static>` type on both sides — nothing to assert there.
+    // `MetricsVec<'static>` type on both sides — nothing to assert there.
     assert!(
         size_of::<RawResultData<'static, Active<'static>>>()
             == size_of::<RawResultData<'static, Suspended>>()
@@ -418,6 +418,43 @@ impl<'a> RSIndexResult<'a> {
         // logically-moved bytes.
         unsafe { std::mem::transmute(self) }
     }
+
+    /// Convert the active result at `slot` into its suspended form in place,
+    /// reusing the same slot so the surrounding allocation is never moved.
+    ///
+    /// This is the inverse of [`RawIndexResult::into_active_in_place`]. Because
+    /// [`into_suspended`](Self::into_suspended) only *loosens* validity, this
+    /// conversion has no lifetime or pointee precondition — the only obligations
+    /// are the raw-pointer ones below.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that:
+    ///
+    /// 1. `slot` is non-null, aligned, and points to an initialized
+    ///    `RSIndexResult<'a>`.
+    /// 2. `slot` must be unaliased for the duration of the call: no other
+    ///    reference or pointer may be used to access the slot while this runs,
+    ///    since the value is moved out and written back through `slot` alone.
+    pub const unsafe fn into_suspended_in_place(
+        slot: *mut Self,
+    ) -> *mut RawIndexResult<'a, Suspended> {
+        debug_assert!(!slot.is_null());
+
+        // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
+        // moves the value out without dropping, leaving the slot logically uninit
+        // until the `write` below re-initializes it.
+        let active = unsafe { slot.read() };
+        // Safe widening conversion — consumes the moved-out value.
+        let suspended = active.into_suspended();
+        let slot = slot.cast::<RawIndexResult<'a, Suspended>>();
+        // SAFETY: `slot` is valid for writes and aligned; `Active<'a>` and
+        // `Suspended` are layout-identical, so `Suspended` fits the slot exactly.
+        // `write` does not drop the old bits — correct, `read` already moved them
+        // out. Net drops across this fn: zero.
+        unsafe { slot.write(suspended) };
+        slot
+    }
 }
 
 impl<'query> RawIndexResult<'query, Suspended> {
@@ -428,6 +465,10 @@ impl<'query> RawIndexResult<'query, Suspended> {
     /// this is the inverse direction. Promoting `Suspended` to `Active<'a>`
     /// narrows validity (asserting that every index-backed pointer inside this
     /// result is dereferenceable for `'a`), so the call is `unsafe`.
+    ///
+    /// # Invariants
+    ///
+    /// `into_active` never panics.
     ///
     /// # Safety
     ///
@@ -479,6 +520,41 @@ impl<'query> RawIndexResult<'query, Suspended> {
         // valid for `'a` thanks to the `'query: 'a` bound. `transmute` moves
         // `self`, so no destructor runs on the logically-moved bytes.
         unsafe { std::mem::transmute(self) }
+    }
+
+    /// Convert the suspended result at `slot` into its active form in place,
+    /// reusing the same slot so the surrounding allocation is never moved.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that:
+    ///
+    /// 1. `slot` is non-null, aligned, and points to an initialized
+    ///    `RawIndexResult<Suspended>`.
+    /// 2. `slot` must be unaliased for the duration of the call: no other
+    ///    reference or pointer may be used to access the slot while this runs,
+    ///    since the value is moved out and written back through `slot` alone.
+    /// 3. The safety preconditions of [`RawIndexResult::into_active`] must hold
+    ///    for the chosen lifetime `'a`.
+    pub const unsafe fn into_active_in_place<'a>(slot: *mut Self) -> *mut RSIndexResult<'a>
+    where
+        'query: 'a,
+    {
+        debug_assert!(!slot.is_null());
+
+        // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
+        // moves the value out without dropping, leaving the slot logically uninit
+        // until the `write` below re-initializes it.
+        let suspended = unsafe { slot.read() };
+        // SAFETY: `into_active`'s preconditions for `'a` are guaranteed by our
+        // caller (forwarded via this fn's `# Safety`); consumes the moved-out value.
+        let active: RSIndexResult<'a> = unsafe { suspended.into_active() };
+        let slot = slot.cast::<RSIndexResult<'a>>();
+        // SAFETY: `slot` is valid for writes and aligned; sizes/aligns asserted equal
+        // above, so `Active<'a>` fits the slot exactly. `write` does not drop the old
+        // bits — correct, `read` already moved them out. Net drops across this fn: zero.
+        unsafe { slot.write(active) };
+        slot
     }
 }
 
@@ -789,12 +865,12 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Returns a mutable reference to the metrics collection.
-    pub const fn metrics_mut(&mut self) -> &mut RawMetricsVec<'query> {
+    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'query> {
         &mut self.metrics
     }
 
     /// Returns a reference to the metrics collection.
-    pub const fn metrics_ref(&self) -> &RawMetricsVec<'query> {
+    pub const fn metrics_ref(&self) -> &MetricsVec<'query> {
         &self.metrics
     }
 
