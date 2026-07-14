@@ -22,8 +22,17 @@
 //! are not valid UTF-8 never match.
 //!
 //! - [`case_fold`]: [`CaseFoldExact`] — case-insensitive exact match.
+//! - [`levenshtein`]: [`CaseFoldLevenshtein`] — case-insensitive
+//!   Levenshtein distance in codepoints, as a DP row.
+//! - [`levenshtein_nfa`]: [`CaseFoldLevenshteinNfa`] — the same matching
+//!   model as a bit-parallel NFA, for needles and distances within its
+//!   word-width bounds.
 
 pub mod case_fold;
+pub mod levenshtein;
+pub mod levenshtein_nfa;
 mod utf8;
 
 pub use case_fold::CaseFoldExact;
+pub use levenshtein::CaseFoldLevenshtein;
+pub use levenshtein_nfa::CaseFoldLevenshteinNfa;
