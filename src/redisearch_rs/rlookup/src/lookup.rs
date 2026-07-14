@@ -273,30 +273,24 @@ impl<'a> RLookup<'a> {
 
         let name = name.into();
 
-        if let Some(c) = self.keys.find_by_name_mut(&name) {
+        let key = if let Some(c) = self.keys.find_by_name_mut(&name) {
             // A. we found the key in the lookup table:
             if flags.contains(RLookupKeyFlag::Override) {
-                // We are in create mode, overwrite the key (remove schema related data, mark with new flags)
+                // We are in create mode, overwrite the key (remove schema related data, mark with new flags).
                 c.override_current(flags | RLookupKeyFlag::QuerySrc)
-                    .unwrap();
+                    .unwrap()
             } else {
                 // We are in exclusive mode, return None
                 return None;
             }
         } else {
             // B. we didn't find the key in the lookup table:
-            // create a new key with the name and flags
-            let key = RLookupKey::new(name.clone(), flags | RLookupKeyFlag::QuerySrc);
-            self.keys.push(key);
+            // create a new key with the name and flags.
+            self.keys
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
         };
 
-        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
-        // See <https://github.com/rust-lang/rust/issues/54663>
-        let cursor = self
-            .keys
-            .find_by_name(&name)
-            .expect("key should have been created above");
-        Some(cursor.into_current().unwrap())
+        Some(key.into_ref().get_ref())
     }
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
@@ -319,55 +313,55 @@ impl<'a> RLookup<'a> {
         //    (no need to load it from the document).
 
         // Ensure the key is available, if it is check for flags and return None or override the key depending on flags, if key not available insert it.
-        if let Some(mut c) = self.keys.find_by_name_mut(&name) {
-            let key = c.current().unwrap();
-
-            if (key.flags.contains(RLookupKeyFlag::ValAvailable)
-                && !key.flags.contains(RLookupKeyFlag::IsLoaded))
-                && !key
-                    .flags
-                    .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
-                || (key.flags.contains(RLookupKeyFlag::IsLoaded)
-                    && !flags.contains(RLookupKeyFlag::Override))
-                || (key.flags.contains(RLookupKeyFlag::QuerySrc)
-                    && !flags.contains(RLookupKeyFlag::Override))
+        let key = if let Some(mut c) = self.keys.find_by_name_mut(&name) {
+            // Scoped borrow: must end before `override_current` consumes the cursor.
             {
-                // We found a key with the same name. We return NULL if:
-                // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
-                //    request to override or forced loading.
-                // 2. The key is already loaded (from the document) and the caller didn't request to override.
-                // 3. The key was created by the query (upstream) and the caller didn't request to override.
+                let key = c.current().unwrap();
 
-                let key = key.project();
+                if (key.flags.contains(RLookupKeyFlag::ValAvailable)
+                    && !key.flags.contains(RLookupKeyFlag::IsLoaded))
+                    && !key
+                        .flags
+                        .intersects(RLookupKeyFlag::Override | RLookupKeyFlag::ForceLoad)
+                    || (key.flags.contains(RLookupKeyFlag::IsLoaded)
+                        && !flags.contains(RLookupKeyFlag::Override))
+                    || (key.flags.contains(RLookupKeyFlag::QuerySrc)
+                        && !flags.contains(RLookupKeyFlag::Override))
+                {
+                    // We found a key with the same name. We return NULL if:
+                    // 1. The key has the origin data available (from the sorting vector, UNF) and the caller didn't
+                    //    request to override or forced loading.
+                    // 2. The key is already loaded (from the document) and the caller didn't request to override.
+                    // 3. The key was created by the query (upstream) and the caller didn't request to override.
 
-                // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
-                key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+                    let key = key.project();
 
-                return None;
-            } else {
-                c.override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
-                    .unwrap();
+                    // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
+                    key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
+
+                    return None;
+                }
             }
+
+            let key = c
+                .override_current(flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded)
+                .unwrap();
+            // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
+            unsafe { Pin::into_inner_unchecked(key) }
         } else {
-            let key = RLookupKey::new(
+            let key = self.keys.push(RLookupKey::new(
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            );
-            self.keys.push(key);
+            ));
+            // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
+            unsafe { Pin::into_inner_unchecked(key) }
         };
 
-        // FIXME: Duplication because of borrow-checker false positive. Duplication means performance implications.
-        // See <https://github.com/rust-lang/rust/issues/54663>
-        let mut cursor = self
-            .keys
-            .find_by_name_mut(&name)
-            .expect("key should have been created above");
-        let key = if let Some(fs) = self
+        if let Some(fs) = self
             .index_spec_cache
             .as_ref()
             .and_then(|spcache| spcache.find_field(field_name))
         {
-            let key = cursor.into_current().unwrap();
             key.update_from_field_spec(fs);
 
             if key.flags.contains(RLookupKeyFlag::ValAvailable)
@@ -377,11 +371,12 @@ impl<'a> RLookup<'a> {
                 // so we can use the sorting vector as the source, and we don't need to load it from the document.
                 return None;
             }
-            key
         } else {
             // Field not found in the schema.
-            let key = cursor.current().unwrap();
             let is_borrowed = matches!(key.name(), Cow::Borrowed(_));
+
+            // Safety: We treat the pointer as pinned internally and never move out of the key.
+            let key = unsafe { Pin::new_unchecked(&mut *key) };
 
             // We assume `field_name` is the path to load from in the document.
             if is_borrowed {
@@ -392,9 +387,7 @@ impl<'a> RLookup<'a> {
             } // else
             // If the caller requested to allocate the name, and the name is the same as the path,
             // it was already set to the same allocation for the name, so we don't need to do anything.
-
-            cursor.into_current().unwrap()
-        };
+        }
 
         Some(key)
     }
