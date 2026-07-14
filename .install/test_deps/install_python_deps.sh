@@ -54,5 +54,15 @@ fi
 source .venv/bin/activate
 uv sync --locked --all-packages
 
+# On musl (Alpine) with uv's standalone CPython, the venv can end up without an
+# importable `python -m pip` after `uv sync` (while `uv run pip` still works).
+# That breaks anything shelling out to `python3 -m pip` — notably RedisJSON's
+# build, which runs readies `getpy3` whose check is `python3 -m pip --version`,
+# and otherwise fails with "Cannot find python3 interpreter". Re-bootstrap pip
+# from the stdlib so `python3 -m pip` works. See MOD-16514 / UV_PYTHON=3.13 above.
+if [[ -f /etc/alpine-release ]]; then
+	python -m ensurepip --upgrade
+fi
+
 # List installed packages
 uv run pip list
