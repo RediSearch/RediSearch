@@ -163,6 +163,12 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the deadlock test (MOD-15306) uses to hold a writer against the loader.
 #define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
 #define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
+#define SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE      "GcBeforeDeletedIdsRemove"
+// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown. Lets a test keep
+// the process alive after the free so a GC run parked at
+// SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
+// (use-after-free) when the disk-GC/teardown handshake was missing.
+#define SYNC_POINT_AFTER_DISK_INDEX_CLOSE               "AfterDiskIndexClose"
 // Disk async loader: parked right after a swap-prefetch is issued for a non-resident key and
 // before the worker waits for the completion (RSE redisearch_disk). Lets a test mutate or delete
 // the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
