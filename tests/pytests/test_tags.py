@@ -1150,3 +1150,27 @@ def testTagWildcardMaxExpansionsBruteForce():
 
     # Restore default
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+@skip(cluster=True)
+def testTagSuffixTrieInfoOverhead(env):
+    """FT.INFO on a populated WITHSUFFIXTRIE tag field walks the suffix trie when
+    accounting for index overhead (covers the suffix branch of
+    TagIndex_GetOverhead). Also exercises a contains query against the suffix
+    trie."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
+
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', 'jello')
+    conn.execute_command('HSET', 'doc3', 't', 'world')
+
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        # FT.INFO triggers the per-field overhead computation over the suffix trie.
+        info = index_info(env, 'idx')
+        env.assertEqual(info['num_docs'], 3)
+
+        # Contains query resolved through the suffix trie (both end with "llo").
+        res = env.cmd('FT.SEARCH', 'idx', '@t:{*llo}', 'NOCONTENT')
+        env.assertEqual(res[0], 2)  # hello, jello
+        env.assertEqual(py2sorted(res[1:]), ['doc1', 'doc2'])

@@ -11,13 +11,14 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    id_list::IdList,
+    id_list::{IdList, RawIdList},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
 use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 /// The different types of metrics.
@@ -39,8 +40,14 @@ pub type MetricSortedByScore<'index> = Metric<'index, false>;
 /// An iterator that yields document ids alongside a metric value (e.g. a score or a distance).
 /// The iterator can be sorted by document id or by metric value,
 /// but the choice is made at compile time.
-pub struct Metric<'index, const SORTED_BY_ID: bool> {
-    base: IdList<'index, SORTED_BY_ID>,
+///
+/// Parameterised over a [`Ref`] mode — see [`Metric`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`]. The `Rf` flows down into
+/// the wrapped `RawIdList` (whose `result` field is `Rf`-typed); the metric
+/// data is owned and has no `Rf` dependency.
+#[repr(C)]
+pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
+    base: RawIdList<'query, Rf, SORTED_BY_ID>,
     metric_data: OwnedSlice<f64>,
     type_: MetricType,
     own_key: *mut RLookupKey,
@@ -53,7 +60,11 @@ pub struct Metric<'index, const SORTED_BY_ID: bool> {
     key_handle: *mut RLookupKeyHandle,
 }
 
-impl<'index, const SORTED_BY_ID: bool> Drop for Metric<'index, SORTED_BY_ID> {
+/// Alias for an [`Active`] [`RawMetric`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Metric<'index, const SORTED_BY_ID: bool> = RawMetric<'index, Active<'index>, SORTED_BY_ID>;
+
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
     fn drop(&mut self) {
         if !self.key_handle.is_null() {
             // Safety: thanks to [`Self::key_handle`]'s invariant, we can safely
@@ -98,6 +109,32 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             own_key: std::ptr::null_mut(),
             key_handle: std::ptr::null_mut(),
         }
+    }
+
+    /// Creates an empty metric iterator with no results, to be populated later via
+    /// [`set_results`](Self::set_results).
+    ///
+    /// Used by [`MetricLazy`](crate::metric_lazy::MetricLazy) to construct the iterator (with its
+    /// `own_key`/`key_handle` wiring in place) before the deferred producer has run.
+    pub fn empty(type_: MetricType) -> Self {
+        Self {
+            base: IdList::with_result(
+                OwnedSlice::default(),
+                RSIndexResult::build_metric(0.0).build(),
+            ),
+            metric_data: OwnedSlice::default(),
+            type_,
+            own_key: std::ptr::null_mut(),
+            key_handle: std::ptr::null_mut(),
+        }
+    }
+
+    /// Populate the (initially empty) iterator with `ids` and their parallel `metric_data`.
+    /// Used by [`MetricLazy`](crate::metric_lazy::MetricLazy) once the deferred producer has run.
+    pub(crate) fn set_results(&mut self, ids: OwnedSlice<DocId>, metric_data: OwnedSlice<f64>) {
+        debug_assert!(ids.len() == metric_data.len());
+        self.base.set_ids(ids);
+        self.metric_data = metric_data;
     }
 
     /// Set the [`RLookupKeyHandle`] for the metric iterator.

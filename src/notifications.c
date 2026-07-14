@@ -523,9 +523,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -559,9 +556,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
       trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
-      if (!IsEnterprise()) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
@@ -604,6 +598,15 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
   }
+}
+
+static void ClusterTopologyChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                       void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  RedisModuleClusterTopologyChangeInfo *info = data;
+  RedisModule_Log(ctx, "verbose", "Got cluster topology change event (change flags: 0x%llx)", (unsigned long long)info->change_flags);
+  RedisTopologyUpdater_OnTopologyChanged(ctx);
 }
 
 static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -951,6 +954,17 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+
+  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
+  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
+  // before the Enterprise flow fully supports it (e.g. connections auth).
+  if (!IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
+                                      "topology will not be refreshed automatically");
+    }
+  }
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);

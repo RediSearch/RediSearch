@@ -17,7 +17,10 @@ mod term_record;
 
 pub use query_term::RSQueryTerm;
 
-pub use self::core::{RSIndexResult, RawIndexResult, RawIndexResultBuilder, RawTermResultBuilder};
+pub use self::core::{
+    RSIndexResult, RawIndexResult, RawIndexResultBuilder, RawTermResultBuilder,
+    SuspendedIndexResult,
+};
 pub use aggregate::{RSAggregateResult, RSAggregateResultIter, RawAggregateResult};
 pub use kind::{RSResultKind, RSResultKindMask};
 pub use metrics::{

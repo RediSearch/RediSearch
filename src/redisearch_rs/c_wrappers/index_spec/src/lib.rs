@@ -280,7 +280,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Check whether the document with the given id exists in this spec's document table.
-    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+    pub fn doc_exists(&self, id: rqe_core::DocId) -> bool {
         // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
         unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
     }

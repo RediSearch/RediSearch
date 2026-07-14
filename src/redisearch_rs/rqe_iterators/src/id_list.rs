@@ -9,8 +9,9 @@
 
 //! Supporting types for [`IdList`].
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 use std::cmp::Ordering;
 
@@ -27,7 +28,12 @@ pub type IdListSorted<'index> = IdList<'index, true>;
 pub type IdListUnsorted<'index> = IdList<'index, false>;
 
 /// An iterator that yields results according to an IDs list given on construction.
-pub struct IdList<'index, const SORTED: bool> {
+///
+/// Parameterised over a [`Ref`] mode — see [`IdList`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`]. The struct owns its data
+/// (the list of document IDs); the only `Rf`-dependent field is `result`.
+#[repr(C)]
+pub struct RawIdList<'query, Rf: Ref, const SORTED: bool> {
     /// The list of document IDs to iterate over.
     /// There must be no duplicates. The list must be sorted if `SORTED` is set to `true`.
     ids: OwnedSlice<DocId>,
@@ -35,8 +41,12 @@ pub struct IdList<'index, const SORTED: bool> {
     /// When `offset` is equal to the length of `ids`, the iterator is at EOF.
     offset: usize,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
 }
+
+/// Alias for an [`Active`] [`RawIdList`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type IdList<'index, const SORTED: bool> = RawIdList<'index, Active<'index>, SORTED>;
 
 impl<'index, const SORTED: bool> IdList<'index, SORTED> {
     /// Creates a new ID list iterator.
@@ -74,6 +84,22 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
             offset: 0,
             result,
         }
+    }
+
+    /// Replace the ID list, resetting the iterator to the start.
+    ///
+    /// Used by the lazy variants ([`IdListLazy`](crate::id_list_lazy::IdListLazy),
+    /// [`MetricLazy`](crate::metric_lazy::MetricLazy)) to populate an initially-empty
+    /// iterator once the deferred producer has run.
+    pub(crate) fn set_ids(&mut self, ids: OwnedSlice<DocId>) {
+        if SORTED {
+            debug_assert!(
+                ids.is_sorted_by(|a, b| a < b),
+                "IDs must be sorted and unique"
+            );
+        }
+        self.ids = ids;
+        self.offset = 0;
     }
 }
 

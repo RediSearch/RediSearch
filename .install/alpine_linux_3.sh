@@ -7,7 +7,7 @@ $MODE apk update
 $MODE apk add --no-cache build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
     tar xz which rsync bsd-compat-headers clang curl \
-    clang-static ncurses-dev llvm-dev bash
+    clang-static ncurses-dev llvm-dev compiler-rt bash
 
 # We must install Python via the package manager until
 # `uv` starts providing aarch64-musl builds.
@@ -28,15 +28,24 @@ source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
 
 # Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
 # in document_metadata uses bindgen-static, which links clang-sys statically).
+# compiler-rt: the python test venv builds its sdist-only deps with clang
+# (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
+# needs the runtime present.
 LLVM_VER=$(ls /usr/lib/ | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm')
-$MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static
+$MODE apk add --no-cache llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static compiler-rt
 
 # Alpine ships component .a files but no combined libLLVM-<ver>.a.
 # clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
-# libLLVM-<ver>.a. Create a thin archive that references the component files.
+# libLLVM-<ver>.a. GNU ar's thin-archive mode (`ar rcT`) flattens the nested
+# component archives into member headers ld.lld cannot parse ("could not get
+# the buffer for a child of the archive"), so provide a GROUP() linker script
+# instead — both ld.lld and GNU ld accept a text script in place of an
+# archive, and it costs no disk space.
 if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
-    # shellcheck disable=SC2046
-    $MODE ar rcT /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a \
-        /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a \
-        /usr/lib/libzstd.a
+    # Expand the glob before tee creates the output file, so the combined
+    # archive never lists itself.
+    # shellcheck disable=SC2086
+    LLVM_COMPONENT_LIBS=$(echo /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a /usr/lib/libzstd.a)
+    echo "GROUP( ${LLVM_COMPONENT_LIBS} )" \
+        | $MODE tee /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a > /dev/null
 fi

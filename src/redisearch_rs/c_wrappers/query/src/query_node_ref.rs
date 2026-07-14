@@ -17,7 +17,7 @@ use std::{
 };
 
 use inverted_index::NumericFilter;
-use query_node_type::{QueryNodeOptions, QueryNodeType};
+use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::{DocId, FieldMask};
 
 /// The wildcard expansion mode for a [`QueryNode::Prefix`] node.

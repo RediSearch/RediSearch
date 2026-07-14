@@ -24,7 +24,8 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 pub use bindings::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
 pub use load_document::{
-    DocumentFormat, DocumentLoader, HashDocumentFormat, LoadAllError, LoadFieldError,
+    DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, JsonDocumentFormat,
+    LoadAllError, LoadFieldError,
 };
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,

@@ -54,7 +54,51 @@ install_from_tarball() {
     rm -rf "$tmpdir"
 
     export_path_gha
+    link_tools_for_fresh_shells
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# Fresh-shell usability for the tarball install: export_path_gha only covers
+# GitHub Actions steps (via $GITHUB_PATH/$GITHUB_ENV) and the shell that ran
+# this script. A user following the manual flow — `make bootstrap` now,
+# `make build LTO=1` from a later shell — has no ${INSTALL_DIR}/bin on PATH,
+# so build.sh cannot find clang-${LLVM_VER} and LTO refuses to enable. The
+# package-manager install paths don't have this problem (they land versioned
+# binaries in /usr/bin), so mirror that: symlink the tools build.sh looks up
+# — and llvm-config, through which bindgen's clang-sys locates libclang
+# (`llvm-config --libdir`) without needing a persisted LIBCLANG_PATH — into
+# /usr/local/bin, which is on the default PATH of every supported distro.
+# Same pattern rocky_linux_8.sh uses for its gcc-toolset shims.
+link_tools_for_fresh_shells() {
+    local bindir="${INSTALL_DIR}/bin"
+    local destdir="/usr/local/bin"
+    local tool target
+
+    if ! $MODE mkdir -p "$destdir"; then
+        echo "ERROR: cannot create ${destdir}; rerun with sudo or add ${bindir} to PATH manually" >&2
+        return 1
+    fi
+
+    # ld.lld-${LLVM_VER} matters beyond fresh shells: once lld-${LLVM_VER} is
+    # on PATH, build.sh links with -fuse-ld=lld-${LLVM_VER}, and clang
+    # resolves that name by looking for an executable literally called
+    # ld.lld-${LLVM_VER} — distro packages ship one, the tarball only ships
+    # unversioned ld.lld.
+    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}" ld.lld llvm-config; do
+        # The tarball ships some of these only under their unversioned
+        # names; resolve to whichever exists.
+        target="${bindir}/${tool}"
+        [[ -e "$target" ]] || target="${bindir}/${tool%-${LLVM_VER}}"
+        if [[ ! -e "$target" ]]; then
+            echo "ERROR: expected LLVM tool '${tool}' not found under ${bindir}" >&2
+            return 1
+        fi
+
+        if ! $MODE ln -sf "$target" "${destdir}/${tool}"; then
+            echo "ERROR: failed to link ${destdir}/${tool} -> ${target}" >&2
+            return 1
+        fi
+    done
 }
 
 # Wire up $INSTALL_DIR/bin for GitHub Actions and the current shell.
@@ -143,8 +187,12 @@ install_llvm() {
         apt_get_cmd "$MODE" update -qq
 
         # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        # llvm-${LLVM_VER} supplies llvm-ar/llvm-ranlib, which CMake's IPO
+        # (LTO) archive rules need; with --no-install-recommends
+        # clang-${LLVM_VER} doesn't pull it in.
         if apt_get_cmd "$MODE" install -y --no-install-recommends \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                "llvm-${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed clang-${LLVM_VER} from native apt repos"
         else
             # 2) Fall back to apt.llvm.org third-party repo.

@@ -81,7 +81,7 @@ impl Reducer {
             *mut ffi::Reducer,
             *mut c_void,
             *const ffi::RLookupRow,
-            ffi::t_docId,
+            rqe_core::DocId,
         ) -> i32,
     ) -> &mut Self {
         self.0.AddWithDocId = Some(f);

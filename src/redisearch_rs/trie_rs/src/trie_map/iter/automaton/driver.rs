@@ -65,7 +65,6 @@ enum Frame<'tm, Data, S> {
 }
 
 impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
-    #[expect(dead_code, reason = "no callers yet in this PR")]
     pub(crate) const fn empty(automaton: A) -> Self {
         Self {
             stack: Vec::new(),
@@ -84,7 +83,6 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
     /// For a top-level traversal, pass the trie root with an empty prefix; for
     /// a subtree jump (e.g., the literal-prefix shortcut), pass the subroot
     /// with the path-to-its-parent.
-    #[expect(dead_code, reason = "no callers yet in this PR")]
     pub(crate) fn new(
         start_node: Option<&'tm Node<Data>>,
         key_prefix: Vec<u8>,

@@ -149,7 +149,7 @@ define HELPTEXT
 RediSearch Build System
 
 Setup:
-  make bootstrap     Install build-time system dependencies.
+  make bootstrap     Install build- and test-time system dependencies.
                      Auto-prefixes `sudo` when not root.
     SUDO=cmd           Override the privilege-escalation command (default: auto)
   make fetch         Download and prepare dependent modules

@@ -1,0 +1,40 @@
+version: 0.5
+name: "search-groupby-collect-100K-entity-events-json-cached-sortby-fields-star-offset500-k50"
+description: "GROUPBY + COLLECT JSON benchmark with FIELDS * and LIMIT 500 50."
+
+metadata:
+  component: "search"
+  query_type: "groupby-collect"
+  backend: "json"
+  projection: "fields-star"
+  window: "500-50"
+
+timeout_seconds: 1800
+
+setups:
+  - oss-standalone
+  - oss-cluster-02-primaries
+
+dbconfig:
+  - dataset_name: "groupby-collect-entity-events-100K-heavy-json"
+  - dataset_load_timeout_secs: 1800
+  - init_commands:
+    - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
+    - '"FT.CREATE" "idx:entity_events" "ON" "JSON" "PREFIX" "1" "entity:" "SCHEMA" "$.recordId" "AS" "recordId" "NUMERIC" "SORTABLE" "$.entityName" "AS" "entityName" "TEXT" "SORTABLE" "$.event.id" "AS" "eventId" "NUMERIC" "SORTABLE" "$.event.type" "AS" "type" "TAG" "$.event.target" "AS" "target" "TAG" "SORTABLE" "$.event.hasNotes" "AS" "hasNotes" "TAG" "$.event.processed" "AS" "processed" "TAG" "$.event.dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "$.event.payload" "AS" "payload" "TEXT" "NOINDEX"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-json/groupby-collect-entity-events-100K-heavy-json.redisjson.commands.SETUP.csv"
+  - check:
+      keyspacelen: 100000
+
+clientconfig:
+  - benchmark_type: "read-only"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - requests: 100000
+    - reporting-period: 1s
+    - duration: 120s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-json/groupby-collect-entity-events-100K-heavy-json.redisjson.commands.BENCH.QUERY_collect-fields-star-offset500-k50.csv"

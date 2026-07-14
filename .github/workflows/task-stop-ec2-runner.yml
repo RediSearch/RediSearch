@@ -1,0 +1,52 @@
+name: Stop EC2 Runner
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: 'GitHub Actions runner label'
+        type: string
+        required: true
+      ec2-instance-id:
+        description: 'EC2 instance ID to stop'
+        type: string
+        required: true
+    secrets:
+      PERFORMANCE_EC2_ACCESS_KEY:
+        required: true
+      PERFORMANCE_EC2_SECRET_KEY:
+        required: true
+      PERFORMANCE_EC2_AWS_REGION:
+        required: true
+      GH_PR_APP_PRIVATE_KEY:
+        required: true
+
+jobs:
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    runs-on: ubuntu-slim
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
+          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
+
+      - name: Generate GitHub App token
+        id: generate-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-administration: write
+
+      - name: Stop EC2 runner
+        uses: machulav/ec2-github-runner@v2.6.1
+        with:
+          mode: stop
+          github-token: ${{ steps.generate-app-token.outputs.token }}
+          label: ${{ inputs.label }}
+          ec2-instance-id: ${{ inputs.ec2-instance-id }}

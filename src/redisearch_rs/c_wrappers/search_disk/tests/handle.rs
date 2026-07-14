@@ -7,6 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+// `rqe_iterators` (a dependency of `search_disk`) links `libredisearch_all.a`,
+// whose C objects call back into Rust FFI symbols exported only by the
+// `c_entrypoint/*_ffi` crates. A normal build garbage-collects those C objects,
+// but a coverage build keeps dead code, so the symbols must resolve. Force-link
+// the aggregate `redisearch_rs` crate (which re-exports every `*_ffi` symbol)
+// and stub any remaining Redis runtime symbols.
+extern crate redisearch_rs;
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 use search_disk::SearchDiskHandle;
 
 #[test]
