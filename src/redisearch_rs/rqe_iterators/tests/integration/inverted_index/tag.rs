@@ -14,7 +14,10 @@ use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
-use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
+use rqe_iterators::{
+    IteratorType, NoOpChecker, RQEIterator,
+    inverted_index::{CTagIndexLookup, Tag},
+};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
@@ -56,7 +59,7 @@ impl TagBaseTest {
             Tag::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                self.test.mock_ctx.tag_index(),
+                CTagIndexLookup::new(self.test.mock_ctx.tag_index()),
                 term,
                 0.0,
                 NoOpChecker,
@@ -99,7 +102,7 @@ fn tag_empty_index() {
         Tag::new(
             reader,
             mock_ctx.sctx(),
-            mock_ctx.tag_index(),
+            CTagIndexLookup::new(mock_ctx.tag_index()),
             term,
             0.0,
             NoOpChecker,
@@ -152,7 +155,7 @@ mod not_miri {
                 Tag::new(
                     ii.reader(),
                     self.test.context.sctx,
-                    tag_index,
+                    CTagIndexLookup::new(tag_index),
                     term,
                     0.0,
                     NoOpChecker,

@@ -14,7 +14,9 @@ use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType, interop::RQEIteratorWrapper, inverted_index::Tag,
+    FieldExpirationChecker, IteratorType,
+    interop::RQEIteratorWrapper,
+    inverted_index::{CTagIndexLookup, Tag},
     profile_print,
 };
 
@@ -162,6 +164,10 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
 
     // SAFETY: 3. guarantees tag_idx is valid and non-null
     let tag_idx_nn = unsafe { NonNull::new_unchecked(tag_idx as *mut _) };
+    // SAFETY: 3., 4. guarantee tag_idx and its TrieMap stay valid for the
+    // lifetime of the iterator; the encoding match is enforced by the
+    // DocIdsOnly/RawDocIdsOnly dispatch below.
+    let lookup = unsafe { CTagIndexLookup::new(tag_idx_nn) };
 
     // SAFETY: 5. guarantees sctx is valid and non-null
     let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut _) };
@@ -188,7 +194,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 7. guarantees term ownership transfer.
             // The DocIdsOnly match arm ensures the encoding variant matches.
             TagIterator::Encoded(unsafe {
-                Tag::new(reader, sctx_nn, tag_idx_nn, term, weight, checker)
+                Tag::new(reader, sctx_nn, lookup, term, weight, checker)
             })
         }
         inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
@@ -201,9 +207,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 5., 6. guarantee context/spec validity.
             // 7. guarantees term ownership transfer.
             // The RawDocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Raw(unsafe {
-                Tag::new(reader, sctx_nn, tag_idx_nn, term, weight, checker)
-            })
+            TagIterator::Raw(unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) })
         }
         _ => panic!(
             "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
