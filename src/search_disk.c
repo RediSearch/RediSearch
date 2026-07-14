@@ -515,21 +515,15 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
     return disk->vector.bindVectorIndexStorage(ctx, index, vecIndex, params);
 }
 
-// Module-side mirror of the client-postpone throttle depth raised by the disk vector
-// indexes. Redis' own postpone counter (server.module_postpone_enabled in redis-flex)
-// is not queryable through the module API and does not exist off redis-flex, so we track
-// our own contribution here. VecSim_EnableThrottle / VecSim_DisableThrottle are the sole
-// callers of RedisModule_Enable/DisablePostponeClients, so this counter tracks exactly the
-// throttle depth we raised. The client-postpone flag only gates external CMD_DENYOOM
-// commands; the background reindex scan does not go through command dispatch, so it consults
-// SearchDisk_IsVectorWriteThrottling() between batches to apply the same back-pressure to itself.
+// Module-side mirror of the client-postpone throttle depth we raise: Redis' own counter is
+// not queryable through the module API. VecSim_Enable/DisableThrottle are the sole callers of
+// RedisModule_Enable/DisablePostponeClients, so this tracks exactly the depth we raised.
 static atomic_int vecSimThrottleDepth = 0;
 
 // Throttle callback wrappers for VecSim
 static int VecSim_EnableThrottle(void) {
   RS_ASSERT(RedisModule_EnablePostponeClients);
-  // Raise our mirror before enabling so a concurrent reader never observes throttle-off
-  // while clients are already postponed (mirror stays >= the real depth).
+  // Raise the mirror before enabling so it stays >= the real depth.
   atomic_fetch_add(&vecSimThrottleDepth, 1);
   return RedisModule_EnablePostponeClients();  // Always returns OK
 }
@@ -538,12 +532,11 @@ static int VecSim_DisableThrottle(void) {
   RS_ASSERT(RedisModule_DisablePostponeClients);
   int ret = RedisModule_DisablePostponeClients();
   if (ret == REDISMODULE_ERR) {
-      // This indicates a bug: disable called without matching enable. Leave the mirror
-      // untouched so an unbalanced disable cannot drive it negative and desync it.
+      // Disable without a matching enable (a bug): leave the mirror alone so it can't go negative.
       RedisModule_Log(RSDummyContext, "warning",
           "VecSim_DisableThrottle: no matching enable call");
   } else {
-      // Lower our mirror only after the real disable succeeded (mirror stays >= real depth).
+      // Lower the mirror only after the real disable succeeded.
       atomic_fetch_sub(&vecSimThrottleDepth, 1);
   }
 

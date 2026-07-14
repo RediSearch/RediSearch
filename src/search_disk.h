@@ -602,20 +602,11 @@ bool SearchDisk_IsEnabledForValidation();
 /**
  * @brief Report whether disk vector indexes are currently throttling writers.
  *
- * When a disk tiered vector index fills its in-memory flat buffer it raises the Redis
- * client-postpone throttle (RedisModule_EnablePostponeClients) to back-pressure external
- * writers until background insert jobs drain the buffer. That throttle only gates client
- * CMD_DENYOOM commands; the background reindex scan bypasses command dispatch and would
- * otherwise keep filling the buffer. This accessor exposes the module-side mirror of that
- * throttle depth so the scan can voluntarily wait between batches while it is set.
+ * A disk tiered vector index raises the Redis client-postpone throttle when its flat buffer
+ * fills, but that only gates client commands. The async reindex scan bypasses command
+ * dispatch, so it consults this between batches to apply the same back-pressure to itself.
  *
- * TODO(tech-debt): the throttle mirror is a single global counter, so a scan backs off
- * whenever ANY disk vector index is throttling, not only the one it is scanning. Because
- * async scans already run per index, track the throttle depth per spec and have each scan
- * consult only its own index's depth, so an unrelated index's back-pressure does not stall
- * a scan that could keep making progress.
- *
- * @return true if the throttle is currently raised (one or more indexes are throttling)
+ * @return true if one or more indexes are currently throttling.
  */
 bool SearchDisk_IsVectorWriteThrottling(void);
 
