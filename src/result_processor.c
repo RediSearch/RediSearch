@@ -253,6 +253,18 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self, bool *acquiredLoc
     return false;
   }
 
+  // Fully lock-free read path (experimental, off by default): the inverted-index
+  // iterator walks its own immutable snapshot (captured under the spec read lock
+  // at construction), and doc-table + TTL reads are lock-free, so no spec read
+  // lock is taken during iteration. There is nothing to revalidate — the
+  // snapshot is frozen at construction, so writes/GC after that are simply not
+  // observed. rpQueryItNext instead brackets the doc-table reads in the
+  // reclamation epoch (DocTable_ReadBegin/End) so a concurrent deletion defers
+  // freeing a DMD we may still be walking.
+  if (RSGlobalConfig.requestConfigParams.lockFreeReads) {
+    return false;
+  }
+
   RedisSearchCtx_LockSpecRead(sctx);
   if (acquiredLock) *acquiredLock = true;
 
@@ -294,9 +306,22 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   }
 #endif
 
+  // Lock-free read section (experimental, off by default): on the no-vector RAM
+  // path with the flag on, no spec read lock is held. Enter the doc-table
+  // reclamation epoch so a concurrent writer defers freeing a DMD we may walk;
+  // II reads use the iterator's frozen snapshot and TTL reads pin their own
+  // epoch internally. `lockFreeRead` mirrors the no-lock branch in
+  // handleSpecLockAndRevalidate (flags stay RS_CTX_UNSET; nothing was locked).
+  const bool lockFreeRead = !spec->diskSpec && sctx->flags == RS_CTX_UNSET &&
+                            RSGlobalConfig.requestConfigParams.lockFreeReads;
+  if (lockFreeRead) {
+    DocTable_ReadBegin();
+  }
+
   while (1) {
     if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
         SearchTime_IsTimedOut(&sctx->time)) {
+      if (lockFreeRead) DocTable_ReadEnd();
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -304,8 +329,10 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       IteratorStatus rc = it->Read(it);
       switch (rc) {
       case ITERATOR_EOF:
+        if (lockFreeRead) DocTable_ReadEnd();
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
       case ITERATOR_TIMEOUT:
+        if (lockFreeRead) DocTable_ReadEnd();
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
       default:
         RS_ASSERT(rc == ITERATOR_OK);
@@ -326,15 +353,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
     setSearchResult(base, res, it->current, dmd);
-    // Lock-free-read path (experimental, off by default): if this call acquired the
-    // spec read lock, release it now that Read + dmd retrieval are done, so writers
-    // and GC can interleave before the next round. Only release what we acquired —
-    // the disk path never locks, and an already-held outer lock is not ours to drop.
-    // The reader keeps its own immutable snapshot, so its iterator state survives the
-    // release window; the buffered SearchResult already outlives it->current today.
-    if (acquiredLock && RSGlobalConfig.requestConfigParams.lockFreeReads) {
-      RedisSearchCtx_UnlockSpec(sctx);
-    }
+    // Leave the reclamation epoch before yielding. The returned dmd stays valid
+    // via its own refcount (taken in getDocumentMetadata); the II snapshot stays
+    // valid via its Arc. Between yields no epoch is held, so a concurrent writer
+    // can reclaim freely.
+    if (lockFreeRead) DocTable_ReadEnd();
     return RS_RESULT_OK;
   }
 }

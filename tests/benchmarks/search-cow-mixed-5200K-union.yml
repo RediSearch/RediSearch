@@ -1,0 +1,76 @@
+version: 0.5
+name: "search-cow-mixed-5200K-union"
+description: |
+  Copy-on-write / lock-free-read STRESS benchmark: concurrent read+write on the
+  inverted-index snapshot path. Compares master (spec read lock held for the whole
+  query) against the snapshot branch (lock released per result); this file is the
+  flag-OFF variant, search-cow-mixed-5200K-union-lockfree.yml enables it.
+
+  Why this dataset: 5200K-docs-union-iterators keys documents as idx10:<N> (numeric),
+  so memtier's __key__ (idx10:1..100000) reproduces REAL loaded keys. Every write is
+  therefore an UPDATE of a pre-existing document, which reindexes it (DocTable_PopR
+  deletes the old doc-id, a new one is assigned — no unchanged-skip, see
+  src/indexer.c makeDocumentId) and turns the old posting entry into GC garbage from
+  the very first write. That avoids the "must first insert N docs before any churn"
+  fragility you get when writes create brand-new keys (as they would on MS MARCO,
+  whose keys are string doc-ids memtier cannot reproduce).
+
+  Coupling reads to writes: writes set field2 to a synthetic marker ("zzqbench") on a
+  bounded 100k-key hot set; reads COUNT that marker. Using a term present in no loaded
+  document bounds each scan to the hot set (so a common word's millions of matches
+  can't swamp the writers) while guaranteeing the reader scans exactly the posting
+  list the writers are churning — the only arrangement that exercises COW. In an OSS
+  cluster the coordinator drives each shard with FT.AGGREGATE ... WITHCURSOR (see
+  src/coord/dist_aggregate.c), so the shard-side iterator holds its snapshot for the
+  scan; a low fork-GC interval + clean threshold reclaim the superseded blocks while a
+  reader holds them (deep-copied on the snapshot branch → the C2/C3 cost).
+
+  WORKERS>0 is essential: with WORKERS=0 Redis is single-threaded and there is no
+  read/write lock contention for _LOCK_FREE_READS to relieve. The -250gb-threads-8
+  setup provisions 8 workers per primary + the cpus to run them; we also set WORKERS
+  explicitly so the run does not depend on setup defaults.
+
+metadata:
+  component: "search"
+  dataset: "5200K-docs-union-iterators"
+  doc_count: 5204050
+  query_type: "mixed"
+  use_case: "Concurrent read/write lock contention + snapshot COW cost"
+
+timeout_seconds: 3600
+
+setups:
+  - oss-cluster-08-primaries-250gb-threads-8
+
+dbconfig:
+  - dataset_name: "5200K-docs-union-iterators.idx10-cow-mixed"
+  # Applied at module load on EVERY cluster primary. WORKERS>0 enables worker-thread
+  # query execution (the read lock is taken there); the low fork-GC interval + clean
+  # threshold keep GC reclaiming superseded blocks during the run. A runtime CONFIG
+  # SET would only reach the single node it hits in a cluster, so it must go here.
+  - module-configuration-parameters:
+      redisearch:
+        WORKERS: 8
+        MIN_OPERATION_WORKERS: 8
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+      module-oss:
+        WORKERS: 8
+        MIN_OPERATION_WORKERS: 8
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 1
+  - init_commands:
+    - '"FT.CREATE" "idx10" "PREFIX" "1" "idx10:" "SCHEMA" "field1" "NUMERIC" "field2" "TEXT" "field3" "TEXT" "field4" "NUMERIC" "field5" "NUMERIC" "field6" "NUMERIC" "field7" "NUMERIC" "field8" "NUMERIC" "field9" "NUMERIC"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/5200K-docs-union-iterators/5200K-docs-union-iterators.idx10.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 600
+  - check:
+      keyspacelen: 5204050
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: "--test-time 180 -c 8 -t 4 --hide-histogram --key-prefix 'idx10:' --key-minimum 1 --key-maximum 100000 --command 'HSET __key__ field2 zzqbench' --command-ratio 1 --command 'FT.AGGREGATE idx10 @field2:zzqbench GROUPBY 0 REDUCE COUNT 0 AS n' --command-ratio 1"

@@ -1251,22 +1251,23 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 // True when the spec read lock can be dropped right after iterator creation, letting
 // the main thread write and GC run while the query iterates:
 //   - disk indexes always snapshot (diskSnapshot != NULL), so they always release; and
-//   - RAM indexes now snapshot their inverted-index blocks too, so under the
-//     experimental _LOCK_FREE_READS flag we release here as well, scoped to cursor
-//     queries — the well-tested cursor-resume path and where a long-held read lock
-//     actually blocks writers (scope only; not a safety requirement).
-// Releasing is safe even with a loader: the lock only guarded the index iteration,
-// which is now covered by the snapshot. The per-result dmd is borrowed (refcounted)
-// and owned by the SearchResult, so it and its sorting vector outlive the unlock; and a
-// loader reads the document from the keyspace under the GIL. The result processor
-// re-acquires the lock per read for the dmd doc-table lookup and releases it per result
-// — see rpQueryItNext / handleSpecLockAndRevalidate.
+//   - RAM indexes iterate fully lock-free under the experimental _LOCK_FREE_READS flag:
+//     the inverted-index iterators own their block snapshots (captured here under the
+//     lock), and doc-table + TTL reads are lock-free (see the lock-free doc-table / TTL
+//     tables). We release for both cursor and non-cursor queries, but only when the
+//     query has no vector field — a vector iterator re-enters the live index between
+//     batches and must keep the lock held through iteration.
+// Releasing is safe for the index iteration itself even with a loader: the per-result
+// dmd is borrowed (refcounted) and owned by the SearchResult, so it outlives the unlock,
+// and a loader reads document fields from the keyspace under the GIL. rpQueryItNext no
+// longer re-acquires the lock; it brackets the lock-free doc-table read in the
+// reclamation epoch instead — see rpQueryItNext / handleSpecLockAndRevalidate.
 static bool shouldReleaseSpecAfterSnapshot(const RedisSearchCtx *sctx, const AREQ *req) {
   if (sctx->diskSnapshot) {
     return true;
   }
   return RSGlobalConfig.requestConfigParams.lockFreeReads &&
-         (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR);
+         array_len(req->ast.metricRequests) == 0;
 }
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
