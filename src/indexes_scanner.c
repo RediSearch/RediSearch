@@ -95,7 +95,7 @@ void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   RedisModule_Log(ctx, "warning", "%s", error);
 
   if (!scanner->global) {
-    IndexesScanner_Cancel(scanner);
+    scanner->cancelled = true;
   }
   IndexesScanner_RecordBackgroundFailure(ctx, scanner, error, /*oom=*/true);
   rm_free(error);
@@ -206,9 +206,7 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
 }
 
 void IndexesScanner_Cancel(IndexesScanner *scanner) {
-  // Relaxed atomic: paired with IndexesScanner_IsCancelled so an off-GIL reader (async scan
-  // backoff waits) sees the latch without a data race. See the `cancelled` field docs.
-  __atomic_store_n(&scanner->cancelled, true, __ATOMIC_RELAXED);
+  scanner->cancelled = true;
 }
 
 void IndexesScanner_ResetProgression(IndexesScanner *scanner) {

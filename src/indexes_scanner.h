@@ -63,9 +63,6 @@ extern struct IndexesScanner *global_spec_scanner;
 
 typedef struct IndexesScanner {
   bool global;
-  // Cancellation latch, read by scan workers that may not hold the GIL. Access ONLY through
-  // IndexesScanner_IsCancelled / IndexesScanner_Cancel (relaxed atomics); a plain read/write
-  // would race the writer and could be hoisted out of a wait loop.
   bool cancelled;
   bool isDebug;
   bool scanFailedOnOOM;
@@ -74,11 +71,6 @@ typedef struct IndexesScanner {
   size_t scannedKeys;
   RedisModuleString *OOMkey; // The key that caused the OOM
 } IndexesScanner;
-
-// Relaxed-atomic read of the cancellation latch. Safe with or without the GIL.
-static inline bool IndexesScanner_IsCancelled(const IndexesScanner *scanner) {
-  return __atomic_load_n(&scanner->cancelled, __ATOMIC_RELAXED);
-}
 
 typedef struct DebugIndexesScanner {
   IndexesScanner base;
@@ -96,7 +88,6 @@ IndexesScanner *IndexesScanner_NewGlobal();
 IndexesScanner *IndexesScanner_New(StrongRef global_ref);
 DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
 void IndexesScanner_Free(IndexesScanner *scanner);
-// Latch the cancellation flag (relaxed-atomic store). The only supported way to set `cancelled`.
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
 void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 
