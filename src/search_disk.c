@@ -14,7 +14,6 @@
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
-#include "debug_commands.h"
 
 #include <stdatomic.h>
 
@@ -188,28 +187,19 @@ static void Compaction_EndUpdate(void *update_ctx) {
     IndexSpec_ReleaseWriteLock(sp);
 }
 
-#ifdef ENABLE_ASSERT
-static void Compaction_BeforeApplySyncPoint(void) {
-    SyncPoint_Wait(SYNC_POINT_BEFORE_COMPACTION_APPLY);
-}
-#endif
-
 // Built once per IndexSpec at openIndexSpec time and copied into the Rust
 // IndexSpec's compaction listener; the C-side struct itself does not need to
 // outlive the openIndexSpec call.
+//
+// The debug/test-only compaction sync points are deliberately absent: the Rust
+// disk layer parks on them via `SyncPoint_Wait` directly, gated to the
+// `enable-assert` cargo feature, so they cost nothing here in any build.
 static SearchDiskCompactionCallbacks SearchDisk_CompactionCallbacks(void) {
     return (SearchDiskCompactionCallbacks) {
         .beginUpdate = Compaction_BeginUpdate,
         .decrementTrieTermCount = Compaction_DecrementTrieTermCount,
         .decrementNumTerms = Compaction_DecrementNumTerms,
         .endUpdate = Compaction_EndUpdate,
-        // Debug/test sync point; NULL outside ENABLE_ASSERT so the Rust side
-        // skips it and there is no production cost.
-#ifdef ENABLE_ASSERT
-        .beforeApplySyncPoint = Compaction_BeforeApplySyncPoint,
-#else
-        .beforeApplySyncPoint = NULL,
-#endif
     };
 }
 

@@ -75,6 +75,7 @@
 #include "legacy_types.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "disk_gc.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
@@ -1905,6 +1906,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
 
   // free thread pools
   GC_ThreadPoolDestroy();
+  // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
+  DiskGC_Cleanup();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
