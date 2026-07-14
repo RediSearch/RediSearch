@@ -21,13 +21,19 @@
 //! are not valid UTF-8 never match.
 //!
 //! - [`case_fold`]: [`CaseFoldExact`] — case-insensitive exact match.
+//! - [`levenshtein`]: [`CaseFoldLevenshtein`] — case-insensitive
+//!   Levenshtein distance in codepoints.
 //! - [`wildcard`]: [`CodepointWildcard`] — wildcard matching where `?`
 //!   consumes one codepoint, plus its trie automaton
 //!   ([`CodepointWildcardNfa`]).
 
 pub mod case_fold;
+pub mod levenshtein;
+pub mod levenshtein_nfa;
 mod utf8;
 pub mod wildcard;
 
 pub use case_fold::CaseFoldExact;
+pub use levenshtein::CaseFoldLevenshtein;
+pub use levenshtein_nfa::CaseFoldLevenshteinNfa;
 pub use wildcard::{CodepointWildcard, CodepointWildcardNfa};
