@@ -24,6 +24,9 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   } else if (rc != AC_OK) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
     return false;
+  } else if (count == 0) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Explicitly specifying %s requires at least one argument, argument count must be positive", clause);
+    return false;
   } else if (count % 2 != 0) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
     return false;
@@ -40,7 +43,7 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   return true;
 }
 
-static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, QueryError *status) {
+static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RSSearchOptions* searchOpts, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
 
@@ -63,6 +66,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   // Define the required arguments
   ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
   ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+  ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   int windowValue = HYBRID_DEFAULT_WINDOW;
   ArgParser_AddIntV(parser, "WINDOW", "LINEAR window size (must be positive)",
@@ -99,7 +103,7 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, Qu
   ArgParser_Free(parser);
 }
 
-static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, QueryError *status) {
+static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, RSSearchOptions* searchOpts, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf = {0};
   if (!getVarArgsForClause(ac, &rrf, "RRF", status)) {
@@ -123,6 +127,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
                     ARG_OPT_END);
+  ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   // Parse the arguments
   ArgParseResult result = ArgParser_Parse(parser);
@@ -137,26 +142,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 }
 
 
-// Parse the positional YIELD_SCORE_AS <alias> clause that may follow a COMBINE
-// method. The alias is applied to the merged (tail) score, so it is stored in
-// the tail search options rather than in either subquery.
-//   COMBINE RRF|LINEAR ... YIELD_SCORE_AS <alias>
-//                                         ^
-static void parseCombineYieldScoreClause(ArgsCursor *ac, HybridParseContext *ctx, QueryError *status) {
-  if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
-    return;
-  }
-  if (AC_GetString(ac, &ctx->searchopts->scoreAlias, NULL, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
-    return;
-  }
-  // Mirror the SEARCH subquery path so the combined score is emitted as a field
-  // and applyRichResultsOptimization does not skip collecting it.
-  *ctx->reqFlags |= QEXEC_F_SEND_SCORES_AS_FIELD;
-}
-
-static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError *status) {
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOptions *searchOpts, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -166,7 +152,7 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, QueryError 
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
 
-  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, status)) {
+  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, searchOpts, status)) {
     return;
   }
 
@@ -202,18 +188,8 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
-    parseLinearClause(ac, &combineCtx->linearCtx, status);
+    parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-    parseRRFClause(ac, &combineCtx->rrfCtx, status);
-  }
-  if (QueryError_HasError(status)) {
-    return;
-  }
-
-  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
-    parseCombineYieldScoreClause(ac, ctx, status);
-    if (QueryError_HasError(status)) {
-      return;
-    }
+    parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
   }
 }
