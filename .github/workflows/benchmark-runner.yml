@@ -21,6 +21,14 @@ on:
         type: string
         default: master
         description: "branch to use for rejson"
+      fork_gc_run_interval:
+        type: string
+        default: ""
+        description: "Sweep knob: override FORK_GC_RUN_INTERVAL (seconds) at module load for this run. Empty = each benchmark's baked value. Only affects benchmarks whose module config sets it (the COW mixed bench)."
+      fork_gc_clean_threshold:
+        type: string
+        default: ""
+        description: "Sweep knob: override FORK_GC_CLEAN_THRESHOLD at module load for this run. Empty = each benchmark's baked value."
   workflow_call:
     inputs:
       extended:
@@ -31,6 +39,12 @@ on:
         description: "if empty allows all setups. if not, will only trigger for a specific setup"
         default: ""
       benchmark_filter:
+        type: string
+        default: ""
+      fork_gc_run_interval:
+        type: string
+        default: ""
+      fork_gc_clean_threshold:
         type: string
         default: ""
       notify_failure:
@@ -231,7 +245,7 @@ jobs:
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
-    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' && (inputs.benchmark_filter == '' || startsWith(inputs.benchmark_filter, 'search-msmarco')) }}
     needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
@@ -240,6 +254,23 @@ jobs:
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-cluster
       allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # COW mixed 50/50 benchmark. Same 250gb cluster setup as msmarco above but a
+  # disjoint glob, so a benchmark_filter targets exactly one job. fork_gc_* are
+  # optional sweep knobs applied to the module config at load (see benchmark-flow.yml).
+  benchmark-cow-oss-cluster-08-primaries-250gb-threads-8:
+    if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' && (inputs.benchmark_filter == '' || startsWith(inputs.benchmark_filter, 'search-cow')) }}
+    needs: build-redisearch
+    uses: ./.github/workflows/benchmark-flow.yml
+    secrets: inherit
+    with:
+      benchmark_glob: "search-cow*.yml"
+      benchmark_filter: ${{ inputs.benchmark_filter }}
+      allowed_envs: oss-cluster
+      allowed_setups: oss-cluster-08-primaries-250gb-threads-8
+      fork_gc_run_interval: ${{ inputs.fork_gc_run_interval }}
+      fork_gc_clean_threshold: ${{ inputs.fork_gc_clean_threshold }}
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-cluster-16-primaries:
