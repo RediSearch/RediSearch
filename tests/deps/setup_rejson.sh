@@ -67,6 +67,25 @@ if [[ -f /etc/os-release ]]; then
 	fi
 fi
 
+# [DEBUG MOD-16514 — temporary] Capture the python3/pip state readies getpy3
+# will see for this RedisJSON build (the actual failure point). Revert before merge.
+if [[ -f /etc/alpine-release ]]; then
+	echo "===== PIP DIAG (before RedisJSON make) ====="
+	command -v python3 && readlink -f "$(command -v python3)"
+	python3 - <<'PYEOF' 2>&1 || true
+import sys, os, importlib.util, traceback
+print("exe:", sys.executable, "| VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"))
+print("LD_LIBRARY_PATH:", os.environ.get("LD_LIBRARY_PATH"), "| PYTHONHOME:", os.environ.get("PYTHONHOME"))
+print("find_spec(pip):", importlib.util.find_spec("pip"))
+try:
+    import pip; print("import pip OK:", pip.__file__)
+except Exception:
+    print("import pip FAILED:"); traceback.print_exc()
+PYEOF
+	echo "-- python3 -m pip --version:"; python3 -m pip --version 2>&1 || true
+	echo "===== END PIP DIAG ====="
+fi
+
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 # RedisJSON's Makefile expects cargo to write to `$(BINDIR)/target/release/`
 # (no target-triple subdirectory). But build.sh exports

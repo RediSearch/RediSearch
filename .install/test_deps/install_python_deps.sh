@@ -54,15 +54,34 @@ fi
 source .venv/bin/activate
 uv sync --locked --all-packages
 
-# On musl (Alpine) with uv's standalone CPython, the venv can end up without an
-# importable `python -m pip` after `uv sync` (while `uv run pip` still works).
-# That breaks anything shelling out to `python3 -m pip` — notably RedisJSON's
-# build, which runs readies `getpy3` whose check is `python3 -m pip --version`,
-# and otherwise fails with "Cannot find python3 interpreter". Re-bootstrap pip
-# from the stdlib so `python3 -m pip` works. See MOD-16514 / UV_PYTHON=3.13 above.
-if [[ -f /etc/alpine-release ]]; then
-	python -m ensurepip --upgrade
-fi
-
 # List installed packages
 uv run pip list
+
+# [DEBUG MOD-16514 — temporary] On Alpine, capture why `python3 -m pip` is
+# import-broken (RedisJSON's readies getpy3 needs it). Revert before merge.
+if [[ -f /etc/alpine-release ]]; then
+	echo "===== PIP DIAG (install_python_deps end) ====="
+	command -v python3 && readlink -f "$(command -v python3)"
+	python3 - <<'PYEOF' 2>&1 || true
+import sys, os, importlib.util, traceback
+print("exe:", sys.executable)
+print("prefix:", sys.prefix, "| base_prefix:", sys.base_prefix)
+print("VIRTUAL_ENV:", os.environ.get("VIRTUAL_ENV"))
+print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
+print("PYTHONHOME:", os.environ.get("PYTHONHOME"))
+print("LD_LIBRARY_PATH:", os.environ.get("LD_LIBRARY_PATH"))
+print("sys.path:", sys.path)
+print("find_spec(pip):", importlib.util.find_spec("pip"))
+for sp in sys.path:
+    try:
+        e = [x for x in os.listdir(sp) if x.lower().startswith("pip")]
+        if e: print("pip-ish in", sp, ":", e)
+    except Exception:
+        pass
+try:
+    import pip; print("import pip OK:", pip.__file__)
+except Exception:
+    print("import pip FAILED:"); traceback.print_exc()
+PYEOF
+	echo "===== END PIP DIAG ====="
+fi
