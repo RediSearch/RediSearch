@@ -2150,10 +2150,53 @@
           },
           {
             "name": "filter",
-            "type": "string",
+            "type": "block",
+            "optional": true,
             "token": "FILTER",
-            "expression": true,
-            "optional": true
+            "arguments": [
+              {
+                "name": "count",
+                "type": "integer",
+                "since": "8.4.3"
+              },
+              {
+                "name": "filter_expression",
+                "type": "string",
+                "expression": true
+              },
+              {
+                "name": "policy",
+                "type": "oneof",
+                "optional": true,
+                "token": "POLICY",
+                "since": "8.4.3",
+                "arguments": [
+                  {
+                    "name": "adhoc",
+                    "type": "pure-token",
+                    "token": "ADHOC"
+                  },
+                  {
+                    "name": "batches_policy",
+                    "type": "block",
+                    "arguments": [
+                      {
+                        "name": "batches",
+                        "type": "pure-token",
+                        "token": "BATCHES"
+                      },
+                      {
+                        "name": "batch_size_value",
+                        "type": "integer",
+                        "token": "BATCH_SIZE",
+                        "optional": true,
+                        "since": "8.4.3"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -2856,47 +2899,19 @@
       },
       {
         "name": "filter",
-        "type": "block",
+        "type": "string",
         "optional": true,
-        "token": "FILTER",
-        "arguments": [
-          {
-            "name": "count",
-            "type": "integer"
-          },
-          {
-            "name": "filter_expression",
-            "type": "string",
-            "expression": true
-          },
-          {
-            "name": "policy",
-            "type": "oneof",
-            "optional": true,
-            "arguments": [
-              {
-                "name": "adhoc",
-                "type": "pure-token",
-                "token": "ADHOC"
-              },
-              {
-                "name": "batches",
-                "type": "pure-token",
-                "token": "BATCHES"
-              }
-            ],
-            "token": "POLICY"
-          },
-          {
-            "name": "batch_size_value",
-            "type": "integer",
-            "token": "BATCH_SIZE",
-            "optional": true
-          }
-        ]
+        "expression": true,
+        "token": "FILTER"
       }
     ],
-    "since": "8.4.4",
+    "since": "8.4.0",
+    "history": [
+      [
+        "8.4.3",
+        "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"
+      ]
+    ],
     "group": "search"
   }
 }
