@@ -111,19 +111,15 @@ void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
 static void FieldStats_DeserializeDiskMetrics(FieldSpecStats *stats, const MRReply *reply) {
     MRReply *exclusive = MRReply_MapElement(reply, FIELD_DISK_EXCLUSIVE_BYTES);
     MRReply *shared = MRReply_MapElement(reply, FIELD_DISK_SHARED_BYTES);
-    if (exclusive || shared) {
-        stats->textDisk.available = true;
-        if (exclusive) stats->textDisk.exclusive_bytes = MRReply_Integer(exclusive);
-        if (shared) stats->textDisk.shared_bytes = MRReply_Integer(shared);
-    }
+    stats->textDisk.available = exclusive || shared;
+    if (exclusive) stats->textDisk.exclusive_bytes = MRReply_Integer(exclusive);
+    if (shared) stats->textDisk.shared_bytes = MRReply_Integer(shared);
 
     MRReply *totalBytes = MRReply_MapElement(reply, FIELD_DISK_TOTAL_BYTES);
     MRReply *numKeys = MRReply_MapElement(reply, FIELD_DISK_NUM_KEYS);
-    if (totalBytes || numKeys) {
-        stats->cfDisk.available = true;
-        if (totalBytes) stats->cfDisk.total_bytes = MRReply_Integer(totalBytes);
-        if (numKeys) stats->cfDisk.estimate_num_keys = MRReply_Integer(numKeys);
-    }
+    stats->cfDisk.available = totalBytes || numKeys;
+    if (totalBytes) stats->cfDisk.total_bytes = MRReply_Integer(totalBytes);
+    if (numKeys) stats->cfDisk.estimate_num_keys = MRReply_Integer(numKeys);
 }
 
 static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* reply){
