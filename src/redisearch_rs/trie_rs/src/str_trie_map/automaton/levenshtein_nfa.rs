@@ -416,9 +416,9 @@ mod tests {
         // Split 'é' (C3 A9) between two step_all calls, as two trie edge
         // labels with the split inside the codepoint would.
         let mut automaton =
-            CaseFoldLevenshteinNfa::<u64>::new("café", 0).expect("within NFA bounds");
+            CaseFoldLevenshteinNfa::<u64>::new("cliché", 0).expect("within NFA bounds");
         let start = automaton.start();
-        let mid = automaton.step_all(&start, b"caf\xC3").unwrap();
+        let mid = automaton.step_all(&start, b"clich\xC3").unwrap();
         assert_eq!(automaton.classify(&mid), StateClass::Live);
         let done = automaton.step_all(&mid, b"\xA9").unwrap();
         assert!(automaton.classify(&done).is_accepting());

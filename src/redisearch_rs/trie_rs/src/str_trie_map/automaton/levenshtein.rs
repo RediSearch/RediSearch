@@ -231,9 +231,9 @@ mod tests {
     fn step_all_carries_partial_codepoints_across_labels() {
         // Split 'é' (C3 A9) between two step_all calls, as two trie edge
         // labels with the split inside the codepoint would.
-        let mut automaton = CaseFoldLevenshtein::new("café", 0);
+        let mut automaton = CaseFoldLevenshtein::new("cliché", 0);
         let start = automaton.start();
-        let mid = automaton.step_all(&start, b"caf\xC3").unwrap();
+        let mid = automaton.step_all(&start, b"clich\xC3").unwrap();
         assert_eq!(automaton.classify(&mid), StateClass::Live);
         let done = automaton.step_all(&mid, b"\xA9").unwrap();
         assert!(automaton.classify(&done).is_accepting());
@@ -244,6 +244,6 @@ mod tests {
         let mut automaton = CaseFoldLevenshtein::new("hello", 1);
         let start = automaton.start();
         assert!(automaton.step_all(&start, b"xyzzy").is_none());
-        assert!(automaton.step_all(&start, b"caf\xC3\x28").is_none()); // invalid UTF-8
+        assert!(automaton.step_all(&start, b"clich\xC3\x28").is_none()); // invalid UTF-8
     }
 }
