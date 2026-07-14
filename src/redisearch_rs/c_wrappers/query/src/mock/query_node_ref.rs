@@ -180,6 +180,24 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `str`/`len` fields of the token-node union variant
+    /// ([`ffi::RSToken`]).
+    ///
+    /// The caller must keep `str_` valid for `len` bytes for as long as the
+    /// node is used (e.g. by owning the backing buffer alongside the node).
+    /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
+    pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
+        // active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let tok = &mut *union_ptr.cast::<ffi::RSToken>();
+            tok.str_ = str_;
+            tok.len = len;
+        }
+    }
+
     /// Allocate a children array and populate it with the given child pointers.
     pub fn set_children(&mut self, children: &[*mut ffi::RSQueryNode]) {
         // SAFETY: `array_new_sz` allocates a tracked array with the given

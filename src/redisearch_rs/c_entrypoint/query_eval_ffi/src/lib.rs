@@ -39,10 +39,23 @@ fn eval_config() -> Config {
     // SAFETY: as above.
     let prioritize_intersect_union_children =
         unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+    // SAFETY: as above. `defaultScorer` is a `Copy` pointer to the process-wide
+    // default scorer name, null when unset. It is read (not retained) here to
+    // resolve the built-in `Scorer` once, so `Config` carries no raw pointer.
+    let default_scorer_ptr = unsafe { ffi::RSGlobalConfig.defaultScorer };
+    let default_scorer = NonNull::new(default_scorer_ptr.cast_mut()).and_then(|ptr| {
+        // SAFETY: `defaultScorer` is non-null here and points to a valid
+        // NUL-terminated C string owned by the process-wide config.
+        let name = unsafe { CStr::from_ptr(ptr.as_ptr()) };
+        // A non-UTF-8 or custom (non-built-in) default resolves to `None`, which
+        // the evaluator treats the same as an unset default.
+        BuiltInScorer::from_c_str(name)
+    });
 
     Config {
         numeric_compress,
         prioritize_intersect_union_children,
+        default_scorer,
     }
 }
 

@@ -97,6 +97,12 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().sctx }
     }
 
+    /// Raw pointer to the [`ffi::RedisSearchCtx`], for passing to C functions
+    /// that take a `const RedisSearchCtx *`.
+    pub const fn sctx_ptr(&self) -> *const ffi::RedisSearchCtx {
+        self.as_ref().sctx
+    }
+
     /// The [`ffi::IndexSpec`] being queried.
     pub fn spec(&self) -> &ffi::IndexSpec {
         // SAFETY: invariant (2) of `new` guarantees `sctx.spec` is a valid,
@@ -201,6 +207,12 @@ impl QueryEvalContext {
     pub fn doc_table(&self) -> &ffi::DocTable {
         // SAFETY: invariant (2) of `new`.
         unsafe { &*self.as_ref().docTable }
+    }
+
+    /// Raw mutable pointer to the [`ffi::DocTable`], for passing to C functions
+    /// that take a `DocTable *`.
+    pub const fn doc_table_mut(&self) -> *mut ffi::DocTable {
+        self.as_ref().docTable
     }
 
     /// The highest document ID currently assigned in the index.
