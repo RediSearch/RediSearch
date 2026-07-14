@@ -48,17 +48,17 @@ typedef struct DiskGC {
 
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 
-// Take the run lock and disable disk GC, waiting out any in-flight run. Returns with
-// the run lock HELD so the caller can close disk indexes and clear each sp->diskSpec
-// while no run is executing and none can start.
+// Take the run lock exclusively and disable disk GC, waiting out any in-flight run.
+// Returns with the run lock HELD (write mode) so the caller can close disk indexes and
+// clear each sp->diskSpec while no run is executing and none can start.
 void DiskGC_LockRunsAndDisable(void);
 
 // Release the run lock taken by DiskGC_LockRunsAndDisable().
 void DiskGC_UnlockRuns(void);
 
-// Destroy the module-global disk GC lock. Must be called only on full module
-// teardown, after the GC thread pool has been destroyed so no GC thread can still
-// use the lock.
+// Destroy the module-global disk GC lock (a readers-writer lock). Must be called only on
+// full module teardown, after the GC thread pool has been destroyed so no GC thread can
+// still use the lock.
 void DiskGC_Cleanup(void);
 
 #ifdef __cplusplus
