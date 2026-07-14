@@ -79,7 +79,7 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
 
-  if (scanner->cancelled) {
+  if (IndexesScanner_IsCancelled(scanner)) {
     return;
   }
 
@@ -125,7 +125,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       IndexSpecRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
-      scanner->cancelled = true;
+      IndexesScanner_Cancel(scanner);
     }
   }
   ++scanner->scannedKeys;
@@ -151,7 +151,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
-  if (scanner->cancelled) {
+  if (IndexesScanner_IsCancelled(scanner)) {
     goto end;
   }
   if (scanner->global) {
@@ -189,7 +189,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons (i.e. FT. ALTER)
-    if (scanner->scanFailedOnOOM && !scanner->cancelled) {
+    if (scanner->scanFailedOnOOM && !IndexesScanner_IsCancelled(scanner)) {
 
       // Check the config to see if we should wait for memory allocation
       if(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
@@ -211,7 +211,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
     }
 
-    if (scanner->cancelled) {
+    if (IndexesScanner_IsCancelled(scanner)) {
 
       if (scanner->global) {
         RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%zu)",
@@ -238,7 +238,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
 end:
-  if (!scanner->cancelled && scanner->global) {
+  if (!IndexesScanner_IsCancelled(scanner) && scanner->global) {
     Indexes_SetTempSpecsTimers(TimerOp_Add);
   }
 
@@ -392,7 +392,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == dScanner->maxDocsTBscanned)) {
-    scanner->cancelled = true;
+    IndexesScanner_Cancel(scanner);
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
   }
 

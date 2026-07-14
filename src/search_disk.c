@@ -16,6 +16,8 @@
 #include "redismodule.h"
 #include "debug_commands.h"
 
+#include <stdatomic.h>
+
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
@@ -513,9 +515,16 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
     return disk->vector.bindVectorIndexStorage(ctx, index, vecIndex, params);
 }
 
+// Module-side mirror of the client-postpone throttle depth we raise: Redis' own counter is
+// not queryable through the module API. VecSim_Enable/DisableThrottle are the sole callers of
+// RedisModule_Enable/DisablePostponeClients, so this tracks exactly the depth we raised.
+static atomic_int vecSimThrottleDepth = 0;
+
 // Throttle callback wrappers for VecSim
 static int VecSim_EnableThrottle(void) {
   RS_ASSERT(RedisModule_EnablePostponeClients);
+  // Raise the mirror before enabling so it stays >= the real depth.
+  atomic_fetch_add(&vecSimThrottleDepth, 1);
   return RedisModule_EnablePostponeClients();  // Always returns OK
 }
 
@@ -523,12 +532,19 @@ static int VecSim_DisableThrottle(void) {
   RS_ASSERT(RedisModule_DisablePostponeClients);
   int ret = RedisModule_DisablePostponeClients();
   if (ret == REDISMODULE_ERR) {
-      // This indicates a bug: disable called without matching enable
+      // Disable without a matching enable (a bug): leave the mirror alone so it can't go negative.
       RedisModule_Log(RSDummyContext, "warning",
           "VecSim_DisableThrottle: no matching enable call");
+  } else {
+      // Lower the mirror only after the real disable succeeded.
+      atomic_fetch_sub(&vecSimThrottleDepth, 1);
   }
 
   return ret;
+}
+
+bool SearchDisk_IsVectorWriteThrottling(void) {
+  return atomic_load(&vecSimThrottleDepth) > 0;
 }
 
 uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index) {
