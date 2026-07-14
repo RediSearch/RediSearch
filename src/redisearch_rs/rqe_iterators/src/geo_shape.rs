@@ -36,7 +36,7 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{OwnedSlice, TimeoutContext},
@@ -394,5 +394,62 @@ impl<T, E, M: MemTracker> ProfilePrint for GeoShape<'_, T, E, M> {
 impl<T, E, M: MemTracker> Drop for GeoShape<'_, T, E, M> {
     fn drop(&mut self) {
         self.mem_tracker.sub(self.tracked_bytes);
+    }
+}
+
+impl<'index, T, E, M> crate::RQEIteratorBoxed<'index> for GeoShape<'index, T, E, M>
+where
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
+{
+    /// `GeoShape` owns its result data (the doc-id list is materialized
+    /// up front), so it has no `Rf`-dependent state to drop on suspend;
+    /// the Suspended counterpart is the same type.
+    type Suspended = GeoShape<'static, T, E, M>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `GeoShape<'index, T, E, M>` and
+        // `GeoShape<'static, T, E, M>` are layout-identical (`'index`
+        // is phantom: the only borrow it constrains is `result`, an
+        // `RSIndexResult<'index>`, whose `'index`-dependent state lives
+        // entirely behind raw pointers — see [`RSIndexResult`]). The
+        // round-trip identity is established by [`RQESuspendedIterator::resume`].
+        unsafe { Box::from_raw(raw.cast::<GeoShape<'static, T, E, M>>()) }
+    }
+}
+
+impl<'query, T, E, M> crate::RQESuspendedIterator<'query> for GeoShape<'static, T, E, M>
+where
+    T: TimeoutContext + 'static,
+    E: ExpirationChecker + 'static,
+    M: MemTracker + 'static,
+{
+    type Resumed<'a>
+        = GeoShape<'a, T, E, M>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: see `suspend` — `'static` ↔ `'a` is purely phantom.
+        let active = unsafe { Box::from_raw(raw.cast::<GeoShape<'a, T, E, M>>()) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        self.last_doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.ids.len()
     }
 }

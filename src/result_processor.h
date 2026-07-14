@@ -90,6 +90,32 @@ struct RLookup;
 // into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+
+/**
+ * Return the `RedisSearchCtx` that owns the root query iterator's spec, if the
+ * pipeline has an `RP_INDEX` root. Returns `NULL` for pipelines without one
+ * (e.g., coordinator pipelines with a network root) — mirroring the contract
+ * of `QITR_GetRootFilter`.
+ *
+ * Used by downstream result processors (e.g. the highlight processor) that
+ * need to re-acquire the spec read lock and revalidate the iterator around
+ * an iterator-touching code path that runs after the lock has been dropped
+ * (typically by a SafeLoader batch ending).
+ */
+struct RedisSearchCtx *QITR_GetRootSearchCtx(QueryProcessingCtx *it);
+
+/**
+ * Suspend the root query iterator in this pipeline, if any. Call this at every
+ * spec-unlock site that may run while the iterator is in Active state — the
+ * Suspend callback flips Rust-wrapped iterators into their typestate-Suspended
+ * counterpart so the next `Revalidate` can refresh borrowed pointers when the
+ * spec lock is re-acquired.
+ *
+ * Suspend is idempotent: a no-op when the iterator is already suspended or when
+ * the pipeline has no `RP_INDEX` root (e.g., coordinator pipelines with a
+ * network root).
+ */
+void QITR_SuspendRootIterator(QueryProcessingCtx *qctx);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 

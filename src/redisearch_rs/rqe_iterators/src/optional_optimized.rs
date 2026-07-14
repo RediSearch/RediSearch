@@ -68,14 +68,21 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
 /// with an [`RQEIterator`] impl today.
 pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<'index, Active<'index>, W, I>;
 
+impl<'query, Rf: Ref, W, I> RawOptionalOptimized<'query, Rf, W, I> {
+    /// Returns a reference to the child iterator, if any. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, W, I> OptionalOptimized<'index, W, I>
 where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
 {
-    /// Returns a reference to the child iterator, if any.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
+    /// Takes the child iterator out, replacing it with an [`Empty`](crate::Empty) iterator.
+    pub fn take_child(&mut self) -> Option<I> {
+        self.child.take_iterator()
     }
 
     /// Sets the child iterator.
@@ -505,13 +512,14 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
     }
 }
 
-impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
+where
+    W: crate::RQEIteratorBoxed<'index> + 'index,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {

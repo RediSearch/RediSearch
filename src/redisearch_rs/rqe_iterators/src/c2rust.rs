@@ -159,6 +159,10 @@ impl CRQEIterator {
             "The `Revalidate` callback is a NULL function pointer"
         );
         debug_assert!(
+            self_.Suspend.is_some(),
+            "The `Suspend` callback is a NULL function pointer"
+        );
+        debug_assert!(
             self_.NumEstimated.is_some(),
             "The `NumEstimated` callback is a NULL function pointer"
         );
@@ -177,7 +181,7 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIterator<'index> + ProfilePrint + 'index,
+        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
         // SAFETY: `boxed_new` uses `Box::into_raw`, which is guaranteed non-null.
@@ -373,7 +377,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                 //   padding between `header` and `inner` in `RQEIteratorWrapper`.
                 let n = unsafe {
                     RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(ptr)
-                        .inner
+                        .inner()
                         .num_children()
                 };
                 1.0 / n.max(1) as f64
@@ -392,7 +396,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
                     RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
                         ptr,
                     )
-                    .inner
+                    .inner()
                     .num_children_active()
                 };
                 n.max(1) as f64
@@ -518,7 +522,25 @@ impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
     /// suspended counterpart is the same type.
     type Suspended = CRQEIterator;
 
+    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
+    ///
+    /// Chains the suspend signal to the wrapped C iterator so it can drop any
+    /// lock-dependent state before the spec read lock is released. For a Rust
+    /// iterator nested under a `CRQEIterator` wrapper (the common case for
+    /// composite children), this triggers the inner wrapper's typestate flip
+    /// from Active to Suspended.
+    ///
+    /// Every C iterator's vtable installs either `Default_Suspend` (no-op)
+    /// or the `RQEIteratorWrapper`'s `suspend_callback`, so the callback
+    /// pointer is guaranteed non-null.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null (all C iterators set Suspend to either
+        // `Default_Suspend` or `RQEIteratorWrapper::suspend_callback`).
+        let callback = unsafe { self.Suspend.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`); the
+        // C-side callback is safe to call per invariant 4.
+        unsafe { callback(self.header.as_ptr()) };
         self
     }
 }
@@ -564,10 +586,15 @@ impl<'query> RQESuspendedIterator<'query> for CRQEIterator {
     }
 
     fn num_estimated(&self) -> usize {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
+        // Same as the Active impl: delegate to the C iterator's
+        // `NumEstimated` vtable entry. For C iterators the callback returns
+        // a primitive that doesn't depend on the spec read lock; for Rust
+        // iterators wrapped in `RQEIteratorWrapper`, the callback returns
+        // the wrapper's cached snapshot regardless of typestate.
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null.
         let callback = unsafe { self.NumEstimated.unwrap_unchecked() };
-        // SAFETY: the C code guarantees, by constructor, that callbacks can
-        // be called on types that implement its C iterator API.
+        // SAFETY: same as the Active impl — see [`CRQEIterator::num_estimated`].
         unsafe { callback(self.header.as_ptr()) }
     }
 }

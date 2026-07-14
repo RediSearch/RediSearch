@@ -66,6 +66,13 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
 /// with an [`RQEIterator`] impl today.
 pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<'index, Active<'index>, W, I, TC>;
 
+impl<'query, Rf: Ref, W, I, TC> RawNotOptimized<'query, Rf, W, I, TC> {
+    /// Get a shared reference to the _child_ iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
 where
     W: WildcardIterator<'index>,
@@ -122,11 +129,6 @@ where
             return Ok(false);
         }
         Ok(true)
-    }
-
-    /// Get a shared reference to the _child_ iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Check whether the child iterator is positionally past `doc_id`
@@ -475,7 +477,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
     }
 }
@@ -483,8 +484,8 @@ where
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::WildcardIterator<'index> + 'index,
-    TC: TimeoutContext + 'index,
+    W: crate::RQEIteratorBoxed<'index> + 'index,
+    TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
         NotOptimized {

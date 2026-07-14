@@ -435,6 +435,14 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 
         slot.cast::<SuspendedIdList<'index, SORTED>>()
     }
+
+    #[expect(
+        dead_code,
+        reason = "inherent num_estimated for the state-branching FFI accessor, wired in a later commit"
+    )]
+    fn num_estimated(&self) -> usize {
+        self.ids.len()
+    }
 }
 
 impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {

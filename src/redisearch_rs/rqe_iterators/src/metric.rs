@@ -179,14 +179,17 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
         self.key_handle = key_handle;
     }
 
-    /// Get the metric type used by this iterator.
-    pub const fn metric_type(&self) -> MetricType {
-        self.type_
-    }
-
     /// Return a mutable reference to the key for this metric iterator.
     pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey {
         &mut self.own_key
+    }
+}
+
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_ID> {
+    /// Get the metric type used by this iterator. Mode-independent — the
+    /// metric type is a `Copy` enum value set at construction time.
+    pub const fn metric_type(&self) -> MetricType {
+        self.type_
     }
 }
 
@@ -437,6 +440,6 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     }
 
     fn num_estimated(&self) -> usize {
-        self._num_estimated()
+        self.base.num_estimated()
     }
 }

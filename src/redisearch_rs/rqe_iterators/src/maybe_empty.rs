@@ -26,6 +26,18 @@ use crate::{
 #[repr(C)]
 pub struct MaybeEmpty<I>(MaybeEmptyOption<I>);
 
+impl<I> MaybeEmpty<I> {
+    /// Get a ref to child iterator, if any. Mode-independent —
+    /// pattern-matches on the inner storage, no iterator surface needed.
+    #[inline(always)]
+    pub const fn as_ref(&self) -> Option<&I> {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => None,
+            MaybeEmptyOption::Some(it) => Some(it),
+        }
+    }
+}
+
 impl<'index, I> MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
@@ -40,15 +52,6 @@ where
     #[inline(always)]
     pub const fn new_empty() -> Self {
         Self(MaybeEmptyOption::None(Empty))
-    }
-
-    /// Get a ref to child iterator, if any.
-    #[inline(always)]
-    pub const fn as_ref(&self) -> Option<&I> {
-        match &self.0 {
-            MaybeEmptyOption::None(_) => None,
-            MaybeEmptyOption::Some(it) => Some(it),
-        }
     }
 
     /// Transform the inner iterator (if present) into a new type.
@@ -269,10 +272,10 @@ where
 
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            // Empty is its own suspended counterpart; disambiguate against
-            // `RQEIterator::num_estimated`.
-            MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
-            MaybeEmptyOption::Some(child) => S::num_estimated(child),
+            MaybeEmptyOption::None(empty) => {
+                <Empty as RQESuspendedIterator>::num_estimated(empty)
+            }
+            MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
         }
     }
 }
