@@ -243,7 +243,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryGeofilterNode",
             "QueryGeometryNode",
             "QueryIdFilterNode",
-            "QueryLexRangeNode",
             "QueryMissingNode",
             "QueryNullNode",
             "QueryNumericNode",
