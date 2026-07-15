@@ -11,12 +11,14 @@ use std::{fmt::Debug, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
-use inverted_index::{IndexReader, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
+use inverted_index::{
+    IndexReader, doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding, raw_doc_ids_only::RawDocIdsOnly,
+};
 use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType,
     interop::RQEIteratorWrapper,
-    inverted_index::{CTagIndexLookup, Tag},
+    inverted_index::{Tag, TagLookup},
     profile_print,
 };
 
@@ -26,8 +28,8 @@ use rqe_iterators::{
 /// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
 /// raw encoding ([`RawDocIdsOnly`]) are supported.
 pub(super) enum TagIterator<'index> {
-    Encoded(Tag<'index, DocIdsOnly, FieldExpirationChecker>),
-    Raw(Tag<'index, RawDocIdsOnly, FieldExpirationChecker>),
+    Encoded(Tag<'index, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
+    Raw(Tag<'index, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
 }
 
 impl Debug for TagIterator<'_> {
@@ -107,6 +109,49 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+/// [`TagLookup`] over the C TagIndex's opaque `TrieMap` (`tag_index.values`).
+pub struct CTagIndexLookup(NonNull<ffi::TagIndex>);
+
+impl CTagIndexLookup {
+    /// Create a lookup over the given C TagIndex.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tag_index` must point to a valid TagIndex and remain valid for
+    ///    the lifetime of this lookup (and of any iterator holding it).
+    /// 2. `tag_index.values`, when non-null, must be a valid
+    ///    [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
+    /// 3. The entries in `tag_index.values` must point to opaque
+    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex)es whose
+    ///    encoding variant matches the `E` this lookup is used with.
+    pub const unsafe fn new(tag_index: NonNull<ffi::TagIndex>) -> Self {
+        Self(tag_index)
+    }
+}
+
+impl<E> TagLookup<E> for CTagIndexLookup
+where
+    E: OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
+{
+    fn find(&self, tag: &[u8]) -> Option<&inverted_index::InvertedIndex<E>> {
+        // SAFETY: 1. in `Self::new` guarantees `tag_index` is valid.
+        let tag_idx = unsafe { self.0.as_ref() };
+        if tag_idx.values.is_null() {
+            // No values trie means no postings for any tag.
+            return None;
+        }
+        // SAFETY: 2. in `Self::new` guarantees `values` is a valid `TrieMapOpaque`.
+        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
+        let idx = trie.find(tag)?;
+        // SAFETY: 3. in `Self::new` guarantees the trie entry points to a valid
+        // opaque `InvertedIndex`.
+        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
+        // SAFETY: 3. `from_opaque` panics when the encoding
+        // variant doesn't match `E`.
+        Some(E::from_opaque(unsafe { &*opaque }))
     }
 }
 

@@ -14,13 +14,12 @@ use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
-use rqe_iterators::{
-    IteratorType, NoOpChecker, RQEIterator,
-    inverted_index::{CTagIndexLookup, Tag},
-};
+use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
 use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
+
+use iterators_ffi::inverted_index::CTagIndexLookup;
 
 struct TagBaseTest {
     test: BaseTest<DocIdsOnly>,
@@ -48,7 +47,7 @@ impl TagBaseTest {
         RSQueryTerm::new("test_tag", 0, 0)
     }
 
-    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
         let reader = self.test.ii.reader();
         let term = Self::create_term();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
@@ -145,7 +144,7 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
             let ii = DocIdsOnly::from_opaque(self.test.context.tag_inverted_index());
             let tag_index = self.test.context.tag_index();
             let term = RSQueryTerm::new("test_tag", 0, 0);

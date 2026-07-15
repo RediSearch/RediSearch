@@ -27,6 +27,6 @@ pub use numeric::{
     Numeric, NumericIteratorVariant, build_numeric_filter_iterator, open_numeric_or_geo_index,
 };
 
-pub use tag::{CTagIndexLookup, Tag, TagLookup};
+pub use tag::{Tag, TagLookup};
 pub use term::{Term, TermIndexReader, build_term_iterator};
 pub use wildcard::Wildcard;

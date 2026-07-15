@@ -595,6 +595,42 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
+ * Creates a new wildcard inverted index iterator for querying all existing documents.
+ *
+ * # Parameters
+ *
+ * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
+ * * `sctx` - Pointer to the Redis search context.
+ * * `weight` - Weight to apply to all results.
+ *
+ * # Returns
+ *
+ * A pointer to a `QueryIterator` that can be used from C code.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *
+ * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
+ *    comparison.
+ * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
+ */
+QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+ *
+ * # Safety
+ *
+ * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
+ * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ */
+RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
+
+/**
  * Creates a new tag inverted index iterator.
  *
  * # Parameters
@@ -630,42 +666,6 @@ void Profile_PrintIterators(RedisModuleCtx *ctx, const QueryIterator *root, bool
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
-
-/**
- * Creates a new wildcard inverted index iterator for querying all existing documents.
- *
- * # Parameters
- *
- * * `idx` - Pointer to the existingDocs inverted index (DocIdsOnly or RawDocIdsOnly encoded).
- * * `sctx` - Pointer to the Redis search context.
- * * `weight` - Weight to apply to all results.
- *
- * # Returns
- *
- * A pointer to a `QueryIterator` that can be used from C code.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *
- * 1. `idx` must be a valid pointer to an `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
- *    mechanism detects when the index has been replaced via `spec.existingDocs` pointer
- *    comparison.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- */
-QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
-
-/**
- * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
- *
- * # Safety
- *
- * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
- * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- */
-RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 
 /**
  * Creates a NOT iterator, choosing between non-optimized and optimized based

@@ -35,5 +35,6 @@ query_types.workspace = true
 redis_reply.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+trie_rs.workspace = true
 workspace_hack.workspace = true
 
