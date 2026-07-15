@@ -207,7 +207,7 @@ impl<S: NfaBitSet> CodepointWildcardNfa<S> {
         );
         let accept = pattern.atom_count();
         let mut start_positions = S::empty(accept);
-        insert_closed(&mut start_positions, &pattern.atoms, 0);
+        insert_closure(&mut start_positions, &pattern.atoms, 0);
         let accept_only = S::singleton(accept, accept);
         Self {
             pattern,
@@ -218,9 +218,9 @@ impl<S: NfaBitSet> CodepointWildcardNfa<S> {
     }
 }
 
-/// Insert position `pos` and its ε-closure: every `*` reached can also be
-/// skipped, activating the position after it.
-fn insert_closed<S: NfaBitSet>(set: &mut S, atoms: &[CpAtom], mut pos: usize) {
+/// Union the ε-closure of position `pos` into `set`: `pos` itself, plus —
+/// for every `*` reached — the position after it (a `*` can be skipped).
+fn insert_closure<S: NfaBitSet>(set: &mut S, atoms: &[CpAtom], mut pos: usize) {
     set.insert(pos);
     while let Some(CpAtom::Any) = atoms.get(pos) {
         pos += 1;
@@ -259,14 +259,14 @@ impl<S: NfaBitSet> Automaton for CodepointWildcardNfa<S> {
                 Some(CpAtom::One) => true,
                 // `*` self-loops; its ε-closure re-adds the skip targets.
                 Some(CpAtom::Any) => {
-                    insert_closed(&mut next, atoms, pos);
+                    insert_closure(&mut next, atoms, pos);
                     false
                 }
                 // The accept position has no outgoing transition.
                 None => false,
             };
             if advances {
-                insert_closed(&mut next, atoms, pos + 1);
+                insert_closure(&mut next, atoms, pos + 1);
             }
         }
         if next.is_empty() {
