@@ -220,9 +220,6 @@ pub trait ScoreSource {
     /// vector distance) is exposed via the metrics channel for output fields
     /// like `__v_score`.
     ///
-    /// The default implementation does nothing — sources that don't carry
-    /// a metric (e.g. mocks in tests) can leave it as-is.
-    ///
     /// Implementations that maintain a stable score key should overwrite an
     /// existing entry with the same key rather than appending, so repeated
     /// yields of the same child storage don't leak metrics across docs.
@@ -230,9 +227,7 @@ pub trait ScoreSource {
     /// [`TopKIterator`]: crate::TopKIterator
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
-        Self: 'r,
-    {
-    }
+        Self: 'r;
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.

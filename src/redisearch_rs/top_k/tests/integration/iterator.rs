@@ -53,6 +53,12 @@ impl ScoreSource for TimingOutSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }
@@ -471,6 +477,12 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
+        }
+
         fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
@@ -685,6 +697,11 @@ fn adhoc_timeout_propagated() {
             Self: 'r,
         {
             RSIndexResult::build_virt().doc_id(doc_id).build()
+        }
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
         }
         fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
             BatchStrategy::Continue
