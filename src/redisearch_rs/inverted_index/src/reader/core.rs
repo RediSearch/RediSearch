@@ -179,7 +179,12 @@ where
             if !std::ptr::eq(old_base, new_base) {
                 // The block buffer was reallocated to a different address by a
                 // non-GC operation (e.g. an append that outgrew its allocation)
-                // without bumping the GC marker. Refreshing only `self.buf` would
+                // without bumping the GC marker.
+                // Since GC has not run, the number of "old" blocks
+                // is the same and there is no risk of ABA confusion.
+                //
+                //
+                // Refreshing only `self.buf` would
                 // leave the iterator's cached `result` holding an `RSOffsetSlice`
                 // that still borrows the *old*, now-freed allocation — a
                 // use-after-free the moment a caller reads `current()` / iterates
@@ -189,14 +194,14 @@ where
                 return RefreshOutcome::NeedsReseek {
                     last_doc_id: self.last_doc_id,
                 };
+            } else {
+                // Same base address: the allocation did not move (an in-place realloc
+                // preserves the bytes the offset slice borrows, and blocks only grow
+                // by appending), so the cached result stays valid. Refresh the
+                // pointer's provenance to the live slice.
+                let new_buf: NonNull<[u8]> = NonNull::from(new_slice);
+                self.buf = SharedPtr::from_non_null(new_buf);
             }
-
-            // Same base address: the allocation did not move (an in-place realloc
-            // preserves the bytes the offset slice borrows, and blocks only grow
-            // by appending), so the cached result stays valid. Refresh the
-            // pointer's provenance to the live slice.
-            let new_buf: NonNull<[u8]> = NonNull::from(new_slice);
-            self.buf = SharedPtr::from_non_null(new_buf);
         }
 
         RefreshOutcome::Ok
