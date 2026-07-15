@@ -2307,6 +2307,7 @@ dependencies = [
  "query_error",
  "query_term",
  "query_term_ffi",
+ "query_types",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",

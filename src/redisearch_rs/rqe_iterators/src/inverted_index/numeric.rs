@@ -18,7 +18,7 @@ use crate::{
 };
 use ffi::{
     FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
-    QueryNodeType, RedisSearchCtx,
+    RedisSearchCtx,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -26,6 +26,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use query_types::QueryNodeType;
 use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 

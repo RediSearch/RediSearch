@@ -237,7 +237,7 @@ fn intersection_two_children() {
 
 #[test]
 fn union_full_print() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -254,7 +254,7 @@ fn union_full_print() {
 
 #[test]
 fn union_limited_non_union_type() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -279,7 +279,7 @@ fn union_limited_non_union_type() {
 
 #[test]
 fn union_limited_geo_prints_full() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -300,7 +300,7 @@ fn union_limited_geo_prints_full() {
 
 #[test]
 fn union_limited_lexrange_prints_full() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -321,7 +321,7 @@ fn union_limited_lexrange_prints_full() {
 
 #[test]
 fn union_with_query_string() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
