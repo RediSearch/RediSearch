@@ -241,4 +241,10 @@ impl ScoreSource for MockScoreSource {
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
         rqe_iterator_type::IteratorType::Mock
     }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
 }
