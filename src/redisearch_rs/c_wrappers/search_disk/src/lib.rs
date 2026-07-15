@@ -17,8 +17,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::RSQueryTerm;
 use inverted_index::NumericFilter;
+use query_term::RSQueryTerm;
 use rqe_core::{DocId, FieldIndex, FieldMask};
 use rqe_iterators::{RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS};
 

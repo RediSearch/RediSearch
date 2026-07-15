@@ -24,8 +24,9 @@
 use std::ffi::CStr;
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator, QueryNodeType};
+use ffi::QueryIterator;
 use index_result::RSIndexResult;
+use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, SharedPtr};
 use rqe_core::DocId;
 
@@ -240,20 +241,20 @@ where
         let print_full = !ctx.limited
             || matches!(
                 node_type,
-                ffi::QueryNodeType::Union | ffi::QueryNodeType::Geo | ffi::QueryNodeType::LexRange
+                QueryNodeType::Union | QueryNodeType::Geo | QueryNodeType::LexRange
             );
 
         map.kv_simple_string(c"Type", c"UNION");
 
         let type_str = match node_type {
-            ffi::QueryNodeType::Geo => "GEO",
-            ffi::QueryNodeType::Tag => "TAG",
-            ffi::QueryNodeType::Union => "UNION",
-            ffi::QueryNodeType::Fuzzy => "FUZZY",
-            ffi::QueryNodeType::Prefix => "PREFIX",
-            ffi::QueryNodeType::Numeric => "NUMERIC",
-            ffi::QueryNodeType::LexRange => "LEXRANGE",
-            ffi::QueryNodeType::WildcardQuery => "WILDCARD",
+            QueryNodeType::Geo => "GEO",
+            QueryNodeType::Tag => "TAG",
+            QueryNodeType::Union => "UNION",
+            QueryNodeType::Fuzzy => "FUZZY",
+            QueryNodeType::Prefix => "PREFIX",
+            QueryNodeType::Numeric => "NUMERIC",
+            QueryNodeType::LexRange => "LEXRANGE",
+            QueryNodeType::WildcardQuery => "WILDCARD",
             _ => unreachable!("Invalid type for union"),
         };
 

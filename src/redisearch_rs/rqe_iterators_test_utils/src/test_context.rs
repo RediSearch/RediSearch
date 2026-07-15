@@ -278,7 +278,7 @@ impl TestContext {
                 0,
                 std::ptr::null(),
                 0,
-                ffi::DocumentType::Hash,
+                document::DocumentType::Hash,
             )
         };
         assert!(!dmd.is_null(), "DocTable_Put returned null");

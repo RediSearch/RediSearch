@@ -1052,6 +1052,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field_spec",
  "inverted_index",
@@ -1769,6 +1770,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "query_eval",
+ "query_types",
  "rqe_iterators",
  "workspace_hack",
 ]
@@ -2307,6 +2309,7 @@ dependencies = [
  "query_error",
  "query_term",
  "query_term_ffi",
+ "query_types",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
@@ -2356,6 +2359,7 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field",
  "geo",
@@ -2556,6 +2560,7 @@ dependencies = [
 name = "schema_rule"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "pretty_assertions",
  "redis_mock",
@@ -2570,6 +2575,7 @@ dependencies = [
  "build_utils",
  "ffi",
  "inverted_index",
+ "query_term",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",

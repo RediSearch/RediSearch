@@ -16,14 +16,15 @@ use std::{
 };
 
 use ffi::{
-    AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, QueryNodeOptions, RSQueryNode,
-    RSSearchOptions, RedisSearchCtx,
+    AREQ, QueryAST, QueryError, QueryEvalCtx, QueryIterator, RSQueryNode, RSSearchOptions,
+    RedisSearchCtx,
 };
 use query_eval::{
     QueryEvalContext, QueryNodeRef, eval,
     eval::Config,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
+use query_types::QueryNodeOptions;
 
 /// Snapshot the evaluator's configuration from the process-wide
 /// [`ffi::RSGlobalConfig`].
