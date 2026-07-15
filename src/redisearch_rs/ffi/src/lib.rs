@@ -44,10 +44,10 @@ pub use document::DocumentType;
 pub use query_types::{QASTValidationFlagsSet, QueryNodeFlags, QueryNodeOptions, QueryNodeType};
 
 // Brought into scope (privately) so the bindgen-generated bindings below can
-// name these Rust-defined types. Consumers import them from `query_term`
+// name these Rust-defined types. Consumers import them from their owning crate
 // directly rather than through this crate.
 use query_term::{RSQueryTerm, RSTokenFlags};
-pub use rqe_iterator_type::IteratorType;
+use rqe_iterator_type::IteratorType;
 
 #[repr(C)]
 #[derive(Debug)]

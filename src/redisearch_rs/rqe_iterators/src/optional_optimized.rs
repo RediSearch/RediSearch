@@ -342,8 +342,8 @@ where
         self.at_eof
     }
 
-    fn type_(&self) -> ffi::IteratorType {
-        ffi::IteratorType::OptionalOptimized
+    fn type_(&self) -> crate::IteratorType {
+        crate::IteratorType::OptionalOptimized
     }
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
