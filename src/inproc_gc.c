@@ -46,6 +46,9 @@
 #include "trie/rune_util.h"
 #include "suffix.h"
 #include "vector_index.h"
+#include "tag_index.h"
+#include "triemap_ffi.h"
+#include "util/arr.h"
 #include "info/global_stats.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
@@ -258,6 +261,110 @@ static InvertedIndex *reopenExisting(RedisSearchCtx *sctx, void *key) {
   return sctx->spec->existingDocs;
 }
 
+// ---- Tag indexes (per TAG field: a TrieMap of tag value -> II) --------------
+// A collected (field, tag-value) pair. Copied out under a brief read lock so no
+// live TrieMap iterator is held across the per-index lock cycles.
+typedef struct {
+  char *field;
+  size_t fieldLen;
+  char *tagVal;
+  size_t tagLen;
+} TagKey;
+
+typedef struct {
+  TagKey *items;
+  size_t count;
+  size_t cap;
+} TagKeyList;
+
+static void TagKeyList_Push(TagKeyList *tl, const char *field, size_t fieldLen, const char *tagVal,
+                            size_t tagLen) {
+  if (tl->count == tl->cap) {
+    tl->cap = tl->cap ? tl->cap * 2 : 16;
+    tl->items = rm_realloc(tl->items, tl->cap * sizeof(*tl->items));
+  }
+  TagKey *k = &tl->items[tl->count++];
+  k->field = rm_malloc(fieldLen + 1);
+  memcpy(k->field, field, fieldLen);
+  k->field[fieldLen] = '\0';
+  k->fieldLen = fieldLen;
+  k->tagVal = rm_malloc(tagLen + 1);
+  memcpy(k->tagVal, tagVal, tagLen);
+  k->tagVal[tagLen] = '\0';
+  k->tagLen = tagLen;
+}
+
+static void TagKeyList_Free(TagKeyList *tl) {
+  for (size_t i = 0; i < tl->count; ++i) {
+    rm_free(tl->items[i].field);
+    rm_free(tl->items[i].tagVal);
+  }
+  rm_free(tl->items);
+}
+
+// Re-resolve the tag field -> TagIndex from the field name each time, rather than
+// caching the TagIndex* across lock cycles.
+static TagIndex *tagIndexForKey(RedisSearchCtx *sctx, const TagKey *k) {
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, k->field, k->fieldLen);
+  if (!fs) {
+    return NULL;
+  }
+  return TagIndex_Open(fs);
+}
+
+static InvertedIndex *reopenTag(RedisSearchCtx *sctx, void *key) {
+  const TagKey *k = key;
+  TagIndex *tagIdx = tagIndexForKey(sctx, k);
+  if (!tagIdx) {
+    return NULL;
+  }
+  size_t sz = 0;
+  InvertedIndex *idx = TagIndex_OpenIndex(tagIdx, k->tagVal, k->tagLen, DONT_CREATE_INDEX, &sz);
+  return idx == TRIEMAP_NOTFOUND ? NULL : idx;
+}
+
+static void onEmptyTag(RedisSearchCtx *sctx, void *key, InvertedIndex *idx, II_GCScanStats *info) {
+  const TagKey *k = key;
+  // Sample memory/blocks before the TrieMap destructor frees the index.
+  info->bytes_freed += InvertedIndex_MemUsage(idx);
+  IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
+  TagIndex *tagIdx = tagIndexForKey(sctx, k);
+  if (!tagIdx) {
+    return;
+  }
+  TrieMap_Delete(tagIdx->values, k->tagVal, k->tagLen, (void (*)(void *))InvertedIndex_Free);
+  // Empty values (INDEXEMPTY) are never inserted into the suffix triemap; skip.
+  if (tagIdx->suffix && k->tagLen) {
+    deleteSuffixTrieMap(tagIdx->suffix, k->tagVal, k->tagLen);
+  }
+}
+
+// Walk every TAG field's value TrieMap under a brief read lock and copy out the
+// (field, tag-value) pairs.
+static void collectTagKeys(RedisSearchCtx *sctx, TagKeyList *out) {
+  RedisSearchCtx_LockSpecRead(sctx);
+  arrayof(FieldSpec *) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
+  for (int i = 0; i < array_len(tagFields); ++i) {
+    const FieldSpec *fs = tagFields[i];
+    size_t fieldLen = 0;
+    const char *fieldName = HiddenString_GetUnsafe(fs->fieldName, &fieldLen);
+    TagIndex *tagIdx = TagIndex_Open(fs);
+    if (!tagIdx) {
+      continue;
+    }
+    TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
+    char *ptr = NULL;
+    tm_len_t len = 0;
+    void *value = NULL;
+    while (TrieMapIterator_Next(iter, &ptr, &len, &value)) {
+      TagKeyList_Push(out, fieldName, fieldLen, ptr, len);
+    }
+    TrieMapIterator_Free(iter);
+  }
+  array_free(tagFields);
+  RedisSearchCtx_UnlockSpec(sctx);
+}
+
 static bool periodicCb(void *privdata, bool force) {
   InProcGC *gc = privdata;
 
@@ -318,6 +425,14 @@ static bool periodicCb(void *privdata, bool force) {
 
   // Existing-docs index (single II; never removed on empty).
   gcOneInvertedIndex(gc, &sctx, NULL, reopenExisting, NULL, &entriesRemoved);
+
+  // Tag indexes (per TAG field: a TrieMap of tag value -> II).
+  TagKeyList tags = {0};
+  collectTagKeys(&sctx, &tags);
+  for (size_t i = 0; i < tags.count; ++i) {
+    gcOneInvertedIndex(gc, &sctx, &tags.items[i], reopenTag, onEmptyTag, &entriesRemoved);
+  }
+  TagKeyList_Free(&tags);
 
   // Tiered vector indexes still run their own GC (as under the fork GC).
   VecSim_CallTieredIndexesGC(gc->index);
