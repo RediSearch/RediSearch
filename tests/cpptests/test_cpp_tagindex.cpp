@@ -118,6 +118,17 @@ TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   TagIndex_Free(idx);
 }
 
+TEST_F(TagIndexTest, testNullValuesResetRecordCount) {
+  TagIndex *idx = NewTagIndex();
+  size_t numRecords = 1;
+
+  ASSERT_EQ(0u, TagIndex_Index(idx, NULL, 0, 1, &numRecords));
+  ASSERT_EQ(0u, numRecords);
+  ASSERT_EQ(0u, TagIndex_Index(idx, NULL, 0, 1, NULL));
+
+  TagIndex_Free(idx);
+}
+
 #define TEST_MY_SEP(sep, str)                            \
   orig = s = strdup(str);                                \
   token = TagIndex_SepString(sep, &s, &tokenLen, false); \
