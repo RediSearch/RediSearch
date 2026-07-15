@@ -209,9 +209,15 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
 }
 
 /* Index a vector of pre-processed tags for a docId */
-size_t TagIndex_IndexWithRecords(TagIndex *idx, const char **values, size_t n, t_docId docId,
-                                 size_t *numRecords) {
-  if (!values) return 0;
+size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId,
+                      size_t *numRecords) {
+  if (!values) {
+    if (numRecords) {
+      *numRecords = 0;
+    }
+    return 0;
+  }
+
   size_t ret = 0;
   size_t records = 0;
   for (size_t ii = 0; ii < n; ++ii) {
@@ -224,12 +230,10 @@ size_t TagIndex_IndexWithRecords(TagIndex *idx, const char **values, size_t n, t
       }
     }
   }
-  if (numRecords) *numRecords = records;
+  if (numRecords) {
+    *numRecords = records;
+  }
   return ret;
-}
-
-size_t TagIndex_Index(TagIndex *idx, const char **values, size_t n, t_docId docId) {
-  return TagIndex_IndexWithRecords(idx, values, n, docId, NULL);
 }
 
 typedef struct {
