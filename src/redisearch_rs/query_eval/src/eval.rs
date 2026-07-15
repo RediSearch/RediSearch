@@ -14,6 +14,7 @@
 
 use std::ptr::NonNull;
 
+use c_trie::CTrieRef;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
@@ -871,32 +872,16 @@ fn eval_token_disk<'index>(
     // build a disk term iterator through the enterprise API.
     // SAFETY: in search-on-disk mode the terms trie is always initialised.
     debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
-    // A `QN_TOKEN` node always carries a non-null term string; the `strToRunesN`
-    // read below relies on it.
+    // A `QN_TOKEN` node always carries a non-null term string; the term lookup
+    // below relies on it.
     debug_assert!(!tok.str_.is_null(), "token string should not be null");
 
-    let mut runes = vec![0 as ffi::rune; tok.len + 1];
-    // SAFETY: `tok.str_` points to `tok.len` valid bytes; `runes` has room
-    // for `tok.len + 1` runes (a UTF-8 string yields at most as many runes
-    // as bytes), so `strToRunesN` writes within bounds.
-    let rlen = unsafe { ffi::strToRunesN(tok.str_, tok.len, runes.as_mut_ptr()) };
-    // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) and
-    // `runes`/`rlen` describe a valid rune slice.
-    let trienode = unsafe {
-        ffi::Trie_GetNode(
-            spec.terms,
-            runes.as_ptr(),
-            rlen as ffi::t_len,
-            true,
-            std::ptr::null_mut(),
-        )
-    };
-    let num_docs_in_term = if trienode.is_null() {
-        0
-    } else {
-        // SAFETY: `trienode` is a valid, non-null `TrieNode` from `Trie_GetNode`.
-        unsafe { ffi::TrieNode_NumDocs(trienode) }
-    };
+    // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
+    // outlives this lookup.
+    let terms = unsafe { CTrieRef::from_raw(spec.terms) };
+    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
+    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
+    let num_docs_in_term = terms.num_docs(term_bytes);
     let num_documents = spec.stats.scoring.numDocuments;
     let idf = idf::calculate_idf(num_documents, num_docs_in_term);
     let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs_in_term);
