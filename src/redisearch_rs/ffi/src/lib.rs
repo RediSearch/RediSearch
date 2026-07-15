@@ -39,12 +39,10 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 /// Access to the RediSearch Module context
 pub mod context;
 
-/// Use the Rust definitions directly
-pub use document::DocumentType;
-
 // Brought into scope (privately) so the bindgen-generated bindings below can
 // name these Rust-defined types. Consumers import them from their owning crate
 // directly rather than through this crate.
+use document::DocumentType;
 use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;

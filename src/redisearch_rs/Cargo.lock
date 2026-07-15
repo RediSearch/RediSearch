@@ -1052,6 +1052,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field_spec",
  "inverted_index",
@@ -2358,6 +2359,7 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field",
  "geo",
@@ -2558,6 +2560,7 @@ dependencies = [
 name = "schema_rule"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "pretty_assertions",
  "redis_mock",
