@@ -157,18 +157,30 @@ static void deleteEmptyTerm(RedisSearchCtx *sctx, InvertedIndex *idx, const Coll
   }
 }
 
-// Scan + apply GC for a single term. Returns bytes freed by this term.
-static size_t gcOneTerm(InProcGC *gc, RedisSearchCtx *sctx, const CollectedTerm *ct,
-                        size_t *entriesRemoved) {
-  // --- Take an owned snapshot under a brief read lock, then scan it lock-free ---
+// Reopen the live inverted index for `key` under whatever spec lock the caller
+// (gcOneInvertedIndex) currently holds; return NULL if it no longer exists.
+typedef InvertedIndex *(*GcReopenFn)(RedisSearchCtx *sctx, void *key);
+// Remove the container entry for `key` when its index became empty after apply.
+// Called under the spec write lock with `idx` still valid (sample it before any
+// destructive delete). NULL when the container has no per-index entry to remove
+// (e.g. the single existing-docs index).
+typedef void (*GcOnEmptyFn)(RedisSearchCtx *sctx, void *key, InvertedIndex *idx,
+                            II_GCScanStats *info);
+
+// Scan + apply GC for one inverted index. The snapshot is taken under a brief read
+// lock, scanned lock-free, then the delta is applied under the write lock (see the
+// file header for the locking rationale). `reopen` re-resolves the live index for
+// `key` (the pointer may change between scan and apply); `on_empty` removes the
+// container entry if the index emptied. Returns bytes freed.
+static size_t gcOneInvertedIndex(InProcGC *gc, RedisSearchCtx *sctx, void *key, GcReopenFn reopen,
+                                 GcOnEmptyFn on_empty, size_t *entriesRemoved) {
   RedisSearchCtx_LockSpecRead(sctx);
-  InvertedIndex *idx =
-      Redis_OpenInvertedIndex(sctx->spec, ct->term, ct->len, DONT_CREATE_INDEX, NULL);
+  InvertedIndex *idx = reopen(sctx, key);
   struct OwnedGcSnapshot *snap = idx ? InvertedIndex_TakeGcSnapshot(idx) : NULL;
   RedisSearchCtx_UnlockSpec(sctx);
 
   if (!snap) {
-    return 0;  // term gone, or nothing indexed
+    return 0;  // index gone, or nothing indexed
   }
 
   // Scan the owned snapshot with NO spec lock held: the snapshot owns its II blocks
@@ -184,12 +196,10 @@ static size_t gcOneTerm(InProcGC *gc, RedisSearchCtx *sctx, const CollectedTerm 
     return 0;  // nothing to collect
   }
 
-  // --- Apply under the write lock ---
   RedisSearchCtx_LockSpecWrite(sctx);
-  idx = Redis_OpenInvertedIndex(sctx->spec, ct->term, ct->len, DONT_CREATE_INDEX, NULL);
+  idx = reopen(sctx, key);
   if (!idx) {
-    // Term vanished between scan and apply (should not happen: only GC deletes
-    // terms and it is single-threaded). Drop the delta without applying.
+    // Index vanished between scan and apply. Drop the delta without applying.
     InvertedIndex_GcDelta_Free(delta);
     RedisSearchCtx_UnlockSpec(sctx);
     return 0;
@@ -199,9 +209,8 @@ static size_t gcOneTerm(InProcGC *gc, RedisSearchCtx *sctx, const CollectedTerm 
   InvertedIndex_ApplyGCDelta(idx, delta, &info);  // takes ownership of `delta`
   IndexStats_BlockCountAdd(&sctx->spec->stats, info.block_count_delta);
 
-  if (InvertedIndex_NumDocs(idx) == 0) {
-    deleteEmptyTerm(sctx, idx, ct, &info);
-    idx = NULL;  // freed by dictDelete above
+  if (on_empty && InvertedIndex_NumDocs(idx) == 0) {
+    on_empty(sctx, key, idx, &info);
   }
 
   // Update per-spec index stats (mirrors FGC_updateStats).
@@ -214,6 +223,39 @@ static size_t gcOneTerm(InProcGC *gc, RedisSearchCtx *sctx, const CollectedTerm 
                    (ssize_t)info.bytes_freed - (ssize_t)info.bytes_allocated);
   *entriesRemoved += info.entries_removed;
   return info.bytes_freed;
+}
+
+// ---- Terms (spec->terms trie + keysDict) -----------------------------------
+static InvertedIndex *reopenTerm(RedisSearchCtx *sctx, void *key) {
+  const CollectedTerm *ct = key;
+  return Redis_OpenInvertedIndex(sctx->spec, ct->term, ct->len, DONT_CREATE_INDEX, NULL);
+}
+
+static void onEmptyTerm(RedisSearchCtx *sctx, void *key, InvertedIndex *idx, II_GCScanStats *info) {
+  deleteEmptyTerm(sctx, idx, (const CollectedTerm *)key, info);
+}
+
+// ---- Missing-field docs (spec->missingFieldDict: HiddenString* -> II) ------
+// Mirrors FGC_parentHandleMissingDocs. `key` is a HiddenString* dict key.
+static InvertedIndex *reopenMissing(RedisSearchCtx *sctx, void *key) {
+  if (!sctx->spec->missingFieldDict) {
+    return NULL;
+  }
+  return dictFetchValue(sctx->spec->missingFieldDict, key);
+}
+
+static void onEmptyMissing(RedisSearchCtx *sctx, void *key, InvertedIndex *idx,
+                           II_GCScanStats *info) {
+  // Sample memory/blocks before the dict destructor (InvIndFreeCb) frees the index.
+  info->bytes_freed += InvertedIndex_MemUsage(idx);
+  IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
+  dictDelete(sctx->spec->missingFieldDict, key);
+}
+
+// ---- Existing docs (spec->existingDocs: single II for the wildcard/INDEXALL) --
+static InvertedIndex *reopenExisting(RedisSearchCtx *sctx, void *key) {
+  (void)key;
+  return sctx->spec->existingDocs;
 }
 
 static bool periodicCb(void *privdata, bool force) {
@@ -239,12 +281,43 @@ static bool periodicCb(void *privdata, bool force) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, sp);
   size_t entriesRemoved = 0;
 
+  // Terms (text inverted indexes).
   TermList terms = {0};
   collectTermNames(&sctx, &terms);
   for (size_t i = 0; i < terms.count; ++i) {
-    gcOneTerm(gc, &sctx, &terms.items[i], &entriesRemoved);
+    gcOneInvertedIndex(gc, &sctx, &terms.items[i], reopenTerm, onEmptyTerm, &entriesRemoved);
   }
   TermList_Free(&terms);
+
+  // Missing-field indexes (spec->missingFieldDict: HiddenString* -> II). Collect
+  // the dict keys under a brief read lock so no live dict iterator is held across
+  // the per-index lock cycles. Only GC deletes these entries (and it is
+  // single-threaded), so the collected key pointers stay valid while we process.
+  {
+    void **keys = NULL;
+    size_t nkeys = 0, cap = 0;
+    RedisSearchCtx_LockSpecRead(&sctx);
+    if (sctx.spec->missingFieldDict) {
+      dictIterator *it = dictGetIterator(sctx.spec->missingFieldDict);
+      dictEntry *e;
+      while ((e = dictNext(it))) {
+        if (nkeys == cap) {
+          cap = cap ? cap * 2 : 8;
+          keys = rm_realloc(keys, cap * sizeof(*keys));
+        }
+        keys[nkeys++] = dictGetKey(e);
+      }
+      dictReleaseIterator(it);
+    }
+    RedisSearchCtx_UnlockSpec(&sctx);
+    for (size_t i = 0; i < nkeys; ++i) {
+      gcOneInvertedIndex(gc, &sctx, keys[i], reopenMissing, onEmptyMissing, &entriesRemoved);
+    }
+    rm_free(keys);
+  }
+
+  // Existing-docs index (single II; never removed on empty).
+  gcOneInvertedIndex(gc, &sctx, NULL, reopenExisting, NULL, &entriesRemoved);
 
   // Tiered vector indexes still run their own GC (as under the fork GC).
   VecSim_CallTieredIndexesGC(gc->index);
