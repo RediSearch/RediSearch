@@ -16,7 +16,7 @@ use rqe_core::DocId;
 
 use crate::{
     IdList, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     deferred::{ProducedResults, Producer},
     id_list::{RawIdList, SuspendedIdList},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -153,14 +153,6 @@ impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORT
         // Before production the list is not (necessarily) exhausted — report not-at-EOF so
         // callers read it and trigger production.
         self.produced && self.inner.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.inner.revalidate(spec)
     }
 
     #[inline(always)]

@@ -11,17 +11,17 @@ use std::{f64, ptr::NonNull};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
 use ffi::{
     FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
-    QueryNodeType, RedisSearchCtx, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    QueryNodeType, RedisSearchCtx, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK,
 };
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     RefreshOutcome, ResumableReader, SuspendableReader,
@@ -31,6 +31,7 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use super::core::{InvIndIterator, RawInvIndIterator};
+use index_spec::IndexSpecReadGuard;
 
 /// An iterator over numeric inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
@@ -92,7 +93,7 @@ impl<'query, Rf: Ref, R, E> RawNumeric<'query, Rf, R, E> {
     /// modified by GC (a node split or removal). The iterator's cached
     /// `revision_id` snapshot is compared against the current value; if
     /// they differ, the cursor is invalidated and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// abort.
     ///
     /// # Why mode-independent
     ///
@@ -251,7 +252,10 @@ where
                 active.it.reseek_after_refresh(last_doc_id)
             }
         };
-        Ok(if status == ValidateStatus_VALIDATE_MOVED {
+        Ok(if status == ValidateStatus_VALIDATE_ABORTED {
+            drop(active);
+            ResumeOutcome::Aborted
+        } else if status == ValidateStatus_VALIDATE_MOVED {
             ResumeOutcome::Moved(active)
         } else {
             ResumeOutcome::Ok(active)
@@ -308,18 +312,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -641,18 +633,6 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
             Self::Unfiltered(iter) => iter.at_eof(),
             Self::Filtered(iter) => iter.at_eof(),
             Self::Geo(iter) => iter.at_eof(),
-        }
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match self {
-            Self::Unfiltered(iter) => iter.revalidate(spec),
-            Self::Filtered(iter) => iter.revalidate(spec),
-            Self::Geo(iter) => iter.revalidate(spec),
         }
     }
 

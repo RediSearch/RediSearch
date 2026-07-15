@@ -9,7 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchCtx, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK};
+use ffi::{
+    RedisSearchCtx, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
+    ValidateStatus_VALIDATE_OK,
+};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
@@ -25,7 +28,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -117,8 +120,7 @@ impl<'query, Rf: Ref, R, E> RawTerm<'query, Rf, R, E> {
     }
 }
 
-/// `should_abort` is available in both the [`Active`] and [`Suspended`] modes:
-/// [`revalidate`](RQEIterator::revalidate) calls it on the live iterator, while
+/// `should_abort` is available in both the [`Active`] and [`Suspended`] modes.
 /// [`resume`](RQESuspendedIterator::resume) calls it on the suspended carrier
 /// before promoting back to [`Active`]. It only reads mode-independent state
 /// (the cached query term and the reader's opaque-index identity, via
@@ -133,7 +135,7 @@ where
     /// The term's inverted index may have been garbage-collected and
     /// replaced with a new allocation. If the index pointer looked up via
     /// `spec.keysDict` no longer matches the reader's stored index, the
-    /// iterator must [abort](RQEValidateStatus::Aborted).
+    /// iterator must abort.
     ///
     /// # Safety
     ///
@@ -190,7 +192,7 @@ impl<'index, Enc: inverted_index::DecodedBy, E>
 {
     /// Swap the underlying inverted index of the reader.
     ///
-    /// Used by tests to trigger [revalidation](RQEIterator::revalidate).
+    /// Used by tests to trigger revalidation.
     pub const fn swap_index(&mut self, index: &mut &'index inverted_index::InvertedIndex<Enc>) {
         self.it.reader.swap_index(index);
     }
@@ -237,18 +239,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]
@@ -455,9 +445,10 @@ unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
 /// # Safety
 ///
 /// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
-///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
-///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
-///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
+///    remaining valid — and stable between
+///    [`resume`](RQESuspendedIterator::resume) calls — for `'index`. (Resume
+///    detects a GC replacement by comparing the index pointer looked up via
+///    `Redis_OpenInvertedIndex`.)
 /// 2. `sctx` and `sctx.spec` must be valid and remain valid for `'index`.
 /// 3. `term` is a heap-allocated [`RSQueryTerm`] whose ownership is transferred
 ///    to the returned iterator.
@@ -591,7 +582,10 @@ where
                 active.it.reseek_after_refresh(last_doc_id)
             }
         };
-        Ok(if status == ValidateStatus_VALIDATE_MOVED {
+        Ok(if status == ValidateStatus_VALIDATE_ABORTED {
+            drop(active);
+            ResumeOutcome::Aborted
+        } else if status == ValidateStatus_VALIDATE_MOVED {
             ResumeOutcome::Moved(active)
         } else {
             ResumeOutcome::Ok(active)

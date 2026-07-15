@@ -221,8 +221,7 @@ macro_rules! tag_it_dispatch {
     ($self:expr, $method:ident $(, $arg:expr)*) => {
         match $self {
             TagIterator::Encoded(t) => t.$method($($arg),*),
-            TagIterator::Raw(t) => t.$method($($arg),*),
-        }
+            TagIterator::Raw(t) => t.$method($($arg),*)}
     };
 }
 
@@ -269,14 +268,6 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
     }
 
     #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        tag_it_dispatch!(self, revalidate, spec)
-    }
-
-    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTag
     }
@@ -310,7 +301,7 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
 ///
 /// 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
 ///    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
-/// 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+/// 2. `idx` must remain valid between revalidation calls, since the revalidation
 ///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
 /// 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
 /// 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned

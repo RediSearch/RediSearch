@@ -703,19 +703,6 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 const NumericFilter *NumericInvIndIterator_GetNumericFilter(const QueryIterator *it);
 
 /**
- * Gets the minimum range value for profiling a numeric iterator.
- *
- * # Safety
- *
- * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
- *
- * # Returns
- *
- * The minimum range value from the filter, or negative infinity if no filter was provided.
- */
-double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
-
-/**
  * Creates a new wildcard inverted index iterator for querying all existing documents.
  *
  * # Parameters
@@ -740,6 +727,19 @@ double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
  * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, double weight);
+
+/**
+ * Gets the minimum range value for profiling a numeric iterator.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid pointer to a `QueryIterator` wrapping a [`NumericIterator`].
+ *
+ * # Returns
+ *
+ * The minimum range value from the filter, or negative infinity if no filter was provided.
+ */
+double NumericInvIndIterator_GetProfileRangeMin(const QueryIterator *it);
 
 /**
  * Gets the maximum range value for profiling a numeric iterator.
@@ -779,7 +779,7 @@ double NumericInvIndIterator_GetProfileRangeMax(const QueryIterator *it);
  *
  * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ * 2. `idx` must remain valid between revalidation calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
  * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
  * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
