@@ -55,6 +55,12 @@ impl CaseFoldExact {
         }
         Some(state)
     }
+
+    /// `true` once `state` has matched the whole needle on a codepoint
+    /// boundary.
+    fn matched_whole_needle(&self, state: &CaseFoldState) -> bool {
+        state.partial.at_boundary() && state.pos as usize == self.needle.len()
+    }
 }
 
 /// Progress through the needle, plus the decoder state of a codepoint the
@@ -78,7 +84,7 @@ impl Automaton for CaseFoldExact {
     }
 
     fn step(&mut self, state: &Self::State, byte: u8) -> Option<Self::State> {
-        if state.partial.at_boundary() && state.pos as usize == self.needle.len() {
+        if self.matched_whole_needle(state) {
             return None;
         }
         let mut state = state.clone();
@@ -89,7 +95,7 @@ impl Automaton for CaseFoldExact {
     }
 
     fn classify(&self, state: &Self::State) -> StateClass {
-        if state.partial.at_boundary() && state.pos as usize == self.needle.len() {
+        if self.matched_whole_needle(state) {
             StateClass::Terminal
         } else {
             StateClass::Live
