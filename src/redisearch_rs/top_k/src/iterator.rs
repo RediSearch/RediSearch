@@ -583,7 +583,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 
     #[inline(always)]
     fn num_estimated(&self) -> usize {
-        self.k.get().min(self.source.num_estimated())
+        let base = self.k.get().min(self.source.num_estimated());
+        // A filter child bounds the result count: at most as many docs as the
+        // child can yield can survive the intersection.
+        match &self.child {
+            Some(child) => base.min(child.num_estimated()),
+            None => base,
+        }
     }
 
     #[inline(always)]
