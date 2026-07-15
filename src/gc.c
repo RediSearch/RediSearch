@@ -13,6 +13,7 @@
 #include "gc.h"
 #include "fork_gc.h"
 #include "disk_gc.h"
+#include "inproc_gc.h"
 #include "config.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -44,6 +45,9 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
       break;
     case GCPolicy_Disk:
       ret->gcCtx = DiskGC_Create(spec_ref, &ret->callbacks);
+      break;
+    case GCPolicy_InProc:
+      ret->gcCtx = InProcGC_Create(spec_ref, &ret->callbacks);
       break;
     default:
       RS_LOG_ASSERT(false, "Invalid GC policy");

@@ -1153,6 +1153,9 @@ CONFIG_SETTER(setGcPolicy) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
+  } else if (!strcasecmp(policy, "INPROC")) {
+    // Experimental: fork-less in-process GC (inverted-index terms only).
+    config->gcConfigParams.gcPolicy = GCPolicy_InProc;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;

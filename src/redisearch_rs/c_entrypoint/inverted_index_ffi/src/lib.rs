@@ -560,6 +560,53 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
         .is_ok()
 }
 
+/// Scan the inverted index for garbage and return the delta directly, without
+/// serializing it through a writer. This is for the in-process GC, which scans
+/// and applies on the same thread and so needs no pipe/serialization round-trip.
+///
+/// Returns NULL if there is nothing to collect. A non-NULL result must be passed
+/// to [`InvertedIndex_ApplyGCDelta`] (which takes ownership and frees it) or
+/// freed with [`InvertedIndex_GcDelta_Free`].
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` whose `spec`
+///   field is a valid, non NULL, pointer to an `IndexSpec`.
+/// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex`.
+/// - The caller must hold the spec read lock for the duration of the call: the
+///   scan borrows the index immutably, so a concurrent writer would be UB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcDelta_ScanDirect(
+    sctx: *mut RedisSearchCtx,
+    idx: *mut InvertedIndex,
+) -> *mut GcScanDelta {
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    debug_assert!(!idx.is_null(), "idx must not be null");
+
+    // SAFETY: The caller must ensure `sctx` is a valid pointer to a `RedisSearchCtx`
+    let sctx = unsafe { &*sctx };
+
+    debug_assert!(!sctx.spec.is_null(), "sctx.spec must not be null");
+
+    // SAFETY: The caller must ensure the `spec` field of the `RedisSearchCtx` is a valid
+    // pointer to an `IndexSpec`
+    let spec = unsafe { &*sctx.spec };
+    let doc_table = spec.docs;
+
+    // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
+    let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
+
+    // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`, and
+    // holds the spec read lock so no concurrent writer aliases it.
+    let ii = unsafe { &*idx };
+
+    match ii.scan_gc(doc_exists) {
+        Ok(Some(deltas)) => Box::into_raw(Box::new(deltas)),
+        _ => std::ptr::null_mut(),
+    }
+}
+
 /// Read a GC delta from the provided reader. The returned pointer must be freed using
 /// [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
 ///

@@ -302,6 +302,22 @@ t_docId InvertedIndex_LastId(const struct InvertedIndex *ii);
 bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, struct InvertedIndex *idx, struct II_GCCallback *cb);
 
 /**
+ * Scan the inverted index for garbage and return the delta directly, without
+ * serializing it through a writer. For the in-process GC, which scans and
+ * applies on the same thread. Returns NULL if there is nothing to collect; a
+ * non-NULL result must be passed to `InvertedIndex_ApplyGCDelta` (which frees
+ * it) or freed with `InvertedIndex_GcDelta_Free`.
+ *
+ * # Safety
+ *
+ * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` whose `spec`
+ *   is a valid, non NULL, pointer to an `IndexSpec`.
+ * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex`.
+ * - The caller must hold the spec read lock for the duration of the call.
+ */
+struct InvertedIndexGcDelta *InvertedIndex_GcDelta_ScanDirect(RedisSearchCtx *sctx, struct InvertedIndex *idx);
+
+/**
  * Read a GC delta from the provided reader. The returned pointer must be freed using
  * [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
  *

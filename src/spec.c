@@ -454,8 +454,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return NULL;
   }
 
-  // Start the garbage collector
-  IndexSpec_StartGC(spec_ref, sp, sp->diskSpec ? GCPolicy_Disk : GCPolicy_Fork);
+  // Start the garbage collector. Disk specs always use the disk GC; RAM specs
+  // use the configured policy (fork by default, or the experimental in-process GC).
+  IndexSpec_StartGC(spec_ref, sp,
+                    sp->diskSpec ? GCPolicy_Disk : RSGlobalConfig.gcConfigParams.gcPolicy);
 
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
@@ -3299,7 +3301,8 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     return NULL;
   }
 
-  IndexSpec_StartGC(spec_ref, sp, GCPolicy_Fork);
+  IndexSpec_StartGC(spec_ref, sp,
+                    sp->diskSpec ? GCPolicy_Disk : RSGlobalConfig.gcConfigParams.gcPolicy);
   // Initialize the spec's cursor-related fields.
   sp->activeCursors = 0;
 
