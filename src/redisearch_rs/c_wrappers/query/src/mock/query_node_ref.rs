@@ -17,7 +17,7 @@ use std::{
 };
 
 use inverted_index::NumericFilter;
-use query_types::QueryNodeType;
+use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::DocId;
 
 /// Owns a heap-allocated [`ffi::RSQueryNode`].
@@ -113,7 +113,7 @@ impl MockQueryNode {
         self.node
     }
 
-    pub fn opts_mut(&mut self) -> &mut ffi::QueryNodeOptions {
+    pub fn opts_mut(&mut self) -> &mut QueryNodeOptions {
         // SAFETY: `self.node` is a valid, exclusively-owned allocation.
         unsafe { &mut (*self.node).opts }
     }

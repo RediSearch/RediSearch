@@ -1769,6 +1769,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "query_eval",
+ "query_types",
  "rqe_iterators",
  "workspace_hack",
 ]
