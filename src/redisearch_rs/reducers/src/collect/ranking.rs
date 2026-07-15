@@ -20,8 +20,25 @@
 //!
 
 use std::cmp::Ordering;
-use value::SharedValue;
 use value::comparison::cmp_fields;
+use value::{SharedValue, Value};
+
+/// Shared by [`RankingKey`]'s `Ord` and the borrowed [`RankingKey::ranks_below`]
+/// so the two can't diverge.
+///
+/// `cmp_fields` returns [`Ordering::Greater`] for the better side ("best = max",
+/// as in C's `SearchResult_CmpByFields` / `RPSorter`); ties break on a smaller
+/// doc id ranking higher, hence the reversed doc-id compare.
+fn cmp_ranking<'a, 'b, D: Ord>(
+    a_vals: impl IntoIterator<Item = Option<&'a Value>>,
+    a_doc: &D,
+    b_vals: impl IntoIterator<Item = Option<&'b Value>>,
+    b_doc: &D,
+    sort_asc_map: u64,
+) -> Ordering {
+    let pairs = a_vals.into_iter().zip(b_vals);
+    cmp_fields(pairs, sort_asc_map, None).then_with(|| a_doc.cmp(b_doc).reverse())
+}
 
 /// Sort-key snapshot plus the ASC/DESC bitmap, owning everything the
 /// comparator is allowed to read.
@@ -48,6 +65,24 @@ impl<D: Ord> RankingKey<D> {
     pub fn into_sort_vals(self) -> Box<[Option<SharedValue>]> {
         self.sort_vals
     }
+
+    /// Whether `self` (a survivor) ranks strictly below `cand_sort_vals` — i.e.
+    /// the candidate beats it and should evict it. Matches the [`Ord`] impl
+    /// (both via [`cmp_ranking`]) but reads the candidate by borrow, so a loser
+    /// is rejected without materialising its owned key.
+    pub fn ranks_below<'a>(
+        &self,
+        cand_sort_vals: impl IntoIterator<Item = Option<&'a SharedValue>>,
+        cand_doc_id: &D,
+    ) -> bool {
+        cmp_ranking(
+            self.sort_vals.iter().map(Option::as_deref),
+            &self.doc_id,
+            cand_sort_vals.into_iter().map(|v| v.map(|sv| &**sv)),
+            cand_doc_id,
+            self.sort_asc_map,
+        ) == Ordering::Less
+    }
 }
 
 impl<D: Ord> PartialEq for RankingKey<D> {
@@ -71,20 +106,13 @@ impl<D: Ord> Ord for RankingKey<D> {
             other.sort_vals.len(),
             "RankingKey sort_vals length mismatch"
         );
-        let pairs = self
-            .sort_vals
-            .iter()
-            .zip(other.sort_vals.iter())
-            .map(|(a, b)| (a.as_deref(), b.as_deref()));
-        // Direct delegation: `cmp_fields` already returns
-        // `Ordering::Greater` for the "better" side, matching the
-        // "best = max" convention in `SearchResult_CmpByFields` and the
-        // C `RPSorter`'s `mmh_pop_max` consumer.
-        //
-        // On a tie, break by doc id. Reversing the comparison makes a
-        // smaller doc id "stronger" (greater), so ranking prefers it.
-        cmp_fields(pairs, self.sort_asc_map, None)
-            .then_with(|| self.doc_id.cmp(&other.doc_id).reverse())
+        cmp_ranking(
+            self.sort_vals.iter().map(Option::as_deref),
+            &self.doc_id,
+            other.sort_vals.iter().map(Option::as_deref),
+            &other.doc_id,
+            self.sort_asc_map,
+        )
     }
 }
 

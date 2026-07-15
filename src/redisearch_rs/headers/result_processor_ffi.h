@@ -26,6 +26,7 @@ typedef struct QueryProcessingCtx {
   rs_wall_clock_ns_t queryGILTime;
   double minScore;
   uint32_t totalResults;
+  uint32_t skippedResults;
   uint32_t resultLimit;
   QueryError *err;
   bool bgScanOOM;

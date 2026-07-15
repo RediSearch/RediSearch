@@ -19,11 +19,13 @@ mod wildcard;
 
 pub use core::InvIndIterator;
 pub use geo::{
-    GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, extract_geo_unit_factor,
-    new_geo_range_iterator,
+    GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, build_geo_range_iterator,
+    extract_geo_unit_factor, new_geo_range_iterator,
 };
 pub use missing::{Missing, new_missing_iterator};
-pub use numeric::{Numeric, NumericIteratorVariant, open_numeric_or_geo_index};
+pub use numeric::{
+    Numeric, NumericIteratorVariant, build_numeric_filter_iterator, open_numeric_or_geo_index,
+};
 pub use tag::Tag;
 pub use term::Term;
 pub use wildcard::Wildcard;

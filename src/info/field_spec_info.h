@@ -17,12 +17,16 @@
 #include "redis_index.h"
 #include "vector_index.h"
 #include "obfuscation/hidden.h"
+#include "search_disk_api.h"
 
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
   };
   FieldType type;
+  // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
+  PerFieldTextDiskMetrics textDisk;
+  PerFieldCfDiskMetrics cfDisk;
 } FieldSpecStats;
 
 // Same as AggregatedFieldSpecInfo but local to a specific field inside a shard
@@ -45,7 +49,7 @@ typedef struct {
 } AggregatedFieldSpecInfo;
 
 // Get the information of the field 'fs' in the index 'sp'.
-FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate);
+FieldSpecInfo FieldSpec_GetInfo(const IndexSpec *sp, FieldSpec *fs, bool obfuscate);
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();

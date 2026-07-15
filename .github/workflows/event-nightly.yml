@@ -26,9 +26,14 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
+      # macOS Intel (x86_64) test runners are excluded while the macOS runner
+      # problem is mitigated; macOS ARM still runs.
+      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
       architecture: all
-      redis-ref: 3cd464263b03b425ffae2e23db24df3dc9346871
+      # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
+      # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
+      # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
+      redis-ref: 8897348030c20bcd26841bc7d3ec7227f8187aeb
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
       options: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && 'unit-tests,coordinator,standalone,rejson,coverage,sanitize' || 'unit-tests,coordinator,standalone,rejson,sanitize' }}
       rejson-branch: master

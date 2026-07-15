@@ -193,6 +193,12 @@ static long long get_uint_numeric_config(const char *name, void *privdata) {
   return (long long)(*(unsigned int *)privdata);
 }
 
+// Signed-int getter, for fields that use a negative sentinel (e.g. -1 = "unlimited").
+static long long get_int_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return (long long)(*(int *)privdata);
+}
+
 // Custom setter for _MIN_TRIM_DELAY with validation
 static int set_min_trim_delay_numeric_config(const char *name, long long val,
                                      void *privdata, RedisModuleString **err) {
@@ -240,6 +246,28 @@ static int set_search_disk_buffer_percentage_config(const char *name, long long 
   *(uint8_t *)privdata = (uint8_t) val;
   if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
     SearchDisk_UpdateBufferBudget(RSDummyContext, (int)val);
+  }
+  return REDISMODULE_OK;
+}
+
+static int set_search_disk_max_open_files_config(const char *name, long long val,
+  void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  // -1 means unlimited. A positive cap becomes the disk backend's open-file cache size,
+  // which is (cap - 10) after reserving ~10 descriptors for non-data files; caps of 0..10
+  // would underflow that to an effectively unbounded cache and silently disable the limit,
+  // so require -1 or >= DISK_MAX_OPEN_FILES_MIN. Validated here (rather than via the config
+  // min bound) because -1 must stay valid while 0..10 must not.
+  if (val != -1 && val < DISK_MAX_OPEN_FILES_MIN) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL,
+      "search-disk-max-open-files must be -1 (unlimited) or >= %d", DISK_MAX_OPEN_FILES_MIN);
+    return REDISMODULE_ERR;
+  }
+  *(int *)privdata = (int)val;
+  // Reapply the new cap to every live disk database (mirrors buffer-percentage).
+  if (SearchDisk_IsEnabled() && SearchDisk_IsInitialized()) {
+    SearchDisk_UpdateMaxOpenFiles(RSDummyContext, (int)val);
   }
   return REDISMODULE_OK;
 }
@@ -2169,9 +2197,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     )
   )
 
+  // Flex (disk) mode registers lower aggregate-cap defaults (see config.h).
+  // Keyed on real disk enablement (resolved before config registration), not
+  // _SIMULATE_IN_FLEX, which is itself a config applied only after registration.
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
+      ctx, "search-max-aggregate-results",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS_FLEX
+                             : DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_AGGREGATE_REQUEST_RESULTS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
@@ -2180,7 +2213,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-max-aggregate-groups", DEFAULT_MAX_AGGREGATE_GROUPS,
+      ctx, "search-max-aggregate-groups",
+      SearchDisk_IsEnabled() ? DEFAULT_MAX_AGGREGATE_GROUPS_FLEX : DEFAULT_MAX_AGGREGATE_GROUPS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       MAX_AGGREGATE_GROUPS, get_size_t_numeric_config, set_size_t_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateGroups)
@@ -2280,7 +2314,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
+      ctx, "search-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
@@ -2445,7 +2480,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", TimeoutPolicy_Return,
+      ctx, "search-on-timeout",
+      SearchDisk_IsEnabled() ? DEFAULT_TIMEOUT_POLICY_FLEX : DEFAULT_TIMEOUT_POLICY,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
@@ -2578,6 +2614,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint8_numeric_config, set_search_disk_buffer_percentage_config, NULL,
       (void *)&(RSGlobalConfig.diskBufferPercentage)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-disk-max-open-files", DEFAULT_DISK_MAX_OPEN_FILES,
+      REDISMODULE_CONFIG_UNPREFIXED, -1,
+      INT_MAX, get_int_numeric_config, set_search_disk_max_open_files_config, NULL,
+      (void *)&(RSGlobalConfig.diskMaxOpenFiles)
     )
   )
 

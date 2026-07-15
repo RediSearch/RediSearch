@@ -86,8 +86,8 @@ pub fn compare_on_equality_only(v1: &Value, v2: &Value) -> bool {
 /// Callers are responsible for any docid tiebreak when this function returns
 /// [`Ordering::Equal`].
 #[inline]
-pub fn cmp_fields<'a>(
-    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'a Value>)>,
+pub fn cmp_fields<'a, 'b>(
+    pairs: impl IntoIterator<Item = (Option<&'a Value>, Option<&'b Value>)>,
     ascend_map: u64,
     mut qerr: Option<&mut QueryError>,
 ) -> Ordering {

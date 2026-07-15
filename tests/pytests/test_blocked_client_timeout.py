@@ -318,6 +318,75 @@ def _internal_hybrid_cursor_map(result):
     return to_dict(result)
 
 
+def _setup_hybrid_index(env):
+    """Create a small hybrid index with a few docs on `env` and return a query vector."""
+    for i in range(1, env.shardsCount + 1):
+        verify_shard_init(env.getConnection(i))
+    conn = getConnectionByEnv(env)
+    env.expect(
+        'FT.CREATE', 'hybrid_idx', 'PREFIX', '1', 'hybrid_doc', 'SCHEMA',
+        'name', 'TEXT',
+        'embedding', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2'
+    ).ok()
+    for i in range(100):
+        vec = np.array([float(i), float(i)], dtype=np.float32).tobytes()
+        conn.execute_command('HSET', f'hybrid_doc{i}', 'name', f'hello{i}', 'embedding', vec)
+    return np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+
+# Skipped under ASan pending MOD-16907.
+@skip(cluster=False, asan=True)
+def test_hybrid_cursors_race_with_flushall():
+    """Regression for MOD-16878: publishing a shard's _FT.HYBRID cursors must not
+    race with concurrent cursor cleanup (FLUSHALL / DROPINDEX / ...).
+
+    Pause the shard just after it stores its cursors, FLUSHALL it, then resume and
+    assert the shard did not crash.
+    """
+    env = Env(moduleArgs='WORKERS 1', protocol=3)
+    skipIfNoEnableAssert(env)  # QUERY_CONTROLLER pause hooks are ENABLE_ASSERT-only
+    query_vec = _setup_hybrid_index(env)
+
+    target_shard = non_coord_shard_conns(env)[0]
+    # Keep the query alive and long-running (RETURN policy + large TIMEOUT) so it
+    # stays paused while we trigger the race.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+    query = ['FT.HYBRID', 'hybrid_idx', 'SEARCH', '*',
+             'VSIM', '@embedding', '$BLOB',
+             'PARAMS', '2', 'BLOB', query_vec, 'TIMEOUT', '60000']
+
+    def run_hybrid_ignore_errors():
+        # The query may error after the flush; we only assert the shard stays up.
+        try:
+            env.cmd(*query)
+        except Exception:
+            pass
+
+    target_shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true')
+    t = threading.Thread(target=run_hybrid_ignore_errors, daemon=True)
+    t.start()
+
+    wait_for_condition(
+        lambda: (target_shard.execute_command(
+            debug_cmd(), 'QUERY_CONTROLLER',
+            'GET_IS_HYBRID_STORE_CURSORS_PAUSED') == 1, {}),
+        'shard did not pause after storing _FT.HYBRID cursors')
+
+    # Flush the shard while its cursors are still in flight, so the teardown
+    # runs concurrently with the cursor reply.
+    target_shard.execute_command('FLUSHALL')
+
+    # Resume the worker; it must finish replying without crashing the shard.
+    target_shard.execute_command(debug_cmd(), 'QUERY_CONTROLLER',
+                                 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'false')
+    t.join(timeout=10)
+    env.assertFalse(t.is_alive(), message="FT.HYBRID thread should have finished")
+
+    # The shard survived the race.
+    env.assertEqual(target_shard.execute_command('PING'), True)
+
+
 class TestCoordinatorTimeout:
     """Tests for the blocked client timeout mechanism for the coordinator."""
 

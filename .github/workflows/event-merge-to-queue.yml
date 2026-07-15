@@ -14,16 +14,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # TODO: revert to calling task-get-latest-tag.yml once Redis 8.10 is released.
+  # Pinned to a redis/redis unstable commit (the redis/redis#15350 merge) because the module
+  # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
+  # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
-    # TODO: Switch to the latest 8.10 release/pre-release line once it is ready.
-    runs-on: ubuntu-slim
-    outputs:
-      tag: 3cd464263b03b425ffae2e23db24df3dc9346871
-    steps:
-      - run: echo "Dummy step to set output"
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
+    runs-on: ubuntu-slim
+    outputs:
+      tag: 8897348030c20bcd26841bc7d3ec7227f8187aeb
+    steps:
+      - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
 
   lint:
     permissions:
@@ -49,7 +52,9 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
+      # macOS Intel (x86_64) test runners are excluded while the macOS runner
+      # problem is mitigated; macOS ARM still runs.
+      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "", "coverage": "", "sanitize": ""}'

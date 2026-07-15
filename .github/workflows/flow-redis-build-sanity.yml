@@ -1,0 +1,91 @@
+name: Redis Build Sanity on Platforms
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      redis-repository:
+        description: 'Redis repository to use for the modernized build flow'
+        type: string
+        default: redis/redis
+      redis-ref:
+        description: 'Redis ref containing modules-update/bootstrap/build/run'
+        type: string
+        default: unstable
+      redisearch-repository:
+        description: 'RediSearch repository to inject into Redis modules.yaml. Defaults to this repository.'
+        type: string
+        default: ''
+      redisearch-ref:
+        description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Defaults to this workflow SHA.'
+        type: string
+        default: ''
+      fail-fast:
+        type: boolean
+        default: false
+
+  workflow_dispatch:
+    inputs:
+      platform:
+        type: string
+        description: 'Platform filter. Use "all" for all supported platforms, comma-separated values to add explicit platforms, or "!platform" to exclude.'
+        default: all,ubuntu:latest
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test all supported architectures.'
+        default: all
+      redis-repository:
+        description: 'Redis repository to use for the modernized build flow'
+        type: string
+        default: redis/redis
+      redis-ref:
+        description: 'Redis ref containing modules-update/bootstrap/build/run'
+        type: string
+        default: unstable
+      redisearch-repository:
+        description: 'RediSearch repository to inject into Redis modules.yaml. Empty means this repository.'
+        type: string
+        default: ''
+      redisearch-ref:
+        description: 'RediSearch ref/SHA to inject into Redis modules.yaml. Empty means this workflow SHA.'
+        type: string
+        default: ''
+      fail-fast:
+        description: 'Stop matrix after the first failure'
+        type: boolean
+        default: false
+
+jobs:
+  generate-matrix:
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  redis-build-sanity-matrix:
+    name: ${{ matrix.platform }} (${{ matrix.architecture }})
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
+    strategy:
+      fail-fast: ${{ inputs.fail-fast }}
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/task-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      redis-repository: ${{ inputs.redis-repository }}
+      redis-ref: ${{ inputs.redis-ref }}
+      redisearch-repository: ${{ inputs.redisearch-repository || github.repository }}
+      redisearch-ref: ${{ inputs.redisearch-ref || github.sha }}

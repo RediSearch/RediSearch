@@ -16,10 +16,12 @@ typedef struct HybridExplainContext HybridExplainContext;
  * `RSIndexResult` past the point where it is buffered across an iterator
  * advance, by deep-copying it.
  *
- * The index result is only read downstream of the buffering point by the
- * highlighter (`QEXEC_F_SEND_HIGHLIGHT`) and by the `matched_terms()` aggregate
- * function, which in turn only sees rich results when scores are requested.
- * When neither is the case, the borrow can simply be dropped instead of copied.
+ * The known downstream readers are the highlighter
+ * (`QEXEC_F_SEND_HIGHLIGHT`) and the `matched_terms()` aggregate function.
+ * `matched_terms()` is detected later from parsed APPLY/FILTER expressions and
+ * can force preservation even without scores. At this flag-only stage we also
+ * keep score-returning requests on the conservative copy path to preserve the
+ * existing rich-result behavior.
  */
 static inline bool QEFlags_RequireIndexResultsDownstream(QEFlags flags) {
   return (flags & QEXEC_F_SEND_HIGHLIGHT) ||

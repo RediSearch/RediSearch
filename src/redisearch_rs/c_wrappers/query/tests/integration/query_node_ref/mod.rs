@@ -11,7 +11,7 @@ use std::ops::Bound;
 
 use inverted_index::NumericFilter;
 use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 
 #[test]
 fn node_type_returns_discriminant() {

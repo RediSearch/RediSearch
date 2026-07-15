@@ -22,7 +22,7 @@ use super::kind::RSResultKindMask;
 #[cheadergen::config(prefix_with_name)]
 #[derive(Debug)]
 #[repr(u8)]
-pub enum RawAggregateResult<R: Ref> {
+pub enum RawAggregateResult<'query, R: Ref> {
     Borrowed {
         /// The records making up this aggregate result
         ///
@@ -34,7 +34,7 @@ pub enum RawAggregateResult<R: Ref> {
         /// Each child is stored as a [`SharedPtr<R, RawIndexResult<R>>`]. In [`Active`] mode this is
         /// equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
         /// an inert raw pointer that survives lock release/reacquire cycles.
-        records: SmallThinVec<SharedPtr<R, RawIndexResult<R>>>,
+        records: SmallThinVec<SharedPtr<R, RawIndexResult<'query, R>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -45,7 +45,7 @@ pub enum RawAggregateResult<R: Ref> {
         /// The `RawAggregateResult` is part of a union in [`super::result_data::RawResultData`], so it needs to have a
         /// known size. The std `Vec` won't have this since it is not `#[repr(C)]`, so we use our
         /// own `ThinVec` type which is `#[repr(C)]` and has a known size instead.
-        records: SmallThinVec<Box<RawIndexResult<R>>>,
+        records: SmallThinVec<Box<RawIndexResult<'query, R>>>,
 
         /// A map of the aggregate kind of the underlying records
         kind_mask: RSResultKindMask,
@@ -54,7 +54,23 @@ pub enum RawAggregateResult<R: Ref> {
 
 /// The [`Active`] instantiation of [`RawAggregateResult`].
 #[cheadergen::config(export)]
-pub type RSAggregateResult<'a> = RawAggregateResult<Active<'a>>;
+pub type RSAggregateResult<'a> = RawAggregateResult<'a, Active<'a>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawAggregateResult` are layout-identical. Only `size_of`/`align_of` are
+// checked: `offset_of!` cannot address `#[repr(u8)]` enum variant fields. Each
+// variant stores its children behind a `SmallThinVec` pointer, so the inline
+// layout is pointer-sized regardless of `R`; the child `RawIndexResult<R>`
+// read through that pointer is guarded by the `core/mod.rs` block. Part of the
+// recursive net backing the conversions on `RawIndexResult`.
+const _: () = {
+    use ref_mode::Suspended;
+    use std::mem::{align_of, size_of};
+    type A = RawAggregateResult<'static, Active<'static>>;
+    type S = RawAggregateResult<'static, Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 // Manual (rather than derived) because the `Borrowed` variant stores
 // `SharedPtr<R, RawIndexResult<R>>`, which only implements `PartialEq` in `Active`
@@ -91,7 +107,7 @@ impl<'a> PartialEq for RSAggregateResult<'a> {
     }
 }
 
-impl<R: Ref> RawAggregateResult<R> {
+impl<'query, R: Ref> RawAggregateResult<'query, R> {
     /// Create a new empty aggregate result (of the borrowed kind) with the given capacity
     pub fn borrowed_with_capacity(cap: usize) -> Self {
         Self::Borrowed {

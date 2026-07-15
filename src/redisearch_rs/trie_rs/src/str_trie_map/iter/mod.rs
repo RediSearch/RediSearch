@@ -11,12 +11,14 @@
 
 mod contains;
 mod prefixed;
+mod prefixed_values;
 mod range;
 mod suffixed;
 mod unfiltered;
 
 pub use contains::ContainsIter;
 pub use prefixed::PrefixedIter;
+pub use prefixed_values::PrefixedValues;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use suffixed::SuffixedIter;
 pub use unfiltered::Iter;
