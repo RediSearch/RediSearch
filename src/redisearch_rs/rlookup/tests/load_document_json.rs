@@ -42,9 +42,9 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 const MULTI: u32 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST;
 const PRE_MULTI: u32 = MULTI - 1;
 
-/// Construct a `RedisString` from a `CStr` the caller keeps alive. The mock
-/// `RedisModule_CreateString` stores the pointer rather than copying, so the
-/// bytes must outlive the returned `RedisString`.
+/// Construct a `RedisString` from a `CStr`. The mock
+/// `RedisModule_CreateString` copies its input, so the source bytes need not
+/// outlive the returned `RedisString`.
 fn make_redis_string(bytes: &CStr) -> RedisString {
     unsafe { RedisString::from_raw_parts(None, bytes.as_ptr(), bytes.to_bytes().len()) }
 }
