@@ -894,12 +894,9 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                         l_newjob_p, n);
     break;
   }
-  /* Decide how many workers to wake based on the TOTAL number of pending jobs,
-   * not on how many jobs this call pushed. A single-job push onto a non-empty
-   * queue means previous wakeups have not been consumed yet (or were missed),
-   * so a lone signal could leave sleeping workers idle while multiple jobs are
-   * pending. Broadcasting is cheap in that state: workers that are busy are not
-   * waiting on the condition variable, so only the (few) sleepers wake up. */
+  /* Wake workers based on the total pending count so that no worker keeps
+   * sleeping while multiple jobs are pending. Busy workers are not blocked on
+   * the condvar, so a broadcast only wakes actual sleepers. */
   if (priority_queue_len_unsafe(priority_queue_p) > 1) {
     pthread_cond_broadcast(&priority_queue_p->has_jobs);
   } else {
