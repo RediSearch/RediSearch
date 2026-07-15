@@ -318,6 +318,41 @@ bool InvertedIndex_GcDelta_Scan(struct II_GCWriter *wr, RedisSearchCtx *sctx, st
 struct InvertedIndexGcDelta *InvertedIndex_GcDelta_ScanDirect(RedisSearchCtx *sctx, struct InvertedIndex *idx);
 
 /**
+ * Take an owned, encoding-tagged GC snapshot of the inverted index for a lock-free
+ * scan. Hold the spec read lock only for this call; then scan with
+ * `InvertedIndex_GcSnapshot_ScanDirect` (no lock) and free with
+ * `InvertedIndex_GcSnapshot_Free`.
+ *
+ * # Safety
+ * - `idx` must be a valid, non NULL, pointer to an `InvertedIndex`.
+ * - The caller must hold the spec read lock for the duration of this call.
+ */
+struct OwnedGcSnapshot *InvertedIndex_TakeGcSnapshot(struct InvertedIndex *idx);
+
+/**
+ * Scan a GC snapshot (from `InvertedIndex_TakeGcSnapshot`) for garbage, with no lock
+ * held. Returns NULL if nothing to collect; a non-NULL result must be passed to
+ * `InvertedIndex_ApplyGCDelta` (which frees it) or freed with
+ * `InvertedIndex_GcDelta_Free`. Does not free the snapshot.
+ *
+ * # Safety
+ * - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` whose `spec`
+ *   is a valid, non NULL, pointer to an `IndexSpec`.
+ * - `snap` must be a valid, non NULL, pointer from `InvertedIndex_TakeGcSnapshot`.
+ * - The caller must keep the doc-table reclamation epoch open for the call
+ *   (`DocTable_ReadBegin`/`ReadEnd`).
+ */
+struct InvertedIndexGcDelta *InvertedIndex_GcSnapshot_ScanDirect(RedisSearchCtx *sctx, struct OwnedGcSnapshot *snap);
+
+/**
+ * Free a GC snapshot created by `InvertedIndex_TakeGcSnapshot`.
+ *
+ * # Safety
+ * - `snap` must be a valid pointer from `InvertedIndex_TakeGcSnapshot`, or NULL.
+ */
+void InvertedIndex_GcSnapshot_Free(struct OwnedGcSnapshot *snap);
+
+/**
  * Read a GC delta from the provided reader. The returned pointer must be freed using
  * [`InvertedIndex_GcDelta_Free`] or should be passed to [`InvertedIndex_ApplyGCDelta`].
  *

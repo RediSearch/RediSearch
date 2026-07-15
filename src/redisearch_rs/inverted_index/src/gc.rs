@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{marker::PhantomData, mem::MaybeUninit, sync::Arc};
 
-use crate::{DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, empty_sealed};
+use crate::{
+    DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, InvertedIndexSnapshot, empty_sealed,
+};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -222,6 +224,51 @@ impl IndexBlock {
     }
 }
 
+impl InvertedIndexSnapshot {
+    /// Scan an owned snapshot for blocks that can be garbage collected. This is the
+    /// body of the GC scan, split out from [`InvertedIndex::scan_gc`] so a caller can
+    /// take the snapshot under a brief lock and then run the (longer) scan without
+    /// holding any lock: the snapshot owns its blocks (Arc/Vec clones of sealed +
+    /// pending, a deep copy of the tail), so concurrent writers cannot affect it.
+    ///
+    /// `E` is the encoder needed to decode the block buffers; the caller must pass the
+    /// encoder matching the index the snapshot was taken from. See
+    /// [`InvertedIndex::scan_gc`] for the semantics of `doc_exist` / `repair` and the
+    /// `last_block_*` drift fields.
+    pub fn scan_gc<E: Encoder + DecodedBy>(
+        &self,
+        doc_exist: impl Fn(DocId) -> bool,
+        mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
+    ) -> std::io::Result<Option<GcScanDelta>> {
+        let mut results = Vec::new();
+
+        let total = self.block_count();
+        for i in 0..total {
+            let Some(block) = self.block_ref(i) else {
+                continue;
+            };
+
+            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
+
+            if let Some(repair) = repair {
+                results.push(BlockGcScanResult { index: i, repair });
+            }
+        }
+
+        if results.is_empty() {
+            Ok(None)
+        } else {
+            let last_block_idx = total.saturating_sub(1);
+            let last_block_num_entries = self.last_block().map(|b| b.num_entries).unwrap_or(0);
+            Ok(Some(GcScanDelta {
+                last_block_idx,
+                last_block_num_entries,
+                deltas: results,
+            }))
+        }
+    }
+}
+
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
     /// if any of its records point to documents that no longer exist. The `doc_exist`
@@ -245,41 +292,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     pub fn scan_gc(
         &self,
         doc_exist: impl Fn(DocId) -> bool,
-        mut repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
+        repair: Option<impl for<'snap> FnMut(&RSIndexResult<'snap>, &RepairContext<'snap>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        // Scan against an `InvertedIndexSnapshot` — gives us a stable enumeration even if
-        // writes happen concurrently with the scan. The `last_block_idx` /
-        // `last_block_num_entries` fields below let `apply_gc` detect drift and ignore
-        // any stale delta. The snapshot lives for the duration of this function; each
-        // block's borrow lifetime is the snapshot's, so `IndexBlock::repair` and its
-        // HRTB-bound closure stay inside that scope without any lifetime tricks.
-        let snapshot = self.snapshot();
-        let mut results = Vec::new();
-
-        let total = snapshot.block_count();
-        for i in 0..total {
-            let Some(block) = snapshot.block_ref(i) else {
-                continue;
-            };
-
-            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
-
-            if let Some(repair) = repair {
-                results.push(BlockGcScanResult { index: i, repair });
-            }
-        }
-
-        if results.is_empty() {
-            Ok(None)
-        } else {
-            let last_block_idx = total.saturating_sub(1);
-            let last_block_num_entries = snapshot.last_block().map(|b| b.num_entries).unwrap_or(0);
-            Ok(Some(GcScanDelta {
-                last_block_idx,
-                last_block_num_entries,
-                deltas: results,
-            }))
-        }
+        // Take a snapshot (Arc/Vec clones of the sealed + pending blocks, deep copy of
+        // the tail) and scan it. The snapshot gives a stable enumeration even if writes
+        // happen concurrently, and — because it owns its blocks — lets a caller run the
+        // scan without holding a lock (see `InvertedIndexSnapshot::scan_gc`).
+        self.snapshot().scan_gc::<E>(doc_exist, repair)
     }
 
     /// Apply the deltas of a garbage collection scan to the index. Mutates the direct

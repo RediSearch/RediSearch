@@ -180,6 +180,70 @@ impl InvertedIndex {
     }
 }
 
+/// Generates [`OwnedGcSnapshot`] and its `take_gc_snapshot` / `scan_gc` methods,
+/// one arm per opaque variant. Each variant carries an (encoding-agnostic)
+/// `InvertedIndexSnapshot` but its *tag* records the encoding, so `scan_gc` can
+/// turbofish the right `E` — letting the GC scan run on the owned snapshot with no
+/// lock held. The variant identifier doubles as the encoder type (they share names).
+macro_rules! define_owned_gc_snapshot {
+    ($($variant:ident),+ $(,)?) => {
+        /// An owned inverted-index snapshot tagged with its encoding, for a lock-free
+        /// GC scan. Produced by [`InvertedIndex::take_gc_snapshot`]; scanned via
+        /// [`OwnedGcSnapshot::scan_gc`].
+        pub enum OwnedGcSnapshot {
+            $($variant(crate::InvertedIndexSnapshot),)+
+        }
+
+        impl InvertedIndex {
+            /// Take an owned, encoding-tagged snapshot for a lock-free GC scan. The
+            /// caller need hold the spec read lock only for this call (it just clones
+            /// the block Arcs + deep-copies the tail), then release it and call
+            /// [`OwnedGcSnapshot::scan_gc`] with no lock held.
+            pub fn take_gc_snapshot(&self) -> OwnedGcSnapshot {
+                match self {
+                    $(InvertedIndex::$variant(ii) => OwnedGcSnapshot::$variant(ii.snapshot()),)+
+                }
+            }
+        }
+
+        impl OwnedGcSnapshot {
+            /// Scan the owned snapshot for garbage, without holding any lock. Dispatches
+            /// to the encoding captured at snapshot time. `doc_exist` reports whether a
+            /// doc id is still live (the caller reads the doc table lock-free, under the
+            /// reclamation epoch).
+            pub fn scan_gc(
+                &self,
+                doc_exist: impl Fn(t_docId) -> bool,
+            ) -> std::io::Result<Option<crate::GcScanDelta>> {
+                match self {
+                    $(OwnedGcSnapshot::$variant(s) => s.scan_gc::<$variant>(
+                        doc_exist,
+                        None::<fn(&index_result::RSIndexResult, &crate::RepairContext<'_>)>,
+                    ),)+
+                }
+            }
+        }
+    };
+}
+
+define_owned_gc_snapshot!(
+    Full,
+    FullWide,
+    FreqsFields,
+    FreqsFieldsWide,
+    FreqsOnly,
+    FieldsOnly,
+    FieldsOnlyWide,
+    FieldsOffsets,
+    FieldsOffsetsWide,
+    OffsetsOnly,
+    FreqsOffsets,
+    DocIdsOnly,
+    RawDocIdsOnly,
+    Numeric,
+    NumericFloatCompression,
+);
+
 impl Debug for InvertedIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

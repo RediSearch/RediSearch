@@ -24,6 +24,7 @@ use rqe_core::{DocId, FieldMask};
 use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
 use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
+use inverted_index::opaque::OwnedGcSnapshot;
 use inverted_index::{
     AddRecordOutcome, EntriesTrackingIndex, FieldMaskTrackingIndex, FilterGeoReader,
     FilterMaskReader, FilterNumericReader, GcApplyInfo, GcScanDelta, IndexBlock, IndexReader as _,
@@ -604,6 +605,78 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_ScanDirect(
     match ii.scan_gc(doc_exists) {
         Ok(Some(deltas)) => Box::into_raw(Box::new(deltas)),
         _ => std::ptr::null_mut(),
+    }
+}
+
+/// Take an owned, encoding-tagged GC snapshot of the inverted index, for a
+/// lock-free scan. The caller need hold the spec read lock only for this call
+/// (it clones the block Arcs + deep-copies the tail); the returned handle can
+/// then be scanned with [`InvertedIndex_GcSnapshot_ScanDirect`] with no lock held,
+/// and must be freed with [`InvertedIndex_GcSnapshot_Free`].
+///
+/// # Safety
+///
+/// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex`.
+/// - The caller must hold the spec read lock for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_TakeGcSnapshot(
+    idx: *mut InvertedIndex,
+) -> *mut OwnedGcSnapshot {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+    // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`.
+    let ii = unsafe { &*idx };
+    Box::into_raw(Box::new(ii.take_gc_snapshot()))
+}
+
+/// Scan a GC snapshot (from [`InvertedIndex_TakeGcSnapshot`]) for garbage, without
+/// holding any lock. Returns NULL if there is nothing to collect; a non-NULL result
+/// must be passed to [`InvertedIndex_ApplyGCDelta`] (which frees it) or freed with
+/// [`InvertedIndex_GcDelta_Free`]. This does not consume/free the snapshot — free it
+/// separately with [`InvertedIndex_GcSnapshot_Free`].
+///
+/// # Safety
+///
+/// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` whose `spec`
+///   is a valid, non NULL, pointer to an `IndexSpec`.
+/// - `snap` must be a valid, non NULL, pointer from `InvertedIndex_TakeGcSnapshot`.
+/// - The caller must keep the doc-table reclamation epoch open for the call
+///   (`DocTable_ReadBegin`/`ReadEnd`): `doc_exist` reads the lock-free doc table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcSnapshot_ScanDirect(
+    sctx: *mut RedisSearchCtx,
+    snap: *mut OwnedGcSnapshot,
+) -> *mut GcScanDelta {
+    debug_assert!(!sctx.is_null(), "sctx must not be null");
+    debug_assert!(!snap.is_null(), "snap must not be null");
+
+    // SAFETY: The caller must ensure `sctx` is a valid pointer to a `RedisSearchCtx`
+    let sctx = unsafe { &*sctx };
+    debug_assert!(!sctx.spec.is_null(), "sctx.spec must not be null");
+    // SAFETY: The caller must ensure the `spec` field is a valid pointer to an `IndexSpec`
+    let spec = unsafe { &*sctx.spec };
+    let doc_table = spec.docs;
+    // SAFETY: `doc_table` came off the spec and is valid; the caller holds the reclamation epoch.
+    let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
+
+    // SAFETY: The caller must ensure `snap` is a valid pointer from InvertedIndex_TakeGcSnapshot.
+    let snap = unsafe { &*snap };
+
+    match snap.scan_gc(doc_exists) {
+        Ok(Some(deltas)) => Box::into_raw(Box::new(deltas)),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Free a GC snapshot created by [`InvertedIndex_TakeGcSnapshot`].
+///
+/// # Safety
+///
+/// - `snap` must be a valid pointer from `InvertedIndex_TakeGcSnapshot`, or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvertedIndex_GcSnapshot_Free(snap: *mut OwnedGcSnapshot) {
+    if !snap.is_null() {
+        // SAFETY: caller guarantees `snap` came from InvertedIndex_TakeGcSnapshot.
+        let _ = unsafe { Box::from_raw(snap) };
     }
 }
 

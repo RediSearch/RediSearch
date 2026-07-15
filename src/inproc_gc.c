@@ -16,14 +16,18 @@
 // safe-memory-reclamation epoch is needed for the inverted index.
 //
 // Locking, per term:
-//   * scan under the spec READ lock  -> excludes concurrent writers (which
-//     mutate the index under the write lock) while coexisting with query
-//     readers. Produces a delta computed on the current state.
-//   * apply under the spec WRITE lock -> apply_gc rebuilds the sealed block
-//     list copy-on-write; outstanding reader snapshots are unaffected.
-// The delta is computed on the read-locked state and applied to the (possibly
-// changed) write-locked state; apply_gc reconciles drift, exactly as the fork
-// GC's parent applies a delta computed on the older child snapshot.
+//   * take an owned snapshot under a brief spec READ lock (clones the block Arcs
+//     + deep-copies the tail) -> the read lock is held only for the O(blocks)
+//     clone, not the scan;
+//   * scan the owned snapshot with NO spec lock held -> writers make progress
+//     during the (longer) scan. Doc-existence checks read the lock-free doc table,
+//     bracketed by the doc-table reclamation epoch (DocTable_ReadBegin/End) so a
+//     concurrent writer defers freeing a DMD we may walk;
+//   * apply under the spec WRITE lock -> apply_gc rebuilds the sealed block list
+//     copy-on-write; outstanding reader snapshots are unaffected.
+// The delta is computed on the snapshot and applied to the (possibly newer)
+// write-locked state; apply_gc reconciles drift, exactly as the fork GC's parent
+// applies a delta computed on the older child snapshot.
 
 #include "inproc_gc.h"
 #include "gc.h"
@@ -31,6 +35,7 @@
 #include "spec.h"
 #include "search_ctx.h"
 #include "redis_index.h"
+#include "doc_table.h"
 #include "module.h"
 #include "redismodule.h"
 #include "rmalloc.h"
@@ -155,15 +160,28 @@ static void deleteEmptyTerm(RedisSearchCtx *sctx, InvertedIndex *idx, const Coll
 // Scan + apply GC for a single term. Returns bytes freed by this term.
 static size_t gcOneTerm(InProcGC *gc, RedisSearchCtx *sctx, const CollectedTerm *ct,
                         size_t *entriesRemoved) {
-  // --- Scan under the read lock ---
+  // --- Take an owned snapshot under a brief read lock, then scan it lock-free ---
   RedisSearchCtx_LockSpecRead(sctx);
   InvertedIndex *idx =
       Redis_OpenInvertedIndex(sctx->spec, ct->term, ct->len, DONT_CREATE_INDEX, NULL);
-  InvertedIndexGcDelta *delta = idx ? InvertedIndex_GcDelta_ScanDirect(sctx, idx) : NULL;
+  struct OwnedGcSnapshot *snap = idx ? InvertedIndex_TakeGcSnapshot(idx) : NULL;
   RedisSearchCtx_UnlockSpec(sctx);
 
+  if (!snap) {
+    return 0;  // term gone, or nothing indexed
+  }
+
+  // Scan the owned snapshot with NO spec lock held: the snapshot owns its II blocks
+  // (Arc/Vec clones), so concurrent writers cannot affect it. `doc_exist` reads the
+  // lock-free doc table, so bracket the scan in the reclamation epoch so a concurrent
+  // writer defers freeing a DMD we may walk.
+  LFReadToken tok = DocTable_ReadBegin();
+  InvertedIndexGcDelta *delta = InvertedIndex_GcSnapshot_ScanDirect(sctx, snap);
+  DocTable_ReadEnd(tok);
+  InvertedIndex_GcSnapshot_Free(snap);
+
   if (!delta) {
-    return 0;  // nothing to collect, or the term is gone
+    return 0;  // nothing to collect
   }
 
   // --- Apply under the write lock ---
