@@ -291,10 +291,11 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
 /* Enter/leave a lock-free read section covering a sequence of DocTable_Borrow /
  * DocTable_Exists / DocTable_GetKey calls made WITHOUT holding the spec read
  * lock. Every DocTable_Borrow within the section must be paired with a
- * DMD_Return, and every ReadBegin with a ReadEnd on all return paths. Callers
- * that hold the spec read lock do not need these. */
-static inline void DocTable_ReadBegin(void) { LFReclaim_ReadBegin(); }
-static inline void DocTable_ReadEnd(void) { LFReclaim_ReadEnd(); }
+ * DMD_Return, and the token from ReadBegin must be passed to ReadEnd on all
+ * return paths (the section may be closed from a different thread). Callers that
+ * hold the spec read lock do not need these. */
+static inline LFReadToken DocTable_ReadBegin(void) { return LFReclaim_ReadBegin(); }
+static inline void DocTable_ReadEnd(LFReadToken token) { LFReclaim_ReadEnd(token); }
 
 /* Load the doc table from RDB. This is used for legacy RDB load only.
  * Returns REDISMODULE_OK on success, REDISMODULE_ERR on allocation failure.

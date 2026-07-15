@@ -39,14 +39,26 @@
 extern "C" {
 #endif
 
-/* Enter a lock-free read section. Must be paired with LFReclaim_ReadEnd on
- * every return path. While any thread is inside a read section, retired objects
- * are not destroyed. */
-void LFReclaim_ReadBegin(void);
+/* Opaque handle for one open read section, returned by LFReclaim_ReadBegin and
+ * consumed by LFReclaim_ReadEnd. Callers must treat it as opaque. */
+typedef int LFReadToken;
 
-/* Leave a lock-free read section. If this was the last active reader, it
- * opportunistically drains the pending retire list. */
-void LFReclaim_ReadEnd(void);
+/* Enter a lock-free read section. Returns an opaque token that must be handed
+ * to the matching LFReclaim_ReadEnd on every return path. While any thread is
+ * inside a read section, retired objects are not destroyed.
+ *
+ * The token identifies the sharded counter slot this section bumped. Passing it
+ * back to ReadEnd lets the section be closed from a *different* thread than the
+ * one that opened it (e.g. a cursor scan that resumes on another worker between
+ * batches) while keeping every slot non-negative. */
+LFReadToken LFReclaim_ReadBegin(void);
+
+/* Leave the lock-free read section identified by `token` (from ReadBegin).
+ * Reclamation is driven by the writer side (LFReclaim_Retire /
+ * LFReclaim_TryReclaim), not from here: the active-reader count is sharded, so
+ * detecting "last reader to leave" would require summing every shard on this
+ * per-result hot path. */
+void LFReclaim_ReadEnd(LFReadToken token);
 
 /* Retire `ptr` for deferred destruction via `dtor(ptr)`. The caller must have
  * already satisfied RETIRE-AFTER-UNLINK (see file header). If no reader is

@@ -70,7 +70,7 @@ TEST_F(DocTableLockFreeTest, ConcurrentLockFreeBorrowWhileWriting) {
         continue;
       }
       // A lock-free read section: no spec lock, only the reclamation guard.
-      DocTable_ReadBegin();
+      LFReadToken tok = DocTable_ReadBegin();
       for (int k = 0; k < 128; ++k) {
         seed = seed * 1103515245u + 12345u;
         t_docId id = 1 + (seed % hi);
@@ -90,7 +90,7 @@ TEST_F(DocTableLockFreeTest, ConcurrentLockFreeBorrowWhileWriting) {
         // DocTable_Exists exercises the same lock-free walk without borrowing.
         (void)DocTable_Exists(&dt, id);
       }
-      DocTable_ReadEnd();
+      DocTable_ReadEnd(tok);
     }
   };
 
