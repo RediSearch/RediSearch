@@ -36,13 +36,15 @@ pub struct TrieMapIterator<'tm> {
 }
 
 impl<'tm> TrieMapIterator<'tm> {
-    /// Iterate a Rust trie whose values are stored inline (rather than as
-    /// `*mut c_void`). [`TrieMapIterator_Next`] will write, for each entry,
+    /// Iterate a Rust trie whose values are stored inline.
+    /// [`TrieMapIterator_Next`] will write, for each entry,
     /// the address of the value stored inside the trie. That pointer stays
     /// valid as long as the trie is not mutated.
     ///
-    /// This lets Rust-backed containers (e.g. the tag index's values trie)
-    /// hand C the same opaque iterator it gets from [`TrieMap_Iterate`].
+    /// The pointer aliases trie-internal storage and is **read-only**: writing
+    /// through it is undefined behavior (it aliases the shared borrow held by
+    /// the iterator). See [`ErasedValuesIter`](super::iter_types::ErasedValuesIter)
+    /// for the full contract.
     pub fn from_inline_values<V: 'tm>(iter: trie_rs::iter::LendingIter<'tm, V, VisitAll>) -> Self {
         Self {
             iter: TrieMapIteratorImpl::Erased(Box::new(InlineValuesIter(iter))),
@@ -240,6 +242,11 @@ pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 ///   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
 /// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
 /// - `value` must point to a valid pointer, which will be set to the value of the current key.
+///
+/// For iterators over a trie whose values are stored inline (created via the
+/// `from_inline_*` constructors), the written `value` points into trie-internal
+/// storage and must be treated as **read-only**, so writing through it is undefined
+/// behavior.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_Next(
     it: *mut TrieMapIterator,
@@ -287,7 +294,7 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     unsafe {
         len.write(k.len() as tm_len_t);
     }
-    // SAFETY: caller is to ensure that `ptr` is
+    // SAFETY: caller is to ensure that `value` is
     // a mutable, well-aligned pointer to a `*mut c_void`
     unsafe {
         value.write(v);

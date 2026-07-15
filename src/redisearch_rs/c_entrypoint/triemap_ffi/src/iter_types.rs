@@ -19,9 +19,28 @@ pub type BoxedPredicate = Box<dyn Fn(&(&[u8], &*mut c_void)) -> bool>;
 /// Lets [`TrieMapIterator`](super::TrieMapIterator) iterate Rust tries whose
 /// values are stored inline (rather than as `*mut c_void`), handing C a
 /// pointer to each inline value.
+/// Therefore, the user needs to know the type, so it can use pointer cast to
+/// recovering a pointer to the concrete type. This is ok because
+/// the concrete value types are `Sized`: `&V` is then a thin pointer.
+///
+/// # Read-only contract
+///
+/// The returned pointer aliases storage owned by the trie, and it is derived
+/// from a *shared* borrow (`&V`) held for the duration of the iteration (the
+/// underlying trie iterators yield `&'tm V` and borrow the trie immutably).
+/// Callers **must treat the pointer as read-only**: writing through it while
+/// the iteration's shared borrow is live is undefined behavior under Rust's
+/// aliasing model.
+///
+/// The ABI still exposes a mutable `void **` for compatibility with the
+/// pointer-valued trie (see [`TrieMapIteratorImpl::Plain`]), where the yielded
+/// value is a *copy* of a pointer to an object living outside the trie and is
+/// therefore genuinely writable. That asymmetry is exactly why this read-only
+/// contract has to be stated explicitly for the inline path.
 pub trait ErasedValuesIter {
-    /// Advance to the next entry, returning its key and the address of its
-    /// value. The key slice is invalidated by the next call.
+    /// Advance to the next entry, returning its key and the read-only address
+    /// of its value (see the [trait][ErasedValuesIter] docs for the read-only
+    /// contract). The key slice is invalidated by the next call.
     fn next(&mut self) -> Option<(&[u8], *mut c_void)>;
 }
 
@@ -31,6 +50,10 @@ pub struct InlineValuesIter<'tm, V>(pub trie_rs::iter::LendingIter<'tm, V, Visit
 
 impl<'tm, V> ErasedValuesIter for InlineValuesIter<'tm, V> {
     fn next(&mut self) -> Option<(&[u8], *mut c_void)> {
+        // `cast_mut` only shapes the pointer to the mutable `void **` ABI; the
+        // provenance stays that of the shared `&V`. This is sound because the
+        // contract is read-only — see the `ErasedValuesIter` docs. The same
+        // applies to the other inline adapters below.
         LendingIterator::next(&mut self.0)
             .map(|(k, v)| (k, std::ptr::from_ref(v).cast_mut().cast()))
     }
@@ -59,12 +82,11 @@ impl<'tm, V> ErasedValuesIter for InlineWildcardIter<'tm, V> {
 }
 
 /// Key predicate for [`InlineFilteredIter`]. Owns whatever state it needs
-/// (e.g. the suffix pattern), unlike [`BoxedPredicate`] whose captures collapse
+/// unlike [`BoxedPredicate`] whose captures collapse
 /// to the trie lifetime at the FFI boundary.
 pub type BoxedInlinePredicate<V> = Box<dyn Fn(&(&[u8], &V)) -> bool>;
 
-/// Like [`InlineValuesIter`], filtered by a predicate on the entries (used for
-/// suffix mode, where the trie offers no dedicated traversal).
+/// Like [`InlineValuesIter`], filtered by a predicate on the entries.
 pub struct InlineFilteredIter<'tm, V>(
     pub Filter<trie_rs::iter::LendingIter<'tm, V, VisitAll>, BoxedInlinePredicate<V>>,
 );
@@ -88,8 +110,7 @@ pub enum TrieMapIteratorImpl<'tm> {
     // C-side scope.
     Contains(Box<trie_rs::iter::ContainsLendingIter<'tm, 'tm, *mut c_void>>),
     Wildcard(WildcardLendingIter<'tm, 'tm, *mut c_void>),
-    // A trie whose values are stored inline, with the value type erased:
-    // yields the address of each value instead of a stored pointer.
+    // A trie whose values are stored inline, with the value type erased.
     Erased(Box<dyn ErasedValuesIter + 'tm>),
 }
 

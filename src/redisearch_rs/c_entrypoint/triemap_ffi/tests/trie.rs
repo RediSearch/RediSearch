@@ -344,6 +344,112 @@ fn test_trie_iter_inline_values() {
 }
 
 #[test]
+fn test_trie_iter_inline_values_struct() {
+    #[derive(Debug, Clone, PartialEq)]
+    struct Posting {
+        /// Number of documents carrying the tag.
+        doc_count: u32,
+        /// Highest document id seen for the tag.
+        last_doc_id: u64,
+    }
+
+    let mut trie = trie_rs::TrieMap::new();
+    let entries = [
+        (
+            b"bike".as_slice(),
+            Posting {
+                doc_count: 3,
+                last_doc_id: 42,
+            },
+        ),
+        (
+            b"cool",
+            Posting {
+                doc_count: 1,
+                last_doc_id: 7,
+            },
+        ),
+        (
+            b"cider",
+            Posting {
+                doc_count: 9,
+                last_doc_id: 1000,
+            },
+        ),
+    ];
+    for (key, value) in &entries {
+        trie.insert(key, value.clone());
+    }
+
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_values(
+        trie.lending_iter(),
+    )));
+
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
+
+    let mut yielded = Vec::new();
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+    while let 1 = unsafe { TrieMapIterator_Next(it, &mut char, &mut len, &mut value) } {
+        // Safety: We're reconstructing the key created above.
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(char.cast(), len as usize) };
+
+        // The reverse conversion is *just a cast*: `value` is the address of the
+        // `Posting` stored inline in the trie node, type-erased to `*mut c_void`.
+        // Casting it back to `*mut Posting` recovers the concrete type, with all
+        // fields intact — the erasure only ever hid the type from the signature,
+        // never touched the bytes.
+        let posting_ptr = value.cast::<Posting>();
+
+        // The yielded pointer must be the address of the value stored inline in
+        // the trie, not a copy.
+        let stored = trie.find(key).expect("yielded key is in the trie");
+        assert!(
+            std::ptr::eq(posting_ptr, stored),
+            "value pointer should point at the inline Posting for {:?}",
+            String::from_utf8_lossy(key),
+        );
+
+        // Safety: `posting_ptr` points at the `Posting` stored inline in the trie.
+        let posting = unsafe { &*posting_ptr };
+        yielded.push((String::from_utf8(key.to_vec()).unwrap(), posting.clone()));
+    }
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
+
+    assert_eq!(
+        yielded,
+        [
+            (
+                "bike",
+                Posting {
+                    doc_count: 3,
+                    last_doc_id: 42
+                },
+            ),
+            (
+                "cider",
+                Posting {
+                    doc_count: 9,
+                    last_doc_id: 1000
+                },
+            ),
+            (
+                "cool",
+                Posting {
+                    doc_count: 1,
+                    last_doc_id: 7
+                }
+            ),
+        ]
+        .map(|(k, v)| (k.to_owned(), v)),
+        "entries should be yielded in lexicographical key order",
+    );
+}
+
+#[test]
 fn test_trie_iter_inline_values_empty() {
     let trie: trie_rs::TrieMap<u64> = trie_rs::TrieMap::new();
 
@@ -361,6 +467,92 @@ fn test_trie_iter_inline_values_empty() {
 
     // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
     unsafe { TrieMapIterator_Free(it) };
+}
+
+/// Drain an inline-value iterator over a `u64` trie into `(key, value)` pairs,
+/// then free it. Shared by the inline contains/wildcard/suffix tests below.
+fn collect_inline_u64(it: *mut TrieMapIterator) -> Vec<(String, u64)> {
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
+
+    let mut yielded = Vec::new();
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+    while let 1 = unsafe { TrieMapIterator_Next(it, &mut char, &mut len, &mut value) } {
+        // Safety: We're reconstructing the keys inserted by the caller.
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(char.cast(), len as usize) };
+        // Safety: `value` points at the `u64` stored inline in the trie.
+        yielded.push((String::from_utf8(key.to_vec()).unwrap(), unsafe {
+            *value.cast::<u64>()
+        }));
+    }
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
+    yielded
+}
+
+#[test]
+fn test_trie_iter_inline_contains() {
+    let mut trie = trie_rs::TrieMap::new();
+    for (key, value) in [
+        (b"apple".as_slice(), 1u64),
+        (b"pineapple", 2),
+        (b"grape", 3),
+    ] {
+        trie.insert(key, value);
+    }
+
+    // Exercises `InlineContainsIter::next`.
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_contains(
+        trie.contains_iter(b"apple").into(),
+    )));
+
+    assert_eq!(
+        collect_inline_u64(it),
+        [("apple", 1), ("pineapple", 2)].map(|(k, v)| (k.to_owned(), v)),
+        "only keys containing \"apple\" should be yielded, in key order",
+    );
+}
+
+#[test]
+fn test_trie_iter_inline_wildcard() {
+    let mut trie = trie_rs::TrieMap::new();
+    for (key, value) in [(b"bike".as_slice(), 1u64), (b"cool", 2), (b"cider", 3)] {
+        trie.insert(key, value);
+    }
+
+    // Exercises `InlineWildcardIter::next`.
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_wildcard(
+        trie.wildcard_iter(rqe_wildcard::WildcardPattern::parse(b"c*"))
+            .into(),
+    )));
+
+    assert_eq!(
+        collect_inline_u64(it),
+        [("cider", 3), ("cool", 2)].map(|(k, v)| (k.to_owned(), v)),
+        "only keys matching \"c*\" should be yielded, in key order",
+    );
+}
+
+#[test]
+fn test_trie_iter_inline_suffix_filter() {
+    let mut trie = trie_rs::TrieMap::new();
+    for (key, value) in [(b"bike".as_slice(), 1u64), (b"cool", 2), (b"apple", 3)] {
+        trie.insert(key, value);
+    }
+
+    // Exercises `InlineFilteredIter::next`.
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_suffix_filter(
+        trie.lending_iter(),
+        b"e".to_vec(),
+    )));
+
+    assert_eq!(
+        collect_inline_u64(it),
+        [("apple", 3), ("bike", 1)].map(|(k, v)| (k.to_owned(), v)),
+        "only keys ending with \"e\" should be yielded, in key order",
+    );
 }
 
 #[test]

@@ -35,7 +35,7 @@ typedef struct TrieMap TrieMap;
 
 /**
  * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`],
- * [`TrieMap_IterateWithFilter`], or [`TrieMapIterator::from_inline_values`].
+ * [`TrieMap_IterateWithFilter`], or `TrieMapIterator::from_*` methods.
  */
 typedef struct TrieMapIterator TrieMapIterator;
 
@@ -300,6 +300,11 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
  *   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
  * - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
  * - `value` must point to a valid pointer, which will be set to the value of the current key.
+ *
+ * For iterators over a trie whose values are stored inline (created via the
+ * `from_inline_*` constructors), the written `value` points into trie-internal
+ * storage and must be treated as **read-only**, so writing through it is undefined
+ * behavior.
  */
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
 
