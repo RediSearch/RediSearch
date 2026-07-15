@@ -9,7 +9,7 @@
 
 //! [`TopKIterator`] — the generic top-k state machine.
 
-use std::{cmp::Ordering, num::NonZeroUsize};
+use std::{cmp::Ordering, mem::ManuallyDrop, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -102,7 +102,9 @@ pub struct TopKIterator<
     mode: TopKMode,
     /// Preserved so [`rewind`](Self::rewind) can restore the original mode.
     initial_mode: TopKMode,
-    heap: TopKHeap<'index>,
+    /// Captured child records alias `child`, so `heap`, `results`, and `current`
+    /// are [`ManuallyDrop`] and freed by the [`Drop`] impl before `child`.
+    heap: ManuallyDrop<TopKHeap<'index>>,
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
@@ -110,18 +112,29 @@ pub struct TopKIterator<
     phase: Phase,
     /// Heap contents drained into score order for yielding. In filtered modes
     /// each entry carries the child's record captured at match time.
-    results: Vec<HeapResult<'index>>,
+    results: ManuallyDrop<Vec<HeapResult<'index>>>,
     yield_pos: usize,
-    current: Option<RSIndexResult<'index>>,
-    /// Declared after `heap`, `results`, and `current` so it is dropped last:
-    /// those buffers hold captured child records whose term borrows alias data
-    /// owned by this iterator (see [`capture_child_record`]), and Rust drops
-    /// fields in declaration order. Keep `child` below them.
+    current: ManuallyDrop<Option<RSIndexResult<'index>>>,
     child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
     /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
     pub metrics: TopKMetrics,
+}
+
+impl<'index, S: ScoreSource, C: RQEIterator<'index> + 'index> Drop for TopKIterator<'index, S, C> {
+    fn drop(&mut self) {
+        // `heap`, `results`, and `current` hold child records captured via
+        // `capture_child_record`, whose term borrows alias data owned by `child`.
+        // Freeing them here — before the compiler's field glue drops `child` —
+        // keeps those borrows valid regardless of field declaration order.
+        // SAFETY: each buffer is dropped exactly once and never touched again.
+        unsafe {
+            ManuallyDrop::drop(&mut self.heap);
+            ManuallyDrop::drop(&mut self.results);
+            ManuallyDrop::drop(&mut self.current);
+        }
+    }
 }
 
 impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
@@ -151,7 +164,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         mode: TopKMode,
     ) -> Self {
         Self {
-            heap: TopKHeap::new(k, compare),
+            heap: ManuallyDrop::new(TopKHeap::new(k, compare)),
             source,
             child,
             mode,
@@ -160,9 +173,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             k,
             compare,
             phase: Phase::NotStarted,
-            results: Vec::new(),
+            results: ManuallyDrop::new(Vec::new()),
             yield_pos: 0,
-            current: None,
+            current: ManuallyDrop::new(None),
             last_doc_id: 0,
             at_eof: false,
             metrics: TopKMetrics::default(),
@@ -212,7 +225,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // de-duping against it, so leftover hits would duplicate doc ids and
             // skew the top-k set. Rewind the source too: collect_batches/
             // prepare_unfiltered_direct resume from its cursor rather than the start.
-            self.heap = TopKHeap::new(self.k, self.compare);
+            *self.heap = TopKHeap::new(self.k, self.compare);
             self.source.rewind();
             if let Some(child) = &mut self.child {
                 child.rewind();
@@ -267,7 +280,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     // rescans every match from scratch, so batch-phase entries
                     // are redundant. Keeping them would re-admit the same doc id
                     // (TopKHeap::push only de-dups against the worst element).
-                    self.heap = TopKHeap::new(self.k, self.compare);
+                    *self.heap = TopKHeap::new(self.k, self.compare);
                     self.collect_adhoc()?;
                     return Ok(());
                 }
@@ -276,7 +289,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     // Clear the heap: the source restarts with new parameters
                     // (e.g. expanded numeric range) and will re-emit previously
                     // collected docs. Keeping stale entries would cause duplicates.
-                    self.heap = TopKHeap::new(self.k, self.compare);
+                    *self.heap = TopKHeap::new(self.k, self.compare);
                     self.source.rewind();
                     if let Some(child) = &mut self.child {
                         child.rewind();
@@ -353,8 +366,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
         // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut self.heap, TopKHeap::new(self.k, self.compare));
-        self.results = old_heap.drain_sorted();
+        let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.compare));
+        *self.results = old_heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
     }
@@ -381,12 +394,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                         continue;
                     }
                     self.last_doc_id = doc_id;
-                    self.current = Some(result);
+                    *self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
                 None => {
                     self.at_eof = true;
-                    self.current = None;
+                    *self.current = None;
                     return Ok(None);
                 }
             }
@@ -429,7 +442,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 }
                 self.last_doc_id = doc_id;
                 self.source.attach_score_metric(&mut record, score);
-                self.current = Some(record);
+                *self.current = Some(record);
                 return Ok(self.current.as_mut());
             }
 
@@ -440,7 +453,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 continue;
             }
             self.last_doc_id = doc_id;
-            self.current = Some(result);
+            *self.current = Some(result);
             return Ok(self.current.as_mut());
         }
     }
@@ -509,11 +522,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
             child.rewind();
         }
         self.mode = self.initial_mode;
-        self.heap = TopKHeap::new(self.k, self.compare);
+        *self.heap = TopKHeap::new(self.k, self.compare);
         self.direct_batch = None;
         self.results.clear();
         self.yield_pos = 0;
-        self.current = None;
+        *self.current = None;
         self.last_doc_id = 0;
         self.at_eof = false;
         self.phase = Phase::NotStarted;
@@ -561,10 +574,10 @@ fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult
     // SAFETY: the only borrows `owned` retains are the `RSQueryTerm`s and the
     // `dmd` pointer — all owned by the child iterator and the index read guard,
     // never by `record`'s transient per-read storage. The `TopKIterator` owns
-    // the child and, because `child` is declared after `heap`, `results`, and
-    // `current`, drops it only after every stored record in those buffers is
-    // dropped; the index guard outlives the iterator. So those borrows stay
-    // valid for `'index`; widening the lifetime is therefore sound.
+    // the child, and its `Drop` impl frees the `heap`, `results`, and `current`
+    // buffers before `child`, so every stored record is dropped before its
+    // borrowed terms; the index guard outlives the iterator. So those borrows
+    // stay valid for `'index`; widening the lifetime is therefore sound.
     // The offsets are owned copies, so they do not dangle when the child
     // advances, and dropping the copy frees only those offsets — it never
     // dereferences the borrowed term.
@@ -690,12 +703,11 @@ where
 impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>
     for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator>
 {
-    fn profile_children(self) -> Self {
-        TopKIterator {
-            child: self
-                .child
-                .map(rqe_iterators::c2rust::CRQEIterator::into_profiled),
-            ..self
-        }
+    fn profile_children(mut self) -> Self {
+        self.child = self
+            .child
+            .take()
+            .map(rqe_iterators::c2rust::CRQEIterator::into_profiled);
+        self
     }
 }
