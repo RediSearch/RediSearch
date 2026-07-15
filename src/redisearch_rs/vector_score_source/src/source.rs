@@ -96,8 +96,9 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Largest batch size used so far. Reset on rewind. Read by the
     /// profile printer.
     pub max_batch_size: usize,
-    /// Highest `num_iterations` value observed so far. Reset on rewind. Read
-    /// by the profile printer.
+    /// Zero-based iteration index at which the current
+    /// [`max_batch_size`](Self::max_batch_size) was reached. Reset on rewind.
+    /// Read by the profile printer.
     pub max_batch_iteration: usize,
     /// Raw child iterator handle exposed to the C profile printer.
     pub child_raw: *mut QueryIterator,

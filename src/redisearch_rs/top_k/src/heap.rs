@@ -40,6 +40,15 @@ pub struct HeapResult<'index> {
     pub record: Option<RSIndexResult<'index>>,
 }
 
+impl<'index> From<HeapEntry<'index>> for HeapResult<'index> {
+    fn from(value: HeapEntry<'index>) -> Self {
+        HeapResult {
+            scored: value.result,
+            record: value.record,
+        }
+    }
+}
+
 /// Wraps a [`ScoredResult`] so that [`BinaryHeap`] (a max-heap) keeps the *worst*
 /// element at the top, making it cheap to evict.
 ///
@@ -218,10 +227,7 @@ impl<'index> TopKHeap<'index> {
     /// Unlike [`drain_sorted`](Self::drain_sorted) this borrows the heap, so the
     /// caller can rescore the drained entries and push them back.
     pub fn drain_unsorted(&mut self) -> impl Iterator<Item = HeapResult<'index>> + use<'index, '_> {
-        self.inner.drain().map(|e| HeapResult {
-            scored: e.result,
-            record: e.record,
-        })
+        self.inner.drain().map(HeapResult::from)
     }
 
     /// Drains all elements and returns them sorted best-first.
@@ -243,6 +249,8 @@ impl<'index> TopKHeap<'index> {
 
 #[cfg(test)]
 mod tests {
+    use itertools::Itertools;
+
     use super::*;
 
     fn non_zero_capacity(capacity: usize) -> NonZeroUsize {
@@ -266,8 +274,11 @@ mod tests {
         heap.push(2, 1.0);
         heap.push(3, 2.0);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].score, 1.0);
@@ -291,8 +302,11 @@ mod tests {
         let not_inserted = heap.push(5, 6.0);
         assert!(!not_inserted);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![2.0, 3.0, 4.0]);
     }
@@ -312,8 +326,11 @@ mod tests {
         let not_inserted = heap.push(5, 0.5);
         assert!(!not_inserted);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![4.0, 3.0, 2.0]);
     }
@@ -325,8 +342,11 @@ mod tests {
         heap.push(2, 3.0);
         heap.push(3, 4.0);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].score, 3.0);
@@ -340,8 +360,11 @@ mod tests {
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie)
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
@@ -359,8 +382,11 @@ mod tests {
 
         assert!(!inserted);
         assert_eq!(heap.len(), 2);
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         assert_eq!(results.len(), 2);
         assert_eq!(results.iter().filter(|r| r.doc_id == 2).count(), 1);
     }
@@ -372,8 +398,11 @@ mod tests {
         heap.push(5, 1.0);
         heap.push(3, 1.0); // third tied entry evicts doc_id 10 (highest loses the tie, regardless of sort direction)
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&3));
@@ -388,8 +417,11 @@ mod tests {
         heap.push(10, 1.0);
         heap.push(3, 1.0);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&5));
@@ -403,8 +435,11 @@ mod tests {
         heap.push(10, 1.0);
         heap.push(3, 1.0);
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
         let ids: Vec<DocId> = results.iter().map(|r| r.doc_id).collect();
 
         assert!(ids.contains(&5));
@@ -429,8 +464,11 @@ mod tests {
             heap.push(id, score);
         }
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
 
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![1.0, 2.0, 3.0, 4.0]);
@@ -443,8 +481,11 @@ mod tests {
             heap.push(id, score);
         }
 
-        let results: Vec<ScoredResult> =
-            heap.drain_sorted().into_iter().map(|r| r.scored).collect();
+        let results = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored)
+            .collect_vec();
 
         let scores: Vec<f64> = results.iter().map(|r| r.score).collect();
         assert_eq!(scores, vec![4.0, 3.0, 2.0, 1.0]);

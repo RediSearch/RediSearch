@@ -3069,6 +3069,7 @@ dependencies = [
  "index_result",
  "index_spec",
  "inverted_index",
+ "itertools 0.15.0",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
