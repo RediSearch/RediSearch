@@ -30,8 +30,8 @@
 //! - [`classify`](Automaton::classify): tag the current state with a
 //!   [`StateClass`] that tells the driver whether to yield the current
 //!   key and whether to keep recursing.
-//! - optionally [`literal_prefix`](Automaton::literal_prefix): a byte
-//!   prefix every accepted key starts with, letting the traversal jump
+//! - [`literal_prefix`](Automaton::literal_prefix): a byte prefix every
+//!   accepted key starts with (or `None`), letting the traversal jump
 //!   straight to that subtree instead of descending from the root.
 //!
 //! [`driver::AutomatonIter`] is the generic iterator that drives any
@@ -151,9 +151,7 @@ pub trait Automaton {
     ///
     /// Every key the automaton accepts must start with the returned bytes —
     /// keys outside the prefix subtree are never visited, so a too-long or
-    /// wrong prefix silently drops matches. `None` (the default) disables
-    /// the jump.
-    fn literal_prefix(&self) -> Option<&[u8]> {
-        None
-    }
+    /// wrong prefix silently drops matches. Return `None` to disable the
+    /// jump and descend from the trie root.
+    fn literal_prefix(&self) -> Option<&[u8]>;
 }
