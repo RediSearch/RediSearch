@@ -9,20 +9,19 @@
 
 use std::{fmt::Debug, ptr::NonNull};
 
-use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
-use index_result::{RSIndexResult, RSQueryTerm};
 use ffi::{
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
     t_docId,
 };
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{
     IndexReader, RefreshOutcome, doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly,
 };
 use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, interop::RQEIteratorWrapper, inverted_index::Tag,
-    profile_print,
+    ResumeOutcome, interop::RQEIteratorWrapper, inverted_index::Tag, profile_print,
 };
 
 /// Suspended counterpart of [`TagIterator`] — produced by
@@ -47,8 +46,12 @@ use rqe_iterators::{
     reason = "variants are constructed via the #[repr(C, u8)] whole-Box cast in `suspend`, never by name"
 )]
 pub(super) enum TagIteratorSuspended<'query> {
-    Encoded(<Tag<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
-    Raw(<Tag<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended),
+    Encoded(
+        <Tag<'query, DocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
+    Raw(
+        <Tag<'query, RawDocIdsOnly, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
 }
 
 /// Local 3-state outcome carrying the work done while still on the

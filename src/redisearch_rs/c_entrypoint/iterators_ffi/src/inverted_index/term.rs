@@ -18,7 +18,8 @@ use rqe_iterators::inverted_index::{Term, TermIndexReader, build_term_iterator};
 /// The concrete term iterator type produced by [`NewInvIndIterator_TermQuery`]
 /// and wrapped in an [`RQEIteratorWrapper`]. Aliased so the FFI accessor path
 /// can recover the wrapped iterator without spelling out the full generics.
-pub(super) type TermIterator<'index> = Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
+pub(super) type TermIterator<'index> =
+    Term<'index, TermIndexReader<'index>, FieldExpirationChecker>;
 
 /// Creates a new term inverted index iterator for querying term fields.
 ///

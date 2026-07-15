@@ -107,8 +107,12 @@ const _: () = {
     use inverted_index::{RawIndexReaderCore, doc_ids_only::DocIdsOnly};
     use std::mem::{align_of, offset_of, size_of};
     type A = InvIndIterator<'static, RawIndexReaderCore<Active<'static>, DocIdsOnly>, NoOpChecker>;
-    type S =
-        RawInvIndIterator<'static, Suspended, RawIndexReaderCore<Suspended, DocIdsOnly>, NoOpChecker>;
+    type S = RawInvIndIterator<
+        'static,
+        Suspended,
+        RawIndexReaderCore<Suspended, DocIdsOnly>,
+        NoOpChecker,
+    >;
     assert!(offset_of!(A, reader) == offset_of!(S, reader));
     assert!(offset_of!(A, at_eos) == offset_of!(S, at_eos));
     assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
@@ -628,9 +632,8 @@ where
         // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
         // `RS`. `Box::from_raw` reuses the same allocation, so the box address is
         // preserved.
-        let mut active = unsafe {
-            Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>())
-        };
+        let mut active =
+            unsafe { Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>()) };
 
         // Step 3: if GC ran while we were suspended, the cached block
         // offset is stale even though the buffer pointer was refreshed.

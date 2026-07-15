@@ -272,9 +272,7 @@ where
 
     fn num_estimated(&self) -> usize {
         match &self.0 {
-            MaybeEmptyOption::None(empty) => {
-                <Empty as RQESuspendedIterator>::num_estimated(empty)
-            }
+            MaybeEmptyOption::None(empty) => <Empty as RQESuspendedIterator>::num_estimated(empty),
             MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
         }
     }

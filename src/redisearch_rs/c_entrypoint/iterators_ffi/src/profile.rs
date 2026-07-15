@@ -112,7 +112,6 @@ pub unsafe extern "C" fn ProfileIterator_GetWallTimeNs(it: *const QueryIterator)
     }
 }
 
-
 /// Profile-wrap an iterator and its entire subtree.
 ///
 /// Wraps the iterator as a [`CRQEIterator`], calls
