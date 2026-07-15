@@ -19,7 +19,7 @@ mod index_result;
 mod reader;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Term_Free(_t: *mut ffi::RSQueryTerm) {
+pub extern "C" fn Term_Free(_t: *mut query_term::RSQueryTerm) {
     panic!("No test created a term record");
 }
 

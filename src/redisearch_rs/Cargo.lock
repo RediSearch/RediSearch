@@ -2570,6 +2570,7 @@ dependencies = [
  "build_utils",
  "ffi",
  "inverted_index",
+ "query_term",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
