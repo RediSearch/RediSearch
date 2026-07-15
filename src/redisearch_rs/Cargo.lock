@@ -1172,6 +1172,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "trie_rs",
  "workspace_hack",
 ]
 
@@ -2302,6 +2303,7 @@ dependencies = [
  "index_spec",
  "insta",
  "inverted_index",
+ "iterators_ffi",
  "libc",
  "numeric_range_tree",
  "pretty_assertions",

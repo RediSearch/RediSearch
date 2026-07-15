@@ -9,13 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{RedisSearchCtx, TagIndex};
+use ffi::RedisSearchCtx;
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::{
-    DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore,
-    opaque::OpaqueEncoding,
-};
+use inverted_index::{DecodedBy, DocIdsDecoder, IndexReader, IndexReaderCore, RawIndexReaderCore};
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
@@ -27,6 +24,13 @@ use crate::{
 };
 
 use super::{InvIndIterator, core::RawInvIndIterator};
+
+/// Resolves a tag value to the inverted index currently stored for it in a
+/// tag-index container.
+pub trait TagLookup<E> {
+    /// The inverted index currently stored for `tag`, if any.
+    fn find(&self, tag: &[u8]) -> Option<&inverted_index::InvertedIndex<E>>;
+}
 
 /// An iterator over documents matching a specific tag value, parameterised
 /// over a [`Ref`] mode. See [`Tag`] for the [`Active`] instantiation that
@@ -44,28 +48,30 @@ use super::{InvIndIterator, core::RawInvIndIterator};
 /// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `E` - The encoding type for the inverted index. Its decoder must implement [`DocIdsDecoder`].
 /// * `C` - The expiration checker type.
+/// * `L` - The [`TagLookup`] used to detect GC changes during revalidation.
 #[repr(C)]
-pub struct RawTag<'query, Rf: Ref, E, C = crate::expiration_checker::NoOpChecker> {
+pub struct RawTag<'query, Rf: Ref, E, L, C = crate::expiration_checker::NoOpChecker> {
     it: RawInvIndIterator<'query, Rf, RawIndexReaderCore<Rf, E>, C>,
-    tag_index: NonNull<TagIndex>,
+    lookup: L,
 }
 
 /// Alias for an [`Active`] [`RawTag`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Tag<'index, E, C = crate::expiration_checker::NoOpChecker> =
-    RawTag<'index, Active<'index>, E, C>;
+pub type Tag<'index, E, L, C = crate::expiration_checker::NoOpChecker> =
+    RawTag<'index, Active<'index>, E, L, C>;
 
-impl<'index, E, C> Tag<'index, E, C>
+impl<'index, E, L, C> Tag<'index, E, L, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
+    L: TagLookup<E>,
 {
     /// Create an iterator returning documents matching the given tag value.
     ///
     /// `term` is the query term representing the tag value. It is stored in the
     /// result and used during revalidation to look up the tag's inverted index
-    /// in the [`TagIndex`]'s [`TrieMapOpaque`](trie_rs::TrieMapOpaque).
+    /// through `lookup`.
     ///
     /// `weight` is the scoring weight applied to the result record.
     ///
@@ -73,17 +79,14 @@ where
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec).
-    /// 3. `tag_index` must point to a valid [`TagIndex`].
-    /// 4. `tag_index` must remain valid for the lifetime of the iterator.
-    /// 5. `tag_index.values` must be a valid non-null [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
-    /// 6. The entry in `tag_index.values` for the tag value, when non-null,
-    ///    must point to an opaque
-    ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
-    ///    variant matches `E`.
+    /// 3. `lookup` must resolve tags in the container that holds the inverted
+    ///    index `reader` reads from. Otherwise revalidation may wrongly
+    ///    conclude the reader's index is still alive after GC freed it,
+    ///    leading to a use-after-free.
     pub unsafe fn new(
         reader: IndexReaderCore<'index, E>,
         context: NonNull<RedisSearchCtx>,
-        tag_index: NonNull<TagIndex>,
+        lookup: L,
         mut term: Box<RSQueryTerm>,
         weight: f64,
         expiration_checker: C,
@@ -99,27 +102,16 @@ where
         term.set_idf(idf::calculate_idf(total_docs, term_docs));
         term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
 
-        // Check 6.: the trie entry's encoding variant matches E.
+        // The trie entry's encoding variant must match E.
         debug_assert!(
             {
-                // SAFETY: 3. and 4. guarantee tag_index is valid.
-                let tag_idx = unsafe { tag_index.as_ref() };
-                if !tag_idx.values.is_null() {
-                    let term_bytes = term
-                        .as_bytes()
-                        .expect("Tag iterator query term should have a non-null string");
-                    // SAFETY: 5. guarantees values is a valid TrieMap.
-                    let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
-                    // If the entry exists, `from_opaque` panics when the variant doesn't match E.
-                    if let Some(idx) = trie.find(term_bytes) {
-                        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
-                        // SAFETY: 6. guarantees the trie entry points to a valid opaque InvertedIndex.
-                        let _ = E::from_opaque(unsafe { &*opaque });
-                    }
-                }
+                let term_bytes = term
+                    .as_bytes()
+                    .expect("Tag iterator query term should have a non-null string");
+                let _ = lookup.find(term_bytes);
                 true
             },
-            "tag_index entry for the tag value must have an encoding variant matching E",
+            "the lookup entry for the tag value must have an encoding variant matching E",
         );
 
         let result = RSIndexResult::build_term()
@@ -132,7 +124,7 @@ where
 
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
-            tag_index,
+            lookup,
         }
     }
 
@@ -151,33 +143,16 @@ where
             .query_term()
             .expect("Tag iterator should always have a query term");
 
-        // Look up the tag value in the TagIndex's TrieMap.
-        // SAFETY: 3. and 4. guarantee `tag_index` is valid.
-        let tag_idx = unsafe { self.tag_index.as_ref() };
-
-        debug_assert!(
-            !tag_idx.values.is_null(),
-            "tag_index.values must be non-null",
-        );
         let term_bytes = term
             .as_bytes()
             .expect("Tag iterator query term should have a non-null string");
-        // SAFETY: 5. guarantees `tag_idx.values` is a valid `triemap_ffi::TrieMap`
-        // created by `NewTrieMap`.
-        let trie = unsafe { &*tag_idx.values.cast::<trie_rs::TrieMapOpaque>() };
 
-        let Some(idx) = trie.find(term_bytes) else {
+        match self.lookup.find(term_bytes) {
             // The inverted index was collected entirely by GC, or the
             // value is a null sentinel (disk mode).
-            return true;
-        };
-
-        let opaque = idx.cast::<inverted_index::opaque::InvertedIndex>().as_ptr();
-        // SAFETY: 6. guarantees the encoding variant matches E.
-        // `find` guarantees the pointer is non-null.
-        let ii = E::from_opaque(unsafe { &*opaque });
-
-        !self.it.reader.points_to_ii(ii)
+            None => true,
+            Some(ii) => !self.it.reader.points_to_ii(ii),
+        }
     }
 
     /// Get a reference to the underlying reader.
@@ -186,11 +161,12 @@ where
     }
 }
 
-impl<'index, E, C> RQEIterator<'index> for Tag<'index, E, C>
+impl<'index, E, L, C> RQEIterator<'index> for Tag<'index, E, L, C>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: DecodedBy + 'index,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
     C: ExpirationChecker,
+    L: TagLookup<E>,
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -252,13 +228,12 @@ where
     }
 }
 
-impl<'index, E, C> ProfilePrint for Tag<'index, E, C>
+impl<'index, E, L, C> ProfilePrint for Tag<'index, E, L, C>
 where
-    E: inverted_index::DecodedBy
-        + inverted_index::opaque::OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>
-        + 'index,
+    E: inverted_index::DecodedBy + 'index,
     <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
     C: crate::expiration_checker::ExpirationChecker,
+    L: TagLookup<E>,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TAG");
