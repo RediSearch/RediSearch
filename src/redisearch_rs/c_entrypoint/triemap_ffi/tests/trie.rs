@@ -297,6 +297,73 @@ fn test_trie_iter_wildcard() {
 }
 
 #[test]
+fn test_trie_iter_inline_values() {
+    let mut trie = trie_rs::TrieMap::new();
+    let entries = [(b"bike".as_slice(), 10u64), (b"cool", 20), (b"cider", 30)];
+    for (key, value) in entries {
+        trie.insert(key, value);
+    }
+
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_values(
+        trie.lending_iter(),
+    )));
+
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
+
+    let mut yielded = Vec::new();
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+    while let 1 = unsafe { TrieMapIterator_Next(it, &mut char, &mut len, &mut value) } {
+        // Safety: We're reconstructing the keys created above
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(char.cast(), len as usize) };
+
+        // The yielded pointer must be the address of the value stored inline
+        // in the trie, not a copy.
+        let stored = trie.find(key).expect("yielded key is in the trie");
+        assert!(
+            std::ptr::eq(value.cast::<u64>(), stored),
+            "value pointer should point at the inline value for {:?}",
+            String::from_utf8_lossy(key),
+        );
+
+        // Safety: `value` points at the `u64` stored inline in the trie
+        yielded.push((String::from_utf8(key.to_vec()).unwrap(), unsafe {
+            *value.cast::<u64>()
+        }));
+    }
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
+
+    assert_eq!(
+        yielded,
+        [("bike", 10), ("cider", 30), ("cool", 20)].map(|(k, v)| (k.to_owned(), v)),
+        "entries should be yielded in lexicographical key order",
+    );
+}
+
+#[test]
+fn test_trie_iter_inline_values_empty() {
+    let trie: trie_rs::TrieMap<u64> = trie_rs::TrieMap::new();
+
+    let it = Box::into_raw(Box::new(TrieMapIterator::from_inline_values(
+        trie.lending_iter(),
+    )));
+
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+    let got = unsafe { TrieMapIterator_Next(it, &mut char, &mut len, &mut value) };
+    assert_eq!(got, 0, "an empty trie should yield no entries");
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
+}
+
+#[test]
 #[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
 fn test_trie_iter_timeout() {
     with_trie_map(|t| {

@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::iter_types::TrieMapIteratorImpl;
+use super::iter_types::{
+    InlineContainsIter, InlineFilteredIter, InlineValuesIter, InlineWildcardIter,
+    TrieMapIteratorImpl,
+};
 use super::*;
 use lending_iterator::LendingIterator;
 use libc::timespec;
 use rqe_wildcard::WildcardPattern;
 use std::ffi::{c_char, c_int, c_void};
+use trie_rs::iter::filter::VisitAll;
 
 /// Used by [`TrieMapIterator`] to determine type of query.
 #[repr(C)]
@@ -24,11 +28,63 @@ pub enum tm_iter_mode {
     TM_WILDCARD_MODE = 3,
 }
 
-/// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`] or
-/// [`TrieMap_IterateWithFilter`].
+/// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`],
+/// [`TrieMap_IterateWithFilter`], or `TrieMapIterator::from_*` methods.
 pub struct TrieMapIterator<'tm> {
     iter: TrieMapIteratorImpl<'tm>,
     timeout: Option<IteratorTimeoutState>,
+}
+
+impl<'tm> TrieMapIterator<'tm> {
+    /// Iterate a Rust trie whose values are stored inline (rather than as
+    /// `*mut c_void`). [`TrieMapIterator_Next`] will write, for each entry,
+    /// the address of the value stored inside the trie. That pointer stays
+    /// valid as long as the trie is not mutated.
+    ///
+    /// This lets Rust-backed containers (e.g. the tag index's values trie)
+    /// hand C the same opaque iterator it gets from [`TrieMap_Iterate`].
+    pub fn from_inline_values<V: 'tm>(iter: trie_rs::iter::LendingIter<'tm, V, VisitAll>) -> Self {
+        Self {
+            iter: TrieMapIteratorImpl::Erased(Box::new(InlineValuesIter(iter))),
+            timeout: None,
+        }
+    }
+
+    /// Same as [`TrieMapIterator::from_inline_values`], over the entries whose
+    /// key contains a target fragment.
+    pub fn from_inline_contains<V: 'tm>(
+        iter: trie_rs::iter::ContainsLendingIter<'tm, 'tm, V>,
+    ) -> Self {
+        Self {
+            iter: TrieMapIteratorImpl::Erased(Box::new(InlineContainsIter(iter))),
+            timeout: None,
+        }
+    }
+
+    /// Same as [`TrieMapIterator::from_inline_values`], over the entries whose
+    /// key matches a wildcard pattern.
+    pub fn from_inline_wildcard<V: 'tm>(
+        iter: trie_rs::iter::WildcardLendingIter<'tm, 'tm, V>,
+    ) -> Self {
+        Self {
+            iter: TrieMapIteratorImpl::Erased(Box::new(InlineWildcardIter(iter))),
+            timeout: None,
+        }
+    }
+
+    /// Same as [`TrieMapIterator::from_inline_values`], over the entries whose
+    /// key ends with `suffix`.
+    pub fn from_inline_suffix_filter<V: 'tm>(
+        iter: trie_rs::iter::LendingIter<'tm, V, VisitAll>,
+        suffix: Vec<u8>,
+    ) -> Self {
+        Self {
+            iter: TrieMapIteratorImpl::Erased(Box::new(InlineFilteredIter(
+                iter.filter(Box::new(move |(k, _)| k.ends_with(&suffix))),
+            ))),
+            timeout: None,
+        }
+    }
 }
 
 struct IteratorTimeoutState {
@@ -234,7 +290,7 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     // SAFETY: caller is to ensure that `ptr` is
     // a mutable, well-aligned pointer to a `*mut c_void`
     unsafe {
-        value.write(*v);
+        value.write(v);
     }
 
     1

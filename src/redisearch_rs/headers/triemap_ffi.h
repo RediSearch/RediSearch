@@ -34,8 +34,8 @@ typedef enum tm_iter_mode {
 typedef struct TrieMap TrieMap;
 
 /**
- * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`] or
- * [`TrieMap_IterateWithFilter`].
+ * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`],
+ * [`TrieMap_IterateWithFilter`], or [`TrieMapIterator::from_inline_values`].
  */
 typedef struct TrieMapIterator TrieMapIterator;
 
@@ -144,19 +144,6 @@ struct TrieMap *NewTrieMap(void);
 void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
 
 /**
- * Iterate over all the entries stored in the trie.
- *
- * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
- * the first call to next will return 0.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- */
-struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
-
-/**
  * Free the [`TrieMapResultBuf`] and its contents.
  */
 void TrieMapResultBuf_Free(TrieMapResultBuf buf);
@@ -196,6 +183,29 @@ int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, T
 void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
 
 /**
+ * Get the length of the TrieMapResultBuf.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ */
+size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+
+/**
+ * Iterate over all the entries stored in the trie.
+ *
+ * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
+ * the first call to next will return 0.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
+ */
+struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
+
+/**
  * Iterate over the trie entries that match the given predicate.
  *
  * Depending on `iter_mode`, they can either be:
@@ -216,29 +226,6 @@ void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
  *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
-
-/**
- * Get the length of the TrieMapResultBuf.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
- */
-size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
-
-/**
- * Set timeout limit used for affix queries. This timeout is checked in
- * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
- *
- * If the provided timeout is 0, it's interpreted as unlimited.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
- *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
- */
-void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 
 /**
  * Find the entry with a given string and length, and return its value, even if
@@ -264,6 +251,34 @@ void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
 
 /**
+ * Set timeout limit used for affix queries. This timeout is checked in
+ * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
+ *
+ * If the provided timeout is 0, it's interpreted as unlimited.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ */
+void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
+
+/**
+ * Mark a node as deleted. It also optimizes the trie by merging nodes if
+ * needed. If freeCB is given, it will be used to free the value (not the node)
+ * of the deleted node. If it doesn't, we simply call free().
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
+ * - `len` can be 0. If so, `str` is regarded as an empty string.
+ * - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
+ */
+int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
+
+/**
  * Free a trie iterator
  *
  * # Safety
@@ -287,21 +302,6 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
  * - `value` must point to a valid pointer, which will be set to the value of the current key.
  */
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
-
-/**
- * Mark a node as deleted. It also optimizes the trie by merging nodes if
- * needed. If freeCB is given, it will be used to free the value (not the node)
- * of the deleted node. If it doesn't, we simply call free().
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
- * - `len` can be 0. If so, `str` is regarded as an empty string.
- * - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
- */
-int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
  * Free the trie's root and all its children recursively. If freeCB is given, we
