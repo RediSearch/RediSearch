@@ -334,6 +334,35 @@ def testSuggestZeroScoreSortsLast(env):
     res = conn.execute_command('ft.sugget', 'ac', 'foo')
     env.assertEqual(['foo two', 'foo one', 'foo zero'], res)
 
+def testSuggestIncrKeepsEntryReachable(env):
+    # SUGGET's top-k walk prunes a subtree whose max-score bound falls below
+    # the heap threshold, so INCR must fold the entry's post-update score —
+    # not just the delta — into every ancestor's bound; a delta-only fold
+    # leaves a non-terminal ancestor with a stale bound and the walk drops
+    # the highest-scoring suggestion.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Two entries force a shared non-terminal node ("abcde", bound 1).
+    conn.execute_command('ft.sugadd', 'ac', 'abcdef', 1)
+    conn.execute_command('ft.sugadd', 'ac', 'abcdeg', 1)
+    # Raise abcdef to 9 in deltas of 1: a delta-only fold keeps every bound
+    # on its path at max(initial score, deltas) = 1 while the score is 9.
+    for _ in range(8):
+        conn.execute_command('ft.sugadd', 'ac', 'abcdef', 1, 'INCR')
+    # Split "abc" out of "abcde"; the split sibling scores too low to matter.
+    conn.execute_command('ft.sugadd', 'ac', 'abcx', 0.5)
+    # Two higher-bound siblings placed ahead of the stale "de" child in the
+    # descending-bound child order. With MAX 2 they fill the heap first and
+    # raise the prune threshold to 3/sqrt(2) ~ 2.12, above the stale bound.
+    conn.execute_command('ft.sugadd', 'ac', 'abcy', 3)
+    conn.execute_command('ft.sugadd', 'ac', 'abcz', 3)
+
+    # abcdef normalizes to 9/sqrt(4) = 4.5 — the best match by far.
+    res = conn.execute_command('ft.sugget', 'ac', 'abc', 'MAX', '2')
+    env.assertEqual(2, len(res))
+    env.assertEqual('abcdef', res[0])
+
 # TRIE_MAX_PREFIX (src/trie/trie_node.h) is the maximum rune length accepted by
 # the trie search path behind FT.SUGGET. The boundary is inclusive: a query of
 # exactly TRIE_MAX_PREFIX runes is accepted; one rune more is rejected.
