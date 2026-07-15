@@ -403,7 +403,7 @@ impl TestContext {
             let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
                 .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
             let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
-            numeric_range_tree.add(doc_id, score, false, 0);
+            numeric_range_tree.add(doc_id, score, false, false, 0);
         }
 
         Self {

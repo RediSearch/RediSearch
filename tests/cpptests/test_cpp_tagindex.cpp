@@ -141,7 +141,8 @@ TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   const char *v[] = {"foo", "foo", "bar"};
   IndexStats stats = {0};
 
-  TagIndex_Index(NULL, idx, NULL, &v[0], 3, 1, &stats);
+  TagIndexIndexCtx ctx = {NULL, &v[0], 3, 1, false, &stats};
+  TagIndex_Index(NULL, idx, &ctx);
   TagIndex_Commit(idx, &v[0], 3, &stats);
 
   ASSERT_EQ(2u, stats.numRecords);
@@ -328,7 +329,8 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
     TagIndex *idx = NewTagIndex(NULL, 0, false);
     const char *v[] = {"hello"};
     IndexStats stats = {0};
-    TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
+    TagIndexIndexCtx ctx = {NULL, &v[0], 1, 1, false, &stats};
+    TagIndex_Index(NULL, idx, &ctx);
 
     ASSERT_TRUE(TagIndex_OpenReader(idx, &mockQctx.sctx, "missing", 7, 1, RS_INVALID_FIELD_INDEX,
                                     NULL) == NULL);
@@ -340,7 +342,8 @@ TEST_F(TagIndexTest, testGetIteratorFromTrieMapValueNull) {
   TagIndex *idx = NewTagIndex(NULL, 0, false);
   const char *v[] = {"hello"};
   IndexStats stats = {0};
-  TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
+  TagIndexIndexCtx ctx = {NULL, &v[0], 1, 1, false, &stats};
+  TagIndex_Index(NULL, idx, &ctx);
 
   size_t sz = 0;
   InvertedIndex *iv = TagIndex_OpenIndex(idx, "hello", 5, /*create_if_missing=*/false, &sz);
