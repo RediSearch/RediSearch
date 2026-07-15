@@ -41,7 +41,6 @@ pub mod context;
 
 /// Use the Rust definitions directly
 pub use document::DocumentType;
-pub use query_types::QueryNodeFlags;
 
 // Brought into scope (privately) so the bindgen-generated bindings below can
 // name these Rust-defined types. Consumers import them from their owning crate
