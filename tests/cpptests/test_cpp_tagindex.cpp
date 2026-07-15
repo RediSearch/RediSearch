@@ -26,16 +26,21 @@ TEST_F(TagIndexTest, testCreate) {
   //   printf("V[n]: %s\n", s);
   // }
   size_t totalSZ = 0;
+  size_t totalRecords = 0;
   t_docId d;
   for (d = 1; d <= N; d++) {
-    size_t sz = TagIndex_Index(idx, &v[0], v.size(), d);
+    size_t numRecords = 0;
+    size_t sz = TagIndex_Index(idx, &v[0], v.size(), d, &numRecords);
     totalSZ += sz;
+    totalRecords += numRecords;
     // make sure repeating push of the same vector doesn't get indexed
-    sz = TagIndex_Index(idx, &v[0], v.size(), d);
+    sz = TagIndex_Index(idx, &v[0], v.size(), d, &numRecords);
     ASSERT_EQ(0, sz);
+    ASSERT_EQ(0, numRecords);
   }
 
   ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
+  ASSERT_EQ(N * v.size(), totalRecords);
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.
@@ -53,12 +58,15 @@ TEST_F(TagIndexTest, testCreate) {
 
   // Add a new entry to and check the last block size
   std::vector<const char *> v2{"bye"};
-  size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d);
+  size_t numRecords = 0;
+  size_t sz = TagIndex_Index(idx, &v2[0], v2.size(), ++d, &numRecords);
+  totalRecords += numRecords;
   // A base inverted index is 32 bytes
   // An index block is 48 bytes
   // And initial block capacity of 6 bytes
   size_t last_block_size = 32 + 48 + 6;
   ASSERT_EQ(expectedTotalSZ + last_block_size, totalSZ + sz);
+  ASSERT_EQ(N * v.size() + v2.size(), totalRecords);
 
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   ASSERT_TRUE(it != NULL);
@@ -85,7 +93,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   ASSERT_FALSE(idx == NULL);
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
-  TagIndex_Index(idx, &v[0], v.size(), docId);
+  TagIndex_Index(idx, &v[0], v.size(), docId, NULL);
   QueryIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
   IteratorStatus rc = it->Read(it);
   ASSERT_EQ(rc, ITERATOR_OK);
@@ -100,9 +108,9 @@ TEST_F(TagIndexTest, testSkipToLastId) {
 TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
   TagIndex *idx = NewTagIndex();
   const char *v[] = {"foo", "foo", "bar"};
-  size_t numRecords;
+  size_t numRecords = 0;
 
-  TagIndex_IndexWithRecords(idx, &v[0], 3, 1, &numRecords);
+  TagIndex_Index(idx, &v[0], 3, 1, &numRecords);
 
   ASSERT_EQ(2u, numRecords);
   ASSERT_EQ(2u, TrieMap_NUniqueKeys(idx->values));
