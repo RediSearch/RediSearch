@@ -101,6 +101,13 @@ impl Automaton for CaseFoldExact {
             StateClass::Live
         }
     }
+
+    /// Accepted keys are case variants of the needle, so their leading bytes
+    /// can differ from the folded needle at any position — no byte prefix is
+    /// shared by every match.
+    fn literal_prefix(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 #[cfg(test)]
