@@ -296,6 +296,13 @@ impl<S: LevRow> Automaton for CaseFoldLevenshteinNfa<S> {
             StateClass::Live
         }
     }
+
+    /// Accepted keys can differ from the needle by case at any position, and
+    /// edits can rewrite the leading codepoints too — no byte prefix is
+    /// shared by every match.
+    fn literal_prefix(&self) -> Option<&[u8]> {
+        None
+    }
 }
 
 #[cfg(test)]
