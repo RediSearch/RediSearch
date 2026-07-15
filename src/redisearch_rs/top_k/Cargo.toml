@@ -30,6 +30,7 @@ rqe_iterators.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+itertools.workspace = true
 redis_mock.workspace = true
 redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
   "mock_allocator",
