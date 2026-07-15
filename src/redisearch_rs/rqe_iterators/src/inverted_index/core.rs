@@ -7,11 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    IndexFlags, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED,
-    ValidateStatus_VALIDATE_OK,
-};
-use index_result::{RSIndexResult, RawIndexResult};
+use ffi::IndexFlags;
+use index_result::{RSIndexResult, RawIndexResult, RawOffsetSlice, RawTermRecord};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{IndexReader, RefreshOutcome, ResumableReader, SuspendableReader};
 use ref_mode::{Active, Ref, Suspended};
@@ -107,8 +104,12 @@ const _: () = {
     use inverted_index::{RawIndexReaderCore, doc_ids_only::DocIdsOnly};
     use std::mem::{align_of, offset_of, size_of};
     type A = InvIndIterator<'static, RawIndexReaderCore<Active<'static>, DocIdsOnly>, NoOpChecker>;
-    type S =
-        RawInvIndIterator<'static, Suspended, RawIndexReaderCore<Suspended, DocIdsOnly>, NoOpChecker>;
+    type S = RawInvIndIterator<
+        'static,
+        Suspended,
+        RawIndexReaderCore<Suspended, DocIdsOnly>,
+        NoOpChecker,
+    >;
     assert!(offset_of!(A, reader) == offset_of!(S, reader));
     assert!(offset_of!(A, at_eos) == offset_of!(S, at_eos));
     assert!(offset_of!(A, last_doc_id) == offset_of!(S, last_doc_id));
@@ -416,18 +417,18 @@ where
             return Ok(RQEValidateStatus::Ok);
         }
 
-        // if there has been a GC cycle on this key while we were asleep, the offset might not be valid
+        // If there has been a GC cycle on this key while we were suspended, the offset might not be valid
         // anymore. This means that we need to seek the last docId we were at
         let last_doc_id = self.last_doc_id();
-        // reset the state of the reader
+        // Reset the state of the reader
         self.rewind();
 
         if last_doc_id == 0 {
-            // Cannot skip to 0
+            // No need to skip if we're starting from the very beginning.
             return Ok(RQEValidateStatus::Ok);
         }
 
-        // try restoring the last docId
+        // Try jumping to the last docId
         let res = match self.skip_to(last_doc_id)? {
             Some(SkipToOutcome::Found(_)) => RQEValidateStatus::Ok,
             Some(SkipToOutcome::NotFound(doc)) => RQEValidateStatus::Moved { current: Some(doc) },
@@ -478,56 +479,6 @@ where
         // an `IndexSpecReadGuard`). `ResumableReader::refresh_pointers` requires
         // exactly that lock while it dereferences the reader's raw index pointer.
         unsafe { self.reader.refresh_pointers() }
-    }
-}
-
-impl<'index, R, E> InvIndIterator<'index, R, E>
-where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
-{
-    /// Re-seek the iterator to its previous `last_doc_id` after a GC
-    /// cycle invalidated the cached block offset.
-    ///
-    /// Called from [`RQESuspendedIterator::resume`] on the active side,
-    /// after [`RawInvIndIterator::refresh_pointers`] reported
-    /// [`RefreshOutcome::NeedsReseek`]. Translates the
-    /// [`SkipToOutcome`] returned by [`skip_to`](Self::skip_to) into a
-    /// [`ValidateStatus`].
-    ///
-    /// The `last_doc_id` parameter is the value reported by
-    /// `refresh_pointers` (the reader's decoder base) and is ignored —
-    /// it can be non-zero on a freshly-constructed reader before any
-    /// reads happen, which would cause a spurious reseek. We use
-    /// [`Self::last_doc_id_field`] instead (the iterator's tracked
-    /// "position of the most recent read", 0 if no reads have happened).
-    ///
-    /// # Outcome mapping
-    ///
-    /// - [`SkipToOutcome::Found`] → `VALIDATE_OK` (same logical position).
-    /// - [`SkipToOutcome::NotFound`] or EOF → `VALIDATE_MOVED` (the
-    ///   previous `last_doc_id` no longer exists; the iterator has
-    ///   advanced past it).
-    /// - `skip_to` decode/I/O error → `VALIDATE_ABORTED`. A decode error means
-    ///   the re-seek hit a corrupted/malformed block, leaving the reader in a
-    ///   partially-updated state; rather than hand back a live iterator whose
-    ///   `current()` may be bogus, we abort (matching the legacy `revalidate`
-    ///   path, which propagated the error so the FFI wrapper aborts).
-    pub(crate) fn reseek_after_refresh(&mut self, _last_doc_id: DocId) -> ValidateStatus {
-        let target_doc_id = self.last_doc_id;
-        self.rewind();
-
-        if target_doc_id == 0 {
-            // We hadn't returned anything yet, so there's nothing to
-            // re-seek; a fresh `read()` will produce the right next doc.
-            return ValidateStatus_VALIDATE_OK;
-        }
-
-        match self.skip_to(target_doc_id) {
-            Ok(Some(SkipToOutcome::Found(_))) => ValidateStatus_VALIDATE_OK,
-            Ok(Some(SkipToOutcome::NotFound(_))) | Ok(None) => ValidateStatus_VALIDATE_MOVED,
-            Err(_) => ValidateStatus_VALIDATE_ABORTED,
-        }
     }
 }
 
@@ -596,12 +547,31 @@ where
     where
         'query: 'a,
     {
+        // If there has been a GC cycle on this key while we were suspended, the offset might not be valid
+        // anymore. This means that we need to seek the last docId we were at.
+        let last_doc_id = self.last_doc_id();
+
         // Step 1: refresh reader pointers *on the suspended form*. This
         // never materializes a `&'a` borrow of any potentially-dangling
         // field — the `Box<Suspended>` → `Box<Active<'a>>` conversion happens
         // afterwards, only once every `Rf`-dependent field is valid. Passing
         // `guard` proves the spec read lock is held for the pointer refresh.
         let outcome = self.refresh_pointers(guard);
+
+        // Whatever offsets we borrowed from the index may be stale.
+        // To make promotion from suspended to active safe, we unset them.
+        if let RefreshOutcome::NeedsReseek { .. } = outcome
+            && let Some(term) = self.result.as_term_mut()
+        {
+            match term {
+                RawTermRecord::Borrowed { offsets, .. } => {
+                    *offsets = RawOffsetSlice::empty();
+                }
+                RawTermRecord::Owned { .. } | RawTermRecord::FullyOwned { .. } => {
+                    // These variants own their offsets, so no issues.
+                }
+            }
+        }
 
         // Step 2: convert Suspended → Active in place. The heap allocation is
         // preserved, so external pointers into this iterator's interior
@@ -627,30 +597,34 @@ where
         // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
         // `RS`. `Box::from_raw` reuses the same allocation, so the box address is
         // preserved.
-        let mut active = unsafe {
-            Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>())
-        };
+        let mut active =
+            unsafe { Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>()) };
 
         // Step 3: if GC ran while we were suspended, the cached block
         // offset is stale even though the buffer pointer was refreshed.
         // Rewind and re-seek to the last doc id.
-        let status = match outcome {
-            RefreshOutcome::Ok => ValidateStatus_VALIDATE_OK,
-            RefreshOutcome::NeedsReseek { last_doc_id } => active.reseek_after_refresh(last_doc_id),
-        };
+        match outcome {
+            RefreshOutcome::Ok => Ok(ResumeOutcome::Ok(active)),
+            // We use the last doc id yielded by the iterator, rather than the reader state,
+            // since the reader initializes this field to the first block's first_doc_id
+            // before any result has been returned, so if GC or a moved block buffer occurs
+            // while a freshly-created iterator is suspended, resume will reseek to that first doc
+            // and report Ok, causing the next read() to skip the first result.
+            RefreshOutcome::NeedsReseek { .. } => {
+                active.rewind();
 
-        // Map the re-seek status to a resume outcome. A decode error during the
-        // re-seek yields `VALIDATE_ABORTED` (see `reseek_after_refresh`): the
-        // block is corrupted, so drop the active iterator rather than hand back a
-        // bogus `current()`.
-        Ok(if status == ValidateStatus_VALIDATE_ABORTED {
-            drop(active);
-            ResumeOutcome::Aborted
-        } else if status == ValidateStatus_VALIDATE_MOVED {
-            ResumeOutcome::Moved(active)
-        } else {
-            ResumeOutcome::Ok(active)
-        })
+                if last_doc_id == 0 {
+                    // We hadn't returned anything yet, so there's nothing to
+                    // re-seek; a fresh `read()` will produce the right next doc.
+                    return Ok(ResumeOutcome::Ok(active));
+                }
+
+                match active.skip_to(last_doc_id)? {
+                    Some(SkipToOutcome::Found(_)) => Ok(ResumeOutcome::Ok(active)),
+                    Some(SkipToOutcome::NotFound(_)) | None => Ok(ResumeOutcome::Moved(active)),
+                }
+            }
+        }
     }
 
     fn last_doc_id(&self) -> DocId {
