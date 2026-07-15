@@ -48,6 +48,8 @@
 #include "vector_index.h"
 #include "tag_index.h"
 #include "triemap_ffi.h"
+#include "numeric_range_tree_ffi.h"
+#include "iterators_ffi.h"
 #include "util/arr.h"
 #include "info/global_stats.h"
 #include "rmutil/rm_assert.h"
@@ -365,6 +367,135 @@ static void collectTagKeys(RedisSearchCtx *sctx, TagKeyList *out) {
   RedisSearchCtx_UnlockSpec(sctx);
 }
 
+// ---- Numeric / geo range trees ---------------------------------------------
+// Numeric GC does not fit the shared per-II helper: it walks a range tree via a
+// streaming scanner, applies one node's delta at a time keyed by a slab
+// position+generation (which detects nodes that changed since the scan), and
+// finally trims empty leaves. The range tree is not Arc-snapshot-based, so the
+// scan runs under the spec READ lock (not lock-free like terms/tags); the apply
+// + compaction run under the spec WRITE lock. Mirrors FGC_child/parentNumeric.
+typedef struct {
+  uint32_t pos;
+  uint32_t gen;
+  uint8_t *data;
+  size_t len;
+} NumEntry;
+
+typedef struct {
+  NumEntry *items;
+  size_t count;
+  size_t cap;
+} NumEntryList;
+
+static void NumEntryList_Push(NumEntryList *nl, uint32_t pos, uint32_t gen, const uint8_t *data,
+                              size_t len) {
+  if (nl->count == nl->cap) {
+    nl->cap = nl->cap ? nl->cap * 2 : 16;
+    nl->items = rm_realloc(nl->items, nl->cap * sizeof(*nl->items));
+  }
+  NumEntry *e = &nl->items[nl->count++];
+  e->pos = pos;
+  e->gen = gen;
+  e->data = rm_malloc(len ? len : 1);
+  memcpy(e->data, data, len);
+  e->len = len;
+}
+
+static void NumEntryList_Free(NumEntryList *nl) {
+  for (size_t i = 0; i < nl->count; ++i) {
+    rm_free(nl->items[i].data);
+  }
+  rm_free(nl->items);
+}
+
+static void gcOneNumericField(InProcGC *gc, RedisSearchCtx *sctx, const char *fieldName,
+                              size_t fieldLen, size_t *entriesRemoved) {
+  // Collect one delta per node under the read lock (the scanner reads the live
+  // tree; copy the serialized data since the scanner reuses its buffer).
+  NumEntryList entries = {0};
+  uint64_t uniqueId = 0;
+  bool found = false;
+  RedisSearchCtx_LockSpecRead(sctx);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldLen);
+  NumericRangeTree *rt =
+      fs ? openNumericOrGeoIndex(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX) : NULL;
+  if (rt) {
+    found = true;
+    uniqueId = NumericRangeTree_GetUniqueId(rt);
+    NumericGcScanner *scanner = NumericGcScanner_New(sctx, rt);
+    NumericGcNodeEntry e;
+    while (NumericGcScanner_Next(scanner, &e)) {
+      NumEntryList_Push(&entries, e.node_position, e.node_generation, e.data, e.data_len);
+    }
+    NumericGcScanner_Free(scanner);
+  }
+  RedisSearchCtx_UnlockSpec(sctx);
+
+  bool cleanEmpty = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
+  if (!found || (entries.count == 0 && !cleanEmpty)) {
+    NumEntryList_Free(&entries);
+    return;
+  }
+
+  // Apply the collected deltas + optional compaction under one write-lock section.
+  // Node staleness (a node that split/changed since the scan) is detected by
+  // NumericRangeTree_ApplyGcEntry via the slab position+generation.
+  RedisSearchCtx_LockSpecWrite(sctx);
+  fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldLen);
+  rt = fs ? openNumericOrGeoIndex(sctx->spec, (FieldSpec *)fs, DONT_CREATE_INDEX) : NULL;
+  if (rt && NumericRangeTree_GetUniqueId(rt) == uniqueId) {
+    for (size_t i = 0; i < entries.count; ++i) {
+      ApplyGcEntryResult r =
+          NumericRangeTree_ApplyGcEntry(rt, entries.items[i].pos, entries.items[i].gen,
+                                        entries.items[i].data, entries.items[i].len);
+      if (r.status != Ok) {
+        continue;  // NodeNotFound (stale node) or DeserializationError: skip
+      }
+      II_GCScanStats gi = r.gc_result.index_gc_info;
+      sctx->spec->stats.numRecords -= gi.entries_removed;
+      sctx->spec->stats.invertedSize += gi.bytes_allocated;
+      sctx->spec->stats.invertedSize -= gi.bytes_freed;
+      IndexStats_BlockCountAdd(&sctx->spec->stats, gi.block_count_delta);
+      atomic_fetch_add(&gc->totalCollectedBytes,
+                       (ssize_t)gi.bytes_freed - (ssize_t)gi.bytes_allocated);
+      *entriesRemoved += gi.entries_removed;
+    }
+    if (cleanEmpty) {
+      CompactIfSparseResult cr = NumericRangeTree_CompactIfSparse(rt);
+      if (cr.inverted_index_size_delta < 0) {
+        size_t freed = (size_t)(-cr.inverted_index_size_delta);
+        sctx->spec->stats.invertedSize -= freed;
+        atomic_fetch_add(&gc->totalCollectedBytes, (ssize_t)freed);
+      }
+      IndexStats_BlockCountAdd(&sctx->spec->stats, cr.block_count_delta);
+    }
+  }
+  RedisSearchCtx_UnlockSpec(sctx);
+  NumEntryList_Free(&entries);
+}
+
+// Collect the numeric/geo field names under a brief read lock, then GC each.
+static void gcNumericFields(InProcGC *gc, RedisSearchCtx *sctx, size_t *entriesRemoved) {
+  TermList fields = {0};
+  RedisSearchCtx_LockSpecRead(sctx);
+  arrayof(FieldSpec *) nf = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
+  for (int i = 0; i < array_len(nf); ++i) {
+    size_t l = 0;
+    const char *n = HiddenString_GetUnsafe(nf[i]->fieldName, &l);
+    char *c = rm_malloc(l + 1);
+    memcpy(c, n, l);
+    c[l] = '\0';
+    TermList_Push(&fields, c, l);
+  }
+  array_free(nf);
+  RedisSearchCtx_UnlockSpec(sctx);
+
+  for (size_t i = 0; i < fields.count; ++i) {
+    gcOneNumericField(gc, sctx, fields.items[i].term, fields.items[i].len, entriesRemoved);
+  }
+  TermList_Free(&fields);
+}
+
 static bool periodicCb(void *privdata, bool force) {
   InProcGC *gc = privdata;
 
@@ -433,6 +564,9 @@ static bool periodicCb(void *privdata, bool force) {
     gcOneInvertedIndex(gc, &sctx, &tags.items[i], reopenTag, onEmptyTag, &entriesRemoved);
   }
   TagKeyList_Free(&tags);
+
+  // Numeric / geo range trees (streaming scan + generational per-node apply).
+  gcNumericFields(gc, &sctx, &entriesRemoved);
 
   // Tiered vector indexes still run their own GC (as under the fork GC).
   VecSim_CallTieredIndexesGC(gc->index);
