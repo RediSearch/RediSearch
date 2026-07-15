@@ -68,6 +68,15 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+
+  // Lock-free read path only: whether this iterator currently holds the
+  // doc-table reclamation epoch, and the token identifying the section (so it
+  // can be released even if a cursor scan resumes on a different worker thread).
+  // Entered once on the first read and released on a terminal status
+  // (EOF/timeout) or at teardown, so the per-result hot path never touches the
+  // reclamation counter again after the first read.
+  bool lockFreeEpochHeld;
+  LFReadToken lockFreeEpochToken;
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -280,6 +289,17 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self, bool *acquiredLoc
   return false;
 }
 
+/* Leave the doc-table reclamation epoch if this iterator is holding it. Called
+ * on every terminal return of the lock-free scan and at teardown. Gated on the
+ * held flag (not on the config) so it stays balanced even if the flag is
+ * toggled mid-query. */
+static inline void rpQueryLeaveLockFreeEpoch(RPQueryIterator *self) {
+  if (self->lockFreeEpochHeld) {
+    DocTable_ReadEnd(self->lockFreeEpochToken);
+    self->lockFreeEpochHeld = false;
+  }
+}
+
 /* Next implementation for sync disk and regular (in-memory) flow */
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
@@ -308,20 +328,31 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 
   // Lock-free read section (experimental, off by default): on the no-vector RAM
   // path with the flag on, no spec read lock is held. Enter the doc-table
-  // reclamation epoch so a concurrent writer defers freeing a DMD we may walk;
-  // II reads use the iterator's frozen snapshot and TTL reads pin their own
-  // epoch internally. `lockFreeRead` mirrors the no-lock branch in
-  // handleSpecLockAndRevalidate (flags stay RS_CTX_UNSET; nothing was locked).
+  // reclamation epoch ONCE for the whole scan (not per result) so a concurrent
+  // writer defers freeing a DMD we may walk; II reads use the iterator's frozen
+  // snapshot and TTL reads pin their own epoch internally. `lockFreeRead`
+  // mirrors the no-lock branch in handleSpecLockAndRevalidate (flags stay
+  // RS_CTX_UNSET; nothing was locked).
+  //
+  // Bracketing per scan instead of per result keeps the per-result hot path off
+  // the reclamation counter entirely: the returned dmd is additionally pinned by
+  // its own refcount (taken in getDocumentMetadata), so it stays valid after we
+  // yield even though the epoch is still held. The epoch is released on any
+  // terminal status below or at teardown (rpQueryItFree). Trade-off: reclamation
+  // is deferred until the scan ends -- for a paused cursor, until it is exhausted
+  // or closed. That only delays frees (never a use-after-free), acceptable for
+  // this benchmark-only path.
   const bool lockFreeRead = !spec->diskSpec && sctx->flags == RS_CTX_UNSET &&
                             RSGlobalConfig.requestConfigParams.lockFreeReads;
-  if (lockFreeRead) {
-    DocTable_ReadBegin();
+  if (lockFreeRead && !self->lockFreeEpochHeld) {
+    self->lockFreeEpochToken = DocTable_ReadBegin();
+    self->lockFreeEpochHeld = true;
   }
 
   while (1) {
     if ((TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) ||
         SearchTime_IsTimedOut(&sctx->time)) {
-      if (lockFreeRead) DocTable_ReadEnd();
+      rpQueryLeaveLockFreeEpoch(self);
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -329,10 +360,10 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       IteratorStatus rc = it->Read(it);
       switch (rc) {
       case ITERATOR_EOF:
-        if (lockFreeRead) DocTable_ReadEnd();
+        rpQueryLeaveLockFreeEpoch(self);
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
       case ITERATOR_TIMEOUT:
-        if (lockFreeRead) DocTable_ReadEnd();
+        rpQueryLeaveLockFreeEpoch(self);
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
       default:
         RS_ASSERT(rc == ITERATOR_OK);
@@ -353,11 +384,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     }
 
     setSearchResult(base, res, it->current, dmd);
-    // Leave the reclamation epoch before yielding. The returned dmd stays valid
-    // via its own refcount (taken in getDocumentMetadata); the II snapshot stays
-    // valid via its Arc. Between yields no epoch is held, so a concurrent writer
-    // can reclaim freely.
-    if (lockFreeRead) DocTable_ReadEnd();
+    // Keep the reclamation epoch held across the yield (released on a terminal
+    // status or at teardown). The returned dmd stays valid via its own refcount
+    // (taken in getDocumentMetadata) and the II snapshot via its Arc, so holding
+    // the epoch is not needed for the returned result -- it is held only to keep
+    // the next read's doc-table walk cheap (no re-enter of the counter).
     return RS_RESULT_OK;
   }
 }
@@ -437,6 +468,11 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
+  // Release the reclamation epoch if the scan was torn down before reaching a
+  // terminal status (e.g. a cursor closed or a query aborted mid-scan);
+  // otherwise the active-reader count never returns to zero and reclamation
+  // stalls.
+  rpQueryLeaveLockFreeEpoch(self);
   self->iterator->Free(self->iterator);
   rm_free((void *)self->querySlots);
 
