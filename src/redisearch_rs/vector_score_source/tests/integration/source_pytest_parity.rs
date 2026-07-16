@@ -19,7 +19,11 @@
 //! Data model (shared with `source.rs`): unless noted, doc `i` is `[i; dim]`
 //! under L2, so distance to query `[q; dim]` is `dim*(q-i)^2`.
 
-use std::{ffi::c_void, num::NonZeroUsize};
+use std::{
+    ffi::c_void,
+    num::NonZeroUsize,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
 
 use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
@@ -31,12 +35,36 @@ use vector_score_source::test_utils::{
 };
 use vector_score_source::{new_vector_top_k_filtered, new_vector_top_k_unfiltered};
 
+/// Serializes every test in this file against VecSim's *process-global* timeout
+/// callback (`VecSim_SetTimeoutCallbackFunction`).
+///
+/// The `*_propagates_timeout` tests install an `always_timed_out` callback via
+/// [`MockTimeout`]; every other test runs a VecSim query that consults that same
+/// global. Under `cargo nextest` each test is its own process, so the mutation
+/// is naturally isolated — but the coverage lane runs `cargo llvm-cov test`
+/// (plain multithreaded libtest, one process), where a concurrent query test
+/// would observe the mutated callback and spuriously fail with `TimedOut`.
+/// Holding this lock for the whole test body keeps the mutation exclusive on
+/// every harness. It is uncontended (and effectively free) under nextest.
+static VECSIM_TIMEOUT_LOCK: Mutex<()> = Mutex::new(());
+
+/// Acquire [`VECSIM_TIMEOUT_LOCK`] for the caller's scope. Recovers from a
+/// poisoned lock so a genuinely failing test surfaces its own panic instead of
+/// cascading into every sibling that takes the lock afterwards.
+#[must_use]
+fn serialize_vecsim_test() -> MutexGuard<'static, ()> {
+    VECSIM_TIMEOUT_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
 // FLAT backend coverage (source.rs only exercises HNSW).
 
 /// From `test_hybrid_query_batches_mode_with_text`: unfiltered KNN on FLAT.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn flat_unfiltered_returns_top_k_nearest_by_score() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_index(n, dim);
 
@@ -57,6 +85,7 @@ fn flat_unfiltered_returns_top_k_nearest_by_score() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn flat_filtered_full_child_yields_best_first() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_index(n, dim);
 
@@ -80,6 +109,7 @@ fn flat_filtered_full_child_yields_best_first() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn cosine_metric_filtered_top_k_are_highest_ids() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100, 10, 4);
     let index = build_flat_cosine_index(n, dim);
 
@@ -109,6 +139,7 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn middle_query_orders_by_distance_then_lower_id() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100usize, 10usize, 4usize);
     let mid = (n / 2) as DocId;
     let index = build_flat_index(n, dim);
@@ -137,6 +168,7 @@ fn middle_query_orders_by_distance_then_lower_id() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn dim1_unfiltered_knn_top3() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (10, 3, 1);
     let index = build_flat_index(n, dim);
 
@@ -159,6 +191,7 @@ fn dim1_unfiltered_knn_top3() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn dim1_filtered_subset_knn_top3() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (10, 3, 1);
     let index = build_flat_index(n, dim);
 
@@ -183,6 +216,7 @@ fn dim1_filtered_subset_knn_top3() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn batches_switch_to_adhoc_yields_no_duplicates() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (10, 3, 1);
     let index = build_flat_index(n, dim);
 
@@ -217,6 +251,7 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn small_index_prefers_adhoc() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (1000, 10, 4);
     let index = build_hnsw_index(n, dim);
 
@@ -235,6 +270,7 @@ fn small_index_prefers_adhoc() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn numeric_like_subset_batches_matches_adhoc() {
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (200, 10, 4);
     let child_ids: Vec<DocId> = (150..=n as DocId).collect();
     let expected: Vec<DocId> = ((n as DocId - 9)..=n as DocId).rev().collect();
@@ -264,6 +300,7 @@ fn numeric_like_subset_batches_matches_adhoc() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn custom_k_returns_exactly_k() {
+    let _serial = serialize_vecsim_test();
     let dim = 4;
     let n = 100;
     for k in [2usize, 5] {
@@ -299,7 +336,10 @@ unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
 /// Installs the always-timeout callback; restores the no-op on drop so a
 /// panicking assertion cannot leak timeout state to later tests.
 ///
-/// Concurrent query tests rely on nextest's process isolation.
+/// The mutated callback is process-global, so callers must hold
+/// [`VECSIM_TIMEOUT_LOCK`] (via [`serialize_vecsim_test`]) for the lifetime of
+/// this guard — acquire it *before* `enable()` and keep it until *after* this
+/// guard drops — so no concurrent query test observes the mutation.
 struct MockTimeout;
 impl MockTimeout {
     fn enable() -> Self {
@@ -319,6 +359,9 @@ impl Drop for MockTimeout {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn unfiltered_propagates_timeout() {
+    // Acquire before enable() so the global-callback mutation stays exclusive;
+    // released after `_mock` restores the callback (reverse drop order).
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100, 10, 4);
     let index = build_hnsw_index(n, dim);
     let _mock = MockTimeout::enable();
@@ -338,6 +381,9 @@ fn unfiltered_propagates_timeout() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn batches_propagates_timeout() {
+    // Acquire before enable() so the global-callback mutation stays exclusive;
+    // released after `_mock` restores the callback (reverse drop order).
+    let _serial = serialize_vecsim_test();
     let (n, k, dim) = (100, 10, 4);
     let index = build_hnsw_index(n, dim);
     let _mock = MockTimeout::enable();
