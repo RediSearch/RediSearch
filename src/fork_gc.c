@@ -868,7 +868,13 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
     info.bytes_freed += InvertedIndex_MemUsage(idx);
     dictDelete(sctx->spec->missingFieldDict, fieldName);
   }
-  FGC_updateStats(gc, sctx, info.entries_removed, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
+  // Pass 0 for recordsRemoved: missing-field index entries are not counted in
+  // spec->stats.numRecords on insertion (writeMissingFieldDocs updates invertedSize
+  // and the block count but not numRecords), so subtracting them here underflows
+  // numRecords (it can go negative once enough missing-field docs are collected).
+  // This matches the existing-docs GC, which deliberately passes 0 for the same
+  // reason. invertedSize IS accounted on insertion, so its bytes are still applied.
+  FGC_updateStats(gc, sctx, 0, info.bytes_freed, info.bytes_allocated, info.blocks_ignored);
 
 cleanup:
 
