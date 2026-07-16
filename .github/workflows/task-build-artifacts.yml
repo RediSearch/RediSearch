@@ -59,11 +59,29 @@ jobs:
       # Build command
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
       GITHUB_REPOSITORY: ${{ github.repository }}
+      # Retry wrapper for setup scripts: transient package-manager failures
+      # (e.g. `apt update` hitting a flaky Ubuntu ports mirror on ARM64 runners)
+      # should not fail the whole job. `{0}` is replaced with the command via `format`.
+      SETUP_RETRY_LOOP: |
+        SUCCESS=0
+        for i in 1 2 3 4 5; do
+          echo "Attempt $i of 5"
+          if {0}; then
+            echo "Setup succeeded"
+            SUCCESS=1
+            break
+          fi
+          if [ $i -lt 5 ]; then
+            echo "Setup failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+        done
+        [ $SUCCESS -eq 1 ] || exit 1
     steps:
       # Setup
       - name: Pre-steps Dependencies
         if: needs.get-config.outputs.setup_script
-        run: ${{ needs.get-config.outputs.setup_script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
       - name: Get Installation Mode
         id: mode
         run: |

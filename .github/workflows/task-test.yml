@@ -53,6 +53,24 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
   COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
+  # Retry wrapper for setup scripts: transient package-manager failures
+  # (e.g. `apt update` hitting a flaky Ubuntu ports mirror on ARM64 runners)
+  # should not fail the whole job. `{0}` is replaced with the command via `format`.
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
 
 jobs:
   # Get configuration for this specific platform and architecture
@@ -75,7 +93,7 @@ jobs:
     steps:
       - name: Pre-steps Dependencies
         if: needs.get-config.outputs.setup_script
-        run: ${{ needs.get-config.outputs.setup_script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
 
       - name: Get Installation Mode
         id: mode
