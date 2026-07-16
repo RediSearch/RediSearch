@@ -43,6 +43,7 @@ struct IndexesScanner;
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
 
+
 #define SPEC_GEO_STR "GEO"
 #define SPEC_GEOMETRY_STR "GEOSHAPE"
 #define SPEC_TAG_STR "TAG"
@@ -370,6 +371,14 @@ typedef struct IndexSpec {
   // replication ending. Vector index state is stored inline in each field.
   RedisSearchDiskRdbState *pendingDiskRdbState;
   bool diskRegistered;
+
+  // True when the SST+RDB stream indicated the source node was still
+  // background-indexing (scan in progress, or a previous scan failed on OOM)
+  // when the snapshot was taken. Set at RDB load (SST path only) and consumed at
+  // Indexes_FinishSSTReplication, which restarts the async scan so the loading
+  // node (replica / hot-restart) finishes the partially populated index.
+  // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
+  bool resume_bg_indexing;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -545,17 +554,24 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // Delete a document from the index by its key name.
-// In disk mode, looks up the docId via DocIdMeta_Get on the key, removes the
+// In disk mode, looks up the docId via the key's metadata, removes the
 // document from disk by that id, and deletes the DocIdMeta key→docId mapping so
 // it stays authoritative (an entry exists iff the doc is indexed). In memory
 // mode, pops the document metadata from the DocTable.
 // Requires a RedisModuleCtx to access the key's metadata.
+// `openKey` is an optional already-open, pinned handle for the document key.
+// Pass it when the caller holds the key open and pinned (e.g. the async scan key
+// callback, where the key is not addressable by name): the DocIdMeta lookup and
+// delete then reuse it instead of reopening the key by name, matching the
+// open-key plumbing on the indexing success path. Pass NULL to open by name.
 // This function locks the spec for writing.
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        RedisModuleKey *openKey);
 
 // Same as IndexSpec_DeleteDoc but does not lock the spec.
 // Use when the spec is already locked for writing.
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                RedisModuleKey *openKey);
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
@@ -563,7 +579,14 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // (Re)index a single document into the spec.
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
+//
+// `openKey` is an optional already-open handle for `key`. Pass it when the
+// caller already holds the key open and pinned (e.g. the async scan key
+// callback) so the DocIdMeta update can reuse the handle instead of reopening
+// the key by name; pass NULL otherwise. The caller retains ownership of
+// `openKey` and must keep it valid for the duration of the call.
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,

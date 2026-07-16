@@ -9,6 +9,12 @@
 
 #![allow(dead_code, reason = "used by later PRs")]
 
+mod hash;
+mod json;
+
+pub use hash::HashDocumentFormat;
+pub use json::JsonDocumentFormat;
+
 use std::ffi::CStr;
 use std::ops::Deref;
 use std::ptr;
@@ -36,16 +42,34 @@ pub enum LoadFieldError {
     #[error("document key does not exist")]
     KeyNotFound,
 
-    /// Key exists but is not a hash.
+    /// Key exists but is of the wrong type.
     #[error("document key has the wrong type")]
-    WrongHashKeyType,
+    WrongKeyType,
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
+
+    /// Failed to open the underlying redis key.
+    #[error("Redis API error: {0}")]
+    Redis(redis_module::RedisError),
+}
+
+// TODO remove once upstream redis_module::RedisError implements std::error::Error
+// <https://github.com/RedisLabsModules/redismodule-rs/pull/467>
+impl From<redis_module::RedisError> for LoadFieldError {
+    fn from(err: redis_module::RedisError) -> Self {
+        Self::Redis(err)
+    }
 }
 
 impl LoadFieldError {
     pub const fn to_query_error_code(&self) -> QueryErrorCode {
         match self {
             Self::KeyNotFound => QueryErrorCode::NoDoc,
-            Self::WrongHashKeyType => QueryErrorCode::RedisKeyType,
+            Self::WrongKeyType => QueryErrorCode::RedisKeyType,
+            Self::JsonSerialization(_) => QueryErrorCode::Generic,
+            Self::Redis(_) => QueryErrorCode::Generic,
         }
     }
 }
@@ -54,7 +78,15 @@ impl LoadFieldError {
 pub enum LoadAllError {
     /// `RedisModule_OpenKey` / `japi->openKeyWithFlags` returned NULL.
     #[error("document key is missing or has the wrong type")]
-    KeyNotFound,
+    OpenKeyFailed,
+
+    /// `japi->get(jsonRoot, "$")` returned NULL.
+    #[error("JSON document has no root value")]
+    JsonRootMissing,
+
+    /// Failed to serialize JSON value to string.
+    #[error(transparent)]
+    JsonSerialization(#[from] redis_json_api::SerializeError),
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
@@ -70,16 +102,22 @@ pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
 ///
 /// This abstracts away the details of hash vs json documents.
 pub trait DocumentFormat {
-    /// A handle to a single opened document.
-    type Document<'key>: OpenDocument
+    type FieldLoader<'key>: FieldLoader
     where
         Self: 'key;
 
-    /// Open a specific document for per-field loading.
+    /// Open a specific key for per-field loading.
     fn open<'key>(
         &'key self,
         key_name: &'key RedisString,
-    ) -> Result<Self::Document<'key>, LoadFieldError>;
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
+
+    /// Like [`open`](Self::open), but over an already-open handle the caller owns.
+    fn borrow<'key>(
+        &'key self,
+        open_key: &'key ffi::RedisModuleKey,
+        key_name: &'key RedisString,
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
 
     /// Bulk-load all fields at once (HGETALL / JSON root scan).
     ///
@@ -94,8 +132,8 @@ pub trait DocumentFormat {
     ) -> Result<(), LoadAllError>;
 }
 
-/// Handle to an opened document. Load individual fields from it.
-pub trait OpenDocument {
+/// A type that knows how to load individual fields from an open document.
+pub trait FieldLoader {
     fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError>;
 }
 
@@ -145,6 +183,7 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
             &self.dmd.key_name(Some(self.ctx)),
             keys,
             self.force_load,
+            None,
         )
     }
 
@@ -169,12 +208,15 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
 /// Mirrors the C `loadIndividualKeys` pattern: open the key handle once
 /// (lazily, on first field that actually needs loading) and reuse it
 /// across all field loads. The key is closed when dropped at function end.
+///
+/// `open_key`, when `Some`, is reused instead of opening `key_name` by name.
 pub(crate) fn load_specific_keys<'a, F, I>(
     format: &F,
     dst_row: &mut RLookupRow,
     key_name: &RedisString,
     keys_to_load: I,
     force_load: bool,
+    open_key: Option<&ffi::RedisModuleKey>,
 ) -> Result<(), LoadFieldError>
 where
     F: DocumentFormat,
@@ -191,7 +233,11 @@ where
         let d = match &doc {
             Some(d) => d,
             None => {
-                doc = Some(format.open(key_name)?);
+                let loader = match open_key {
+                    Some(open_key) => format.borrow(open_key, key_name)?,
+                    None => format.open(key_name)?,
+                };
+                doc = Some(loader);
                 doc.as_ref().unwrap()
             }
         };

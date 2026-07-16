@@ -42,6 +42,8 @@ typedef struct {
   bool has_limit;
   uint64_t limit_offset;
   uint64_t limit_count;
+
+  bool distinct;                       // true iff user wrote `DISTINCT`
 } CollectArgs;
 
 /**
@@ -50,9 +52,6 @@ typedef struct {
  * Pure: no key opening, no allocation outside of `out`'s internal arrays.
  * On failure returns false and sets `options->status`. The caller must call
  * `CollectArgs_Free` in either case to release the internal arrays.
- *
- * Also enforces the `enableUnstableFeatures` gate so callers (both the
- * reducer factory and the distribution rewriter) reject early.
  */
 bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out);
 

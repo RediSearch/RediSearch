@@ -1,4 +1,5 @@
 from common import *
+import threading
 
 
 def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False):
@@ -161,14 +162,6 @@ def test_unsupported_schema_options(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_missing_skip_initial_scan(env):
-    """Test that SKIPINITIALSCAN is required when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Flex index requires SKIPINITIALSCAN argument')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_on_json_is_supported(env):
     """Test that ON JSON is accepted when search-_simulate-in-flex is true"""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
@@ -295,12 +288,12 @@ def _create_flex_search(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_search_requires_nocontent_or_return_0(env):
-    """In Flex mode, FT.SEARCH must use NOCONTENT (explicit) or RETURN 0."""
+def test_flex_search_hash_allows_default_return(env):
+    """On a HASH (flex) index, FT.SEARCH loads fields from disk via the async
+    loader, so NOCONTENT / RETURN 0 are no longer required."""
     _create_flex_search(env)
 
-    env.expect('FT.SEARCH', 'idx', 'hello') \
-        .error().contains('NOCONTENT or RETURN 0 must be provided in Redis Flex')
+    env.expect('FT.SEARCH', 'idx', 'hello').equal([1, 'doc:1', ['t', 'hello world']])
 
 
 @skip(cluster=True)
@@ -332,25 +325,45 @@ def test_flex_search_allows_nocontent_withscores(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_search_rejects_load_with_nocontent_or_return_0(env):
-    _create_flex_search(env)
+def test_flex_aggregate_allows_sortby(env):
+    """FT.AGGREGATE SORTBY is unrestricted on flex (sort keys load via the disk
+    async loader); the vector-distance-only restriction is FT.SEARCH only.
+    Multi-field SORTBY exercises the guard's early-return ordering (the
+    FT.SEARCH single-field asserts must not fire for aggregations)."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+               't', 'TEXT', 'u', 'TEXT').ok()
+    env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
 
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported in Redis Flex')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
+        .noError()
 
-    env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '0', 'LOAD', '1', '@t') \
-        .error().contains('LOAD is not supported in Redis Flex')
+    # The FT.SEARCH restriction is unchanged.
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
+        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
 
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_aggregate_and_hybrid_commands(env):
+def test_flex_aggregate_rejects_withcursor(env):
+    """User-facing WITHCURSOR stays blocked on flex; only the coordinator's
+    internal shard cursors are supported."""
     _create_flex_search(env)
 
-    env.expect('FT.AGGREGATE', 'idx', '*') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
-    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '10') \
+        .error().contains('WITHCURSOR is not supported in Redis Flex')
+
+    # PROFILE rejects cursors generically (before the flex check), so only
+    # assert rejection, not the flex-specific message.
+    env.expect('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'WITHCURSOR').error()
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_blocks_hybrid_commands(env):
+    _create_flex_search(env)
 
     env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
         .error().contains('FT.HYBRID is not supported in Redis Flex')
@@ -445,6 +458,51 @@ def test_flex_disk_hnsw_rerank_value(env):
         'RERANK', 'TRUE',
         'RERANK', 'TRUE',
     ).error().contains('Duplicate RERANK parameter')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_float16(env):
+    # MOD-15148: disk HNSW vector indexes accept FLOAT16 in addition to FLOAT32,
+    # while every other element type is still rejected. Creation only.
+    env.expect(
+        'FT.CREATE', 'idx_fp16', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT16',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # FLOAT32 remains accepted (no regression).
+    env.expect(
+        'FT.CREATE', 'idx_fp32', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32',
+        'DIM', '4',
+        'DISTANCE_METRIC', 'L2',
+        'M', '16',
+        'EF_CONSTRUCTION', '200',
+        'EF_RUNTIME', '10',
+        'RERANK', 'TRUE',
+    ).ok()
+
+    # Unsupported element types are still rejected on disk.
+    for vec_type in ('FLOAT64', 'BFLOAT16', 'INT8', 'UINT8'):
+        env.expect(
+            'FT.CREATE', f'idx_{vec_type.lower()}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+            'v', 'VECTOR', 'HNSW', '14',
+            'TYPE', vec_type,
+            'DIM', '4',
+            'DISTANCE_METRIC', 'L2',
+            'M', '16',
+            'EF_CONSTRUCTION', '200',
+            'EF_RUNTIME', '10',
+            'RERANK', 'TRUE',
+        ).error().contains('Disk index does not support')
 
 
 @skip(cluster=True)
@@ -596,6 +654,91 @@ def test_disk_vector_query_validation(env: Env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
+def test_disk_vector_range_query_concurrent_writes(env: Env):
+    """MOD-16437: a vector range query on a disk index must not block writes.
+
+    The range query is built into a lazy iterator that runs the VecSim query on the
+    first read, *after* the spec lock is released, so documents can be inserted while
+    the query executes. This test streams inserts on a dedicated connection while
+    running many range queries, and asserts that:
+
+      * the writes and the queries all keep succeeding (no lock-acquisition errors,
+        no deadlock) -- i.e. we can insert during query execution; and
+      * no query ever returns a newly-inserted, out-of-radius document, and every
+        returned key currently exists.
+
+    The newly-inserted vectors are placed outside the query radius, so a correct
+    range query must never report them. (HNSW range recall is approximate, so the
+    test deliberately does not assert exhaustive recall of the in-radius docs; a
+    final quiescent query below checks recall once writes have stopped.)
+    """
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+        'v', 'VECTOR', 'HNSW', '14',
+        'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+        'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '64', 'RERANK', 'TRUE',
+    ).ok()
+
+    # A small set of in-radius docs (few enough that HNSW reliably recalls them all).
+    base_docs = {f'base:{i}' for i in range(5)}
+    in_radius = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    for doc_id in base_docs:
+        env.cmd('HSET', doc_id, 'v', in_radius)
+    waitForIndex(env, 'idx')
+
+    query_blob = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
+    errors = []
+    stop = threading.Event()
+
+    def writer():
+        # Dedicated connection (never shares a socket with the querier). Out-of-radius
+        # vectors are distinct: a large corpus of identical vectors forms a dense HNSW
+        # component the greedy search can't cross out of, so range/KNN recall of the
+        # in-radius cluster can drop to zero (approximate-search artifact). See MOD-16860.
+        try:
+            wconn = env.getConnection()
+            i = 0
+            while not stop.is_set():
+                far_away = create_np_array_typed([1000.0 + i, 1000.0], 'FLOAT32').tobytes()
+                wconn.execute_command('HSET', f'extra:{i}', 'v', far_away)
+                i += 1
+        except Exception as e:  # noqa: BLE001 - surface to the asserting thread
+            errors.append(f'writer: {e}')
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    try:
+        for _ in range(200):
+            try:
+                res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                              'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f'query: {e}')
+                break
+            returned = set(res[1:])
+            # Newly-inserted (out-of-radius) docs must never leak into the result.
+            if not returned.issubset(base_docs):
+                errors.append(f'range result leaked out-of-radius docs: {sorted(returned - base_docs)}')
+                break
+            # Every returned key must currently exist (no stale/never-existing ids).
+            if not all(env.cmd('EXISTS', k) == 1 for k in returned):
+                errors.append('range result contains a non-existent document')
+                break
+    finally:
+        stop.set()
+        writer_thread.join()
+
+    env.assertEqual(errors, [], message=f'concurrent writes/queries reported errors: {errors}')
+
+    # Once writes have stopped, the in-radius docs are recalled exactly.
+    waitForIndex(env, 'idx')
+    res = env.cmd('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10 $b]', 'NOCONTENT',
+                  'LIMIT', '0', '10000', 'PARAMS', '2', 'b', query_blob)
+    env.assertEqual(set(res[1:]), base_docs)
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
 def test_flex_ft_info_reports_vector_index_memory(env):
     """Regression test for MOD-14840.
 
@@ -658,13 +801,14 @@ def test_flex_blocks_cursor_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_debug_wrappers_for_aggregate_and_hybrid(env):
+def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
     _create_flex_search(env)
 
+    # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+        .noError()
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.AGGREGATE is not supported in Redis Flex')
+        .noError()
 
     env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
                'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \

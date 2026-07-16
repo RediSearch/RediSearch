@@ -10,18 +10,56 @@
 //! Main query evaluation dispatcher.
 //!
 //! Converts a parsed query AST node into an executable iterator tree by
-//! dispatching on the [`QueryNodeType`](query_node_type::QueryNodeType) discriminant.
+//! dispatching on the [`QueryNodeType`](query_types::QueryNodeType) discriminant.
 
 use std::ptr::NonNull;
 
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
-use rqe_core::DocId;
+use inverted_index::NumericFilter;
+use query_error::QueryErrorCode;
+use query_term::RSQueryTerm;
+use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
+use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, id_list::IdListSorted,
-    interop::RQEIteratorWrapper, inverted_index::new_missing_iterator,
+    Empty, RQEIteratorPrintable, build_geo_range_iterator, build_numeric_filter_iterator,
+    build_term_iterator,
+    c2rust::CRQEIterator,
+    id_list::IdListSorted,
+    interop::RQEIteratorWrapper,
+    intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
+    inverted_index::new_missing_iterator,
+    not_reducer::{NewNotIterator, new_not_iterator},
+    optional_reducer::{NewOptionalIterator, new_optional_iterator},
+    union_opaque::build_union,
+};
+use search_disk::SearchDiskHandle;
+
+use crate::{
+    QueryEvalContext, QueryNode, QueryNodeRef,
+    scorers::{BuiltInScorer, RequestedScorer},
 };
 
-use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
+/// Global configuration values consumed by the query evaluator.
+///
+/// These are snapshotted from the process-wide configuration once, at the FFI
+/// entry point, and threaded through evaluation as an explicit parameter rather
+/// than read from global state deep inside the dispatcher.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Config {
+    /// Whether numeric inverted indexes use the compressed on-disk encoding.
+    pub numeric_compress: bool,
+    /// Whether an intersection prioritizes its union children when ordering its
+    /// sub-iterators for evaluation.
+    pub prioritize_intersect_union_children: bool,
+    /// The configured default scorer, applied to a query that sets no scorer of
+    /// its own.
+    ///
+    /// [`None`] when no built-in default is configured (either unset or a custom
+    /// scorer name), in which case a query with no scorer of its own is treated
+    /// as a custom scorer.
+    pub default_scorer: Option<BuiltInScorer>,
+}
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
@@ -30,46 +68,103 @@ pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
 
 /// The outcome of evaluating a query node.
 ///
-/// A node is either built by Rust ([`Evaluated::Rust`]) or, while the dispatcher
-/// is only partially ported, by the C `Query_EvalNode` ([`Evaluated::C`]).
-/// Keeping the two apart means a C iterator can be handed straight back to C —
-/// without an intermediate Rust wrapper that would hide it from the C-side
-/// optimizer/profiler, and without a throwaway heap allocation.
-// TODO: Remove this enum once all the nodes types have been ported to Rust
+/// The variant records *how* the resulting iterator is currently represented,
+/// so it can be handed across the FFI boundary — or composed into a parent Rust
+/// iterator — without a redundant wrapper or allocation. Three shapes occur
+/// while the dispatcher is only partially ported:
+///
+/// - [`Evaluated::RustLeaf`] — a Rust iterator held as a trait object, not yet
+///   lowered to the C ABI.
+/// - [`Evaluated::C`] — an iterator *built by* the C [`ffi::Query_EvalNode`]
+///   dispatcher for a node type not yet ported. Handed straight back to C so the
+///   C-side optimizer/profiler keep seeing the original iterator.
+/// - [`Evaluated::RustCompound`] — an owning C-ABI handle that Rust built and
+///   already lowered, returned as-is rather than as a trait object (see the
+///   variant docs for the two cases that need this shape).
+// TODO: Remove this enum once all the node types have been ported to Rust
 // and C `Query_EvalNode` has been removed.
-#[must_use = "an unconsumed `Evaluated::C` leaks its owning C iterator; consume it via `into_c_iterator` or `into_boxed`"]
+#[must_use = "an unconsumed `Evaluated` may leak its owning iterator handle; consume it via `into_c_iterator` or `into_boxed`"]
 pub enum Evaluated<'index> {
-    /// An iterator implemented in Rust.
-    Rust(EvalResult<'index>),
-    /// An owning C iterator handle returned by [`ffi::Query_EvalNode`].
+    /// An iterator implemented in Rust, held as a boxed trait object.
+    ///
+    /// Lowered to the C ABI lazily (via [`RQEIteratorWrapper::boxed_new`]) only
+    /// if and when it crosses back to C.
+    RustLeaf(EvalResult<'index>),
+
+    /// An owning C iterator handle built by the C [`ffi::Query_EvalNode`]
+    /// dispatcher for a node type not yet ported to Rust.
     C(NonNull<ffi::QueryIterator>),
+
+    /// An owning C-ABI [`QueryIterator`](ffi::QueryIterator) handle that Rust
+    /// built and already lowered, returned as-is rather than as an
+    /// [`Evaluated::RustLeaf`] `Box<dyn …>`. Two cases need this shape:
+    ///
+    /// - A Rust *compound* iterator (e.g.
+    ///   [`Optional`](rqe_iterators::optional::Optional)) lowered via
+    ///   [`RQEIteratorWrapper::boxed_new_compound`]. It must reach the still
+    ///   C-driven optimizer and profiler as an
+    ///   `RQEIteratorWrapper<Compound<CRQEIterator>>`: only that shape carries the
+    ///   [`ProfileChildren`](rqe_iterators::interop::ProfileChildren) callback the
+    ///   profiler needs to recurse into the child, and keeps the child a concrete
+    ///   [`CRQEIterator`] so the optimizer's in-place tree rewrites keep working.
+    ///   Lowering it via [`RQEIteratorWrapper::boxed_new`] instead would drop the
+    ///   child's profile counters.
+    /// - A child iterator handed straight back unchanged — e.g. the optional
+    ///   reducer's wildcard passthrough, where the optional node collapses to its
+    ///   already-lowered wildcard child. Re-wrapping it as an [`Evaluated::RustLeaf`]
+    ///   `Box<dyn …>` would add a redundant [`RQEIteratorWrapper`] layer and hide
+    ///   the original iterator from the C-side optimizer and profiler.
+    ///
+    /// A freshly built Rust leaf (e.g. the optional reducer's wildcard *fallback*)
+    /// needs none of this and is returned as a plain [`Evaluated::RustLeaf`] instead.
+    ///
+    /// Lifecycle-wise this is identical to [`Evaluated::C`]: an owning handle
+    /// handed back untouched by [`into_c_iterator`](Self::into_c_iterator), or
+    /// re-wrapped as a [`CRQEIterator`] child by [`into_boxed`](Self::into_boxed).
+    /// The separate variant exists only to record that Rust, not C, built it.
+    //
+    // A typed `Box<dyn …>` (deferring the lowering to `into_c_iterator`) was
+    // considered and rejected: the compound's child must already be a concrete
+    // `CRQEIterator` for the C-side profiler/optimizer, so there is no pure-Rust
+    // subtree to preserve; every consumer (the C entrypoint, or an outer Rust
+    // compound) re-lowers to a handle anyway; and it would not cover the
+    // passthrough case, which is a child handle, not a compound.
+    //
+    // Once profiling and the optimizer no longer reach into the tree as C
+    // `*mut QueryIterator` nodes, these can hold pure-Rust `Box<dyn …>`
+    // children and this variant can fold back into `RustLeaf`.
+    RustCompound(NonNull<ffi::QueryIterator>),
 }
 
 impl<'index> Evaluated<'index> {
     /// Consume into an owning C [`QueryIterator`](ffi::QueryIterator) pointer.
     ///
-    /// A Rust iterator is wrapped via [`RQEIteratorWrapper::boxed_new`]; a C
-    /// iterator is returned as-is, so C-side introspection (optimizer, profiler)
-    /// keeps seeing the original C iterator.
+    /// An [`Evaluated::RustLeaf`] iterator is lowered via
+    /// [`RQEIteratorWrapper::boxed_new`]; an already-lowered handle
+    /// ([`Evaluated::C`] or [`Evaluated::RustCompound`]) is returned as-is, so
+    /// C-side introspection (optimizer, profiler) keeps seeing the same iterator.
     pub fn into_c_iterator(self) -> *mut ffi::QueryIterator {
         match self {
-            Evaluated::Rust(it) => RQEIteratorWrapper::boxed_new(it),
-            Evaluated::C(it) => it.as_ptr(),
+            Evaluated::RustLeaf(it) => RQEIteratorWrapper::boxed_new(it),
+            Evaluated::C(it) | Evaluated::RustCompound(it) => it.as_ptr(),
         }
     }
 
-    /// Consume into a boxed Rust iterator, wrapping a C iterator in a
-    /// [`CRQEIterator`] shim so it satisfies the Rust iterator trait.
+    /// Consume into a boxed Rust iterator, wrapping an already-lowered C-ABI
+    /// handle in a [`CRQEIterator`] shim so it satisfies the Rust iterator trait.
     ///
     /// Used by Rust consumers that compose evaluated children as trait objects.
     pub fn into_boxed(self) -> EvalResult<'index> {
         match self {
-            Evaluated::Rust(it) => it,
-            // SAFETY: `Evaluated::C` always holds a valid, owning `QueryIterator`
-            // with all required callbacks populated (it came from
-            // `ffi::Query_EvalNode`) — exactly the preconditions of
-            // `CRQEIterator::new`.
-            Evaluated::C(it) => Box::new(unsafe { CRQEIterator::new(it) }),
+            Evaluated::RustLeaf(it) => it,
+            Evaluated::C(it) | Evaluated::RustCompound(it) => {
+                // SAFETY: both handle variants hold a valid, owning `QueryIterator`
+                // with all required callbacks populated — `Evaluated::C` came from
+                // `ffi::Query_EvalNode`, `Evaluated::RustCompound` from
+                // `RQEIteratorWrapper::boxed_new_compound` — exactly the
+                // preconditions of `CRQEIterator::new`.
+                Box::new(unsafe { CRQEIterator::new(it) })
+            }
         }
     }
 }
@@ -81,8 +176,9 @@ impl<'index> Evaluated<'index> {
 pub fn qast_iterate<'index>(
     ctx: &'index mut QueryEvalContext,
     root: &QueryNodeRef,
+    config: Config,
 ) -> Evaluated<'index> {
-    eval_node(ctx, root).unwrap_or_else(|| Evaluated::Rust(Box::new(Empty)))
+    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -91,12 +187,20 @@ pub fn qast_iterate<'index>(
 pub fn eval_node<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     match node.as_enum() {
-        QueryNode::Null => Some(Evaluated::Rust(eval_null())),
-        QueryNode::Wildcard => Some(Evaluated::Rust(eval_wildcard(ctx, node))),
-        QueryNode::Ids { keys, doc_ids } => Some(Evaluated::Rust(eval_ids(ctx, keys, doc_ids))),
-        QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::Rust),
+        QueryNode::Null => Some(eval_null()),
+        QueryNode::Wildcard => Some(eval_wildcard(ctx, node)),
+        QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
+        QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
+        QueryNode::Optional => Some(eval_optional(ctx, node, config)),
+        QueryNode::Not => Some(eval_not(ctx, node, config)),
+        QueryNode::Phrase { exact } => eval_phrase(ctx, node, exact, config),
+        QueryNode::Union => Some(eval_union(ctx, node, config)),
+        QueryNode::Numeric { nf } => eval_numeric(ctx, nf, config),
+        QueryNode::Geo { gf } => eval_geo(ctx, gf, config),
+        QueryNode::Token { tok } => eval_token(ctx, node, tok, config),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node),
@@ -122,16 +226,39 @@ fn eval_node_c<'index>(
     NonNull::new(it).map(Evaluated::C)
 }
 
+/// Evaluate a child node into an owning [`CRQEIterator`] for use as a child of
+/// a Rust compound iterator.
+///
+/// A `None` child (no results) becomes a freshly boxed [`Empty`] so the
+/// reducer can apply its empty-child rules, since a missing child is
+/// equivalent to one that matches nothing.
+fn eval_child_iterator(
+    ctx: &mut QueryEvalContext,
+    child: &QueryNodeRef,
+    config: Config,
+) -> CRQEIterator {
+    let ptr = match eval_node(&mut *ctx, child, config) {
+        Some(ev) => ev.into_c_iterator(),
+        None => RQEIteratorWrapper::boxed_new(Empty),
+    };
+    // `into_c_iterator` and `boxed_new` always return a valid, owning, non-null
+    // C `QueryIterator`.
+    let nn = NonNull::new(ptr).expect("evaluated child iterator must not be null");
+    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // populated — exactly the precondition of `CRQEIterator::new`.
+    unsafe { CRQEIterator::new(nn) }
+}
+
 /// `QN_NULL` — stopword queries produce an empty iterator.
-fn eval_null<'index>() -> EvalResult<'index> {
-    Box::new(Empty)
+fn eval_null<'index>() -> Evaluated<'index> {
+    Evaluated::RustLeaf(Box::new(Empty))
 }
 
 /// `QN_WILDCARD` — the `*` query that matches every document.
 fn eval_wildcard<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-) -> EvalResult<'index> {
+) -> Evaluated<'index> {
     let weight = node.opts().weight;
     // SAFETY: `new_wildcard_iterator` preconditions map to
     // `QueryEvalContext::new` invariants as follows:
@@ -149,7 +276,7 @@ fn eval_wildcard<'index>(
     // 8. `SEARCH_ENTERPRISE_ITERATORS` is initialised when `diskSpec` is
     //    non-null — the enterprise module sets it during `OnLoad`.
     let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(ctx.as_non_null(), weight) };
-    Box::new(it)
+    Evaluated::RustLeaf(Box::new(it))
 }
 
 /// `QN_IDS` — filter by explicit document key names.
@@ -167,7 +294,7 @@ fn eval_ids<'index>(
     ctx: &'index mut QueryEvalContext,
     keys: &[ffi::sds],
     doc_ids: Option<&[DocId]>,
-) -> EvalResult<'index> {
+) -> Evaluated<'index> {
     // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
     // they must be accompanied by a non-null `spec.diskSpec`. Guard the
     // invariant.
@@ -206,10 +333,10 @@ fn eval_ids<'index>(
         ids.dedup();
     }
 
-    Box::new(IdListSorted::with_result(
+    Evaluated::RustLeaf(Box::new(IdListSorted::with_result(
         ids,
         RSIndexResult::build_virt().weight(1.0).build(),
-    ))
+    )))
 }
 
 /// `QN_MISSING` — matches documents where a field has no indexed value.
@@ -250,4 +377,562 @@ fn eval_missing<'index>(
     // 4. `ii_ref` uses `DocIdsOnly`/`RawDocIdsOnly` encoding: the indexer only
     //    ever stores doc-ids-only inverted indexes in `missingFieldDict`.
     Some(unsafe { new_missing_iterator(ii_ref, sctx_nn, fs.index) })
+}
+
+/// `QN_OPTIONAL` — an optional match that boosts the score when its single
+/// child matches but does not exclude documents that don't.
+fn eval_optional<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    config: Config,
+) -> Evaluated<'index> {
+    debug_assert_eq!(
+        node.num_children(),
+        1,
+        "an optional node must have exactly one child"
+    );
+
+    // Evaluate the child. A `None` child becomes an `Empty` iterator, which
+    // `new_optional_iterator` reduces to a wildcard fallback — an empty optional
+    // matches every document as a virtual hit.
+    let child_node = node.child(0);
+    let child = eval_child_iterator(ctx, &child_node, config);
+
+    // SAFETY: the preconditions of `new_optional_iterator` map to
+    // `QueryEvalContext::new` invariants:
+    // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
+    // 2. `query.sctx` is valid and non-null — invariant (2).
+    // 3. `query.sctx.spec` is valid and non-null — invariant (2).
+    // 4. `spec.rule`, when non-null, is a valid `SchemaRule` — part of (1).
+    // 5-7. The wildcard-iterator preconditions hold for the same reasons
+    //    as in `eval_wildcard` (a properly initialised spec with its
+    //    `existingDocs` index, valid `docTable`, and
+    //    `diskSpec`/`SEARCH_ENTERPRISE_ITERATORS` when on disk).
+    let outcome = unsafe {
+        new_optional_iterator(
+            child,
+            node.opts().weight,
+            ctx.as_non_null(),
+            ctx.max_doc_id(),
+        )
+    };
+    match outcome {
+        // The child was structurally empty: the reducer built a fresh Rust
+        // wildcard leaf so every document is returned as a virtual hit.
+        NewOptionalIterator::WildcardFallback(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        // The optional collapsed to its already-lowered wildcard child: hand the
+        // child's owning handle straight back, exactly as the former C path did,
+        // so the C-side optimizer/profiler keep seeing the original iterator. A
+        // plain `Evaluated::RustLeaf` would wrap it in a redundant `RQEIteratorWrapper`.
+        NewOptionalIterator::WildcardPassthrough(child) => {
+            Evaluated::RustCompound(child.into_raw())
+        }
+        // Genuine compound iterators: lower via `boxed_new_compound` so the
+        // profiler keeps the `ProfileChildren` callback into the child.
+        NewOptionalIterator::Optional(opt) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
+                .expect("optional iterator must not be null"),
+        ),
+        NewOptionalIterator::OptionalOptimized(opt) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(opt))
+                .expect("optional iterator must not be null"),
+        ),
+    }
+}
+
+/// `QN_NOT` — logical negation: matches every document *not* matched by its
+/// single child.
+fn eval_not<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    config: Config,
+) -> Evaluated<'index> {
+    debug_assert_eq!(
+        node.num_children(),
+        1,
+        "a not node must have exactly one child"
+    );
+
+    // Evaluate the child with the "not-subtree" flag set. A NOT only cares
+    // *whether* a document matches its child, never the child's score, so any
+    // descendant `UNION` may stop at its first matching branch instead of
+    // visiting every branch to accumulate a score. Setting the flag lets those
+    // unions take that cheaper quick exit path.
+    //
+    // The previous value is saved and restored rather than just cleared: NOT
+    // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
+    // while the inner one is being evaluated and after it returns.
+    let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
+    let child_node = node.child(0);
+    let child = eval_child_iterator(ctx, &child_node, config);
+    ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
+
+    // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
+    // outlives every timeout context derived from `ctx`, and the returned context
+    // is handed straight to `new_not_iterator` below (never retained past this
+    // query), so it cannot be used after the `AREQ` is freed.
+    let timeout_ctx = unsafe { ctx.build_timeout_context() };
+
+    // SAFETY: the preconditions of `new_not_iterator` map to
+    // `QueryEvalContext::new` invariants:
+    // 1. `query` is a valid, non-null `QueryEvalCtx` — invariant (1).
+    // 2. `query.sctx` is valid and non-null — invariant (2).
+    // 3. `query.sctx.spec` is valid and non-null — invariant (2).
+    // 4. `spec.rule`, when non-null, is a valid `SchemaRule` — part of (1).
+    // 5. The wildcard-iterator preconditions hold for the same reasons
+    //    as in `eval_wildcard` (a properly initialised spec with its
+    //    `existingDocs` index, valid `docTable`, and
+    //    `diskSpec`/`SEARCH_ENTERPRISE_ITERATORS` when on disk).
+    let outcome = unsafe {
+        new_not_iterator(
+            child,
+            ctx.max_doc_id(),
+            node.opts().weight,
+            timeout_ctx,
+            ctx.as_non_null(),
+        )
+    };
+    match outcome {
+        NewNotIterator::ReducedWildcard(wc) => Evaluated::RustLeaf(Box::new(wc)),
+        NewNotIterator::ReducedEmpty(empty) => Evaluated::RustLeaf(Box::new(empty)),
+        NewNotIterator::Not(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
+        ),
+        NewNotIterator::NotOptimized(it) => Evaluated::RustCompound(
+            NonNull::new(RQEIteratorWrapper::boxed_new_compound(it))
+                .expect("not iterator must not be null"),
+        ),
+    }
+}
+
+/// `QN_PHRASE` — an ordered/unordered conjunction of child terms.
+///
+/// A single-child phrase is equivalent to the child itself, so the child is
+/// returned directly (after narrowing its field mask). Otherwise the children
+/// are evaluated and combined with an [`Intersection`], honoring the phrase's
+/// slop/in-order constraints (exact phrases force slop `0`, in order).
+///
+/// Each child's field mask is first intersected with the phrase node's own
+/// mask, so a child only matches the fields shared with the phrase.
+///
+/// * `exact` — whether this is an exact (quoted) phrase. When `true`, the
+///   terms must be adjacent and in order: slop is forced to `0` and in-order
+///   matching is required, ignoring the per-node and query-wide slop/in-order
+///   settings. When `false`, the slop and in-order constraints are resolved
+///   from the node's own options, falling back to the query-wide defaults.
+fn eval_phrase<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    exact: bool,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    // Query evaluation is single-threaded and walks each AST node exactly once,
+    // top-down, so we hold exclusive access to this phrase node and its
+    // descendants for the duration of the call: no other wrapper into this
+    // subtree, and no reference derived from one, is live here.
+    //
+    // SAFETY: that exclusive-access precondition is exactly what `as_mut`
+    // requires. It is asserted once, here; every field-mask write below then
+    // goes through the exclusive `QueryNodeMut` and is statically alias-free.
+    let mut node = unsafe { node.as_mut() };
+
+    let num_children = node.num_children();
+    let node_mask = node.opts().field_mask;
+    // A single-child intersection is just the child; return it directly.
+    if num_children == 1 {
+        let mut child = node.child_mut(0);
+        child.and_field_mask(node_mask);
+        return eval_node(ctx, child.as_ref(), config);
+    }
+
+    let weight = node.opts().weight;
+
+    let (max_slop, in_order) = if exact {
+        // An exact (quoted) phrase requires adjacent, in-order terms.
+        (Some(0), true)
+    } else {
+        // The node may override the query-wide slop; -1 means "use the default".
+        let slop = match node.opts().max_slop {
+            -1 => ctx.slop(),
+            s => s,
+        };
+        let in_order = ctx.search_in_order() || node.opts().in_order != 0;
+        let max_slop = if slop < 0 { None } else { Some(slop as u32) };
+        (max_slop, in_order)
+    };
+
+    // Recursively evaluate every child, narrowing its field mask first.
+    let mut children = Vec::with_capacity(num_children);
+    for i in 0..num_children {
+        let mut child = node.child_mut(i);
+        child.and_field_mask(node_mask);
+        children.push(eval_child_iterator(ctx, child.as_ref(), config));
+    }
+
+    let result_ptr = match new_intersection_iterator(children) {
+        NewIntersectionIterator::Empty => return Some(Evaluated::RustLeaf(Box::new(Empty))),
+        NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),
+        NewIntersectionIterator::Proceed(cs) => {
+            let intersection = Intersection::new_with_slop_order(
+                cs,
+                weight,
+                config.prioritize_intersect_union_children,
+                max_slop,
+                in_order,
+            );
+            RQEIteratorWrapper::boxed_new_compound(intersection)
+        }
+    };
+
+    Some(Evaluated::RustCompound(
+        NonNull::new(result_ptr).expect("phrase iterator must not be null"),
+    ))
+}
+
+/// `QN_UNION` — a logical OR over its children (matches any document matched by
+/// at least one child).
+///
+/// The children are evaluated and combined with the Rust union iterator. Each
+/// child's field mask is first intersected with the union node's own mask, and
+/// `quick_exit` is enabled when the union only needs the matching id set rather
+/// than per-child scores — i.e. inside a `NOT` subtree or when the node's weight
+/// is zero.
+fn eval_union<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    config: Config,
+) -> Evaluated<'index> {
+    // Parsers and expanders always create unions with 2+ children.
+    debug_assert!(
+        node.num_children() > 1,
+        "a union node must have more than one child"
+    );
+
+    let num_children = node.num_children();
+    let node_mask = node.opts().field_mask;
+    let weight = node.opts().weight;
+    let node_type = node.node_type();
+
+    // We want results from every matching child (`quick_exit == false`) unless
+    // either (1) we are inside a `NOT` subtree, where only the id set matters,
+    // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
+    let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+
+    // Recursively evaluate every child, narrowing its field mask first.
+    //
+    // SAFETY: query evaluation is single-threaded and walks each AST node
+    // exactly once, top-down, so we hold exclusive access to this node and its
+    // subtree for the duration of the call — exactly what `as_mut` requires.
+    let mut node = unsafe { node.as_mut() };
+    let children: Vec<CRQEIterator> = (0..num_children)
+        .map(|i| {
+            let mut child = node.child_mut(i);
+            child.and_field_mask(node_mask);
+            eval_child_iterator(ctx, child.as_ref(), config)
+        })
+        .collect();
+
+    let iter = build_union(children, quick_exit, min_union_iter_heap, node_type, weight);
+
+    Evaluated::RustCompound(iter)
+}
+
+/// `QN_NUMERIC` — a numeric range filter on a numeric field.
+///
+/// When the spec is backed by an on-disk index, delegates to the enterprise
+/// numeric iterator via [`SearchDiskHandle::new_numeric_iterator`]. Otherwise
+/// opens the field's numeric range tree and builds a union over the matching
+/// sub-ranges. Returns `None` when the field has no numeric index yet,
+/// no sub-range matches, or the disk iterator not be created
+/// (in which case the failure is reported via [`status`](QueryEvalContext::status)).
+fn eval_numeric<'index>(
+    ctx: &'index mut QueryEvalContext,
+    nf: &NumericFilter,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    // The numeric node always carries a field spec; the filter targets that
+    // single field by index.
+    assert!(
+        !nf.field_spec.is_null(),
+        "numeric node must have a non-null field spec"
+    );
+    // SAFETY: a well-formed numeric node has a valid, non-null `field_spec`,
+    // so reading its `index` is sound.
+    let field_index = unsafe { (*nf.field_spec).index };
+
+    // Disk-index path: when the spec is backed by an on-disk index, delegate to
+    // the enterprise numeric iterator instead of opening the in-memory range
+    // tree.
+    //
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
+    // `RedisSearchDiskIndexSpec` that stays valid for `'index`
+    // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
+    // for the null (in-memory) case.
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+            .expect("query.sctx.diskSnapshot is null for a disk-backed numeric query");
+        // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
+        // invariants 1/2) and single-threaded query evaluation gives us the only
+        // live reference to it; the enterprise iterators are registered whenever
+        // a disk index is in use; `field_index` belongs to the numeric node's
+        // field spec; `snapshot` is the disk snapshot taken at query start.
+        return match unsafe { disk.new_numeric_iterator(nf, field_index, snapshot) } {
+            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            Err(err) => {
+                // Surface the failure via `status` so the query aborts with an
+                // error rather than silently returning empty results.
+                ctx.status()
+                    .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+                None
+            }
+        };
+    }
+
+    let field_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    // SAFETY: `build_numeric_filter_iterator` preconditions hold:
+    // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
+    //    `QueryEvalContext` invariants (1)/(2).
+    // 2. `nf.field_spec` is a valid, non-null `FieldSpec` for a numeric field
+    //    (well-formed numeric node).
+    // 3. `field_ctx.field` is a field index, built as `Index` just above.
+    let iter = unsafe {
+        build_numeric_filter_iterator(
+            ctx.sctx(),
+            nf,
+            min_union_iter_heap,
+            &field_ctx,
+            config.numeric_compress,
+        )
+    };
+
+    iter.map(Evaluated::RustCompound)
+}
+
+/// `QN_GEO` — a geo-radius filter on a geo field.
+///
+/// Validates the geo filter (reporting any error into the query's status), then
+/// builds a union over the matching geohash ranges via
+/// [`build_geo_range_iterator`]. Returns `None` — i.e. no iterator — when
+/// validation fails, the geo index does not exist yet, or no entries match.
+fn eval_geo<'index>(
+    ctx: &'index mut QueryEvalContext,
+    gf: *mut ffi::GeoFilter,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    let status = ctx.status_ptr();
+    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
+    // `status` is the query's valid `QueryError` accumulator
+    // (`QueryEvalContext` invariant (2)).
+    if unsafe { ffi::GeoFilter_Validate(gf, status) } == 0 {
+        return None;
+    }
+
+    let sctx = NonNull::from(ctx.sctx());
+    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
+    // `&mut` is sound.
+    let gf_ref = unsafe { &mut *gf };
+    // SAFETY: `build_geo_range_iterator` preconditions hold:
+    // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
+    //    `QueryEvalContext` invariants (1)/(2).
+    // 2. `gf.fieldSpec` is a valid, non-null `FieldSpec` for a geo field
+    //    (well-formed geo node).
+    // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
+    //    populated/owned by `gf`, freed by `GeoFilter_Free`.
+    let iter = unsafe {
+        build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, config.numeric_compress)
+    };
+
+    iter.map(Evaluated::RustCompound)
+}
+
+/// `QN_TOKEN` — a single-term lookup.
+///
+/// In the in-memory path the term's inverted index is opened via
+/// [`Redis_OpenReaderIndex`](ffi::Redis_OpenReaderIndex) and wrapped in a term
+/// iterator with [`build_term_iterator`]. In search-on-disk mode the work is
+/// delegated to [`eval_token_disk`].
+/// Returns `None` when the term has no matching inverted index (e.g. it is absent).
+fn eval_token<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    tok: &ffi::RSToken,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    // A `QN_TOKEN` node always carries a non-null term string.
+    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let opts = node.opts();
+    let weight = opts.weight;
+    // the node's field mask narrowed to the query's.
+    let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
+    let token_id = ctx.next_token_id() as i32;
+    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
+    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
+    let term = RSQueryTerm::new_bytes(term_bytes, token_id, tok.flags());
+
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
+    // `RedisSearchDiskIndexSpec` that stays valid for `'index` (`QueryEvalContext`
+    // invariants 1/2). `SearchDiskHandle::new` yields `None` for the null
+    // (in-memory) case, which falls through to the in-memory reader below.
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        eval_token_disk(
+            ctx,
+            disk,
+            tok,
+            term,
+            opts,
+            weight,
+            effective_field_mask,
+            config,
+        )
+    } else {
+        open_term_reader(ctx, tok, term, weight, effective_field_mask)
+    }
+}
+
+/// Open an in-memory term reader for a `QN_TOKEN` node.
+///
+/// Opens and validates the term's inverted index and, on success, wraps it in a
+/// term iterator that takes ownership of `term`. Returns `None` when the term
+/// has no matching inverted index (absent, empty, or no results in the queried
+/// field(s)), dropping `term`.
+fn open_term_reader<'index>(
+    ctx: &'index mut QueryEvalContext,
+    tok: &ffi::RSToken,
+    term: Box<RSQueryTerm>,
+    weight: f64,
+    effective_field_mask: FieldMask,
+) -> Option<Evaluated<'index>> {
+    debug_assert!(!ctx.sctx_ptr().is_null(), "sctx must not be null");
+
+    // Open and validate the term's inverted index. A null result means the term
+    // has no matching index (absent, empty, or no results in the queried
+    // field(s)), so there is nothing to read.
+    // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
+    // `tok` is the query node's `RSToken`; `Redis_OpenReaderIndex` only reads the
+    // token and does not retain it.
+    let idx = unsafe {
+        ffi::Redis_OpenReaderIndex(
+            ctx.sctx_ptr(),
+            std::ptr::from_ref(tok),
+            effective_field_mask,
+        )
+    };
+    let idx = NonNull::new(idx)?;
+
+    // SAFETY: `ctx.sctx_ptr()` is non-null (`QueryEvalContext` invariant 2).
+    let sctx = unsafe { NonNull::new_unchecked(ctx.sctx_ptr().cast_mut()) };
+    // SAFETY: `idx` is the term's inverted index just opened for this spec and
+    // stays valid for `'index` (`QueryEvalContext` invariants 1/2); `sctx` and its
+    // spec are valid for `'index` (invariant 2); `term` is a freshly
+    // heap-allocated query term whose ownership transfers to the iterator.
+    let iter = unsafe {
+        build_term_iterator(
+            idx.as_ptr(),
+            sctx,
+            FieldMaskOrIndex::Mask(effective_field_mask),
+            term,
+            weight,
+        )
+    };
+
+    Some(Evaluated::RustLeaf(Box::new(iter)))
+}
+
+/// Search-on-disk evaluation of a `QN_TOKEN` node.
+///
+/// Looks up the term's document count in the terms trie to compute the IDF
+/// then builds a disk term iterator.
+///
+/// `disk` must wrap the spec's own disk index.
+///
+/// Returns `None` — after setting the query status —
+/// when the disk iterator cannot be built.
+#[expect(clippy::too_many_arguments)]
+fn eval_token_disk<'index>(
+    ctx: &'index mut QueryEvalContext,
+    disk: SearchDiskHandle,
+    tok: &ffi::RSToken,
+    mut term: Box<RSQueryTerm>,
+    opts: &QueryNodeOptions,
+    weight: f64,
+    effective_field_mask: FieldMask,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    let spec = ctx.spec();
+    // Look up the term's document count in the terms trie to compute IDF, then
+    // build a disk term iterator through the enterprise API.
+    // SAFETY: in search-on-disk mode the terms trie is always initialised.
+    debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
+    // A `QN_TOKEN` node always carries a non-null term string; the `strToRunesN`
+    // read below relies on it.
+    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+
+    let mut runes = vec![0 as ffi::rune; tok.len + 1];
+    // SAFETY: `tok.str_` points to `tok.len` valid bytes; `runes` has room
+    // for `tok.len + 1` runes (a UTF-8 string yields at most as many runes
+    // as bytes), so `strToRunesN` writes within bounds.
+    let rlen = unsafe { ffi::strToRunesN(tok.str_, tok.len, runes.as_mut_ptr()) };
+    // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) and
+    // `runes`/`rlen` describe a valid rune slice.
+    let trienode = unsafe {
+        ffi::Trie_GetNode(
+            spec.terms,
+            runes.as_ptr(),
+            rlen as ffi::t_len,
+            true,
+            std::ptr::null_mut(),
+        )
+    };
+    let num_docs_in_term = if trienode.is_null() {
+        0
+    } else {
+        // SAFETY: `trienode` is a valid, non-null `TrieNode` from `Trie_GetNode`.
+        unsafe { ffi::TrieNode_NumDocs(trienode) }
+    };
+    let num_documents = spec.stats.scoring.numDocuments;
+    let idf = idf::calculate_idf(num_documents, num_docs_in_term);
+    let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs_in_term);
+    term.set_idf(idf);
+    term.set_bm25_idf(bm25_idf);
+
+    // The query's own scorer wins; a query that sets none falls back to the
+    // configured default, while a custom (non built-in) scorer conservatively
+    // needs offsets since we can't resolve what it does.
+    let scorer = match ctx.scorer() {
+        RequestedScorer::Unset => config.default_scorer,
+        RequestedScorer::Custom(_) => None,
+        RequestedScorer::BuiltIn(scorer) => Some(scorer),
+    };
+    let needs_offsets = slop_forces_offsets(opts.max_slop, opts.in_order)
+        || scorer.is_none_or(BuiltInScorer::needs_offsets);
+
+    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+        .expect("query.sctx.diskSnapshot is null for a disk-backed token query");
+    // SAFETY: `disk` wraps the spec's disk index, valid for `'index`
+    // (`QueryEvalContext` invariants 1/2), and single-threaded query evaluation
+    // gives us the only live reference to it; the enterprise iterators are
+    // registered whenever a disk index is in use; `snapshot` is the disk snapshot
+    // taken at query start.
+    let iter = unsafe {
+        disk.new_term_iterator(term, effective_field_mask, weight, needs_offsets, snapshot)
+    };
+
+    match iter {
+        Ok(it) => Some(Evaluated::RustLeaf(it)),
+        Err(err) => {
+            // Surface the failure via `status` so the query aborts with an
+            // error rather than silently returning empty results.
+            ctx.status()
+                .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+            None
+        }
+    }
 }

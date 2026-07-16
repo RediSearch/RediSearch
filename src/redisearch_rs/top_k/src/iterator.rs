@@ -38,7 +38,7 @@ pub enum TopKMode {
     /// batch (i.e. the first [`ScoreSource::next_batch`] call returns the
     /// complete result set, and a second call would return `Ok(None)`).
     /// Any additional batches are not consumed and their results are silently
-    /// lost.  In debug builds, [`TopKIterator`] asserts this invariant.
+    /// lost.
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
     /// with the child filter iterator.
@@ -107,7 +107,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
     pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
+        Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
 
@@ -116,23 +116,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
     pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
-        Self::_new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
+        Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
     /// Create a new [`TopKIterator`] with an explicit initial mode.
-    #[cfg(feature = "test-utils")]
     pub fn new_with_mode(
-        source: S,
-        child: Option<C>,
-        k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
-        mode: TopKMode,
-    ) -> Self {
-        Self::_new_with_mode(source, child, k, compare, mode)
-    }
-
-    /// Create a new [`TopKIterator`] with an explicit initial mode.
-    fn _new_with_mode(
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
@@ -197,24 +185,17 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Set up the unfiltered direct-yield path.
     ///
     /// Calls [`ScoreSource::all_results_unfiltered_batch`] exactly once. Results are streamed
-    /// directly from the batch cursor — no heap is involved.
+    /// directly from the batch iterator — no heap is involved.
     ///
     /// # Invariants
     ///
     /// [`TopKMode::Unfiltered`] requires the source to produce at most one
-    /// batch.  In debug builds this method calls [`ScoreSource::all_results_unfiltered_batch`] a
-    /// second time and panics if another batch is returned, catching
-    /// misbehaving implementations early.
+    /// batch.
     fn prepare_unfiltered_direct(&mut self) -> Result<(), RQEIteratorError> {
         self.direct_batch = self.source.all_results_unfiltered_batch()?;
         if self.direct_batch.is_none() {
             self.at_eof = true;
         }
-        debug_assert!(
-            matches!(self.source.all_results_unfiltered_batch(), Ok(None)),
-            "ScoreSource did not return Ok(None) in TopKMode::Unfiltered \
-             (extra batch or error); use a batched mode instead"
-        );
         self.phase = Phase::YieldingDirect;
         Ok(())
     }
@@ -268,6 +249,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
 
     /// Collect results by walking the child iterator and calling
     /// [`ScoreSource::lookup_score`] for each document.
+    ///
+    /// Wraps the scan loop in an [`AdhocScope`] RAII guard so that
+    /// [`ScoreSource::begin_adhoc`] and [`ScoreSource::end_adhoc`]
+    /// wrap the adhoc code. This allows [`ScoreSource::lookup_score`]
+    /// to reuse expensive resources.
     fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
         let child = self
             .child
@@ -275,16 +261,34 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             .expect("AdhocBF mode requires a child iterator");
         child.rewind();
 
+        let scope = AdhocScope::new(&mut self.source);
+
         loop {
             let Some(result) = child.read()? else {
                 break;
             };
             let doc_id = result.doc_id;
 
-            if let Some(score) = self.source.lookup_score(doc_id) {
+            // Poll before the lookup so an expired deadline skips the expensive
+            // VecSim distance lookup.
+            scope.0.check_timeout()?;
+            if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
         }
+
+        // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
+        // propagates earlier.
+        if scope.0.should_rerank() && !self.heap.is_empty() {
+            let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
+            scope.0.rerank(&mut entries);
+            // Restore heap order under the (possibly) new scores. The count
+            // never exceeded k, so every entry is retained and a bulk rebuild
+            // needs no eviction.
+            self.heap.rebuild_from(entries);
+        }
+
+        drop(scope);
         self.finalize_collection();
         Ok(())
     }
@@ -300,40 +304,71 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 
     /// Yield the next result from the unfiltered direct batch.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) are dropped
+    /// without replacement: the batch holds at most k entries, so skipping
+    /// shrinks the yielded count.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+        loop {
+            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
-        match item {
-            Some((doc_id, score)) => {
-                let result = self.source.build_result(doc_id, score);
-                self.current = Some(result);
-                self.last_doc_id = doc_id;
-                Ok(self.current.as_mut())
-            }
-            None => {
-                self.at_eof = true;
-                self.current = None;
-                Ok(None)
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
+
+            match item {
+                Some((doc_id, score)) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+                None => {
+                    self.at_eof = true;
+                    self.current = None;
+                    return Ok(None);
+                }
             }
         }
     }
 
     /// Yield the next result from the pre-sorted `results` vec.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) since
+    /// collection are dropped without replacement: they occupied their top-k
+    /// slots during collection, so they shrink the yielded count rather than
+    /// being refilled from lower-scored candidates.
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.yield_pos >= self.results.len() {
-            self.at_eof = true;
-            return Ok(None);
+        loop {
+            let entry = self.results.get(self.yield_pos).copied();
+            self.yield_pos += 1;
+
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
+            match entry {
+                None => {
+                    self.at_eof = true;
+                    return Ok(None);
+                }
+                Some(ScoredResult { doc_id, score }) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+            }
         }
-        let ScoredResult { doc_id, score } = self.results[self.yield_pos];
-        self.yield_pos += 1;
-        let result = self.source.build_result(doc_id, score);
-        self.current = Some(result);
-        self.last_doc_id = doc_id;
-        Ok(self.current.as_mut())
     }
 }
 
@@ -379,8 +414,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // Only a child abort aborts us. Results come from our own score-ordered
+        // buffer, so a moved child does not move our cursor: collapse it to Ok.
         if let Some(child) = &mut self.child {
-            return child.revalidate(spec);
+            match child.revalidate(spec)? {
+                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
+                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
+            }
         }
         Ok(RQEValidateStatus::Ok)
     }
@@ -441,7 +481,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
-    // Prime both cursors.
+    // Prime both iterators.
     let Some((mut batch_doc, mut batch_score)) = batch.next() else {
         return Ok(());
     };
@@ -454,7 +494,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 heap.push(batch_doc, batch_score);
-                // Advance both cursors.
+                // Advance both iterators.
                 match batch.next() {
                     Some((d, s)) => {
                         batch_doc = d;
@@ -489,6 +529,24 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         }
     }
     Ok(())
+}
+
+/// RAII guard bracketing an adhoc scan: calls [`ScoreSource::begin_adhoc`] on
+/// construction and [`ScoreSource::end_adhoc`] when dropped.
+struct AdhocScope<'a, S: ScoreSource>(&'a mut S);
+
+impl<'a, S: ScoreSource> AdhocScope<'a, S> {
+    /// Opens the adhoc scope on `source`, returning a guard that closes it on drop.
+    fn new(source: &'a mut S) -> Self {
+        source.begin_adhoc();
+        Self(source)
+    }
+}
+
+impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
+    fn drop(&mut self) {
+        self.0.end_adhoc();
+    }
 }
 
 impl<'index, S: ScoreSource + 'index> rqe_iterators::interop::ProfileChildren<'index>

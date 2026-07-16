@@ -169,7 +169,7 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
 /// Caller must guarantee `q` and `q.sctx` are valid (FFI preconditions
 /// 3 and 4 of [`NewNotIterator()`]). When `bc_timeout_areq` is non-null, it
 /// must uphold the [`TimeoutContextBlockedClient::new`] safety contract for
-/// the lifetime of the returned context.
+/// as long as the returned context (and any iterator built from it) is used.
 unsafe fn build_timeout_context(
     timeout: timespec,
     bc_timeout_areq: *mut AREQ,

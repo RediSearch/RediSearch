@@ -15,6 +15,14 @@ CURR_DIR=`pwd`
 ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current directory
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
+# RedisJSON's readies-driven build below requires a pip-capable python3,
+# which system interpreters no longer guarantee (PEP 668). The repo venv
+# provisioned by .install/test_deps/install_python_deps.sh has pip seeded;
+# activate it when the calling shell has not done so already.
+if [[ -z "$VIRTUAL_ENV" && -f "${ROOT}/.venv/bin/activate" ]]; then
+    source "${ROOT}/.venv/bin/activate"
+fi
+
 JSON_BRANCH=${REJSON_BRANCH:-master}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
 TEST_DEPS_DIR="${ROOT}/tests/deps"

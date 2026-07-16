@@ -14,17 +14,24 @@ unittest = []
 build_utils.workspace = true
 
 [dependencies]
+cheadergen.workspace = true
 ffi.workspace = true
+field.workspace = true
+idf.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 query.workspace = true
-query_node_type.workspace = true
+query_error.workspace = true
+query_term.workspace = true
+query_types.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
+search_disk.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+geo.workspace = true
 proptest = { workspace = true, features = ["std"] }
 query = { workspace = true, features = ["unittest"] }
 query_eval = { path = ".", features = ["unittest"] }

@@ -75,6 +75,7 @@
 #include "legacy_types.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "disk_gc.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
@@ -123,7 +124,7 @@ arrayof(int*) asm_sanitizer_allocs;
 
 redisearch_thpool_t *depleterPool = NULL;
 
-static int DIST_THREADPOOL = -1;
+int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
@@ -718,7 +719,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *indexName = rm_strdup(IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
 
   if (sp->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, sp);
+    SearchDisk_CloseIndexOnMainThread(ctx, sp);
     SearchDisk_MarkIndexForDeletion(sp->diskSpec);
   }
 
@@ -1850,7 +1851,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
     DEFINE_COMMAND(RS_SEARCH_CMD,    RSSearchCommand,          "readonly"                , SetFtSearchInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_GET_CMD,       DiskDisabledCmd(GetSingleDocumentCommand), "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexDocCmdArgs,  false),
     DEFINE_COMMAND(RS_HYBRID_CMD,    DiskDisabledCmd(RSShardedHybridCommand),   "readonly"                , SetFtHybridInfo,           SET_COMMAND_INFO,      "",                     true,             indexOnlyCmdArgs, true),
-    DEFINE_COMMAND(RS_AGGREGATE_CMD, DiskDisabledCmd(RSAggregateCommand),       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
+    DEFINE_COMMAND(RS_AGGREGATE_CMD, RSAggregateCommand,       "readonly"                , SetFtAggregateInfo,        SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_PROFILE_CMD,   RSProfileCommand,         "readonly"                , SetFtProfileInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_MGET_CMD,      DiskDisabledCmd(GetDocumentsCommand),      "readonly"                , SetDontCacheInfo,          SET_COMMAND_INFO,      "read",                 true,             indexOnlyCmdArgs, true),
     DEFINE_COMMAND(RS_TAGVALS_CMD,   DiskDisabledCmd(TagValsCommand),           "readonly"                , SetFtTagvalsInfo,          SET_COMMAND_INFO,      "read slow dangerous",  true,             indexOnlyCmdArgs, true),
@@ -1910,6 +1911,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
 
   // free thread pools
   GC_ThreadPoolDestroy();
+  // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
+  DiskGC_Cleanup();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
@@ -3114,7 +3117,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   searchRequestCtx *req = rCtx->searchCtx;
 
   // Number of results to actually return
-  size_t num = req->requestedResultsCount;
+  size_t num = req->offset + req->limit;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
@@ -3180,7 +3183,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    for (int i = 0; i < qlen && i < num; ++i) {
+    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
       RedisModule_Reply_Map(reply); // >> result
         searchResult *res = results[i];
 
@@ -3729,10 +3732,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
-    return REDISMODULE_OK;
-  }
-
   // Memory guardrail
   if (QueryMemoryGuard(ctx)) {
     // If we are in a single shard cluster, we should fail the query if we are out of memory
@@ -4039,18 +4038,22 @@ CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 // RegisterCoordCursorCommands currently has too many dependencies to be easily moved up where CreateSubCommands is defined
 static int RegisterCursorCommands(RedisModuleCtx* ctx, RedisModuleCommand *cursorCommand) {
   CommandKeys keys = DEFINE_COMMAND_KEYS(0, 0, 0);
+  // Internal cursor subcommands stay enabled on disk (flex): the coordinator's
+  // aggregate fan-out creates shard cursors and drains them via _FT.CURSOR.
+  // User-facing cursors are rejected at the public boundary (WITHCURSOR
+  // rejection + RegisterCoordCursorCommands).
   SubCommand subcommands[] = {
     {.name = "READ",    .fullName = RS_CURSOR_CMD "|READ",    .flags = "readonly",
-     .handler = DiskDisabledCmd(RSCursorReadCommand),
+     .handler = RSCursorReadCommand,
      .setCommandInfo = SetFtCursorReadInfo, .position = keys},
     {.name = "DEL",     .fullName = RS_CURSOR_CMD "|DEL",     .flags = "readonly",
-     .handler = DiskDisabledCmd(RSCursorDelCommand),
+     .handler = RSCursorDelCommand,
      .setCommandInfo = SetFtCursorDelInfo, .position = keys},
     {.name = "PROFILE", .fullName = RS_CURSOR_CMD "|PROFILE", .flags = "readonly",
-     .handler = DiskDisabledCmd(RSCursorProfileCommand),
+     .handler = RSCursorProfileCommand,
      .setCommandInfo = SetDontCacheInfo, .position = keys},
     {.name = "GC",      .fullName = RS_CURSOR_CMD "|GC",      .flags = "readonly",
-     .handler = DiskDisabledCmd(RSCursorGCCommand),
+     .handler = RSCursorGCCommand,
      .setCommandInfo = SetDontCacheInfo, .position = keys}
     };
 
@@ -4753,24 +4756,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (isClusterEnabled) {
-      // Init the topology updater cron loop.
-      InitRedisTopologyUpdater(ctx);
-    } else {
-      // We are not in cluster mode. No need to init the topology updater cron loop.
-      // Set the number of shards to 1 to indicate the topology is "set"
-      NumShards = 1;
-      // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
-      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
-      all_slots->num_ranges = 1;
-      all_slots->ranges[0].start = 0;
-      all_slots->ranges[0].end = 16383;
-      ASM_StateMachine_SetLocalSlots(all_slots);
-      rm_free(all_slots);
-    }
-  }
-
   size_t num_connections_per_shard;
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
@@ -4784,6 +4769,22 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   MR_InitLocalNodeId();
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (isClusterEnabled) {
+      // Start the topology updater and fetch the initial topology. Must come after MR_Init
+      // and MR_InitLocalNodeId, as the initial fetch feeds the topology into the MR layer.
+      InitRedisTopologyUpdater(ctx);
+    } else {
+      // We are not in cluster mode. No need to init the topology updater.
+      // Set the number of shards to 1 to indicate the topology is "set"
+      NumShards = 1;
+      // Setting all slots for the case where we send/test internal commands directly from client
+      // (potentially with _SLOTS_INFO)
+      static const RedisModuleSlotRangeArray all_slots = {1, {{0, 16383}}};
+      ASM_StateMachine_SetLocalSlots(&all_slots);
+    }
+  }
 
   return REDISMODULE_OK;
 }
@@ -4932,7 +4933,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // read commands
     DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,               SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
-    DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DiskDisabledCmd(DistAggregateCommand)), "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.PROFILE",    SafeCmd(ProfileCommandHandler),    "readonly", SetFtProfileInfo,            SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SPELLCHECK", SafeCmd(DiskDisabledCmd(SpellCheckCommandHandler)), "readonly", SetFtSpellcheckInfo,         SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND("FT.HYBRID",     SafeCmd(DiskDisabledCmd(DistHybridCommand)), "readonly", SetFtHybridInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),

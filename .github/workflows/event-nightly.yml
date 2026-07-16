@@ -26,7 +26,9 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
+      # macOS Intel (x86_64) test runners are excluded while the macOS runner
+      # problem is mitigated; macOS ARM still runs.
+      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
       architecture: all
       # Track unstable so nightly catches upstream Redis breakage; PR/merge
       # CI uses the latest release.
@@ -42,9 +44,21 @@ jobs:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
+  redis-build-sanity:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/flow-redis-build-sanity.yml
+    secrets: inherit
+    with:
+      platform: all,ubuntu:latest
+      architecture: all
+      redis-repository: redis/redis
+      redis-ref: unstable
+      redisearch-repository: ${{ github.repository }}
+      redisearch-ref: ${{ github.sha }}
 
   notify-failure:
-    needs: [lint, test-all-platforms, micro-benchmarks]
+    needs: [lint, test-all-platforms, micro-benchmarks, redis-build-sanity]
     if: failure()
     runs-on: ubuntu-slim
     permissions:
@@ -65,7 +79,7 @@ jobs:
 
       - name: Run Codex triage
         id: ai_triage
-        uses: ./.github/actions/codex-ci-triage
+        uses: redislabsdev/redisearch-ci-common/.github/actions/codex-ci-triage@v1
         with:
           openai-api-key: ${{ secrets.CI_TRIAGE_OPENAI_API_KEY }}
           prompt-file: .github/codex/prompts/nightly-triage.md

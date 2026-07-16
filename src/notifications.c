@@ -21,6 +21,8 @@
 #include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "disk_gc.h"
+#include "debug_commands.h"
 #include "doc_id_meta.h"
 #include "iterators_ffi.h"
 #include "module_init_ffi.h"
@@ -532,9 +534,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -568,9 +567,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
       trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
-      if (!IsEnterprise()) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
@@ -615,6 +611,15 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+static void ClusterTopologyChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                       void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  RedisModuleClusterTopologyChangeInfo *info = data;
+  RedisModule_Log(ctx, "verbose", "Got cluster topology change event (change flags: 0x%llx)", (unsigned long long)info->change_flags);
+  RedisTopologyUpdater_OnTopologyChanged(ctx);
+}
+
 static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
@@ -653,24 +658,57 @@ static bool g_hotRestartSave = false;
 // The catch is *ownership*: the Rust index handle is owned by
 // the C IndexSpec as a raw pointer (sp->diskSpec, a Box::into_raw), and the
 // ONLY thing that ever drops that Box is SearchDisk_CloseIndex.
+//
+// The teardown runs in three steps, waiting out any in-flight disk GC run in the
+// middle. This close force-drops the Box directly, bypassing the StrongRef refcount
+// that normally serialises a background GC cycle against the close (on FT.DROPINDEX
+// the StrongRef destructor defers the close until periodicCb releases its ref).
+// Without the wait, a GC compaction cycle still running run_gc against a spec we
+// drop here dereferences a freed database -> SIGSEGV (see
+// docs/design/gc-shutdown-teardown-race-crash.md).
 static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     return;
   }
+
+  // Pass 1: main-thread teardown + mark for deletion on every disk spec.
+  // SearchDisk_MarkIndexForDeletion also disable_compactions(), which cancels the
+  // in-flight GC cycle (the GC pool has a single thread) so the wait below returns
+  // promptly instead of sitting through a full compaction.
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
-      // Unregister must always precede close (see SearchDisk_CloseIndex docs).
-      SearchDisk_UnregisterIndex(ctx, sp);
+      // Main-thread teardown must always precede close (see SearchDisk_CloseIndex docs).
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
       SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  // Take the run lock and disable disk GC, waiting out any in-flight run: after this
+  // no run is executing and none will start.
+  DiskGC_LockRunsAndDisable();
+
+  // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
+  iter = dictGetIterator(specDict_g);
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
       SearchDisk_CloseIndex(sp->diskSpec);
       sp->diskSpec = NULL;
     }
   }
   dictReleaseIterator(iter);
+
+  DiskGC_UnlockRuns();
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_AFTER_DISK_INDEX_CLOSE);
+#endif
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -679,6 +717,14 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     RedisModule_Log(ctx, "notice", "%s",
                     "Deleting on-disk search indexes on shutdown (not a hot restart)");
     DeleteDiskIndexesOnShutdown(ctx);
+  } else {
+    // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
+    // shared DiskContext; wait out any in-flight disk GC run first so no compaction
+    // races that close. The checkpoint (index_spec_pre_checkpoint) already
+    // disable_compactions()d during the save, so this wait is prompt. Nothing clears
+    // sp->diskSpec here, so release the lock immediately — the wait is all we need.
+    DiskGC_LockRunsAndDisable();
+    DiskGC_UnlockRuns();
   }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
@@ -776,24 +822,36 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
 // Begin a consistent on-disk save window.
-// Shared by the SST replication fork (flush = SearchDisk_PreFork) and the
-// foreground hot-restart save (flush = SearchDisk_PreCheckpoint), so the two
-// callers cannot drift apart on the lock/flag protocol. Pairs with
-// DiskConsistencyWindow_End.
+// Shared by the SST replication checkpoint (flush = SearchDisk_PreCheckpoint),
+// the SST replication fork (flush = SearchDisk_PreFork) and the foreground
+// hot-restart save (flush = SearchDisk_PreCheckpoint), so the callers cannot
+// drift apart on the lock/flag protocol. Pairs with DiskConsistencyWindow_End
+// or DiskConsistencyWindow_Close.
 static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
   VecSimDisk_AcquireConsistencyLock();
   vecsimdisk_sst_consistency_lock_held = true;
   ForEachIndex(flush);
 }
 
-// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin.
+// Release the consistency lock opened by DiskConsistencyWindow_Begin without
+// running any per-index finalize work. Used where there is no matching disk
+// hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
+//
+// The caller must check vecsimdisk_sst_consistency_lock_held before calling
+// this on a path where the window may never have been opened.
+static void DiskConsistencyWindow_Close(void) {
+  VecSimDisk_ReleaseConsistencyLock();
+  vecsimdisk_sst_consistency_lock_held = false;
+}
+
+// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin,
+// running `finalize` against every disk-backed index before releasing the lock.
 //
 // The caller must check vecsimdisk_sst_consistency_lock_held before calling
 // this on a path where the window may never have been opened (e.g. SST ABORT).
 static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
   ForEachIndex(finalize);
-  VecSimDisk_ReleaseConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = false;
+  DiskConsistencyWindow_Close();
 }
 
 // SST replication event handler.
@@ -814,10 +872,18 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
-      ForEachIndex(SearchDisk_PreCheckpoint);
+      // Hold the consistency lock across the checkpoint so background vector
+      // index jobs cannot mutate on-disk state while the checkpoint is taken.
+      // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
+      // fresh window afterwards.
+      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      // POST_CHECKPOINT has no matching disk hook - just close the window
+      // opened at PRE_CHECKPOINT.
+      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      DiskConsistencyWindow_Close();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
@@ -940,6 +1006,17 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+
+  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
+  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
+  // before the Enterprise flow fully supports it (e.g. connections auth).
+  if (!IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
+                                      "topology will not be refreshed automatically");
+    }
+  }
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);

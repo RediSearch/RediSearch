@@ -161,7 +161,7 @@ static RedisSearchCtx* GetDummySearchCtx() {
     .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
     .apiVersion = 0,
     .expanded = 0,
-    .flags = RS_CTX_UNSET,
+    .lock_state = SPEC_LOCK_UNSET,
   };
   return &dummySctx;
 }
@@ -224,7 +224,7 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -239,7 +239,7 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 
@@ -1452,7 +1452,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Use static dummy search context for tests (with skipTimeoutChecks = true)
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, nullptr, nullptr, returnCodes, lookupCtx, nullptr);
 
   // Attach the merger to a query processing context: like every buffering RP it
   // reads its qctx (here, the index-result copy decision) during Next().

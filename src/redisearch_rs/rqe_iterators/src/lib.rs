@@ -21,25 +21,30 @@ use std::ptr::NonNull;
 use std::sync::OnceLock;
 
 use index_spec::IndexSpecReadGuard;
+use ref_mode::{Active, Ref};
 use rqe_core::{DocId, FieldIndex};
 use thiserror::Error;
 
-use ::inverted_index::FieldMask;
-use index_result::RSIndexResult;
+use ::inverted_index::{FieldMask, NumericFilter};
+use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
 
+pub mod boxed;
 pub mod c2rust;
 pub mod config;
+pub mod deferred;
 pub mod empty;
 pub mod expiration_checker;
 pub mod geo_shape;
 pub mod id_list;
+pub mod id_list_lazy;
 pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
 pub mod maybe_empty;
 pub mod metric;
+pub mod metric_lazy;
 pub mod not;
 pub mod not_optimized;
 pub mod not_reducer;
@@ -48,6 +53,7 @@ pub mod optional_optimized;
 pub mod optional_reducer;
 pub mod profile;
 pub mod profile_print;
+pub mod resume_outcome;
 pub mod union;
 mod union_flat;
 mod union_heap;
@@ -57,17 +63,26 @@ mod union_trimmed;
 pub mod utils;
 pub mod wildcard;
 
+pub use boxed::{
+    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
+    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+};
 pub use config::IteratorsConfig;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use geo_shape::{GeoShape, MemTracker, NoTracker};
 pub use id_list::IdList;
+pub use id_list_lazy::IdListLazy;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
-    build_geo_numeric_filters, extract_geo_unit_factor, new_geo_range_iterator,
-    open_numeric_or_geo_index,
+    TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
+    build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
+    new_geo_range_iterator, open_numeric_or_geo_index,
 };
+pub use metric::Metric;
+pub use metric_lazy::MetricLazy;
+pub use resume_outcome::ResumeOutcome;
 pub use rqe_iterator_type::IteratorType;
 pub use union::{
     Union, UnionFlat, UnionFullFlat, UnionFullHeap, UnionHeap, UnionQuickFlat, UnionQuickHeap,
@@ -76,15 +91,39 @@ pub use union::{
 pub use union_opaque::{UnionOpaque, UnionVariant};
 pub use wildcard::{NewWildcardIterator, Wildcard, WildcardIterator};
 
-#[derive(Debug, PartialEq)]
-/// The outcome of [`RQEIterator::skip_to`].
-pub enum SkipToOutcome<'iterator, 'index> {
+#[derive(Debug)]
+/// The outcome of [`RQEIterator::skip_to`], generic over the [`Ref`] mode.
+pub enum SkipToOutcomeRaw<'iterator, 'query, Rf: Ref> {
     /// The iterator has a valid entry for the requested `doc_id`.
-    Found(&'iterator mut RSIndexResult<'index>),
+    Found(&'iterator mut RawIndexResult<'query, Rf>),
 
     /// The iterator doesn't have an entry for the requested `doc_id`, but there are entries with an id greater than the requested one.
-    NotFound(&'iterator mut RSIndexResult<'index>),
+    NotFound(&'iterator mut RawIndexResult<'query, Rf>),
 }
+
+/// Manual `PartialEq` impl with a transitive bound on
+/// `RawIndexResult<'query, Rf>: PartialEq` — only [`Active`] satisfies this
+/// (see [`ref_mode`]).
+impl<'iterator, 'query, Rf: Ref> PartialEq for SkipToOutcomeRaw<'iterator, 'query, Rf>
+where
+    RawIndexResult<'query, Rf>: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Found(a), Self::Found(b)) => a == b,
+            (Self::NotFound(a), Self::NotFound(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// The outcome of [`RQEIterator::skip_to`] when the iterator holds [`Active`]
+/// references into the index. This is the only instantiation that's
+/// constructible from trait-impl code today; the more general
+/// [`SkipToOutcomeRaw`] exists so the iterator structs can store function
+/// pointers whose signatures are uniform across `Active`/`Suspended`
+/// instantiations.
+pub type SkipToOutcome<'iterator, 'index> = SkipToOutcomeRaw<'iterator, 'index, Active<'index>>;
 
 #[derive(Debug, Error)]
 /// An iterator failure indications
@@ -340,8 +379,8 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        filter: &ffi::NumericFilter,
-        field_index: ffi::t_fieldIndex,
+        filter: &NumericFilter,
+        field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

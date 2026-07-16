@@ -13,6 +13,7 @@ use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     cell::OnceCell,
     ffi::CString,
+    num::NonZeroUsize,
     ptr::{self, NonNull},
     sync::{
         Mutex, Once,
@@ -46,6 +47,7 @@ use index_result::RSIndexResult;
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 use rqe_iterators::IteratorsConfig;
+use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
 struct ModuleCtx {
@@ -276,7 +278,7 @@ impl TestContext {
                 0,
                 std::ptr::null(),
                 0,
-                ffi::DocumentType::Hash,
+                document::DocumentType::Hash,
             )
         };
         assert!(!dmd.is_null(), "DocTable_Put returned null");
@@ -344,6 +346,73 @@ impl TestContext {
             sctx,
             spec,
             qctx: OnceCell::new(),
+            inner: TestContextInner::Numeric {
+                field_spec: fs,
+                numeric_range_tree: NonNull::from_mut(numeric_range_tree),
+            },
+        }
+    }
+
+    /// Create a new [`TestContext`] with a GEO field backed by a numeric range
+    /// tree holding the given `(doc_id, lon, lat)` points.
+    ///
+    /// Geo fields are stored as sorted numeric geohash scores, so each point is
+    /// encoded to its geohash score before being indexed.
+    ///
+    /// # Arguments
+    /// * `points` - An iterator over `(doc_id, lon, lat)` points to be indexed.
+    ///
+    /// # Panics
+    /// Panics if any point's coordinates are outside WGS-84 bounds.
+    pub fn geo<I>(points: I) -> Self
+    where
+        I: Iterator<Item = (DocId, f64, f64)>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        // Create IndexSpec for a GEO field with a unique name to avoid parallel
+        // test conflicts.
+        let index_name = unique_index_name("geo_idx");
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA geo_field GEO", &index_name);
+
+        let field_name = CString::new("geo_field").unwrap();
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned by
+        // `create_spec_sctx`, and `field_name` is a valid NUL-terminated string
+        // whose byte length matches the pointer passed alongside it.
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec,
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let mut fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        // Geo fields share the numeric range-tree storage; open it and add the
+        // geohash-encoded scores.
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` and `fs` is a valid,
+        // non-null `FieldSpec` for the geo field just looked up above.
+        let numeric_range_tree = unsafe {
+            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, true)
+        }
+        .expect("NumericRangeTree should not be None");
+
+        for (doc_id, lon, lat) in points {
+            let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
+                .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
+            let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
+            numeric_range_tree.add(doc_id, score, false, 0);
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            qctx: OnceCell::new(),
+            // A geo field is backed by the numeric range tree, so it reuses the
+            // `Numeric` inner variant rather than needing a dedicated one.
             inner: TestContextInner::Numeric {
                 field_spec: fs,
                 numeric_range_tree: NonNull::from_mut(numeric_range_tree),
@@ -451,7 +520,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+            let record: RSIndexResult = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -516,7 +585,7 @@ impl TestContext {
 
         // Populate with virtual records for each document ID
         for doc_id in doc_ids {
-            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+            let record: RSIndexResult = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii is a valid pointer created via NewInvertedIndex_Ex
             unsafe {
                 inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
@@ -582,7 +651,8 @@ impl TestContext {
             ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
-        let tag_index_raw = unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut()) };
+        let tag_index_raw =
+            unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut(), false) };
         let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
 
         // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
@@ -606,7 +676,7 @@ impl TestContext {
         // pointer is actually a Rust opaque InvertedIndex despite the C type.
         let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
         for doc_id in doc_ids {
-            let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+            let record: RSIndexResult = RSIndexResult::build_virt().doc_id(doc_id).build();
             // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
             // which delegates to NewInvertedIndex_Ex (Rust FFI).
             unsafe {
@@ -860,12 +930,17 @@ impl TestContext {
         // which keeps the guard as the sole mutable path to the spec.
         let docs = guard.doc_table_mut();
 
-        // SAFETY: `&mut docs.ttl` is a valid, writable `*mut *mut TimeToLiveTable`,
-        // and `maxSize` is initialized. The guard holds exclusive access to the
-        // spec, so the initialization does not race.
-        unsafe {
-            ffi::TimeToLiveTable_VerifyInit(&mut docs.ttl, docs.maxSize as usize);
+        // Already initialized
+        if !docs.ttl.is_null() {
+            return;
         }
+
+        let ttl = &mut docs.ttl;
+
+        let max_size = NonZeroUsize::new(docs.maxSize as usize)
+            .expect("doc table maxSize must be non-zero to initialize the TTL table");
+        let time_to_live_table = Box::into_raw(Box::new(ttl_table::TimeToLiveTable::new(max_size)));
+        *ttl = time_to_live_table as *mut ffi::TimeToLiveTable;
     }
 
     /// Add a TTL entry for the given field in the given document.
@@ -875,56 +950,45 @@ impl TestContext {
         field: FieldMaskOrIndex,
         expiration: ffi::t_expirationTimePoint,
     ) {
-        use ffi::FieldExpiration;
+        use ttl_table::FieldExpiration;
 
         self.verify_ttl_init();
 
         let fe = match field {
             FieldMaskOrIndex::Index(index) => {
                 // Single field by index
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, 1)
-                };
-                let fe = fe.cast::<FieldExpiration>();
-                unsafe {
-                    *fe = FieldExpiration {
-                        index,
-                        point: expiration,
-                    };
-                }
+                let mut fe = FieldExpirations::new();
+                fe.push(FieldExpiration {
+                    index,
+                    point: expiration,
+                });
                 fe
             }
             FieldMaskOrIndex::Mask(mask) => {
                 // Multiple fields by mask - count bits to determine array size
                 let count = mask.count_ones();
-                let fe = unsafe {
-                    ffi::array_new_sz(std::mem::size_of::<FieldExpiration>() as u16, 0, count)
-                };
-                let fe = fe.cast::<FieldExpiration>();
+                let mut fe = FieldExpirations::with_capacity(count as usize);
 
-                // Add a FieldExpiration for each bit set in the mask
                 let mut value = mask;
-                let mut i = 0isize;
                 while value != 0 {
                     let index = value.trailing_zeros();
-                    unsafe {
-                        *fe.offset(i) = FieldExpiration {
-                            index: index as u16,
-                            point: expiration,
-                        };
-                    }
+                    fe.push(FieldExpiration {
+                        index: index as u16,
+                        point: expiration,
+                    });
                     value &= value - 1;
-                    i += 1;
                 }
                 fe
             }
         };
 
-        // SAFETY: self.spec is valid, TTL table is initialized, fe is a valid array
-        let guard = self.spec_read();
-        unsafe {
-            ffi::TimeToLiveTable_Add(guard.doc_table().ttl, doc_id, fe as _);
-        }
+        let mut guard = self.spec_write();
+        let ttl = guard.doc_table_mut().ttl as *mut ttl_table::TimeToLiveTable;
+
+        // Safety: we initialized it above
+        let ttl = unsafe { &mut *ttl };
+
+        ttl.add(doc_id, fe);
     }
 
     /// Mark the given field of the given documents as expired.
@@ -1059,6 +1123,18 @@ impl Default for GlobalGuard {
                 unsafe {
                     // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
                     ffi::StopWordList_FreeGlobals();
+                }
+
+                // NA_rstr (the IndexError default key) is lazily allocated the
+                // first time a spec's IndexError is initialized.
+                //
+                // SAFETY: `IndexError_GlobalCleanup` takes no arguments and
+                // internally null-checks `NA_rstr`, so it is sound to call whether
+                // or not a spec was ever created, and is idempotent. It runs at
+                // process exit, after every `TestContext` has been dropped, so
+                // nothing else references the string.
+                unsafe {
+                    ffi::IndexError_GlobalCleanup();
                 }
             }
 

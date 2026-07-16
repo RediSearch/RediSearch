@@ -594,11 +594,13 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `key` must be non-null even for a zero-length cstr.
  * 7. The nul terminator must be within `isize::MAX` from `key`
- * 8. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
+ * 8. `open_key`, if non-null, must be a valid, already-open `ffi::RedisModuleKey` handle for
+ *    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
+ * 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, QueryError *status);
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, RedisModuleKey *open_key, QueryError *status);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list.

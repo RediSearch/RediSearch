@@ -17,7 +17,7 @@ use std::{
 };
 
 use inverted_index::NumericFilter;
-use query_node_type::QueryNodeType;
+use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::DocId;
 
 /// Owns a heap-allocated [`ffi::RSQueryNode`].
@@ -113,7 +113,7 @@ impl MockQueryNode {
         self.node
     }
 
-    pub fn opts_mut(&mut self) -> &mut ffi::QueryNodeOptions {
+    pub fn opts_mut(&mut self) -> &mut QueryNodeOptions {
         // SAFETY: `self.node` is a valid, exclusively-owned allocation.
         unsafe { &mut (*self.node).opts }
     }
@@ -125,6 +125,16 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryNumericNode>()).nf = nf.cast();
+        }
+    }
+
+    /// Set the `gf` field of the geo-node union variant.
+    pub fn set_geo_filter(&mut self, gf: *mut ffi::GeoFilter) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Geo so the `gn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryGeofilterNode>()).gf = gf;
         }
     }
 
@@ -167,6 +177,24 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryPhraseNode>()).exact = exact;
+        }
+    }
+
+    /// Set the `str`/`len` fields of the token-node union variant
+    /// ([`ffi::RSToken`]).
+    ///
+    /// The caller must keep `str_` valid for `len` bytes for as long as the
+    /// node is used (e.g. by owning the backing buffer alongside the node).
+    /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
+    pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
+        // active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let tok = &mut *union_ptr.cast::<ffi::RSToken>();
+            tok.str_ = str_;
+            tok.len = len;
         }
     }
 

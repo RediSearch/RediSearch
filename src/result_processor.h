@@ -25,6 +25,7 @@
 #include "result_processor_ffi.h"
 #include "search_result.h"
 #include "slot_ranges.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct RLookupKey RLookupKey;
 
@@ -72,6 +73,7 @@ typedef enum {
   RP_HYBRID_MERGER,
   RP_SAFE_DEPLETER,
   RP_DEPLETER,
+  RP_DISK_ASYNC_LOADER,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -90,6 +92,17 @@ struct RLookup;
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
+
+// Result count to report to the client: matches minus the rows a loader dropped
+// (deleted/re-indexed/expired mid-load). Invariant: skippedResults <= totalResults
+// — drops are a subset of counted matches, and any stage that transforms or replaces
+// totalResults (grouper, hybrid merge, optimizer offset/limit) folds in and clears
+// skippedResults first. The assert enforces the invariant at every reply site.
+static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
+  RS_LOG_ASSERT(qctx->skippedResults <= qctx->totalResults,
+                "skippedResults must not exceed totalResults");
+  return qctx->totalResults - qctx->skippedResults;
+}
 
 /* Result processor return codes */
 
@@ -338,9 +351,14 @@ StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
  * Merges results from multiple upstream processors using a hybrid scoring function.
  * Takes results from all upstreams and applies the provided function to combine their scores.
  *******************************************************************************************************************/
+// Forward declaration; full type is in hybrid/hybrid_search_result.h
+typedef struct HybridExplainContext HybridExplainContext;
+
 /*
  * Creates a new Hybrid Merger processor.
  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+ * `explainCtx` is optional: pass NULL to disable EXPLAINSCORE wrapping. When
+ * non-NULL, RPHybridMerger takes ownership of the struct (frees it on Free).
  * @param scoreKey Optional key for writing scores as fields when no LOAD step is provided
  */
 ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
@@ -350,7 +368,8 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
                                     const RLookupKey *docKey,
                                     const RLookupKey *scoreKey,
                                     RPStatus *subqueriesReturnCodes,
-                                    HybridLookupContext *lookupCtx);
+                                    HybridLookupContext *lookupCtx,
+                                    HybridExplainContext *explainCtx);
 
 /*
  * Returns NULL if the processor is not a HybridMerger or if scoreKey is NULL.

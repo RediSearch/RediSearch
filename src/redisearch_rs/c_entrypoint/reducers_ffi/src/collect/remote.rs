@@ -47,6 +47,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     limit_offset: u64,
     limit_count: u64,
     is_internal: bool,
+    distinct: bool,
 ) -> *mut ffi::Reducer {
     let field_keys: Box<[&RLookupKey]> = if !field_keys.is_null() && field_keys_len > 0 {
         // SAFETY: ensured by caller (1.)
@@ -76,6 +77,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
         sort_asc_map,
         limit,
         is_internal,
+        distinct,
     ));
 
     cr.reducer_mut()
@@ -131,7 +133,7 @@ pub unsafe extern "C" fn collectRemoteAddWithDocId(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
-    doc_id: ffi::t_docId,
+    doc_id: rqe_core::DocId,
 ) -> c_int {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_ref().unwrap() };

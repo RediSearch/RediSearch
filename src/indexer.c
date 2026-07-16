@@ -27,6 +27,8 @@
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
 #include "tag_index.h"
+#include "module.h"
+#include "util/workers.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -272,6 +274,25 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
   return dmd;
 }
 
+// DocIdMeta access from the indexing pipeline. When the add-document context
+// carries an already-open key handle (supplied by callers that hold the key
+// open and pinned, e.g. the async scan key callback), these reuse it via the
+// *WithKey variants instead of reopening the key by name; otherwise they fall
+// back to the name-based variants, which open and close the key themselves.
+// Centralizing the openKey check here keeps every DocIdMeta access on the
+// indexing path consistent.
+static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_GetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Get(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId) {
+  return aCtx->disk.openKey
+             ? DocIdMeta_SetWithOpenKey(aCtx->disk.openKey, ctx->spec->specId, docId)
+             : DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, ctx->spec->specId, docId);
+}
+
 /**
  * Performs bulk document ID assignment to all items in the queue.
  * If one item cannot be assigned an ID, it is marked as being errored.
@@ -310,7 +331,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       // once the batch has committed.
       // TODO: Consider calling this from SearchDisk_PutDocument
       uint64_t oldDocId = 0;
-      DocIdMeta_Get(ctx->redisCtx, cur->doc->docKey, spec->specId, &oldDocId);
+      actxDocIdMetaGet(cur, ctx, &oldDocId);
       cur->disk.oldDocId = oldDocId;
 
       // Open a per-document write batch that doc-table / inverted-index / tag-index writes
@@ -367,15 +388,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
         cur->byteOffsets = NULL;
       }
       Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || doc->fieldExpirations;
+      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
       if (hasExpiration) {
-        // No need to mark the DMD with Document_HasExpiration: the result
-        // processor already fetches the DMD from the doc table on every hit,
-        // so it can read `expirationTimeNs` directly without going through
-        // a flag-gated branch.
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime, doc->fieldExpirations);
-
-        doc->fieldExpirations = NULL; // Moved to DocTable (TTL table actually)
+        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
       }
       DMD_Return(md);
 
@@ -409,7 +425,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
  */
 static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  int rc = DocIdMeta_Set(ctx->redisCtx, aCtx->doc->docKey, spec->specId, aCtx->doc->docId);
+  int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
   // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
@@ -559,7 +575,8 @@ static void reopenCb(void *arg) {}
 // Index missing field docs.
 // Add field names to missingFieldDict if it is missing in the document
 // and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, arrayof(FieldExpiration) sortedFieldWithExpiration) {
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
   Document *doc = aCtx->doc;
   IndexSpec *spec = sctx->spec;
   // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
@@ -585,8 +602,8 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, 
   }
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
-  for (uint32_t sortedIndex = 0; sortedIndex < array_len(sortedFieldWithExpiration); sortedIndex++) {
-    FieldExpiration* fe = &sortedFieldWithExpiration[sortedIndex];
+  for (size_t sortedIndex = 0; sortedIndex < sortedFieldWithExpiration.len; sortedIndex++) {
+    const FieldExpiration* fe = &sortedFieldWithExpiration.ptr[sortedIndex];
     FieldSpec* fs = spec->fields + fe->index;
     if (!FieldSpec_IndexesMissing(fs)) {
       continue;
@@ -680,7 +697,7 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  * `doAssignIds`, so there is no `applyDocTable` step here.
  */
 static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
-                                arrayof(FieldExpiration) fes) {
+                                FieldExpirationSlice fes) {
   if (aCtx->fwIdx && !(aCtx->stateFlags & ACTX_F_ERRORED)) {
     indexText(aCtx, ctx);
   }
@@ -776,8 +793,7 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
     // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
-    arrayof(FieldExpiration) fes =
-        (arrayof(FieldExpiration))DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
+    struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);
     indexDocumentMemory(aCtx, &ctx, fes);
   }
 }
@@ -790,6 +806,8 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
 
 bool g_isLoading = false;
 
+#define RDB_LOAD_THROTTLE_BACKOFF_US 1000
+
 /**
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
@@ -800,9 +818,13 @@ bool g_isLoading = false;
 void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
+  if (!g_isLoading) {
+    return;
+  }
+
   // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
   opCounter += numOps;
-  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+  if (opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementLoadYieldCounter(); // Track that we called yield
     unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
@@ -810,5 +832,17 @@ void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flag
       usleep(sleepMicros);
     }
     RedisModule_Yield(ctx, flags, NULL);
+  }
+
+  // If server is loading, Yield to Redis if Vector write is throttling.
+  if (SearchDisk_IsEnabled() && !IS_SST_RDB_LOADING(ctx) &&
+      workersThreadPool_NumThreads() > 0 && SearchDisk_IsVectorWriteThrottling()) {
+    RedisModule_Log(ctx, "debug",
+                    "RDB load: vector flat buffer full; backing off the rebuild");
+    while (SearchDisk_IsVectorWriteThrottling()) {
+      usleep(RDB_LOAD_THROTTLE_BACKOFF_US);
+      RedisModule_Yield(ctx, flags, NULL);
+    }
+    RedisModule_Log(ctx, "debug", "RDB load: vector flat buffer throttle cleared; resuming");
   }
 }

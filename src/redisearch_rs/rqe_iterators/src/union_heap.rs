@@ -9,7 +9,8 @@
 
 //! Heap variant of the union iterator with O(log n) min-finding.
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RawIndexResult};
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
 use crate::utils::DocIdMinHeap;
@@ -17,6 +18,9 @@ use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, Skip
 use index_spec::IndexSpecReadGuard;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
+///
+/// Parameterised over a [`Ref`] mode — see [`UnionHeap`] for the [`Active`]
+/// instantiation that implements [`RQEIterator`].
 ///
 /// Unlike [`crate::Intersection`] which requires documents to appear in ALL children,
 /// `UnionHeap` yields documents that appear in at least one child. When multiple children
@@ -29,11 +33,12 @@ use index_spec::IndexSpecReadGuard;
 ///
 /// # Type Parameters
 ///
-/// - `'index`: Lifetime of the index data.
+/// - `Rf`: The [`Ref`] mode.
 /// - `I`: The child iterator type, must implement [`RQEIterator`].
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
-pub struct UnionHeap<'index, I, const QUICK_EXIT: bool> {
+#[repr(C)]
+pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     children: Vec<I>,
     num_estimated: usize,
     /// Number of children that have not yet reached EOF.
@@ -44,10 +49,15 @@ pub struct UnionHeap<'index, I, const QUICK_EXIT: bool> {
     num_active: usize,
     is_eof: bool,
     /// Reused across calls to avoid allocations.
-    result: RSIndexResult<'index>,
+    result: RawIndexResult<'query, Rf>,
     /// Min-heap of `(doc_id, child_index)`.
     heap: DocIdMinHeap,
 }
+
+/// Alias for an [`Active`] [`RawUnionHeap`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type UnionHeap<'index, I, const QUICK_EXIT: bool> =
+    RawUnionHeap<'index, Active<'index>, I, QUICK_EXIT>;
 
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where

@@ -1,5 +1,7 @@
 name: Flaky tests — mark
 
+# Thin workflow_dispatch caller of the shared reusable flaky-mark workflow. The
+# inputs are kept here so the manual-run form is unchanged.
 on:
   workflow_dispatch:
     inputs:
@@ -28,54 +30,13 @@ on:
 
 jobs:
   mark:
-    runs-on: ubuntu-slim
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: pip install 'redis>=6,<7'
-
-      - name: Mark test as flaky
-        env:
-          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ inputs.branch }}
-          TEST_ID: ${{ inputs.test_id }}
-          REASON: ${{ inputs.reason }}
-          JIRA_KEY: ${{ inputs.jira_key }}
-          DAYS: ${{ inputs.expires_in_days }}
-          ACTOR: ${{ github.actor }}
-        run: python3 .github/scripts/flaky_db.py mark
-
-      - name: Summary
-        if: success()
-        env:
-          # Pass inputs through env so they're treated as data, not interpolated
-          # into the shell script by GitHub Actions before bash evaluates it.
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ inputs.branch }}
-          TEST_ID: ${{ inputs.test_id }}
-          JIRA_KEY: ${{ inputs.jira_key }}
-          REASON: ${{ inputs.reason }}
-          DAYS: ${{ inputs.expires_in_days }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          {
-            echo "### Flaky mark recorded :white_check_mark:"
-            echo
-            echo "| Field | Value |"
-            echo "|---|---|"
-            echo "| Repo | \`$REPO\` |"
-            echo "| Branch | \`$BRANCH\` |"
-            echo "| Test | \`$TEST_ID\` |"
-            echo "| Jira | $JIRA_KEY |"
-            echo "| Reason | $REASON |"
-            echo "| Expires in | $DAYS days |"
-            echo "| Marked by | @$ACTOR |"
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-mark.yml@v1
+    with:
+      branch: ${{ inputs.branch }}
+      test_id: ${{ inputs.test_id }}
+      reason: ${{ inputs.reason }}
+      jira_key: ${{ inputs.jira_key }}
+      expires_in_days: ${{ inputs.expires_in_days }}
+      ci-common-ref: v1
+    secrets:
+      redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}

@@ -161,6 +161,28 @@ impl TopKHeap {
         self.inner.pop().map(|e| e.result)
     }
 
+    /// Replaces the heap's contents with `results`, heapifying instead of n insertions.
+    ///
+    /// The caller must guarantee `results` holds at most `capacity` elements;
+    /// unlike [`push`](Self::push) this performs no eviction, so any excess
+    /// would silently exceed capacity.
+    pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = ScoredResult>) {
+        let compare = self.compare;
+        self.inner = results
+            .into_iter()
+            .map(|result| HeapEntry { result, compare })
+            .collect();
+        debug_assert!(self.inner.len() <= self.capacity);
+    }
+
+    /// Drains all elements in unspecified order, leaving the heap empty but reusable.
+    ///
+    /// Unlike [`drain_sorted`](Self::drain_sorted) this borrows the heap, so the
+    /// caller can rescore the drained entries and push them back.
+    pub fn drain_unsorted(&mut self) -> impl Iterator<Item = ScoredResult> + '_ {
+        self.inner.drain().map(|e| e.result)
+    }
+
     /// Drains all elements and returns them sorted best-first.
     ///
     /// Consumes the heap.
@@ -395,6 +417,31 @@ mod tests {
 
         assert!(inserted);
         assert_eq!(heap.len(), 2);
+    }
+
+    #[test]
+    fn drain_unsorted_empties_heap_and_returns_all() {
+        let mut heap = TopKHeap::new(non_zero_capacity(3), asc);
+        heap.push(1, 2.0);
+        heap.push(2, 5.0);
+        heap.push(3, 3.0);
+
+        let mut drained = heap.drain_unsorted().collect::<Vec<_>>();
+        assert_eq!(drained.len(), 3);
+        assert!(heap.is_empty(), "drain_unsorted must leave the heap empty");
+
+        // Order is unspecified; sort by doc_id to check membership.
+        drained.sort_by_key(|r| r.doc_id);
+        let scores: Vec<f64> = drained.iter().map(|r| r.score).collect();
+        assert_eq!(scores, vec![2.0, 5.0, 3.0]);
+
+        // The heap stays reusable: re-pushing rebuilds order.
+        for r in drained {
+            heap.push(r.doc_id, r.score);
+        }
+        let sorted = heap.drain_sorted();
+        assert_eq!(sorted[0].score, 2.0);
+        assert_eq!(sorted[2].score, 5.0);
     }
 
     #[test]

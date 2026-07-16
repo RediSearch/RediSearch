@@ -22,6 +22,7 @@ CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 # rust-docs-json:
 #   Required by `cheadergen` to generate C headers
 rustup toolchain install $NIGHTLY_VERSION \
+    --profile=minimal \
     --allow-downgrade \
     --component llvm-tools-preview \
     --component miri \
@@ -94,7 +95,8 @@ binstall cargo-llvm-cov@0.8.4
 # The musl prebuilt is chosen for glibc independence; a host-target
 # prebuilt would be glibc-linked and defeat the purpose, so on fallback
 # we go straight to a source build with the host toolchain.
-binstall --no-host-prebuilt cargo-nextest@0.9.130
+# Pin shared with .install/install_rust.sh (bootstrap) via .nextest-version.
+binstall --no-host-prebuilt cargo-nextest@"$(cat "$REPO_ROOT/.nextest-version")"
 # Tool to aggressively unify the feature sets of our dependencies,
 # thus improving the cacheability of our builds
 # See https://docs.rs/cargo-hakari/latest/cargo_hakari/about/

@@ -10,7 +10,7 @@
 #pragma once
 
 #include <stdlib.h>
-#include "query_node_type.h"
+#include "query_types.h"
 #include "redisearch.h"
 #include "hiredis/sds.h"
 #include "param.h"

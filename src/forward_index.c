@@ -296,7 +296,11 @@ AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, Forwar
                        .metrics = MetricsVec_New()};
 
   if (ent->vw) {
-    rec.data.term.borrowed.offsets.data = VVW_GetByteData(ent->vw);
+    // VVW_GetByteData returns `const uint8_t *`; the Rust side stores
+    // it as a `NonNull<u8>` (cheadergen emits the field as `uint8_t *`).
+    // We never write through this pointer; the cast is purely a typing
+    // adjustment to satisfy the strict C compiler.
+    rec.data.term.borrowed.offsets.data = (uint8_t *)VVW_GetByteData(ent->vw);
     rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, &rec);

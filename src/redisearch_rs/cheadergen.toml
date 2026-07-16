@@ -28,8 +28,10 @@ header_name = "index_result_rs"
 header_name = "search_result_rs"
 
 [package.ttl_table]
-# Avoid a name conflict with the pre-existing `ttl_table.h` header file.
 header_name = "ttl_table_rs"
+
+[package.ttl_table_ffi]
+header_name = "ttl_table"
 
 [c]
 cpp_compat = true
@@ -72,6 +74,25 @@ after_includes = """
 // Forward declaration of `RSDocumentMetadata`, defined in `redisearch.h`.
 // We can't include redisearch.h directly: it transitively includes this header.
 typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+"""
+trailer = """
+/* Backward-compatible aliases for the variant tag enumerators. cheadergen
+ * mangles them with the underlying generic+instantiation name; the C codebase
+ * uses the unsuffixed forms. */
+#define RSResultData_Union        RawResultData_Active_Union
+#define RSResultData_Intersection RawResultData_Active_Intersection
+#define RSResultData_Term         RawResultData_Active_Term
+#define RSResultData_Virtual      RawResultData_Active_Virtual
+#define RSResultData_Numeric      RawResultData_Active_Numeric
+#define RSResultData_Metric       RawResultData_Active_Metric
+#define RSResultData_HybridMetric RawResultData_Active_HybridMetric
+
+#define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
+#define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
+
+#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned      RawTermRecord_Active_Owned
+#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
 """
 
 [header.inverted_index_ffi]
@@ -201,7 +222,7 @@ typedef uint32_t QEFlags;
 #define QEXEC_F_SEND_PAYLOADS                      QEFlag_SendPayloads
 #define QEXEC_F_IS_CURSOR                          QEFlag_IsCursor
 #define QEXEC_F_REQUIRED_FIELDS                    QEFlag_RequiredFields
-#define QEXEC_F_BUILDPIPELINE_NO_ROOT              QEFlag_BuildPipelineNoRoot
+#define QEXEC_F_IS_COORDINATOR                     QEFlag_IsCoordinator
 #define QEXEC_F_RUN_IN_BACKGROUND                  QEFlag_RunInBackground
 #define QEXEC_F_IS_SEARCH                          QEFlag_IsSearch
 #define QEXEC_F_SEND_HIGHLIGHT                     QEFlag_SendHighlight
@@ -228,7 +249,7 @@ typedef uint32_t QEFlags;
 #define QEXEC_F_DEBUG                              QEFlag_Debug
 """
 
-[header.query_node_type]
+[header.query_types]
 after_includes = """
 /* Backward-compatible aliases for C code that uses the old enum constant names. */
 #define QN_PHRASE          QueryNodeType_Phrase
@@ -292,6 +313,8 @@ after_includes = """
 #define ID_LIST_UNSORTED_ITERATOR         IteratorType_IdListUnsorted
 #define METRIC_SORTED_BY_ID_ITERATOR      IteratorType_MetricSortedById
 #define METRIC_SORTED_BY_SCORE_ITERATOR   IteratorType_MetricSortedByScore
+#define METRIC_LAZY_SORTED_BY_ID_ITERATOR    IteratorType_MetricLazySortedById
+#define METRIC_LAZY_SORTED_BY_SCORE_ITERATOR IteratorType_MetricLazySortedByScore
 #define PROFILE_ITERATOR                  IteratorType_Profile
 #define OPTIMUS_ITERATOR                  IteratorType_Optimus
 #define MAX_ITERATOR                      IteratorType_Max
@@ -316,6 +339,7 @@ typedef struct QueryProcessingCtx {
   rs_wall_clock_ns_t queryGILTime;
   double minScore;
   uint32_t totalResults;
+  uint32_t skippedResults;
   uint32_t resultLimit;
   QueryError *err;
   bool bgScanOOM;
@@ -402,3 +426,11 @@ includes = ["redismodule.h", "hiredis/sds.h"]
 
 [header.varint_ffi]
 includes = ["buffer.h", "redisearch.h"]
+
+[header.ttl_table]
+includes = ["redisearch.h"]
+after_includes = """
+
+// `TimeToLiveTable` is opaque on the C side — only passed by pointer.
+typedef struct TimeToLiveTable TimeToLiveTable;
+"""

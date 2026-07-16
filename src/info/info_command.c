@@ -12,7 +12,7 @@
 #include "triemap_ffi.h"
 #include "spec.h"
 #include "indexes.h"
-#include "indexes_scan.h"
+#include "indexes_scanner.h"
 #include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
@@ -364,7 +364,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }

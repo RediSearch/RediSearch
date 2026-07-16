@@ -116,6 +116,12 @@ impl TimeoutContext for TimeoutContextClock {
 /// the cost of a relaxed atomic load through the named extern is already
 /// in the same order of magnitude as a counter bump, and avoiding the
 /// counter keeps the hot path branch-free.
+///
+/// The [`AREQ`] is held as a raw [`NonNull`] pointer with no lifetime: like the
+/// rest of the query-iterator tree (see the "phantom `'index`" note on
+/// `RQEIteratorWrapper`), the context does not model the borrow in the type
+/// system. Keeping the request valid for as long as the context is used is a
+/// runtime invariant the caller upholds, documented on [`new`](Self::new).
 pub struct TimeoutContextBlockedClient {
     /// [`AREQ`] pointer forwarded verbatim to [`AREQ_CheckTimedOut`].
     areq: NonNull<AREQ>,
@@ -127,8 +133,10 @@ impl TimeoutContextBlockedClient {
     /// # Safety
     ///
     /// * `areq` must point to a valid [`AREQ`] (as defined in
-    ///   `src/aggregate/aggregate.h`).
-    /// * The pointee must outlive every iterator that holds this context.
+    ///   `src/aggregate/aggregate.h`) for as long as this context (and any
+    ///   iterator holding it) is used. The pointer is stored without a
+    ///   lifetime, so the caller is fully responsible for not using the context
+    ///   past the [`AREQ`]'s lifetime.
     /// * The `RequestSyncCtx::timedOut` flag inside the [`AREQ`] must be safe
     ///   to read with relaxed semantics from any thread.
     #[inline(always)]
@@ -178,6 +186,12 @@ impl TimeoutContext for NoTimeout {
 /// well-predicted branch on top of the inner variant's own work.
 ///
 /// [`check_timeout`]: TimeoutContext::check_timeout
+///
+/// The [`BlockedClient`](Self::BlockedClient) variant holds its [`AREQ`] as a
+/// raw pointer with no lifetime (see [`TimeoutContextBlockedClient`]); the other
+/// two borrow nothing. The type is therefore `'static`, and keeping the request
+/// alive while the context is used is a runtime invariant its constructor
+/// documents.
 pub enum AnyTimeoutContext {
     /// No timeout source: every probe is a no-op.
     NoTimeout(NoTimeout),

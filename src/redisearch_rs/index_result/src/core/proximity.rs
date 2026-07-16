@@ -13,7 +13,7 @@
 use std::io::Cursor;
 
 use super::super::kind::{RSResultKind, RSResultKindMask};
-use super::super::result_data::RSResultData;
+use super::super::result_data::RawResultData;
 use super::RSIndexResult;
 
 /// A lazy iterator over the term-position offsets stored inside an [`RSIndexResult`].
@@ -69,10 +69,10 @@ impl OffsetIter<'_> {
 }
 
 /// Returns `true` if `result` contributes meaningful term-position offsets.
-fn has_offsets(result: &RSIndexResult<'_>) -> bool {
+fn has_offsets(result: &RSIndexResult) -> bool {
     match &result.data {
-        RSResultData::Term(rec) => !rec.offsets().is_empty(),
-        RSResultData::Intersection(agg) | RSResultData::Union(agg) => {
+        RawResultData::Term(rec) => !rec.offsets().is_empty(),
+        RawResultData::Intersection(agg) | RawResultData::Union(agg) => {
             // Skip aggregates that consist only of virtual or purely numeric
             // (Numeric | Metric) results, as neither carries offset data.
             let mask = agg.kind_mask();
@@ -80,10 +80,10 @@ fn has_offsets(result: &RSIndexResult<'_>) -> bool {
             let numeric_only: RSResultKindMask = RSResultKind::Numeric | RSResultKind::Metric;
             mask != virtual_only && mask != numeric_only
         }
-        RSResultData::Virtual
-        | RSResultData::Numeric(_)
-        | RSResultData::Metric(_)
-        | RSResultData::HybridMetric(_) => false,
+        RawResultData::Virtual
+        | RawResultData::Numeric(_)
+        | RawResultData::Metric(_)
+        | RawResultData::HybridMetric(_) => false,
     }
 }
 
@@ -93,17 +93,17 @@ fn has_offsets(result: &RSIndexResult<'_>) -> bool {
 /// - Intersection / Union with 1 child → recurse into that child directly.
 /// - Intersection / Union with N children → k-way merge of child iterators.
 /// - Everything else → [`OffsetIter::Empty`].
-fn iterate_offsets<'a>(result: &'a RSIndexResult<'_>) -> OffsetIter<'a> {
+fn iterate_offsets<'a>(result: &'a RSIndexResult) -> OffsetIter<'a> {
     match &result.data {
-        RSResultData::Term(rec) => OffsetIter::Term {
+        RawResultData::Term(rec) => OffsetIter::Term {
             cursor: Cursor::new(rec.offsets()),
             last: 0,
         },
-        RSResultData::Virtual
-        | RSResultData::Numeric(_)
-        | RSResultData::Metric(_)
-        | RSResultData::HybridMetric(_) => OffsetIter::Empty,
-        RSResultData::Intersection(agg) | RSResultData::Union(agg) => {
+        RawResultData::Virtual
+        | RawResultData::Numeric(_)
+        | RawResultData::Metric(_)
+        | RawResultData::HybridMetric(_) => OffsetIter::Empty,
+        RawResultData::Intersection(agg) | RawResultData::Union(agg) => {
             let n = agg.len();
             if n == 1 {
                 // optimisation: single child → delegate directly.
@@ -260,7 +260,7 @@ fn array_max(arr: &[u32]) -> (u32, usize) {
 /// is trivially `true` for every input and the call is pointless; callers are
 /// expected to short-circuit that case before invoking this function.
 pub(super) fn is_within_range<'a>(
-    ir: &'a RSIndexResult<'_>,
+    ir: &'a RSIndexResult,
     max_slop: Option<u32>,
     in_order: bool,
 ) -> bool {
@@ -271,7 +271,7 @@ pub(super) fn is_within_range<'a>(
     );
 
     let agg = match &ir.data {
-        RSResultData::Intersection(agg) | RSResultData::Union(agg) => agg,
+        RawResultData::Intersection(agg) | RawResultData::Union(agg) => agg,
         _ => return true,
     };
 
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn single_child_union_delegates_to_child_iter() {
-        use crate::{RSAggregateResult, RSIndexResult, RSOffsetSlice, RSResultData};
+        use crate::{RSAggregateResult, RSIndexResult, RSOffsetSlice};
         use std::ptr;
 
         // delta bytes [2, 3, 5] → cumulative positions [2, 5, 10]
@@ -491,7 +491,7 @@ mod tests {
             dmd: ptr::null(),
             field_mask: 0,
             freq: 0,
-            data: RSResultData::Union(agg),
+            data: RawResultData::Union(agg),
             metrics: crate::MetricsVec::new(),
             weight: 0.0,
         };
