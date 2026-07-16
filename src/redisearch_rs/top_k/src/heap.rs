@@ -239,10 +239,7 @@ impl<'index> TopKHeap<'index> {
         self.inner
             .into_sorted_vec()
             .into_iter()
-            .map(|e| HeapResult {
-                scored: e.result,
-                record: e.record,
-            })
+            .map(HeapResult::from)
             .collect()
     }
 }
