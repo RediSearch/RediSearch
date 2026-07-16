@@ -16,7 +16,10 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIteratorError};
+use rqe_iterators::{
+    ExpirationChecker, NoOpChecker, RQEIteratorError,
+    utils::{NoTimeout, TimeoutContext},
+};
 use top_k::{BatchStrategy, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
@@ -103,12 +106,15 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 /// [`TopKIterator`]: top_k::TopKIterator
 ///
 /// Not implemented yet:
-/// - TODO: MOD-14945 Timeout handling
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
 /// - TODO: MOD-14948 Performance validation
-pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationChecker = NoOpChecker>
-{
+pub struct NumericScoreSource<
+    'index,
+    V: DocValidity = AllValid,
+    E: ExpirationChecker = NoOpChecker,
+    T: TimeoutContext = NoTimeout,
+> {
     /// Value-ordered range stream over the numeric index.
     ranges: NumericRangeIterator<'index>,
     /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
@@ -147,6 +153,9 @@ pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationCh
     /// they reach the top-k heap, matching the optimizer's numeric field
     /// predicate. [`NoOpChecker`] keeps every record.
     expiration: E,
+    /// Query-deadline poll, checked once per record during batch materialization
+    /// and once per step during yielding. [`NoTimeout`] never times out.
+    timeout: T,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -229,20 +238,27 @@ impl<'index> NumericScoreSource<'index> {
             num_iterations: 0,
             validity: AllValid,
             expiration: NoOpChecker,
+            timeout: NoTimeout,
         }
     }
 }
 
-impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V, E> {
+impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
+    NumericScoreSource<'index, V, E, T>
+{
     /// Attach a document-validity oracle, dropping records for doc ids it reports
     /// invalid (deleted or whole-doc expired) from every batch. This is the
     /// source's equivalent of the numeric optimizer's per-document validity
     /// check, keeping entries that survive in the index until GC out of the
     /// top-k results.
-    pub fn with_validity<V2: DocValidity>(self, validity: V2) -> NumericScoreSource<'index, V2, E> {
+    pub fn with_validity<V2: DocValidity>(
+        self,
+        validity: V2,
+    ) -> NumericScoreSource<'index, V2, E, T> {
         NumericScoreSource {
             validity,
             expiration: self.expiration,
+            timeout: self.timeout,
             ranges: self.ranges,
             filter: self.filter,
             initial_offset: self.initial_offset,
@@ -267,10 +283,38 @@ impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V,
     pub fn with_expiration<E2: ExpirationChecker>(
         self,
         expiration: E2,
-    ) -> NumericScoreSource<'index, V, E2> {
+    ) -> NumericScoreSource<'index, V, E2, T> {
         NumericScoreSource {
             expiration,
             validity: self.validity,
+            timeout: self.timeout,
+            ranges: self.ranges,
+            filter: self.filter,
+            initial_offset: self.initial_offset,
+            initial_limit: self.initial_limit,
+            ascending: self.ascending,
+            range_batch_size: self.range_batch_size,
+            num_estimated: self.num_estimated,
+            retry_enabled: self.retry_enabled,
+            num_docs: self.num_docs,
+            child_estimate: self.child_estimate,
+            last_limit_estimate: self.last_limit_estimate,
+            heap_old_size: self.heap_old_size,
+            num_iterations: self.num_iterations,
+        }
+    }
+
+    /// Attach a query-deadline poll, checked once per record during
+    /// materialization and once per step during yielding. [`NoTimeout`] (the
+    /// default) never times out.
+    pub fn with_timeout<T2: TimeoutContext>(
+        self,
+        timeout: T2,
+    ) -> NumericScoreSource<'index, V, E, T2> {
+        NumericScoreSource {
+            timeout,
+            validity: self.validity,
+            expiration: self.expiration,
             ranges: self.ranges,
             filter: self.filter,
             initial_offset: self.initial_offset,
@@ -350,13 +394,18 @@ impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V,
     }
 }
 
-impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
-    for NumericScoreSource<'index, V, E>
+impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSource
+    for NumericScoreSource<'index, V, E, T>
 {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        let Some(mut batch) = self.ranges.next_n(self.range_batch_size)? else {
+        // `ranges` and `timeout` are disjoint fields; the split borrow lets the
+        // materialization loop poll the deadline once per record.
+        let Some(batch) = self
+            .ranges
+            .next_n(self.range_batch_size, &mut self.timeout)?
+        else {
             return Ok(None);
         };
         // Drop stale entries pre-heap so they never displace a live document from
@@ -437,9 +486,10 @@ impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // TODO: MOD-14945 — real timeout handling. The numeric source never
-        // times out yet.
-        Ok(())
+        // Yielding-phase hook. Collection self-checks per record via `next_batch`,
+        // because the surrounding `TopKIterator` collects eagerly and only polls
+        // this during yielding.
+        self.timeout.check_timeout()
     }
 }
 

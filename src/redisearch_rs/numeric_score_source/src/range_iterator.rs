@@ -22,6 +22,7 @@ use index_result::RSIndexResult;
 use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
 use numeric_range_tree::{NumericRange, NumericRangeTree};
 use rqe_core::DocId;
+use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
 
 use crate::score_batch::NumericScoreBatch;
 
@@ -94,13 +95,24 @@ impl<'index> NumericRangeIterator<'index> {
     /// Materialize the next `n` value-ordered ranges into one doc-id-ordered
     /// batch, or `Ok(None)` once the window is exhausted.
     ///
-    /// `n` is clamped to at least `1`.
-    pub fn next_n(&mut self, n: usize) -> std::io::Result<Option<NumericScoreBatch>> {
+    /// `n` is clamped to at least `1`. `timeout` is polled once per record read
+    /// so a long materialization aborts with [`RQEIteratorError::TimedOut`]
+    /// rather than running past the query deadline.
+    pub fn next_n(
+        &mut self,
+        n: usize,
+        timeout: &mut impl TimeoutContext,
+    ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
         if self.pos >= self.ranges.len() {
             return Ok(None);
         }
         let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter, &mut self.emitted)?;
+        let batch = merge_ranges(
+            &self.ranges[self.pos..end],
+            self.filter,
+            &mut self.emitted,
+            timeout,
+        )?;
         self.pos = end;
         Ok(Some(batch))
     }
@@ -120,16 +132,22 @@ impl<'index> NumericRangeIterator<'index> {
 /// coalesced to a single entry carrying the doc's best score for the sort
 /// direction; occurrences already handed out by an earlier batch (tracked in
 /// `emitted`) are dropped, since their better value was scored there.
+///
+/// `timeout` is polled once per record; the amortized counter accumulates
+/// across records and ranges, so the real clock check fires every
+/// `granularity` reads.
 fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
     emitted: &mut HashSet<DocId>,
-) -> std::io::Result<NumericScoreBatch> {
+    timeout: &mut impl TimeoutContext,
+) -> Result<NumericScoreBatch, RQEIteratorError> {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
+            timeout.check_timeout()?;
             if emitted.contains(&record.doc_id) {
                 continue;
             }
@@ -171,6 +189,7 @@ mod tests {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
     use rqe_core::DocId;
+    use rqe_iterators::utils::NoTimeout;
     use top_k::ScoreBatch;
 
     use super::NumericRangeIterator;
@@ -191,8 +210,9 @@ mod tests {
         per_batch: usize,
     ) -> Vec<(DocId, f64)> {
         let mut it = NumericRangeIterator::new(tree, filter);
+        let mut timeout = NoTimeout;
         let mut pairs = Vec::new();
-        while let Some(mut batch) = it.next_n(per_batch).unwrap() {
+        while let Some(mut batch) = it.next_n(per_batch, &mut timeout).unwrap() {
             while let Some(pair) = batch.next() {
                 pairs.push(pair);
             }

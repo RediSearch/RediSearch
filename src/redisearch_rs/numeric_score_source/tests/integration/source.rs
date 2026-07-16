@@ -11,6 +11,7 @@
 //! fixtures.
 
 use std::collections::HashSet;
+use std::time::Duration;
 use std::{iter, num::NonZeroUsize};
 
 use index_result::RSIndexResult;
@@ -21,7 +22,10 @@ use numeric_score_source::{
     DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
 use rqe_core::DocId;
-use rqe_iterators::{ExpirationChecker, IdList, RQEIterator};
+use rqe_iterators::{
+    ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
+    utils::{NoTimeout, TimeoutContextClock},
+};
 use top_k::{ScoreBatch, ScoreSource};
 
 /// A validity oracle backed by an explicit set of deleted doc ids, standing in
@@ -425,4 +429,62 @@ fn validity_and_expiration_compose() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     assert_eq!(got, vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
+}
+
+/// A clock context whose deadline is already in the past, probed on every call.
+fn expired_clock() -> TimeoutContextClock {
+    TimeoutContextClock::new(Duration::from_nanos(1), 1)
+}
+
+#[test]
+fn collection_times_out_during_materialization() {
+    // Multi-leaf tree so `next_batch` reads several ranges' records; the first
+    // per-record poll crosses the already-elapsed deadline.
+    let tree = build_tree(20, false, 0);
+    let mut source =
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(expired_clock());
+
+    assert!(matches!(
+        source.next_batch(),
+        Err(RQEIteratorError::TimedOut)
+    ));
+}
+
+#[test]
+fn iterator_read_propagates_timeout() {
+    // Eager collection runs inside the first `read()`, so the timeout surfaces
+    // there rather than being swallowed.
+    let tree = build_tree(20, false, 0);
+    let source =
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(expired_clock());
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn amortized_check_does_not_probe_below_granularity() {
+    // Deadline is in the past, but with a granularity far above the record count
+    // the clock is never probed, so the batch is produced without timing out.
+    let tree = build_tree(20, false, 0);
+    let never_probes = TimeoutContextClock::new(Duration::from_nanos(1), 1_000_000);
+    let mut source =
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(never_probes);
+
+    assert!(source.next_batch().unwrap().is_some());
+}
+
+#[test]
+fn no_timeout_default_never_times_out() {
+    // The explicit `NoTimeout` context (the struct default) yields the full
+    // result set, matching the behavior of every other test's default source.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(NoTimeout);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(1, 5.0), (3, 4.0), (2, 1.0)]);
 }
