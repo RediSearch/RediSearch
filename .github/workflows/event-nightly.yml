@@ -25,7 +25,7 @@ jobs:
     with:
       # macOS Intel (x86_64) test runners are excluded while the macOS runner
       # problem is mitigated; macOS ARM still runs.
-      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
+      platform: all,!macos~x86_64
       architecture: all
       redis-ref: unstable
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
