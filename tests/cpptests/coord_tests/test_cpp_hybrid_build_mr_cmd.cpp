@@ -13,16 +13,99 @@
 #include "redisearch_rs/headers/query_error.h"
 #include "hybrid/hybrid_cursor_mappings.h"
 
+#include "dist_hybrid.h"
+#include "hybrid/hybrid_scoring.h"
+
+#include <string>
 #include <string_view>
+#include <vector>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
-extern "C" {
-void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                                  ProfileOptions profileOptions,
-                                  bool sendExplainScore,
-                                  MRCommand *xcmd, arrayof(char *) serialized,
-                                  IndexSpec *sp, int *outKArgIndex);
+// Rebuild the exact tokens the coordinator is expected to emit for a
+// reconstructed COMBINE clause. Mirrors MRCommand_appendCombine so the wire
+// format is pinned byte-for-byte (including the "%.12g" double formatting).
+static std::vector<std::string> expectedCombineTokens(const HybridCombineWireParams &cp) {
+  std::vector<std::string> t;
+  if (!cp.scoringCtx) {
+    return t;
+  }
+  const HybridScoringContext *sc = cp.scoringCtx;
+  const bool hasAlias = cp.scoreAlias != nullptr;
+  char buf[32];
+  t.push_back("COMBINE");
+  if (sc->scoringType == HYBRID_SCORING_RRF) {
+    t.push_back("RRF");
+    t.push_back(std::to_string(hasAlias ? 6 : 4));
+    t.push_back("CONSTANT");
+    snprintf(buf, sizeof(buf), "%.12g", sc->rrfCtx.constant);
+    t.push_back(buf);
+    t.push_back("WINDOW");
+    t.push_back(std::to_string(sc->rrfCtx.window));
+  } else {
+    t.push_back("LINEAR");
+    t.push_back(std::to_string(hasAlias ? 8 : 6));
+    t.push_back("ALPHA");
+    snprintf(buf, sizeof(buf), "%.12g", sc->linearCtx.linearWeights[0]);
+    t.push_back(buf);
+    t.push_back("BETA");
+    snprintf(buf, sizeof(buf), "%.12g", sc->linearCtx.linearWeights[1]);
+    t.push_back(buf);
+    t.push_back("WINDOW");
+    t.push_back(std::to_string(sc->linearCtx.window));
+  }
+  if (hasAlias) {
+    t.push_back("YIELD_SCORE_AS");
+    t.push_back(cp.scoreAlias);
+  }
+  return t;
+}
+
+// Fill a caller-owned HybridScoringContext for a LINEAR wire clause. Both `sc`
+// and the 2-element `weights` array must outlive the returned params.
+static HybridCombineWireParams linearWireParams(HybridScoringContext *sc, double *weights,
+                                                double alpha, double beta, size_t window,
+                                                const char *alias = nullptr) {
+  weights[0] = alpha;
+  weights[1] = beta;
+  sc->scoringType = HYBRID_SCORING_LINEAR;
+  sc->linearCtx.linearWeights = weights;
+  sc->linearCtx.numWeights = 2;
+  sc->linearCtx.window = window;
+  return HybridCombineWireParams{sc, alias};
+}
+
+// Walk input and output argv in tandem, asserting non-COMBINE args are
+// preserved by position. Where the input has a COMBINE clause, the output is
+// expected to carry the reconstructed clause instead (self-delimiting input
+// clause: COMBINE <method> <count> <count-args...> [YIELD_SCORE_AS <alias>]).
+// Returns the output index just past the matched prefix.
+static int verifyArgsPreservedWithReconstructedCombine(
+    const MRCommand *xcmd, const std::vector<const char *> &inputArgs,
+    const HybridCombineWireParams *cp) {
+  int oi = 1;  // strs[0] is _FT.HYBRID, checked separately
+  for (size_t ii = 1; ii < inputArgs.size();) {
+    if (strcasecmp(inputArgs[ii], "COMBINE") == 0 && cp && cp->scoringCtx) {
+      for (const auto &tok : expectedCombineTokens(*cp)) {
+        EXPECT_STREQ(xcmd->strs[oi], tok.c_str())
+            << "Reconstructed COMBINE token mismatch at output index " << oi;
+        oi++;
+      }
+      // Skip the input COMBINE clause: COMBINE + method + count + N args.
+      ii += 2;                          // COMBINE, method
+      long n = atol(inputArgs[ii]);     // count
+      ii += 1 + (size_t)n;              // count token + its args
+      if (ii < inputArgs.size() && strcasecmp(inputArgs[ii], "YIELD_SCORE_AS") == 0) {
+        ii += 2;                        // positional YIELD_SCORE_AS <alias>
+      }
+    } else {
+      EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
+          << "Argument at input index " << ii << " should be preserved";
+      oi++;
+      ii++;
+    }
+  }
+  return oi;
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -121,11 +204,17 @@ protected:
         const VectorQuery *vq = validateVectorQuery(cmd.vector, expectedK, expectedRatio);
         ASSERT_NE(vq, nullptr) << "VectorQuery validation failed";
 
+        // Borrow the resolved scoring context (as the coordinator does before
+        // the merger takes ownership) so the reconstructed COMBINE clause is
+        // forwarded to the shard.
+        HybridCombineWireParams combineParams{hybridParams.scoringCtx,
+                                              hybridParams.aggregationParams.common.scoreAlias};
+
         // Build MR command - now returns kArgIndex instead of calculating effectiveK
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &xcmd,
+                                     /*sendExplainScore=*/false, &combineParams, &xcmd,
                                      nullptr, testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
@@ -166,6 +255,76 @@ protected:
         HybridRequest_DecrRef(hreq);
     }
 
+    // Parse a full FT.HYBRID command, build the per-shard MR command as the
+    // coordinator would (capturing resolved scoring params), and return the
+    // reconstructed COMBINE clause tokens found in the output (empty if none).
+    // The clause is self-delimiting: COMBINE <method> <count> <count args...>.
+    std::vector<std::string> buildAndExtractCombineClause(const std::vector<const char*>& inputArgs) {
+        std::vector<std::string> out;
+        std::vector<const char*> argsWithNull = inputArgs;
+        argsWithNull.push_back(nullptr);
+        RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+        RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
+        EXPECT_NE(sctx, nullptr);
+        if (!sctx) return out;
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+
+        HybridPipelineParams hybridParams = {};
+        ParseHybridCommandCtx cmd = {};
+        cmd.search = hreq->requests[0];
+        cmd.vector = hreq->requests[1];
+        cmd.tailPlan = &hreq->tailPipeline->ap;
+        cmd.hybridParams = &hybridParams;
+        cmd.reqConfig = &hreq->reqConfig;
+        cmd.cursorConfig = &hreq->cursorConfig;
+        cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
+
+        ArgsCursor ac = {};
+        HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
+        QueryError status = QueryError_Default();
+        int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);
+        EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetDisplayableError(&status, false);
+        if (rc != REDISMODULE_OK) {
+            if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
+            HybridRequest_DecrRef(hreq);
+            return out;
+        }
+
+        HybridCombineWireParams cp{hybridParams.scoringCtx,
+                                   hybridParams.aggregationParams.common.scoreAlias};
+
+        MRCommand xcmd;
+        int kArgIndex = -1;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     /*sendExplainScore=*/false, &cp, &xcmd,
+                                     nullptr, testIndexSpec, &kArgIndex);
+
+        // Assert the parse-driven path also preserves every non-COMBINE arg by
+        // position and reconstructs the COMBINE clause against the computed
+        // oracle. The caller additionally pins the extracted clause against a
+        // literal vector, so the two oracles stay independent.
+        EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, &cp);
+
+        for (int i = 0; i < xcmd.num; i++) {
+            if (xcmd.lens[i] == strlen("COMBINE") &&
+                strncasecmp(xcmd.strs[i], "COMBINE", xcmd.lens[i]) == 0) {
+                int count = (i + 2 < xcmd.num) ? atoi(xcmd.strs[i + 2]) : 0;
+                int end = i + 3 + count;
+                for (int j = i; j < end && j < xcmd.num; j++) {
+                    out.push_back(std::string(xcmd.strs[j], xcmd.lens[j]));
+                }
+                break;
+            }
+        }
+
+        MRCommand_Free(&xcmd);
+        HybridScoringContext_Free(hybridParams.scoringCtx);
+        HybridRequest_DecrRef(hreq);
+        return out;
+    }
+
     // Helper function to find K value in MRCommand
     // Returns the index of K keyword, or -1 if not found
     // If found, kValue will contain the K value as long long
@@ -183,7 +342,8 @@ protected:
     }
 
     // Helper function to test command transformation
-    void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs) {
+    void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs,
+                                                   const HybridCombineWireParams *combineParams = nullptr) {
         // Access the global NumShards variable
         extern size_t NumShards;
 
@@ -198,16 +358,15 @@ protected:
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &xcmd,
+                                     /*sendExplainScore=*/false, combineParams, &xcmd,
                                      nullptr, nullptr, &kArgIndex);
 
         // Verify transformation: FT.HYBRID -> _FT.HYBRID
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
 
-        // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
-        for (size_t i = 1; i < inputArgs.size(); i++) {
-            EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
-        }
+        // Verify original args are preserved, with the COMBINE clause replaced by
+        // its reconstructed (old-shard-compatible) form.
+        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, combineParams);
 
         // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _COORD_DISPATCH_TIME are added at the end
         // Note: _COORD_DISPATCH_TIME and its placeholder value (2 args) are added after _NUM_SSTRING
@@ -221,7 +380,8 @@ protected:
     }
 
     // Helper function to test command transformation
-    void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs) {
+    void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs,
+                                                const HybridCombineWireParams *combineParams = nullptr) {
       // Access the global NumShards variable
       extern size_t NumShards;
 
@@ -244,14 +404,13 @@ protected:
       MRCommand xcmd;
       int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                   /*sendExplainScore=*/false, &xcmd,
+                                   /*sendExplainScore=*/false, combineParams, &xcmd,
                                    nullptr, sp, &kArgIndex);
       // Verify transformation: FT.HYBRID -> _FT.HYBRID
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-      // Verify all other original args are preserved (except first). Attention: This is not true if TIMEOUT is not at the end before DIALECT
-      for (size_t i = 1; i < inputArgs.size(); i++) {
-          EXPECT_STREQ(xcmd.strs[i], inputArgs[i]) << "Argument at index " << i << " should be preserved";
-      }
+      // Verify original args are preserved, with the COMBINE clause replaced by
+      // its reconstructed (old-shard-compatible) form.
+      verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, combineParams);
       // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, SLOTS, _COORD_DISPATCH_TIME, _INDEX_PREFIXES, and prefixes are added at the end
       // Order: ... WITHCURSOR WITHSCORES _NUM_SSTRING _SLOTS <slots_blob> _COORD_DISPATCH_TIME <placeholder> _INDEX_PREFIXES 2 prefix1 prefix2
       EXPECT_STREQ(xcmd.strs[xcmd.num - 11], "WITHCURSOR") << "WITHCURSOR should be 11th to last";
@@ -321,18 +480,21 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
 
 // Test command with DIALECT
 TEST_F(HybridBuildMRCommandTest, testCommandWithCombine) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "DIALECT", "2"
-    });
+    }, &cp);
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "DIALECT", "2"
-    });
+    }, &cp);
 }
 
 
@@ -374,34 +536,43 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithBatchSizeAndPolicyReversed) {
 
 // Test FILTER with POLICY, BATCH_SIZE and COMBINE
 TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatchSizeAndCombine) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA,
         "FILTER", "5", "@tag:{test}", "POLICY", "BATCHES", "BATCH_SIZE", "100",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"
-    });
+    }, &cp);
 }
 
 // Test complex command with all optional parameters
 TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
         "TIMEOUT", "3000", "DIALECT", "2"
-    });
+    }, &cp);
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
         "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
         "TIMEOUT", "3000", "DIALECT", "2"
-    });
+    }, &cp);
 }
 
 // Test complex command with all optional parameters
 TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
@@ -409,7 +580,7 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
         "TIMEOUT", "3000",
         "DIALECT", "2"
-    });
+    }, &cp);
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
@@ -417,7 +588,7 @@ TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
         "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
         "TIMEOUT", "3000",
         "DIALECT", "2"
-    });
+    }, &cp);
 }
 
 // Test minimal command
@@ -454,7 +625,7 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &xcmd,
+                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr, &xcmd,
                                      nullptr, nullptr, &kArgIndex);
 
         EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
@@ -474,7 +645,7 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &xcmd,
+                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr, &xcmd,
                                      nullptr, nullptr, &kArgIndex);
 
         EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
@@ -492,7 +663,7 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/true, &xcmd,
+                                     /*sendExplainScore=*/true, /*combineParams=*/nullptr, &xcmd,
                                      nullptr, nullptr, &kArgIndex);
 
         EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
@@ -541,4 +712,126 @@ TEST_F(HybridBuildMRCommandTest, testShardKRatioNoModificationWhenRatioIsOne) {
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     }, /*numShards=*/4, /*expectedK=*/50, /*expectedRatio=*/1.0,
     /*expectedEffectiveK=*/50);
+}
+
+// ============================================================================
+// Old-shard-compatible COMBINE reconstruction
+//
+// The coordinator must never forward the positional YIELD_SCORE_AS form or a
+// zero argument count to shards (old shards reject both). It reconstructs the
+// clause from the resolved scoring params into the legacy counted form with an
+// explicit, positive, even argument count.
+// ============================================================================
+
+// COMBINE RRF 0 -> explicit defaults with a positive even count.
+TEST_F(HybridBuildMRCommandTest, testCombineRRFZeroCountReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "RRF", "0",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {"COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE RRF 0 YIELD_SCORE_AS s (positional alias, zero count) ->
+// counted form with the alias folded into the count (6).
+TEST_F(HybridBuildMRCommandTest, testCombineRRFZeroCountPositionalAliasReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "RRF", "0", "YIELD_SCORE_AS", "s",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {"COMBINE", "RRF", "6", "CONSTANT", "60",
+                                         "WINDOW", "20", "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE RRF 2 YIELD_SCORE_AS s (counted alias) produces the same
+// wire form as the positional variant above.
+TEST_F(HybridBuildMRCommandTest, testCombineRRFCountedAliasReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "RRF", "2", "YIELD_SCORE_AS", "s",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {"COMBINE", "RRF", "6", "CONSTANT", "60",
+                                         "WINDOW", "20", "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE RRF 4 CONSTANT 60 YIELD_SCORE_AS s (counted alias) produces the same
+// wire form as the positional variant above.
+TEST_F(HybridBuildMRCommandTest, testCombineRRFCountedAliasAndConstantReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "RRF", "4", "CONSTANT", "60.5", "YIELD_SCORE_AS", "s",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "RRF", "6", "CONSTANT", "60.5", "WINDOW", "20",
+        "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE LINEAR 0 -> explicit default weights with a positive even count.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroCountReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "0",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "6", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE LINEAR 2 YIELD_SCORE_AS s (counted alias) produces the same
+// wire form as the positional variant above.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearCountedAliasReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "2", "YIELD_SCORE_AS", "s",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE LINEAR 4 YIELD_SCORE_AS s WINDOW 20 (counted alias) produces the same
+// wire form as the positional variant above.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearCountedAliasAndWindowReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "4", "YIELD_SCORE_AS", "s", "WINDOW", "20",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+TEST_F(HybridBuildMRCommandTest, testCombineLinearArgsCountedAliasAndWindowReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "8", "ALPHA", "0.45", "BETA", "0.65",
+            "YIELD_SCORE_AS", "s", "WINDOW", "20",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "8", "ALPHA", "0.45", "BETA", "0.65",
+        "WINDOW", "20", "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// No COMBINE clause -> nothing forwarded (matches legacy behavior).
+TEST_F(HybridBuildMRCommandTest, testNoCombineNotForwarded) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    EXPECT_TRUE(clause.empty());
 }
