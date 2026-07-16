@@ -24,7 +24,7 @@ use numeric_score_source::{
 use rqe_core::DocId;
 use rqe_iterators::{
     ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
-    utils::{NoTimeout, TimeoutContextClock},
+    utils::{NoTimeout, TimeoutContext, TimeoutContextClock},
 };
 use top_k::{ScoreBatch, ScoreSource};
 
@@ -487,4 +487,91 @@ fn no_timeout_default_never_times_out() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     assert_eq!(got, vec![(1, 5.0), (3, 4.0), (2, 1.0)]);
+}
+
+/// Times out exactly once, after `succeed_first` probes, then never again.
+///
+/// A test double for the rewind-after-timeout recovery path: a real absolute
+/// deadline keeps firing, but a one-shot lets the rewound pass run to completion
+/// so its results can be checked. Rewinding the source does not touch the
+/// timeout context, so the fired state persists across the rewind, exactly as an
+/// absolute deadline would.
+struct TimeoutOnce {
+    succeed_first: u32,
+    fired: bool,
+}
+
+impl TimeoutOnce {
+    fn new(succeed_first: u32) -> Self {
+        Self {
+            succeed_first,
+            fired: false,
+        }
+    }
+}
+
+impl TimeoutContext for TimeoutOnce {
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        if !self.fired {
+            if self.succeed_first == 0 {
+                self.fired = true;
+                return Err(RQEIteratorError::TimedOut);
+            }
+            self.succeed_first -= 1;
+        }
+        Ok(())
+    }
+}
+
+/// Collect an unfiltered top-k iterator to exhaustion into `(doc_id, score)`.
+fn drain_top_k<'a, V: DocValidity + 'a, E: ExpirationChecker + 'a, T: TimeoutContext + 'a>(
+    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T>,
+) -> Vec<(DocId, f64)> {
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    got
+}
+
+#[test]
+fn rewind_after_timeout_reproduces_full_results() {
+    // k == doc count forces the whole index to be read (the heap never fills, so
+    // no early `Stop`), guaranteeing the one-shot timeout fires mid-collection.
+    let tree = build_tree(20, false, 0);
+    let k = NonZeroUsize::new(20).unwrap();
+
+    let reference = {
+        let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+        drain_top_k(&mut new_numeric_top_k_unfiltered(source, k))
+    };
+
+    // Time out partway through the first collection; earlier batches have already
+    // landed in the heap when the deadline fires.
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+        .with_timeout(TimeoutOnce::new(8));
+    let mut it = new_numeric_top_k_unfiltered(source, k);
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    // Rewind discards the partial heap and re-resolves the ranges from the start;
+    // the one-shot deadline has fired, so the second pass runs clean and must
+    // reproduce the reference exactly — no dropped, duplicated, or reordered docs.
+    it.rewind();
+    assert_eq!(drain_top_k(&mut it), reference);
+}
+
+#[test]
+fn rewind_after_persistent_timeout_times_out_again() {
+    // A deadline already in the past keeps firing. Rewinding after a timeout must
+    // leave the iterator in a clean, re-runnable state (no stale collecting phase,
+    // no panic) and time out again, since the deadline is absolute and rewind
+    // does not extend it.
+    let tree = build_tree(20, false, 0);
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
+        .with_timeout(expired_clock());
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(5).unwrap());
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    it.rewind();
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
