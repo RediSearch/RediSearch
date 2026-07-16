@@ -43,27 +43,27 @@ static std::vector<std::string> expectedCombineTokens(const HybridCombineWirePar
   }
   const HybridScoringContext *sc = cp.scoringCtx;
   const bool hasAlias = cp.scoreAlias != nullptr;
-  t.push_back("COMBINE");
+  t.emplace_back("COMBINE");
   if (sc->scoringType == HYBRID_SCORING_RRF) {
-    t.push_back("RRF");
+    t.emplace_back("RRF");
     t.push_back(std::to_string(hasAlias ? 6 : 4));
-    t.push_back("CONSTANT");
+    t.emplace_back("CONSTANT");
     t.push_back(fmtWireDouble(sc->rrfCtx.constant));
-    t.push_back("WINDOW");
+    t.emplace_back("WINDOW");
     t.push_back(std::to_string(sc->rrfCtx.window));
   } else {
-    t.push_back("LINEAR");
+    t.emplace_back("LINEAR");
     t.push_back(std::to_string(hasAlias ? 8 : 6));
-    t.push_back("ALPHA");
+    t.emplace_back("ALPHA");
     t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[0]));
-    t.push_back("BETA");
+    t.emplace_back("BETA");
     t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[1]));
-    t.push_back("WINDOW");
+    t.emplace_back("WINDOW");
     t.push_back(std::to_string(sc->linearCtx.window));
   }
   if (hasAlias) {
-    t.push_back("YIELD_SCORE_AS");
-    t.push_back(cp.scoreAlias);
+    t.emplace_back("YIELD_SCORE_AS");
+    t.emplace_back(cp.scoreAlias);
   }
   return t;
 }
@@ -334,7 +334,7 @@ protected:
                 int count = (i + 2 < xcmd.num) ? atoi(xcmd.strs[i + 2]) : 0;
                 int end = i + 3 + count;
                 for (int j = i; j < end && j < xcmd.num; j++) {
-                    out.push_back(std::string(xcmd.strs[j], xcmd.lens[j]));
+                    out.emplace_back(xcmd.strs[j], xcmd.lens[j]);
                 }
                 break;
             }
