@@ -35,15 +35,18 @@ pub use source::{AllValid, DocValidity, NumericScoreSource};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIterator};
+use rqe_iterators::{
+    ExpirationChecker, NoOpChecker, RQEIterator,
+    utils::{NoTimeout, TimeoutContext},
+};
 use top_k::{TopKIterator, TopKMode};
 
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
 /// Construct one with [`new_numeric_top_k_unfiltered`] or
 /// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker> =
-    TopKIterator<'index, NumericScoreSource<'index, V, E>>;
+pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker, T = NoTimeout> =
+    TopKIterator<'index, NumericScoreSource<'index, V, E, T>>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -64,10 +67,11 @@ pub fn new_numeric_top_k_unfiltered<
     'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
+    T: TimeoutContext + 'index,
 >(
-    source: NumericScoreSource<'index, V, E>,
+    source: NumericScoreSource<'index, V, E, T>,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E> {
+) -> NumericTopKIterator<'index, V, E, T> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
@@ -80,11 +84,12 @@ pub fn new_numeric_top_k_filtered<
     'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
+    T: TimeoutContext + 'index,
 >(
-    source: NumericScoreSource<'index, V, E>,
+    source: NumericScoreSource<'index, V, E, T>,
     child: impl RQEIterator<'index> + 'index,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E> {
+) -> NumericTopKIterator<'index, V, E, T> {
     let cmp = cmp_for(source.ascending());
     TopKIterator::new_with_mode(
         source,
