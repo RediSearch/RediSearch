@@ -131,7 +131,7 @@ fn batches_propagates_timeout() {
         source,
         Some(make_child((1..=n as DocId).collect())),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 

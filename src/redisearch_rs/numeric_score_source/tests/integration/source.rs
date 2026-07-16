@@ -26,11 +26,6 @@ fn source(pairs: &[(DocId, f64)]) -> NumericScoreSource<'static, MetricSortedByI
     NumericScoreSource::new(MetricSortedById::new(ids, scores))
 }
 
-/// Drain a batch into a `Vec`.
-fn drain<B: ScoreBatch>(mut batch: B) -> Vec<(DocId, f64)> {
-    iter::from_fn(|| batch.next()).collect()
-}
-
 #[test]
 fn next_batch_yields_every_record_in_doc_id_order() {
     let mut src = source(&[(1, 3.0), (2, 1.0), (3, 2.0)]);

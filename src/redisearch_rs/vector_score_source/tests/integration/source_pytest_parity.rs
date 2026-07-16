@@ -193,7 +193,7 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -248,7 +248,7 @@ fn numeric_like_subset_batches_matches_adhoc() {
             source,
             Some(make_child(child_ids.clone())),
             NonZeroUsize::new(k).unwrap(),
-            asc,
+            asc(),
             mode,
         );
 
