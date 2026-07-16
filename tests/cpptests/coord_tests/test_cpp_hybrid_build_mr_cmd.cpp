@@ -75,35 +75,47 @@ static HybridCombineWireParams linearWireParams(HybridScoringContext *sc, double
   return HybridCombineWireParams{sc, alias};
 }
 
-// Walk input and output argv in tandem, asserting non-COMBINE args are
-// preserved by position. Where the input has a COMBINE clause, the output is
-// expected to carry the reconstructed clause instead (self-delimiting input
-// clause: COMBINE <method> <count> <count-args...> [YIELD_SCORE_AS <alias>]).
-// Returns the output index just past the matched prefix.
+// Assert every input arg is preserved by position in the output. The
+// coordinator always inserts one reconstructed COMBINE clause after the VSIM
+// block; the oracle spots it in the output (COMBINE followed by a scoring
+// method - a PARAMS-value COMBINE never is) and, if the client supplied its own
+// COMBINE clause, drops that clause from the input side since the reconstructed
+// form replaces it. Returns the output index just past the matched prefix.
 static int verifyArgsPreservedWithReconstructedCombine(
     const MRCommand *xcmd, const std::vector<const char *> &inputArgs,
     const HybridCombineWireParams *cp) {
+  const bool expectReconstructed = cp && cp->scoringCtx;
+  bool reconstructedMatched = false;
   int oi = 1;  // strs[0] is _FT.HYBRID, checked separately
   for (size_t ii = 1; ii < inputArgs.size();) {
-    if (strcasecmp(inputArgs[ii], "COMBINE") == 0 && cp && cp->scoringCtx) {
+    const bool outStartsReconstructed =
+        expectReconstructed && !reconstructedMatched && oi + 1 < xcmd->num &&
+        xcmd->lens[oi] == strlen("COMBINE") &&
+        strncasecmp(xcmd->strs[oi], "COMBINE", xcmd->lens[oi]) == 0 &&
+        (!strcasecmp(xcmd->strs[oi + 1], "RRF") || !strcasecmp(xcmd->strs[oi + 1], "LINEAR"));
+    if (outStartsReconstructed) {
       for (const auto &tok : expectedCombineTokens(*cp)) {
         EXPECT_STREQ(xcmd->strs[oi], tok.c_str())
             << "Reconstructed COMBINE token mismatch at output index " << oi;
         oi++;
       }
-      // Skip the input COMBINE clause: COMBINE + method + count + N args.
-      ii += 2;                          // COMBINE, method
-      long n = atol(inputArgs[ii]);     // count
-      ii += 1 + (size_t)n;              // count token + its args
-      if (ii < inputArgs.size() && strcasecmp(inputArgs[ii], "YIELD_SCORE_AS") == 0) {
-        ii += 2;                        // positional YIELD_SCORE_AS <alias>
+      reconstructedMatched = true;
+      // If the client supplied its own COMBINE clause at this position, drop it
+      // from the input stream: COMBINE + method + count + N args.
+      if (strcasecmp(inputArgs[ii], "COMBINE") == 0) {
+        ii += 2;                          // COMBINE, method
+        long n = atol(inputArgs[ii]);     // count
+        ii += 1 + (size_t)n;              // count token + its args
+        if (ii < inputArgs.size() && strcasecmp(inputArgs[ii], "YIELD_SCORE_AS") == 0) {
+          ii += 2;                        // positional YIELD_SCORE_AS <alias>
+        }
       }
-    } else {
-      EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
-          << "Argument at input index " << ii << " should be preserved";
-      oi++;
-      ii++;
+      continue;
     }
+    EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
+        << "Argument at input index " << ii << " should be preserved";
+    oi++;
+    ii++;
   }
   return oi;
 }
@@ -301,9 +313,11 @@ protected:
                                      nullptr, testIndexSpec, &kArgIndex);
 
         // Assert the parse-driven path also preserves every non-COMBINE arg by
-        // position and reconstructs the COMBINE clause against the computed
-        // oracle. The caller additionally pins the extracted clause against a
-        // literal vector, so the two oracles stay independent.
+        // position (this is what verifies the PARAMS block - including any
+        // COMBINE token used as a param value - is forwarded verbatim) and
+        // reconstructs the COMBINE clause against the computed oracle. The caller
+        // additionally pins the extracted clause against a literal vector, so the
+        // two oracles stay independent.
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, &cp);
 
@@ -827,11 +841,57 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearArgsCountedAliasAndWindowRecon
     EXPECT_EQ(clause, expected);
 }
 
-// No COMBINE clause -> nothing forwarded (matches legacy behavior).
-TEST_F(HybridBuildMRCommandTest, testNoCombineNotForwarded) {
+// No COMBINE clause -> the coordinator still forwards its resolved defaults in
+// counted form, so every shard fuses identically regardless of its own version
+// defaults (rolling-upgrade consistency).
+TEST_F(HybridBuildMRCommandTest, testNoCombineForwardsResolvedDefault) {
     auto clause = buildAndExtractCombineClause({
         "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
-    EXPECT_TRUE(clause.empty());
+    std::vector<std::string> expected = {"COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE LINEAR 0 YIELD_SCORE_AS s (positional alias, zero count) ->
+// counted form with the alias folded into the count (8), full defaults expanded.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroCountPositionalAliasReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "LINEAR", "0", "YIELD_SCORE_AS", "fused_score",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "YIELD_SCORE_AS", "fused_score"};
+    EXPECT_EQ(clause, expected);
+}
+
+// COMBINE RRF 4 CONSTANT 60 WINDOW 20 YIELD_SCORE_AS s (full args + positional
+// alias) -> counted form with the alias folded into the count (6).
+TEST_F(HybridBuildMRCommandTest, testCombineRRFFullPositionalAliasReconstructed) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20", "YIELD_SCORE_AS", "fused_score",
+        "PARAMS", "2", "BLOB", TEST_BLOB_DATA
+    });
+    std::vector<std::string> expected = {
+        "COMBINE", "RRF", "6", "CONSTANT", "60", "WINDOW", "20",
+        "YIELD_SCORE_AS", "fused_score"};
+    EXPECT_EQ(clause, expected);
+}
+
+// A COMBINE token that appears only as a PARAMS *value* (not as a top-level
+// clause after VSIM) must not be mistaken for the fusion clause. The
+// coordinator forwards exactly one reconstructed clause built from its resolved
+// (default) scoring context; the extracted clause is that default, and the
+// positional oracle inside the helper confirms the PARAMS block - including its
+// literal "COMBINE" value - is preserved verbatim.
+TEST_F(HybridBuildMRCommandTest, testCombineInsideParamsNotMistakenForClause) {
+    auto clause = buildAndExtractCombineClause({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB",
+        "PARAMS", "4", "BLOB", TEST_BLOB_DATA, "COMBINE", "value"
+    });
+    std::vector<std::string> expected = {"COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20"};
+    EXPECT_EQ(clause, expected);
 }

@@ -315,15 +315,16 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, outKArgIndex);
 
-  // Reconstruct the COMBINE clause from the coordinator's resolved scoring
-  // parameters instead of copying the client's raw tokens. This normalizes the
-  // positional YIELD_SCORE_AS form and a zero argument count into the legacy
-  // counted form that all shard versions accept.
-  // Gate on the COMBINE token appearing after VSIM (not inside the SEARCH query
-  // text) so we only forward COMBINE when the client actually specified it.
-  if (RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset) != -1) {
-    MRCommand_appendCombine(xcmd, combineParams);
-  }
+  // Always reconstruct and forward the coordinator's resolved COMBINE clause
+  // (in the legacy counted form).
+  // Forwarding it unconditionally - even when the client omitted COMBINE and
+  // the coordinator filled in defaults - pins every shard to identical fusion
+  // parameters (constant/weights/window), so hybrid results stay consistent
+  // across shards of different versions during a rolling upgrade rather than
+  // each shard falling back on its own (possibly changed) defaults. This also
+  // normalizes the positional YIELD_SCORE_AS form and a zero argument count
+  // into the counted form that all shard versions accept.
+  MRCommand_appendCombine(xcmd, combineParams);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {

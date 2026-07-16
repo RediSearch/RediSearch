@@ -352,11 +352,91 @@ TEST_F(ParseHybridTest, testCombineLinearYieldScorePositional) {
   ASSERT_STREQ(result.hybridParams->aggregationParams.common.scoreAlias, "fused_score");
 }
 
-TEST_F(ParseHybridTest, testCombineAndPositionalYieldScoreError) {
+TEST_F(ParseHybridTest, testRRFFullArgsYieldScorePositional) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "4", "CONSTANT", "70", "WINDOW", "15",
+      "YIELD_SCORE_AS", "fused_score",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+  assertRRFScoringCtx(70, 15);
+  ASSERT_STREQ(result.hybridParams->aggregationParams.common.scoreAlias, "fused_score");
+}
+
+TEST_F(ParseHybridTest, testLinearFullArgsYieldScorePositional) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "LINEAR", "6", "ALPHA", "0.55", "BETA", "0.45", "WINDOW", "30",
+      "YIELD_SCORE_AS", "fused_score",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+  assertLinearScoringCtx(0.55, 0.45, 30);
+  ASSERT_STREQ(result.hybridParams->aggregationParams.common.scoreAlias, "fused_score");
+}
+
+TEST_F(ParseHybridTest, testRRFFullArgsYieldScoreCounted) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "RRF", "6", "CONSTANT", "70", "WINDOW", "15",
+        "YIELD_SCORE_AS", "fused_score",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+  assertRRFScoringCtx(70, 15);
+  ASSERT_STREQ(result.hybridParams->aggregationParams.common.scoreAlias, "fused_score");
+}
+
+TEST_F(ParseHybridTest, testLinearFullArgsYieldScoreCounted) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "LINEAR", "8", "ALPHA", "0.55", "BETA", "0.45", "WINDOW", "30",
+        "YIELD_SCORE_AS", "fused_score",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+  assertLinearScoringCtx(0.55, 0.45, 30);
+  ASSERT_STREQ(result.hybridParams->aggregationParams.common.scoreAlias, "fused_score");
+}
+
+// ============================================================================
+// No COMBINE clause, but PARAMS contains COMBINE token
+// ============================================================================
+
+TEST_F(ParseHybridTest, testRRFCombineTokenInParams) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "$q", "VSIM", "@vector", "$BLOB",
+      "PARAMS", "6", "BLOB", TEST_BLOB_DATA, "q", "hello", "COMBINE", "value");
+  parseCommand(args);
+  // Verify default scoring type is RRF
+  assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
+}
+
+TEST_F(ParseHybridTest, testLinearCombineTokenInParams) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "$q", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "LINEAR", "4", "ALPHA", "0.9", "BETA", "0.1",
+      "PARAMS", "6", "BLOB", TEST_BLOB_DATA, "q", "hello", "COMBINE", "value");
+  parseCommand(args);
+  assertLinearScoringCtx(0.9, 0.1, HYBRID_DEFAULT_WINDOW);
+}
+
+// ============================================================================
+// HYBRID + YIELD_SCORE_AS error cases
+// ============================================================================
+
+TEST_F(ParseHybridTest, testRRFCountedAndPositionalYieldScoreError) {
   // Alias given both counted (inside count 4) and positionally -> rejected
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
       "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
       "COMBINE", "RRF", "4", "CONSTANT", "60", "YIELD_SCORE_AS", "a",
+      "YIELD_SCORE_AS", "b",
+      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS specified more than once");
+}
+
+TEST_F(ParseHybridTest, testLinearCountedAndPositionalYieldScoreError) {
+  // Alias given both counted (inside count 6) and positionally -> rejected
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(),
+      "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+      "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "YIELD_SCORE_AS", "a",
       "YIELD_SCORE_AS", "b",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS specified more than once");
