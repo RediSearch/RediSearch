@@ -17,12 +17,13 @@ mod term_record;
 
 pub use query_term::RSQueryTerm;
 
-pub use self::core::{RSIndexResult, RawIndexResult, RawIndexResultBuilder, RawTermResultBuilder};
+pub use self::core::{
+    RSIndexResult, RawIndexResult, RawIndexResultBuilder, RawTermResultBuilder,
+    SuspendedIndexResult,
+};
 pub use aggregate::{RSAggregateResult, RSAggregateResultIter, RawAggregateResult};
 pub use kind::{RSResultKind, RSResultKindMask};
-pub use metrics::{
-    MetricEntry, MetricsSlice, MetricsVec, RawMetricEntry, RawMetricsSlice, RawMetricsVec,
-};
+pub use metrics::{MetricEntry, MetricsSlice, MetricsVec};
 pub use offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 pub use result_data::{RSResultData, RawResultData};
 pub use term_record::{RSTermRecord, RawTermRecord};

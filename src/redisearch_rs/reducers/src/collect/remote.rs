@@ -134,7 +134,7 @@ const _: () = assert!(core::mem::offset_of!(RemoteCollectReducer<'_>, reducer) =
 /// [`ptr::drop_in_place`][std::ptr::drop_in_place] must be called to release
 /// the stored [`RLookupRow`]s and decrement [`SharedValue`] refcounts.
 pub struct RemoteCollectCtx {
-    storage: Storage<ffi::t_docId>,
+    storage: Storage<rqe_core::DocId>,
 }
 
 impl<'a> RemoteCollectReducer<'a> {
@@ -261,7 +261,7 @@ impl RemoteCollectCtx {
         &mut self,
         r: &RemoteCollectReducer<'_>,
         row: &RLookupRow<'_>,
-        doc_id: ffi::t_docId,
+        doc_id: rqe_core::DocId,
     ) {
         let project = || {
             let mut dst = RLookupRow::new();
@@ -275,12 +275,7 @@ impl RemoteCollectCtx {
         match &mut self.storage {
             Storage::Unranked(unranked) => unranked.push(project),
             Storage::Ranked(ranked) => {
-                let sort_vals = r
-                    .fields
-                    .sort_keys()
-                    .iter()
-                    .map(|key| row.get(key).cloned())
-                    .collect();
+                let sort_vals = r.fields.sort_keys().iter().map(|key| row.get(key));
                 ranked.consider(sort_vals, doc_id, project);
             }
         }

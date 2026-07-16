@@ -238,3 +238,18 @@ fn revalidate() {
         .expect("revalidate failed");
     assert_eq!(status, RQEValidateStatus::Ok);
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let it = Box::new(IdListSorted::new(vec![1, 2, 3]));
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
+            .expect("resume should not fail")
+            .expect_ok();
+    }
+}

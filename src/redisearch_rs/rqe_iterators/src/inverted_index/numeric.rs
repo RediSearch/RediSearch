@@ -12,10 +12,14 @@ use std::{f64, ptr::NonNull};
 use crate::{
     FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
     SkipToOutcome,
+    c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
 };
-use ffi::{FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags};
+use ffi::{
+    FieldType_INDEXFLD_T_GEO, FieldType_INDEXFLD_T_NUMERIC, IndexFlags, QueryIterator,
+    RedisSearchCtx,
+};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
@@ -23,23 +27,26 @@ use inverted_index::{
     block_max_score::BlockScorer,
 };
 use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use query_types::QueryNodeType;
+use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
-use super::core::InvIndIterator;
+use super::core::{InvIndIterator, RawInvIndIterator};
 
-/// An iterator over numeric inverted index entries.
-///
-/// This iterator can be used to query a numeric inverted index.
+/// An iterator over numeric inverted index entries, parameterised over a
+/// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
+/// implements [`RQEIterator`].
 ///
 /// The [`inverted_index::IndexReader`] API can be used to fully scan an inverted index.
 ///
 /// # Type Parameters
 ///
-/// * `'index` - The lifetime of the index being iterated over.
+/// * `Rf` - The [`Ref`] mode (see [`RawInvIndIterator`] for details).
 /// * `R` - The type of the numeric reader.
 /// * `E` - The expiration checker type used to check for expired documents.
-pub struct Numeric<'index, R, E = NoOpChecker> {
-    it: InvIndIterator<'index, R, E>,
+#[repr(C)]
+pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker> {
+    it: RawInvIndIterator<'query, Rf, R, E>,
     /// The numeric range tree and its revision ID, used to detect changes during revalidation.
     range_tree_info: Option<RangeTreeInfo>,
     /// Minimum numeric range, only used in debug print.
@@ -47,6 +54,10 @@ pub struct Numeric<'index, R, E = NoOpChecker> {
     /// Maximum numeric range, only used in debug print.
     range_max: f64,
 }
+
+/// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
+/// [`RQEIterator`] impl today.
+pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>, R, E>;
 
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {
@@ -585,4 +596,65 @@ impl ProfilePrint for NumericIteratorVariant<'_> {
             }
         }
     }
+}
+
+/// Build a numeric (or geo) filter iterator over all matching sub-ranges of the
+/// field's [`NumericRangeTree`].
+///
+/// Opens the field's range tree, collects one iterator per matching sub-range
+/// (a [`NumericIteratorVariant`] each), and combines them with
+/// [`build_union`](crate::union_opaque::build_union). The node type recorded on
+/// the union is [`Numeric`](QueryNodeType::Numeric) or [`Geo`](QueryNodeType::Geo)
+/// depending on the filter.
+///
+/// Returns [`None`] — an empty (matchless) result, not an error — when the index
+/// does not exist for the field (nothing indexed yet) or when no sub-range
+/// matches the filter.
+///
+/// # Safety
+///
+/// 1. `sctx.spec` must be a valid non-null [`IndexSpec`](ffi::IndexSpec); `sctx`
+///    and its spec must remain valid for the lifetime of the returned iterator.
+/// 2. `flt.field_spec` must be a valid non-null pointer to a [`FieldSpec`](ffi::FieldSpec)
+///    for a numeric or geo field, remaining valid for the lifetime of the
+///    returned iterator.
+/// 3. `field_ctx.field` must be a field index (not a field mask).
+pub unsafe fn build_numeric_filter_iterator(
+    sctx: &RedisSearchCtx,
+    flt: &NumericFilter,
+    min_union_iter_heap: usize,
+    field_ctx: &field::FieldFilterContext,
+    compress: bool,
+) -> Option<NonNull<QueryIterator>> {
+    let node_type = if flt.is_numeric_filter() {
+        QueryNodeType::Numeric
+    } else {
+        QueryNodeType::Geo
+    };
+
+    // SAFETY: precondition (1) — `sctx.spec` is valid and non-null.
+    let spec = unsafe { &mut *sctx.spec };
+    // SAFETY: precondition (2) — `flt.field_spec` is valid and non-null.
+    let fs = unsafe { &mut *(flt.field_spec as *mut ffi::FieldSpec) };
+    // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
+    // is the right type. We never create the tree here (`create_if_missing` is
+    // false), so the `fs.tree` ownership precondition is trivially upheld.
+    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }?;
+
+    // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
+    // index (3).
+    let variants =
+        unsafe { NumericIteratorVariant::from_tree(tree, NonNull::from(sctx), flt, field_ctx) };
+    if variants.is_empty() {
+        return None;
+    }
+
+    let children: Vec<CRQEIterator> = variants
+        .into_iter()
+        .map(CRQEIterator::from_rust_leaf)
+        .collect();
+
+    let iter =
+        crate::union_opaque::build_union(children, true, min_union_iter_heap, node_type, 1.0);
+    Some(iter)
 }

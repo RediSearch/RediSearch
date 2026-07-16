@@ -237,7 +237,7 @@ fn intersection_two_children() {
 
 #[test]
 fn union_full_print() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -246,7 +246,7 @@ fn union_full_print() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Union,
-        query_string: std::ptr::null(),
+        query_string: None,
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -254,7 +254,7 @@ fn union_full_print() {
 
 #[test]
 fn union_limited_non_union_type() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -267,7 +267,7 @@ fn union_limited_non_union_type() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Tag,
-        query_string: std::ptr::null(),
+        query_string: None,
     };
     let reply = capture_single_reply(|| {
         let mut ctx = ProfilePrintCtx::new(true, false);
@@ -279,7 +279,7 @@ fn union_limited_non_union_type() {
 
 #[test]
 fn union_limited_geo_prints_full() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -288,7 +288,7 @@ fn union_limited_geo_prints_full() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Geo,
-        query_string: std::ptr::null(),
+        query_string: None,
     };
     let reply = capture_single_reply(|| {
         let mut ctx = ProfilePrintCtx::new(true, false);
@@ -300,7 +300,7 @@ fn union_limited_geo_prints_full() {
 
 #[test]
 fn union_limited_lexrange_prints_full() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -309,7 +309,7 @@ fn union_limited_lexrange_prints_full() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::LexRange,
-        query_string: std::ptr::null(),
+        query_string: None,
     };
     let reply = capture_single_reply(|| {
         let mut ctx = ProfilePrintCtx::new(true, false);
@@ -321,7 +321,8 @@ fn union_limited_lexrange_prints_full() {
 
 #[test]
 fn union_with_query_string() {
-    use ffi::QueryNodeType;
+    use query_types::QueryNodeType;
+    use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -331,7 +332,7 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
-        query_string: query_str.as_ptr(),
+        query_string: Some(SharedPtr::from_ref(query_str.as_c_str())),
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -407,7 +408,7 @@ fn tag_with_query_term() {
         rqe_iterators::inverted_index::Tag::new(
             reader,
             mock_ctx.sctx(),
-            mock_ctx.tag_index(),
+            iterators_ffi::inverted_index::CTagIndexLookup::new(mock_ctx.tag_index()),
             RSQueryTerm::new("my_tag", 0, 0),
             0.0,
             rqe_iterators::NoOpChecker,

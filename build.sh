@@ -54,7 +54,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher --exclude vector_score_source_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -374,6 +374,21 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
+  # A reused build directory keeps the LTO configuration it was created with:
+  # the CMake cache retains CMAKE_INTERPROCEDURAL_OPTIMIZATION=true and the
+  # static libraries already built from it contain LLVM bitcode, which
+  # non-LTO consumers reject at link time (the Rust test binaries linking
+  # libredisearch_all.a through the default cc/bfd linker fail with
+  # "file format not recognized"). Inherit LTO from the cache so a re-drive
+  # without the LTO argument (e.g. `make test` after an LTO `make build`)
+  # keeps the matching clang/lld toolchain. FORCE wipes the directory in
+  # run_cmake(), so a forced clean build is exempt.
+  if [[ "$LTO" != "1" && "$FORCE" != "1" && -f "$BINDIR/CMakeCache.txt" ]] && \
+      grep -qE '^CMAKE_INTERPROCEDURAL_OPTIMIZATION:[^=]*=(true|TRUE|ON|1)$' "$BINDIR/CMakeCache.txt"; then
+    echo "Reusing LTO-configured build directory: enabling LTO"
+    LTO=1
+  fi
+
   if [[ "$LTO" == "1" ]]; then
     # LTO is only supported on Linux
     if [[ "$OS_NAME" != "linux" ]]; then
@@ -528,8 +543,13 @@ prepare_cmake_arguments() {
     # Pass LTO C/CXX flags to CMake via CFLAGS/CXXFLAGS env vars so CMake picks them
     # up without word-splitting issues.
     # Note: we assume there are no spaces in system C++ include paths.
-    export CFLAGS="${CFLAGS:+${CFLAGS} }${GCC_COMMON_FLAGS}"
-    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # The environment may carry GCC-only -W options (e.g. CI exports
+    # -Wno-error=maybe-uninitialized for the gcc-built redis core). This
+    # branch always compiles with clang, which flags those as
+    # -Wunknown-warning-option — a hard error in vendored targets that add
+    # -Werror (e.g. VectorSimilarity spaces). Silence that diagnostic.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
     # Export CC/CXX so that Rust's cc crate also uses clang, matching the
     # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
     export CC="$C_COMPILER"

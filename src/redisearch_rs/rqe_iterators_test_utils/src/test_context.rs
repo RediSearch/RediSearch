@@ -278,7 +278,7 @@ impl TestContext {
                 0,
                 std::ptr::null(),
                 0,
-                ffi::DocumentType::Hash,
+                document::DocumentType::Hash,
             )
         };
         assert!(!dmd.is_null(), "DocTable_Put returned null");
@@ -346,6 +346,73 @@ impl TestContext {
             sctx,
             spec,
             qctx: OnceCell::new(),
+            inner: TestContextInner::Numeric {
+                field_spec: fs,
+                numeric_range_tree: NonNull::from_mut(numeric_range_tree),
+            },
+        }
+    }
+
+    /// Create a new [`TestContext`] with a GEO field backed by a numeric range
+    /// tree holding the given `(doc_id, lon, lat)` points.
+    ///
+    /// Geo fields are stored as sorted numeric geohash scores, so each point is
+    /// encoded to its geohash score before being indexed.
+    ///
+    /// # Arguments
+    /// * `points` - An iterator over `(doc_id, lon, lat)` points to be indexed.
+    ///
+    /// # Panics
+    /// Panics if any point's coordinates are outside WGS-84 bounds.
+    pub fn geo<I>(points: I) -> Self
+    where
+        I: Iterator<Item = (DocId, f64, f64)>,
+    {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        // Create IndexSpec for a GEO field with a unique name to avoid parallel
+        // test conflicts.
+        let index_name = unique_index_name("geo_idx");
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA geo_field GEO", &index_name);
+
+        let field_name = CString::new("geo_field").unwrap();
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned by
+        // `create_spec_sctx`, and `field_name` is a valid NUL-terminated string
+        // whose byte length matches the pointer passed alongside it.
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec,
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let mut fs = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        // Geo fields share the numeric range-tree storage; open it and add the
+        // geohash-encoded scores.
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` and `fs` is a valid,
+        // non-null `FieldSpec` for the geo field just looked up above.
+        let numeric_range_tree = unsafe {
+            rqe_iterators::open_numeric_or_geo_index(&mut *spec, fs.as_mut(), true, true)
+        }
+        .expect("NumericRangeTree should not be None");
+
+        for (doc_id, lon, lat) in points {
+            let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
+                .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
+            let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
+            numeric_range_tree.add(doc_id, score, false, 0);
+        }
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            qctx: OnceCell::new(),
+            // A geo field is backed by the numeric range tree, so it reuses the
+            // `Numeric` inner variant rather than needing a dedicated one.
             inner: TestContextInner::Numeric {
                 field_spec: fs,
                 numeric_range_tree: NonNull::from_mut(numeric_range_tree),
@@ -584,7 +651,8 @@ impl TestContext {
             ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
         // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
-        let tag_index_raw = unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut()) };
+        let tag_index_raw =
+            unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut(), false) };
         let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
 
         // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
@@ -1055,6 +1123,18 @@ impl Default for GlobalGuard {
                 unsafe {
                     // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
                     ffi::StopWordList_FreeGlobals();
+                }
+
+                // NA_rstr (the IndexError default key) is lazily allocated the
+                // first time a spec's IndexError is initialized.
+                //
+                // SAFETY: `IndexError_GlobalCleanup` takes no arguments and
+                // internally null-checks `NA_rstr`, so it is sound to call whether
+                // or not a spec was ever created, and is idempotent. It runs at
+                // process exit, after every `TestContext` has been dropped, so
+                // nothing else references the string.
+                unsafe {
+                    ffi::IndexError_GlobalCleanup();
                 }
             }
 

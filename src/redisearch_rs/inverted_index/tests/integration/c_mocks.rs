@@ -13,7 +13,7 @@
 //! crate. Since all tests share a single binary, each mock symbol must be
 //! defined exactly once.
 
-use ffi::RSQueryTerm;
+use query_term::RSQueryTerm;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Term_Free(_t: *mut RSQueryTerm) {

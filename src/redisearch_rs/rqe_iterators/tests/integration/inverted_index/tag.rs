@@ -19,6 +19,8 @@ use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
 
+use iterators_ffi::inverted_index::CTagIndexLookup;
+
 struct TagBaseTest {
     test: BaseTest<DocIdsOnly>,
 }
@@ -45,7 +47,7 @@ impl TagBaseTest {
         RSQueryTerm::new("test_tag", 0, 0)
     }
 
-    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
         let reader = self.test.ii.reader();
         let term = Self::create_term();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
@@ -56,7 +58,7 @@ impl TagBaseTest {
             Tag::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                self.test.mock_ctx.tag_index(),
+                CTagIndexLookup::new(self.test.mock_ctx.tag_index()),
                 term,
                 0.0,
                 NoOpChecker,
@@ -99,7 +101,7 @@ fn tag_empty_index() {
         Tag::new(
             reader,
             mock_ctx.sctx(),
-            mock_ctx.tag_index(),
+            CTagIndexLookup::new(mock_ctx.tag_index()),
             term,
             0.0,
             NoOpChecker,
@@ -142,7 +144,7 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, NoOpChecker> {
+        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
             let ii = DocIdsOnly::from_opaque(self.test.context.tag_inverted_index());
             let tag_index = self.test.context.tag_index();
             let term = RSQueryTerm::new("test_tag", 0, 0);
@@ -152,7 +154,7 @@ mod not_miri {
                 Tag::new(
                     ii.reader(),
                     self.test.context.sctx,
-                    tag_index,
+                    CTagIndexLookup::new(tag_index),
                     term,
                     0.0,
                     NoOpChecker,

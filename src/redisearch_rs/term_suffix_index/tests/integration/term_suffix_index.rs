@@ -28,6 +28,32 @@ fn add_promotes_existing_suffix_only_node_to_full_term() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
+fn add_term_longer_than_u16_max_bytes_is_noop() {
+    // Trie node labels store their length as `u16`; an unrepresentable
+    // term must be skipped, not panic.
+    let mut sut = TermSuffixIndex::new();
+
+    sut.add(&"a".repeat(u16::MAX as usize + 1));
+
+    assert_eq!(sut.keys().count(), 0);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
+fn add_term_growing_past_u16_max_bytes_when_lowercased_is_noop() {
+    // 'İ' (U+0130, 2 bytes) lowercases to "i\u{307}" (3 bytes), so a
+    // term can pass the limit only after folding; the guard must
+    // measure the lowercased form.
+    let mut sut = TermSuffixIndex::new();
+    let term = "İ".repeat(25_000); // 50,000 bytes pre-fold, 75,000 post-fold
+
+    sut.add(&term);
+
+    assert_eq!(sut.keys().count(), 0);
+}
+
+#[test]
 fn add_same_term_twice_is_noop() {
     let mut sut = TermSuffixIndex::new();
 

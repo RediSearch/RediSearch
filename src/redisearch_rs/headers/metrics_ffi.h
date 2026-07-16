@@ -77,7 +77,7 @@ void IndexResult_ResetAggregate(RSIndexResult *r);
  * 2. The returned slice borrows from the `MetricsVec`; the caller must
  *    not mutate or free the `MetricsVec` while the slice is in use.
  */
-MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
+struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
 
 /**
  * Finds the first metric whose key matches `key` (pointer equality) and

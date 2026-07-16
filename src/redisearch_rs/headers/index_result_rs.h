@@ -26,13 +26,37 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RLookupKey RLookupKey;
 
 /**
+ * A single metric: a borrowed key and a numeric value.
+ */
+typedef struct MetricEntry {
+  /**
+   * Borrowed reference to the lookup key that identifies this metric,
+   * or `None` when the metric has no associated key.
+   *
+   * The key always lives under the `'query` lifetime: it belongs to the
+   * query pipeline (the `RLookupKey`), not to the inverted index, so it is
+   * never weakened by the `Active`/`Suspended` ref-mode transitions —
+   * unlike the index-backed pointers of a result, it stays a genuine
+   * `&'query` borrow across the whole suspend/resume cycle. That is why it
+   * is modelled as a plain reference rather than a ref-mode-parametrised
+   * `SharedPtr`.
+   *
+   * Stored as `Option<&'query RLookupKey>` so "no key" is `None`; the
+   * `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
+   */
+  const RLookupKey *key;
+  /**
+   * The metric value (e.g. vector distance, score).
+   */
+  double value;
+} MetricEntry;
+
+/**
  * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
  * pointer is a live `&'a [u8]`.
  */
 typedef struct RSOffsetVector RSOffsetSlice;
 
-#ifndef RAWMETRICSSLICE_ACTIVE_DEFINED
-#define RAWMETRICSSLICE_ACTIVE_DEFINED
 /**
  * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
  *
@@ -40,18 +64,17 @@ typedef struct RSOffsetVector RSOffsetSlice;
  * from C. The pointed-to data is valid as long as the originating
  * [`MetricsVec`] is not mutated or dropped.
  */
-typedef struct RawMetricsSlice_Active {
+typedef struct MetricsSlice {
   /**
    * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
    * when `len == 0`.
    */
-  const struct RawMetricEntry_Active *data;
+  const struct MetricEntry *data;
   /**
    * Number of entries.
    */
   size_t len;
-} RawMetricsSlice_Active;
-#endif /* RAWMETRICSSLICE_ACTIVE_DEFINED */
+} MetricsSlice;
 
 #ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
 #define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
@@ -63,18 +86,16 @@ typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
 } ThinVec_Box_RawIndexResult_Active__u16;
 #endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
 
-#ifndef THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
-#define THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED
+#ifndef THINVEC_METRICENTRY__U64_DEFINED
+#define THINVEC_METRICENTRY__U64_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_RawMetricEntry_Active__u64 {
+typedef struct ThinVec_MetricEntry__u64 {
   struct Header_u64 *ptr;
-} ThinVec_RawMetricEntry_Active__u64;
-#endif /* THINVEC_RAWMETRICENTRY_ACTIVE__U64_DEFINED */
+} ThinVec_MetricEntry__u64;
+#endif /* THINVEC_METRICENTRY__U64_DEFINED */
 
-#ifndef RAWMETRICSVEC_ACTIVE_DEFINED
-#define RAWMETRICSVEC_ACTIVE_DEFINED
 /**
  * A dynamically-sized collection of [`MetricEntry`] values.
  *
@@ -84,13 +105,7 @@ typedef struct ThinVec_RawMetricEntry_Active__u64 {
  * `repr(transparent)` over `ThinVec` means this type is pointer-sized
  * and can be embedded directly in `repr(C)` structs.
  */
-typedef struct ThinVec_RawMetricEntry_Active__u64 RawMetricsVec_Active;
-#endif /* RAWMETRICSVEC_ACTIVE_DEFINED */
-
-/**
- * The [`Active`] instantiation of [`RawMetricsVec`].
- */
-typedef RawMetricsVec_Active MetricsVec;
+typedef struct ThinVec_MetricEntry__u64 MetricsVec;
 
 #ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
 #define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
@@ -101,100 +116,6 @@ typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
   struct Header_u16 *ptr;
 } ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
 #endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
-
-/**
- * The [`Active`] instantiation of [`RawMetricsSlice`].
- */
-typedef struct RawMetricsSlice_Active MetricsSlice;
-
-#ifndef SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
-#define SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED
-/**
- * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
- *
- * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
- * which constructors and methods are available:
- *
- * - [`Active<'a>`]: built from a reference via
- *   [`SharedPtr::<Active>::from_ref`], with safe access via
- *   [`SharedPtr::get`].
- * - [`Suspended`]: built from a raw [`NonNull<T>`] via
- *   [`SharedPtr::<Suspended>::from_non_null`]; inert (no safe access).
- *   Upgrade to [`Active`] with the unsafe
- *   [`SharedPtr::<Suspended>::into_active`] once validity is
- *   re-established.
- *
- * `SharedPtr` only ever exposes shared (immutable) access to its
- * referent; there is no mutable counterpart.
- *
- * `#[repr(transparent)]` ensures `SharedPtr<Rf, T>` has the same layout
- * as `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
- * between `Active` and `Suspended` instantiations of containing
- * `#[repr(C)]` structs. The `NonNull<T>` niche makes
- * `Option<SharedPtr<Rf, T>>` pointer-sized as well.
- */
-typedef RLookupKey *SharedPtr_Active__RLookupKey;
-#endif /* SHAREDPTR_ACTIVE__RLOOKUPKEY_DEFINED */
-
-#ifndef RAWMETRICENTRY_ACTIVE_DEFINED
-#define RAWMETRICENTRY_ACTIVE_DEFINED
-/**
- * A single metric: a borrowed key and a numeric value.
- *
- * The `R: Ref` parameter controls how the key reference is stored:
- * in [`Active<'a>`] mode it is a valid `&'a RLookupKey`, in
- * [`ref_mode::Suspended`] mode it is an inert raw pointer.
- *
- * `key` is `Option<SharedPtr<R, RLookupKey>>` so "no key" is encoded as
- * `None`. `SharedPtr` wraps `NonNull` so the niche optimization keeps the C
- * ABI as a nullable `RLookupKey *`.
- */
-typedef struct RawMetricEntry_Active {
-  /**
-   * Borrowed reference to the lookup key that identifies this metric,
-   * or `None` when the metric has no associated key.
-   */
-  SharedPtr_Active__RLookupKey key;
-  /**
-   * The metric value (e.g. vector distance, score).
-   */
-  double value;
-} RawMetricEntry_Active;
-#endif /* RAWMETRICENTRY_ACTIVE_DEFINED */
-
-/**
- * The [`Active`] instantiation of [`RawMetricEntry`].
- */
-typedef struct RawMetricEntry_Active MetricEntry;
-
-#ifndef SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED
-#define SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED
-/**
- * A pointer to `T` whose validity semantics depend on the [`Ref`] mode `Rf`.
- *
- * Internally this is a [`NonNull<T>`]. The `Rf` type parameter controls
- * which constructors and methods are available:
- *
- * - [`Active<'a>`]: built from a reference via
- *   [`SharedPtr::<Active>::from_ref`], with safe access via
- *   [`SharedPtr::get`].
- * - [`Suspended`]: built from a raw [`NonNull<T>`] via
- *   [`SharedPtr::<Suspended>::from_non_null`]; inert (no safe access).
- *   Upgrade to [`Active`] with the unsafe
- *   [`SharedPtr::<Suspended>::into_active`] once validity is
- *   re-established.
- *
- * `SharedPtr` only ever exposes shared (immutable) access to its
- * referent; there is no mutable counterpart.
- *
- * `#[repr(transparent)]` ensures `SharedPtr<Rf, T>` has the same layout
- * as `NonNull<T>` regardless of `Rf`, enabling zero-cost transmutation
- * between `Active` and `Suspended` instantiations of containing
- * `#[repr(C)]` structs. The `NonNull<T>` niche makes
- * `Option<SharedPtr<Rf, T>>` pointer-sized as well.
- */
-typedef struct RSQueryTerm *SharedPtr_Active__RSQueryTerm;
-#endif /* SHAREDPTR_ACTIVE__RSQUERYTERM_DEFINED */
 
 #ifndef SHAREDPTR_ACTIVE__U8_DEFINED
 #define SHAREDPTR_ACTIVE__U8_DEFINED
@@ -296,10 +217,16 @@ typedef struct RawTermRecord_Active_Owned_Body {
    * The term that brought up this record.
    *
    * It borrows the term from another record. `None` encodes "no
-   * term"; thanks to `NonNull`'s niche, `Option<SharedPtr<R, RSQueryTerm>>`
+   * term"; thanks to the `NonNull` niche of `&T`, `Option<&'query RSQueryTerm>`
    * has the same C ABI as a nullable `*const RSQueryTerm`.
+   *
+   * The borrowed query term belongs to the query pipeline, so it lives
+   * under the `'query` lifetime and is never weakened by the
+   * `Active`/`Suspended` ref-mode transitions — it stays a genuine
+   * `&'query` borrow, so it is modelled as a plain reference rather than
+   * a ref-mode-parametrised `SharedPtr`.
    */
-  SharedPtr_Active__RSQueryTerm term;
+  const struct RSQueryTerm *term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
@@ -654,7 +581,7 @@ typedef struct RawIndexResult_Active {
    * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
    * allocation when empty.
    */
-  RawMetricsVec_Active metrics;
+  MetricsVec metrics;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */

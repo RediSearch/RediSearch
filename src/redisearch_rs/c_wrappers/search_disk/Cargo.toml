@@ -8,7 +8,23 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enabled when building tests so `build.rs` links the C code (`libredisearch_all.a`).
+# See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
 [dependencies]
 ffi.workspace = true
+inverted_index.workspace = true
+query_term.workspace = true
 rqe_core.workspace = true
+rqe_iterators.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+search_disk = { path = ".", features = ["unittest"] }

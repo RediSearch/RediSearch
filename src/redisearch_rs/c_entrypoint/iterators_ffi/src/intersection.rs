@@ -9,7 +9,8 @@
 
 use std::ptr::NonNull;
 
-use ffi::{IteratorType, QueryIterator};
+use ffi::QueryIterator;
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,

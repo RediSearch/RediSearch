@@ -290,6 +290,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   // Reset the total results length
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
   qctx->totalResults = 0;
+  qctx->skippedResults = 0;
   QueryError_ClearError(err);
 }
 
@@ -332,8 +333,8 @@ static void prepareSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply 
   QueryProcessingCtx *qctx) {
   RedisModule_Reply_Map(reply);
 
-  // <total_results>
-  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
+  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(qctx));
 
   RedisModule_ReplyKV_Array(reply, "results"); // >results
 }
@@ -709,7 +710,6 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_Reply_Map(reply);
     for (size_t i = 0; i < array_len(cursors); i++) {
       Cursor *cursor = cursors[i];
-      Cursor_Pause(cursor);
       AREQ *areq = cursor->execState;
       if (IsHybridSearchSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
@@ -718,6 +718,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       } else {
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
+      Cursor_Pause(cursor);
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
@@ -1394,6 +1395,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
   StrongRef hybrid_ref = BCHCtx->hybrid_ref;
   HybridRequest *hreq = StrongRef_Get(hybrid_ref);
   HybridPipelineParams *hybridParams = BCHCtx->hybridParams;
+  // The lock state must be clean before the pipeline may take the spec lock.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCHCtx->blockedClient);
   QueryError status = QueryError_Default();
 
@@ -1425,7 +1428,7 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     // buildPipelineAndExecute failed - release the lock if still held.
     // Note: If failure occurred after RPSafeDepleter_DepleteAll started, the lock
     // was already released in WaitForDepletionToStart. RedisSearchCtx_UnlockSpec
-    // safely handles this case by checking sctx->flags before unlocking.
+    // safely handles this case by checking sctx->lock_state before unlocking.
     RedisSearchCtx_UnlockSpec(sctx);
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
@@ -1437,5 +1440,8 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
 
   RedisModule_FreeThreadSafeContext(outctx);
   IndexSpecRef_Release(execution_ref);
+  // The hybrid request is still alive here (destroy releases the StrongRef),
+  // and unblocking the client below may free it.
+  RedisSearchCtx_AssertLockNotHeld(HREQ_SearchCtx(hreq));
   blockedClientHybridCtx_destroy(BCHCtx);
 }

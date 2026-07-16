@@ -210,8 +210,10 @@ void Indexes_Free(RedisModuleCtx *ctx, dict *d, bool deleteDiskData) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (spec && spec->diskSpec) {
-      // Unregister must always precede close (triggered by Indexes_RemoveSpecFromGlobals)
-      SearchDisk_UnregisterIndex(ctx, spec);
+      // Main-thread teardown must always precede close (which may run on a
+      // background thread when Indexes_RemoveSpecFromGlobals triggers the
+      // StrongRef destructor).
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
       if (deleteDiskData) {
         SearchDisk_MarkIndexForDeletion(spec->diskSpec);
       }
@@ -529,7 +531,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
       RedisSearchCtx sctx = { .redisCtx = ctx };
       QueryError status = QueryError_Default();
-      RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, spec, key_p, &status);
+      RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, spec, key_p, NULL, &status);
       QueryError_ClearError(&status); // TODO: report errors
 
       if (!SchemaRule_FilterPasses(r, spec->rule->filter_exp)) {
@@ -596,13 +598,13 @@ void Indexes_UpdateMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
 
     if (hashFieldChanged(specOp->spec, hashFields)) {
       if (specOp->op == SpecOp_Add) {
-        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type);
+        IndexSpec_UpdateDoc(specOp->spec, ctx, key, type, NULL);
       } else {
         // specOp->op is SpecOp_Del when the key matches the index prefix but
         // the filter expression fails (e.g. a field value changed so the filter
         // no longer passes, or a required field is missing). If the document was
         // previously indexed, it must be removed now.
-        IndexSpec_DeleteDoc(specOp->spec, ctx, key);
+        IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
       }
     }
   }
@@ -688,7 +690,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
   for (size_t i = 0; i < array_len(specs->specsOps); ++i) {
     SpecOpCtx *specOp = specs->specsOps + i;
     if (hashFieldChanged(specOp->spec, hashFields)) {
-      IndexSpec_DeleteDoc(specOp->spec, ctx, key);
+      IndexSpec_DeleteDoc(specOp->spec, ctx, key, NULL);
     }
   }
 
@@ -764,10 +766,10 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      if (SchemaRule_ShouldIndex(spec, key, type)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type);
+      if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key);
+        IndexSpec_DeleteDoc(spec, ctx, key, NULL);
       }
       continue;
     }
@@ -867,7 +869,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
         }
       } else {
         // For RAM case, look up by old key name and delete
-        IndexSpec_DeleteDoc(spec, ctx, from_key);
+        IndexSpec_DeleteDoc(spec, ctx, from_key, NULL);
       }
     }
   }
@@ -882,7 +884,7 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       // on the spec from section.
       continue;
     }
-    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type);
+    IndexSpec_UpdateDoc(specOp->spec, ctx, to_key, type, NULL);
   }
   Indexes_SpecOpsIndexingCtxFree(from_specs);
   Indexes_SpecOpsIndexingCtxFree(to_specs);
@@ -954,6 +956,19 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
+
+    // If the source node was still background-indexing when the snapshot was
+    // taken, the on-disk index is only partially populated. Restart the async
+    // scan to backfill the remaining documents. Redelivery of an already
+    // indexed document is a no-op (DocIdMeta skip / ADD_REPLACE), so this is a
+    // safe backfill rather than a duplicate insert.
+    if (sp->resume_bg_indexing) {
+      sp->resume_bg_indexing = false;
+      // Reset any persisted OOM failure so the restarted scan runs clean and
+      // FT.INFO reflects it correctly while it progresses.
+      sp->scan_failed_OOM = false;
+      IndexSpec_ScanAndReindex(ctx, spec_ref);
+    }
   }
   dictReleaseIterator(iter);
 }
@@ -985,14 +1000,14 @@ void Indexes_AbortSSTReplicationLoading(RedisModuleCtx *ctx) {
   for (size_t i = 0; i < array_len(specs); ++i) {
     IndexSpec *spec = StrongRef_Get(specs[i]);
     if (!spec) continue;
-    // Unregister here (not in the destructor) because the destructor may run
-    // on a background thread when the last StrongRef drops, and unregister
-    // needs the main-thread RedisModuleCtx. Must precede the close that
-    // IndexSpec_FreeUnlinkedData performs. SearchDisk_UnregisterIndex is
-    // idempotent, so it safely handles specs aborted before LOADING_ENDED
-    // registered them.
+    // Run the main-thread teardown here (not in the destructor) because the
+    // destructor may run on a background thread when the last StrongRef drops,
+    // and the teardown needs the main-thread RedisModuleCtx. Must precede the
+    // close that IndexSpec_FreeUnlinkedData performs.
+    // SearchDisk_CloseIndexOnMainThread is idempotent, so it safely handles
+    // specs aborted before LOADING_ENDED finalised them.
     if (spec->diskSpec) {
-      SearchDisk_UnregisterIndex(ctx, spec);
+      SearchDisk_CloseIndexOnMainThread(ctx, spec);
     }
     // pendingDiskRdbState and diskSpec are freed by IndexSpec_FreeUnlinkedData
     // once the last StrongRef is dropped below.

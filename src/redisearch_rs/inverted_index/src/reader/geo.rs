@@ -7,7 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::{IndexReader, IndexReaderCore, NumericFilter, NumericReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, ResumableReader, SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
 use index_result::RSIndexResult;
@@ -28,6 +30,11 @@ unsafe extern "C" {
 /// specified geo filter to be returned.
 ///
 /// This should only be wrapped around readers that return numeric records.
+///
+/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
+/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
+/// the whole `FilterGeoReader` is too.
+#[repr(C)]
 pub struct FilterGeoReader<IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
     /// `filter.geo_filter` is rebound at construction to point at our owned
@@ -73,6 +80,24 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
             inner,
         }
     }
+}
+
+/// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
+/// only the inner reader switches modes.
+impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
+    type Suspended = FilterGeoReader<IR::Suspended>;
+}
+
+/// Inverse of the above: `FilterGeoReader<RS>` resumes to
+/// `FilterGeoReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
+/// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
+/// the resumed core reader provides.
+impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
+where
+    for<'a> Self: 'static,
+    for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
+{
+    type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {

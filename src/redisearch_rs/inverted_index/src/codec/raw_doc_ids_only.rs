@@ -60,6 +60,7 @@ impl Decoder for RawDocIdsOnly {
         block.first_doc_id
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         base: DocId,

@@ -232,8 +232,11 @@ def test_vecsim_info_stats_marked_deleted():
   data_type = 'FLOAT16'
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
   load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok() # wait for HNSW graph construction to finish
-  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok() # pause to prevent repair jobs on the graph
+  # Run the worker-pool sync on every shard: in cluster mode the docs (and the GC below) are
+  # spread across all shards, so draining/pausing only the default shard leaves the other shards'
+  # repair jobs racing the GC, which flakily leaves vectors marked-deleted (MOD-16881).
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN') # wait for HNSW graph construction to finish
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE') # pause to prevent repair jobs on the graph
 
   # Set the GC clean threshold to 0
   run_command_on_all_shards(env, config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
@@ -246,9 +249,9 @@ def test_vecsim_info_stats_marked_deleted():
   info = index_info(env, 'idx')
   env.assertTrue("field statistics" in info)
   env.assertEqual(info["field statistics"][0]["marked_deleted"], docs_to_delete)
-  env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'resume')
   # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
-  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+  verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
   res = run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx', '100000')
   env.assertTrue(all([r == 'DONE' for r in res]))
   info = index_info(env, 'idx')

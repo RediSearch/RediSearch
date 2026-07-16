@@ -20,12 +20,13 @@ members = [
     "query_error",
     "query_flags",
     "query_term",
+    "rdb_io",
     "redis_json_api",
     "redis_mock",
     "redis_reply",
     "result_processor",
     "rlookup",
-    "query_node_type",
+    "query_types",
     "reducers",
     "ref_mode",
     "rqe_iterator_type",
@@ -38,6 +39,7 @@ members = [
     "sorting_vector",
     "spellcheck_dictionary",
     "string_utils",
+    "tag_index",
     "term_suffix_index",
     "tools/license_header_linter",
     "tools/ffi_geiger",
@@ -48,6 +50,7 @@ members = [
     "top_k",
     "top_k_bencher",
     "vector_score_source",
+    "vector_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "ttl_table_bencher",
@@ -138,7 +141,7 @@ ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
-query_node_type = { path = "./query_node_type" }
+query_types = { path = "./query_types" }
 rqe_core = { path = "./rqe_core" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
 rqe_iterators = { path = "./rqe_iterators" }
@@ -157,6 +160,7 @@ vecsim = { path = "./c_wrappers/vecsim" }
 vector_score_source = { path = "./vector_score_source" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
+rdb_io = { path = "./rdb_io" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
 varint = { path = "./varint" }

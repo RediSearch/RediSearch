@@ -21,7 +21,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
-        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+        default: 8897348030c20bcd26841bc7d3ec7227f8187aeb
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -96,47 +96,11 @@ jobs:
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
-    runs-on: ubuntu-slim
-    env:
-      TAGS: | # Make sure there is no trailing comma!
-        [
-          {"Key": "Name",         "Value": "redisearch-ci-runner"},
-          {"Key": "Environment",  "Value": "CI"},
-          {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
-          {"Key": "PR",           "Value": "${{ github.event.number }}"},
-          {"Key": "Owner",        "Value": "${{ github.actor }}"},
-          {"Key": "Project",      "Value": "${{ github.repository }}"}
-        ]
-    outputs:
-      label: ${{ steps.start-ec2-runner.outputs.label }}
-      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
-          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
-      - name: Generate GitHub App token
-        id: generate-app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GH_PR_APP_ID }}
-          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-administration: write
-      - name: Start EC2 runner
-        id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.6.1
-        with:
-          mode: start
-          github-token: ${{ steps.generate-app-token.outputs.token }}
-          ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
-          ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
-          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
-          aws-resource-tags: ${{ env.TAGS }}
+    uses: ./.github/workflows/task-start-ec2-runner.yml
+    secrets: inherit
+    with:
+      ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+      ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
 
   build-image:
     needs: get-config
@@ -445,7 +409,7 @@ jobs:
       - name: Record standalone failures to flaky DB
         if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_standalone.txt
@@ -486,7 +450,7 @@ jobs:
       - name: Record coordinator failures to flaky DB
         if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_coordinator.txt
@@ -744,27 +708,8 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
-    runs-on: ubuntu-slim
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
-          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
-      - name: Generate GitHub App token
-        id: generate-app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GH_PR_APP_ID }}
-          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-administration: write
-      - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.6.1
-        with:
-          mode: stop
-          github-token: ${{ steps.generate-app-token.outputs.token }}
-          label: ${{ needs.start-runner.outputs.label }}
-          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
+    uses: ./.github/workflows/task-stop-ec2-runner.yml
+    secrets: inherit
+    with:
+      label: ${{ needs.start-runner.outputs.label }}
+      ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
