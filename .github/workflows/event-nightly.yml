@@ -31,7 +31,9 @@ jobs:
     uses: ./.github/workflows/flow-test.yml
     secrets: inherit
     with:
-      platform: all
+      # macOS Intel (x86_64) test runners are excluded while the macOS runner
+      # problem is mitigated; macOS ARM still runs.
+      platform: all,!macos-14~x86_64,!macos-15~x86_64,!macos-26~x86_64
       architecture: all
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
