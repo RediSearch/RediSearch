@@ -22,7 +22,6 @@
 #define QN_WILDCARD        QueryNodeType_Wildcard
 #define QN_TAG             QueryNodeType_Tag
 #define QN_FUZZY           QueryNodeType_Fuzzy
-#define QN_LEXRANGE        QueryNodeType_LexRange
 #define QN_VECTOR          QueryNodeType_Vector
 #define QN_WILDCARD_QUERY  QueryNodeType_WildcardQuery
 #define QN_NULL            QueryNodeType_Null
@@ -73,12 +72,11 @@ enum QueryNodeType
   QueryNodeType_Wildcard = 11,
   QueryNodeType_Tag = 12,
   QueryNodeType_Fuzzy = 13,
-  QueryNodeType_LexRange = 14,
-  QueryNodeType_Vector = 15,
-  QueryNodeType_WildcardQuery = 16,
-  QueryNodeType_Null = 17,
-  QueryNodeType_Missing = 18,
-  QueryNodeType_Max = 19,
+  QueryNodeType_Vector = 14,
+  QueryNodeType_WildcardQuery = 15,
+  QueryNodeType_Null = 16,
+  QueryNodeType_Missing = 17,
+  QueryNodeType_Max = 18,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeType;

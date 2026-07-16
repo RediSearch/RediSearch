@@ -150,26 +150,6 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the fields of the lex-range-node union variant.
-    pub fn set_lex_range(
-        &mut self,
-        begin: *mut c_char,
-        include_begin: bool,
-        end: *mut c_char,
-        include_end: bool,
-    ) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is LexRange so the `lxrng` variant is active.
-        unsafe {
-            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            let lx = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
-            lx.begin = begin;
-            lx.includeBegin = include_begin;
-            lx.end = end;
-            lx.includeEnd = include_end;
-        }
-    }
-
     /// Set the `exact` field of the phrase-node union variant.
     pub fn set_phrase_exact(&mut self, exact: i32) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
