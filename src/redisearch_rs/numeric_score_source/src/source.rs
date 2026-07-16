@@ -105,6 +105,22 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
 ///
+/// # Revalidation
+///
+/// The source has no revalidate step of its own: the wrapping [`TopKIterator`]
+/// collects eagerly and then yields from a materialized buffer, so once results
+/// are collected the range stream is never read again. A revalidate therefore
+/// only consults the filter child — a child abort aborts the query, and a child
+/// reposition collapses to `Ok` because it cannot move a cursor that reads from
+/// the buffer.
+///
+/// # Rewind after timeout
+///
+/// A timeout aborts collection with the heap and range stream left partway;
+/// [`rewind`](ScoreSource::rewind) is what restores a clean, re-runnable state
+/// (fresh heap, ranges re-resolved to the initial window). The query deadline is
+/// absolute and is *not* reset by rewind.
+///
 /// Not implemented yet:
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
