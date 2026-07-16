@@ -335,26 +335,29 @@ def testSuggestZeroScoreSortsLast(env):
     env.assertEqual(['foo two', 'foo one', 'foo zero'], res)
 
 def testSuggestIncrKeepsEntryReachable(env):
-    # SUGGET's top-k walk prunes a subtree whose max-score bound falls below
+    # SUGGET's top-k walk prunes a subtree whose subtree max score falls below
     # the heap threshold, so INCR must fold the entry's post-update score —
-    # not just the delta — into every ancestor's bound; a delta-only fold
-    # leaves a non-terminal ancestor with a stale bound and the walk drops
-    # the highest-scoring suggestion.
+    # not just the delta — into every ancestor's subtree max score; a
+    # delta-only fold leaves a non-terminal ancestor with a stale subtree max
+    # score and the walk drops the highest-scoring suggestion.
     skipOnCrdtEnv(env)
     conn = env.getClusterConnectionIfNeeded()
 
-    # Two entries force a shared non-terminal node ("abcde", bound 1).
+    # Two entries force a shared non-terminal node ("abcde", subtree max
+    # score 1).
     conn.execute_command('ft.sugadd', 'ac', 'abcdef', 1)
     conn.execute_command('ft.sugadd', 'ac', 'abcdeg', 1)
-    # Raise abcdef to 9 in deltas of 1: a delta-only fold keeps every bound
-    # on its path at max(initial score, deltas) = 1 while the score is 9.
+    # Raise abcdef to 9 in deltas of 1: a delta-only fold keeps every subtree
+    # max score on its path at max(initial score, deltas) = 1 while the
+    # entry's score is 9.
     for _ in range(8):
         conn.execute_command('ft.sugadd', 'ac', 'abcdef', 1, 'INCR')
     # Split "abc" out of "abcde"; the split sibling scores too low to matter.
     conn.execute_command('ft.sugadd', 'ac', 'abcx', 0.5)
-    # Two higher-bound siblings placed ahead of the stale "de" child in the
-    # descending-bound child order. With MAX 2 they fill the heap first and
-    # raise the prune threshold to 3/sqrt(2) ~ 2.12, above the stale bound.
+    # Two higher-scored siblings placed ahead of the stale "de" child in the
+    # descending-score child order. With MAX 2 they fill the heap first and
+    # raise the prune threshold to 3/sqrt(2) ~ 2.12, above the stale subtree
+    # max score.
     conn.execute_command('ft.sugadd', 'ac', 'abcy', 3)
     conn.execute_command('ft.sugadd', 'ac', 'abcz', 3)
 
