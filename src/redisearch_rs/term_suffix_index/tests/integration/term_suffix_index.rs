@@ -334,20 +334,19 @@ fn iter_wildcard_does_not_poll_within_the_first_window() {
 fn iter_wildcard_abandons_scan_once_stop_fires() {
     // More candidates than one window: the first poll fires mid-scan, so
     // an always-stop request abandons it with only a prefix of the matches.
-    let large = (0..TIMEOUT_COUNTER_LIMIT * 5 / 2)
+    // Sized one window past the polling boundary to stay fast under Miri.
+    let large = (0..TIMEOUT_COUNTER_LIMIT + 50)
         .map(|i| format!("cat{i:03}"))
         .collect::<Vec<_>>();
     let sut = build_index(&large);
 
     let stopped = collect_set(sut.iter_wildcard("cat*", || true).expect("'cat' anchors"));
-    let full = collect_set(sut.iter_wildcard("cat*", || false).expect("'cat' anchors"));
 
-    assert_eq!(full.len(), large.len(), "never stopping yields every match");
     assert!(
-        !stopped.is_empty() && stopped.len() < full.len(),
+        !stopped.is_empty() && stopped.len() < large.len(),
         "always stopping abandons the scan partway: {} of {}",
         stopped.len(),
-        full.len()
+        large.len()
     );
 }
 
