@@ -250,7 +250,7 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     MRCommand_Append(xcmd, "RRF", strlen("RRF"));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
-    n = snprintf(numBuf, numBufSize, "%.12g", sc->rrfCtx.constant);
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
     n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
@@ -261,10 +261,10 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
     MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
-    n = snprintf(numBuf, numBufSize, "%.12g", sc->linearCtx.linearWeights[0]);
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "BETA", strlen("BETA"));
-    n = snprintf(numBuf, numBufSize, "%.12g", sc->linearCtx.linearWeights[1]);
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
     MRCommand_Append(xcmd, numBuf, n);
     MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
     n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);

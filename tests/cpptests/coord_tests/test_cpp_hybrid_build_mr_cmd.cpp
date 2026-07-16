@@ -22,9 +22,20 @@
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
 
+// Format a double exactly as MRCommand_appendCombine does for the wire
+// (round-trip-safe "%.17g"). Tests use this so expectations can be written
+// against readable source values - fmtWireDouble(0.7) - instead of pinning the
+// expanded form (0.69999999999999996) by hand.
+static std::string fmtWireDouble(double v) {
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%.17g", v);
+  return std::string(buf);
+}
+
 // Rebuild the exact tokens the coordinator is expected to emit for a
 // reconstructed COMBINE clause. Mirrors MRCommand_appendCombine so the wire
-// format is pinned byte-for-byte (including the "%.12g" double formatting).
+// format is pinned byte-for-byte (including the "%.17g" round-trip double
+// formatting via fmtWireDouble).
 static std::vector<std::string> expectedCombineTokens(const HybridCombineWireParams &cp) {
   std::vector<std::string> t;
   if (!cp.scoringCtx) {
@@ -32,25 +43,21 @@ static std::vector<std::string> expectedCombineTokens(const HybridCombineWirePar
   }
   const HybridScoringContext *sc = cp.scoringCtx;
   const bool hasAlias = cp.scoreAlias != nullptr;
-  char buf[32];
   t.push_back("COMBINE");
   if (sc->scoringType == HYBRID_SCORING_RRF) {
     t.push_back("RRF");
     t.push_back(std::to_string(hasAlias ? 6 : 4));
     t.push_back("CONSTANT");
-    snprintf(buf, sizeof(buf), "%.12g", sc->rrfCtx.constant);
-    t.push_back(buf);
+    t.push_back(fmtWireDouble(sc->rrfCtx.constant));
     t.push_back("WINDOW");
     t.push_back(std::to_string(sc->rrfCtx.window));
   } else {
     t.push_back("LINEAR");
     t.push_back(std::to_string(hasAlias ? 8 : 6));
     t.push_back("ALPHA");
-    snprintf(buf, sizeof(buf), "%.12g", sc->linearCtx.linearWeights[0]);
-    t.push_back(buf);
+    t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[0]));
     t.push_back("BETA");
-    snprintf(buf, sizeof(buf), "%.12g", sc->linearCtx.linearWeights[1]);
-    t.push_back(buf);
+    t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[1]));
     t.push_back("WINDOW");
     t.push_back(std::to_string(sc->linearCtx.window));
   }
@@ -796,7 +803,7 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroCountReconstructed) {
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {
-        "COMBINE", "LINEAR", "6", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20"};
+        "COMBINE", "LINEAR", "6", "ALPHA", fmtWireDouble(0.3), "BETA", fmtWireDouble(0.7), "WINDOW", "20"};
     EXPECT_EQ(clause, expected);
 }
 
@@ -809,7 +816,7 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearCountedAliasReconstructed) {
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {
-        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "COMBINE", "LINEAR", "8", "ALPHA", fmtWireDouble(0.3), "BETA", fmtWireDouble(0.7), "WINDOW", "20",
         "YIELD_SCORE_AS", "s"};
     EXPECT_EQ(clause, expected);
 }
@@ -823,7 +830,7 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearCountedAliasAndWindowReconstru
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {
-        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "COMBINE", "LINEAR", "8", "ALPHA", fmtWireDouble(0.3), "BETA", fmtWireDouble(0.7), "WINDOW", "20",
         "YIELD_SCORE_AS", "s"};
     EXPECT_EQ(clause, expected);
 }
@@ -836,7 +843,7 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearArgsCountedAliasAndWindowRecon
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {
-        "COMBINE", "LINEAR", "8", "ALPHA", "0.45", "BETA", "0.65",
+        "COMBINE", "LINEAR", "8", "ALPHA", fmtWireDouble(0.45), "BETA", fmtWireDouble(0.65),
         "WINDOW", "20", "YIELD_SCORE_AS", "s"};
     EXPECT_EQ(clause, expected);
 }
@@ -862,7 +869,7 @@ TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroCountPositionalAliasRecons
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {
-        "COMBINE", "LINEAR", "8", "ALPHA", "0.3", "BETA", "0.7", "WINDOW", "20",
+        "COMBINE", "LINEAR", "8", "ALPHA", fmtWireDouble(0.3), "BETA", fmtWireDouble(0.7), "WINDOW", "20",
         "YIELD_SCORE_AS", "fused_score"};
     EXPECT_EQ(clause, expected);
 }
