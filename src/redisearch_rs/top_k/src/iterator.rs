@@ -517,16 +517,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
 
     #[inline(always)]
     fn rewind(&mut self) {
+        *self.heap = TopKHeap::new(self.k, self.compare);
+        self.results.clear();
+        *self.current = None;
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
         }
         self.mode = self.initial_mode;
-        *self.heap = TopKHeap::new(self.k, self.compare);
         self.direct_batch = None;
-        self.results.clear();
         self.yield_pos = 0;
-        *self.current = None;
         self.last_doc_id = 0;
         self.at_eof = false;
         self.phase = Phase::NotStarted;
