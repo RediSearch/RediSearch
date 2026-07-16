@@ -313,6 +313,7 @@ fn iter_wildcard_without_anchorable_token_reports_none() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn iter_wildcard_does_not_poll_within_the_first_window() {
     // Fewer candidates than one polling window: the predicate is never
     // consulted, so even an always-stop request yields every match.
@@ -331,10 +332,10 @@ fn iter_wildcard_does_not_poll_within_the_first_window() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn iter_wildcard_abandons_scan_once_stop_fires() {
     // More candidates than one window: the first poll fires mid-scan, so
     // an always-stop request abandons it with only a prefix of the matches.
-    // Sized one window past the polling boundary to stay fast under Miri.
     let large = (0..TIMEOUT_COUNTER_LIMIT + 50)
         .map(|i| format!("cat{i:03}"))
         .collect::<Vec<_>>();
