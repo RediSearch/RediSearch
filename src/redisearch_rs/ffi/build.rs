@@ -496,6 +496,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &[],
+        vars: &["TIMEOUT_COUNTER_LIMIT"],
+    },
+    HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
         fns: &["Wildcard_RemoveEscape"],
         types: &[],

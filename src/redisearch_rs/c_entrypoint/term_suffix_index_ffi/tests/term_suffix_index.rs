@@ -211,6 +211,8 @@ fn collect_wildcard(t: *mut TermSuffixIndex, pattern: &str) -> (c_int, HashSet<S
             pattern.len(),
             Some(collect_cb),
             (&raw mut yielded).cast(),
+            None,
+            std::ptr::null_mut(),
         )
     };
     (rc, yielded)

@@ -2943,6 +2943,7 @@ name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "itertools 0.15.0",
  "proptest",
  "rqe_wildcard",
  "rstest",
