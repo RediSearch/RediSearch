@@ -99,7 +99,11 @@ impl LevRow for u64 {
     #[inline]
     fn low_bits(n: usize) -> Self {
         debug_assert!(n <= Self::CAPACITY);
-        if n == Self::CAPACITY { !0 } else { (1u64 << n) - 1 }
+        if n == Self::CAPACITY {
+            !0
+        } else {
+            (1u64 << n) - 1
+        }
     }
     #[inline]
     fn shl1(self) -> Self {
@@ -131,7 +135,11 @@ impl LevRow for u128 {
     #[inline]
     fn low_bits(n: usize) -> Self {
         debug_assert!(n <= Self::CAPACITY);
-        if n == Self::CAPACITY { !0 } else { (1u128 << n) - 1 }
+        if n == Self::CAPACITY {
+            !0
+        } else {
+            (1u128 << n) - 1
+        }
     }
     #[inline]
     fn shl1(self) -> Self {
