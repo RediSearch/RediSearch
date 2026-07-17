@@ -66,3 +66,54 @@ TEST_F(OptimizerIteratorTest, MultiplicationOverflowReturnsNull) {
   child->Free(child);
   QOptimizer_Free(opt);
 }
+
+// The limit OPT_Rewind gives a retry window: the estimator driven by the hit
+// rate a window achieved, passed as the document count of that selectivity.
+static size_t next_window_limit(size_t numDocs, size_t resultsMissing, double successRatio) {
+  size_t observedEstimate = successRatio * numDocs;
+  return QOptimizer_EstimateLimit(numDocs, observedEstimate, resultsMissing);
+}
+
+class OptimizerWindowSizingTest : public ::testing::Test {
+protected:
+  // A child selective enough that a window yields few matches, but not so few
+  // that sizing is skipped in favour of reading every remaining document.
+  static constexpr size_t numDocs = 10000;
+  static constexpr size_t childEstimate = 200;
+  static constexpr double hitRate = (double)childEstimate / numDocs;
+
+  static constexpr size_t k = 100;
+  static constexpr size_t windowRead = 1000;
+  static constexpr size_t hitsCollected = (size_t)(windowRead * hitRate);
+  static constexpr size_t resultsMissing = k - hitsCollected;
+  static constexpr double successRatio = (double)hitsCollected / windowRead;
+};
+
+// Given the child's selectivity, the estimator sizes a window holding about as
+// many matches as the heap still needs.
+TEST_F(OptimizerWindowSizingTest, EstimatorSizesWindowToCoverMissingResults) {
+  size_t estimate = QOptimizer_EstimateLimit(numDocs, childEstimate, resultsMissing);
+
+  EXPECT_GT(estimate, windowRead);
+  EXPECT_NEAR(estimate * hitRate, resultsMissing, 1.0);
+}
+
+// A retry window is large enough that, at the rate the previous window hit at,
+// it holds every result the heap still needs, so it reads more than the window
+// that came up short rather than less.
+TEST_F(OptimizerWindowSizingTest, RetryWindowHoldsMissingResults) {
+  size_t nextLimit = next_window_limit(numDocs, resultsMissing, successRatio);
+
+  EXPECT_GT(nextLimit, windowRead);
+  EXPECT_NEAR(nextLimit * successRatio, resultsMissing, 1.0);
+}
+
+// A lower observed hit rate yields a larger window: the measured rate, not the
+// child's static estimate, sets the retry size.
+TEST_F(OptimizerWindowSizingTest, RetryWindowIgnoresStaleChildEstimate) {
+  double observedRate = successRatio / 4;
+  size_t nextLimit = next_window_limit(numDocs, resultsMissing, observedRate);
+
+  EXPECT_GT(nextLimit, next_window_limit(numDocs, resultsMissing, successRatio));
+  EXPECT_NEAR(nextLimit * observedRate, resultsMissing, 1.0);
+}

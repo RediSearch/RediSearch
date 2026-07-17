@@ -84,9 +84,13 @@ static void OPT_Rewind(QueryIterator *self) {
   if (successRatio < 0.01 || optIt->numIterations == 3) {
     nf->limit = optIt->numDocs;
   } else {
+    // Size the next window to hold the missing results at the rate the drained
+    // window actually hit at. observedEstimate restates that rate as the
+    // document count the estimator divides by. successRatio is at least 0.01 here.
     int resultsMissing = heap_size(heap) - heap_count(heap);
-    size_t limitEstimate = QOptimizer_EstimateLimit(optIt->numDocs, optIt->childEstimate, resultsMissing);
-    optIt->lastLimitEstimate = nf->limit = limitEstimate * successRatio;
+    size_t observedEstimate = successRatio * optIt->numDocs;
+    optIt->lastLimitEstimate = nf->limit =
+      QOptimizer_EstimateLimit(optIt->numDocs, observedEstimate, resultsMissing);
   }
 
   // create new numeric filter
