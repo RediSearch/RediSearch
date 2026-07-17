@@ -16,7 +16,6 @@
 //! the C library, which Miri cannot execute.
 #![cfg(not(miri))]
 
-use geo::GEO_RANGE_COUNT;
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
 use query_eval::{
@@ -97,34 +96,19 @@ impl GeoFixture {
 impl Drop for GeoFixture {
     fn drop(&mut self) {
         // A valid geo evaluation populates `gf.numericFilters` with a
-        // C-allocated (`GeoFilter_AllocNumericFiltersArray` / `rm_calloc`) array
-        // of `GEO_RANGE_COUNT` pointer slots, whose non-null entries are
-        // C-allocated (`NewNumericFilter`) `NumericFilter`s. This test binary
-        // uses distinct Rust and C allocators, so — unlike `GeoFilter_Free`,
-        // which releases everything through `rm_free` but also frees the `gf`
-        // struct itself (Rust-boxed here) — each piece must be reclaimed with the
-        // allocator that produced it: the entries with `NumericFilter_Free`, the
-        // array with the mock's C `free`. The `gf` box itself is released by the
-        // field drop below. Every evaluated iterator borrows the fixture and is
-        // dropped before this runs, so nothing still references the filters.
-        let array = self.gf.numericFilters as *mut *mut ffi::NumericFilter;
-        if !array.is_null() {
-            for i in 0..GEO_RANGE_COUNT {
-                // SAFETY: `array` has `GEO_RANGE_COUNT` pointer slots, so `i` is
-                // in bounds; the read yields a slot's (possibly null) entry.
-                let nf = unsafe { *array.add(i) };
-                if !nf.is_null() {
-                    // SAFETY: each non-null entry is a live, C-allocated
-                    // `NumericFilter` owned by `gf`, freed here exactly once.
-                    unsafe { ffi::NumericFilter_Free(nf) };
-                }
-            }
-            // SAFETY: `array` was allocated through the mock's C allocator
-            // (`GeoFilter_AllocNumericFiltersArray` → `rm_calloc` → `calloc_shim`),
-            // so releasing it with the matching `free_shim` balances that
-            // allocation exactly once.
-            redis_mock::allocator::free_shim(array.cast());
-        }
+        // Rust-allocated array (via `build_geo_numeric_filters`) whose non-null
+        // entries are C-allocated `NumericFilter`s. Release it through the same
+        // Rust helper `GeoFilter_Free` uses in production, so the array is
+        // reclaimed with the Rust allocator and each entry with
+        // `NumericFilter_Free`. Unlike `GeoFilter_Free`, we must *not* free `gf`
+        // itself — it is Rust-boxed here and released by the field drop below.
+        // Every evaluated iterator borrows the fixture and is dropped before this
+        // runs, so nothing still references the filters.
+        //
+        // SAFETY: `gf.numericFilters` is NULL or exactly what
+        // `build_geo_numeric_filters` stored, and no iterator references it any
+        // longer.
+        unsafe { rqe_iterators::free_geo_numeric_filters(self.gf.numericFilters.cast()) };
     }
 }
 

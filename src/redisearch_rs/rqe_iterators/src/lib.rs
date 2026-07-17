@@ -78,7 +78,7 @@ pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
     TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
     build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
-    new_geo_range_iterator, open_numeric_or_geo_index,
+    free_geo_numeric_filters, new_geo_range_iterator, open_numeric_or_geo_index,
 };
 pub use metric::Metric;
 pub use metric_lazy::MetricLazy;
@@ -391,7 +391,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// `gf` is mutated in place: [`build_geo_numeric_filters`] decomposes the
     /// circle into up to [`geo::GEO_RANGE_COUNT`] numeric range filters and
     /// stores them in `gf.numericFilters` (owned by `*gf`, freed by `GeoFilter_Free`).
-    ///  The disk path then runs each range through the numeric machinery and
+    /// The disk path then runs each range through the numeric machinery and
     /// post-filters survivors by true great-circle distance.
     fn new_geo_on_disk<'index>(
         &self,

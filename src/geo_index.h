@@ -73,11 +73,6 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 void GeoFilter_Free(GeoFilter *gf);
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
 
-/* Allocate the per-query `numericFilters` array for `GeoFilter` via
- * `rm_calloc`, so the array is freed symmetrically by `GeoFilter_Free`'s
- * `rm_free(gf->numericFilters)`. */
-NumericFilter **GeoFilter_AllocNumericFiltersArray(void);
-
 /*****************************************************************************/
 
 #define INVALID_GEOHASH -1.0
