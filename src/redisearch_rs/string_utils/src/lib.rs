@@ -14,14 +14,27 @@
 
 use std::borrow::Cow;
 
-/// Convert a UTF-8 string to lowercase per-character, without
+/// Iterate the lowercase form of a UTF-8 string per-character, without
 /// context-dependent casing rules.
 ///
 /// Unlike [`str::to_lowercase`], this lowercases each [`char`] independently
 /// (via [`char::to_lowercase`]), which matches the behaviour of the C
 /// `unicode_tolower` function backed by libnu.
+///
+/// Use this over [`unicode_tolower`] when collecting into something other
+/// than a [`String`] (e.g. a `Vec<char>`), to avoid an intermediate
+/// allocation.
+pub fn unicode_tolower_chars(s: &str) -> impl Iterator<Item = char> + '_ {
+    s.chars().flat_map(char::to_lowercase)
+}
+
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Collected form of [`unicode_tolower_chars`]; see it for the folding
+/// model.
 pub fn unicode_tolower(s: &str) -> String {
-    s.chars().flat_map(char::to_lowercase).collect()
+    unicode_tolower_chars(s).collect()
 }
 
 /// Convert a UTF-8 string to lowercase per-character, borrowing it unchanged
@@ -45,7 +58,7 @@ pub fn unicode_tolower_cow(s: &str) -> Cow<'_, str> {
 /// result would exceed `max` codepoints.
 pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
     let mut out = String::new();
-    for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
+    for (count, c) in unicode_tolower_chars(s).enumerate() {
         if count == max {
             return None;
         }
@@ -73,11 +86,7 @@ pub struct RuneStrTooLong {
 /// Returns [`Err(`[`RuneStrTooLong`]`)`] if the resulting rune count exceeds
 /// [`MAX_RUNE_STR_LEN`].
 pub fn str_to_lower_runes(s: &str) -> Result<Vec<u16>, RuneStrTooLong> {
-    let runes: Vec<u16> = s
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| c as u16)
-        .collect();
+    let runes: Vec<u16> = unicode_tolower_chars(s).map(|c| c as u16).collect();
     if runes.len() > MAX_RUNE_STR_LEN {
         return Err(RuneStrTooLong { len: runes.len() });
     }

@@ -49,6 +49,7 @@
 use super::utf8::CodepointDecoder;
 use crate::iter::{Automaton, StateClass};
 use std::ops::{BitAnd, BitOr};
+use string_utils::unicode_tolower_chars;
 
 /// Largest `max_dist` the inline row array holds ([`MAX_ROWS`]` - 1`).
 /// Larger distances take the DP-row automaton instead.
@@ -190,7 +191,7 @@ impl<S: LevRow> CaseFoldLevenshteinNfa<S> {
         if max_dist > MAX_NFA_DIST {
             return None;
         }
-        let folded: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
+        let folded: Vec<char> = unicode_tolower_chars(needle).collect();
         if folded.len() + 1 > S::CAPACITY {
             return None;
         }

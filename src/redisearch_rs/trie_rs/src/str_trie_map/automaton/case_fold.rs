@@ -24,6 +24,7 @@
 
 use super::utf8::CodepointDecoder;
 use crate::iter::{Automaton, StateClass};
+use string_utils::unicode_tolower;
 
 /// Streaming automaton accepting keys equal to a needle up to per-codepoint
 /// case folding. See the [module docs](self) for the matching model.
@@ -35,7 +36,7 @@ pub struct CaseFoldExact {
 impl CaseFoldExact {
     /// Build an automaton matching `needle` case-insensitively.
     pub fn new(needle: &str) -> Self {
-        let folded: String = needle.chars().flat_map(char::to_lowercase).collect();
+        let folded = unicode_tolower(needle);
         Self {
             needle: folded.into_bytes().into_boxed_slice(),
         }

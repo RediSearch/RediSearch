@@ -24,6 +24,7 @@
 
 use super::utf8::CodepointDecoder;
 use crate::iter::{Automaton, StateClass};
+use string_utils::unicode_tolower_chars;
 
 /// Streaming automaton accepting keys within a Levenshtein distance of a
 /// needle, compared case-insensitively. See the [module docs](self) for the
@@ -39,7 +40,7 @@ impl CaseFoldLevenshtein {
     /// Build an automaton matching keys within `max_dist` edits of `needle`.
     pub fn new(needle: &str, max_dist: u32) -> Self {
         Self {
-            needle: needle.chars().flat_map(char::to_lowercase).collect(),
+            needle: unicode_tolower_chars(needle).collect(),
             max_dist,
         }
     }

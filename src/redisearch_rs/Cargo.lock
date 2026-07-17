@@ -3200,6 +3200,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "string_utils",
  "trie_rs",
  "utf8parse",
  "workspace_hack",
