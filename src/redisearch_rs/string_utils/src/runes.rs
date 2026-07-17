@@ -12,6 +12,8 @@
 //! A rune ([`u16`]) is a UTF-16 code unit; tries store and look up terms as
 //! rune arrays.
 
+use crate::unicode;
+
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
 pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 
@@ -31,11 +33,7 @@ pub struct RuneStrTooLong {
 /// Returns [`Err(`[`RuneStrTooLong`]`)`] if the resulting rune count exceeds
 /// [`MAX_RUNE_STR_LEN`].
 pub fn str_to_lower_runes(s: &str) -> Result<Vec<u16>, RuneStrTooLong> {
-    let runes: Vec<u16> = s
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| c as u16)
-        .collect();
+    let runes: Vec<u16> = unicode::tolower_chars(s).map(|c| c as u16).collect();
     if runes.len() > MAX_RUNE_STR_LEN {
         return Err(RuneStrTooLong { len: runes.len() });
     }

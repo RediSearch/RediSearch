@@ -3284,6 +3284,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "string_utils",
  "timeout",
  "trie_rs",
  "utf8parse",

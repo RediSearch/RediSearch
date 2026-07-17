@@ -14,14 +14,27 @@
 
 use std::borrow::Cow;
 
-/// Convert a UTF-8 string to lowercase per-character, without
+/// Iterate the lowercase form of a UTF-8 string per-character, without
 /// context-dependent casing rules.
 ///
 /// Unlike [`str::to_lowercase`], this lowercases each [`char`] independently
 /// (via [`char::to_lowercase`]), which matches the behaviour of the C
 /// `unicode_tolower` function backed by libnu.
+///
+/// Use this over [`tolower`] when collecting into something other
+/// than a [`String`] (e.g. a `Vec<char>`), to avoid an intermediate
+/// allocation.
+pub fn tolower_chars(s: &str) -> impl Iterator<Item = char> + '_ {
+    s.chars().flat_map(char::to_lowercase)
+}
+
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Collected form of [`tolower_chars`]; see it for the folding
+/// model.
 pub fn tolower(s: &str) -> String {
-    s.chars().flat_map(char::to_lowercase).collect()
+    tolower_chars(s).collect()
 }
 
 /// Convert a UTF-8 string to lowercase per-character, borrowing it unchanged
@@ -45,7 +58,7 @@ pub fn tolower_cow(s: &str) -> Cow<'_, str> {
 /// result would exceed `max` codepoints.
 pub fn tolower_capped(s: &str, max: usize) -> Option<String> {
     let mut out = String::new();
-    for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
+    for (count, c) in tolower_chars(s).enumerate() {
         if count == max {
             return None;
         }
