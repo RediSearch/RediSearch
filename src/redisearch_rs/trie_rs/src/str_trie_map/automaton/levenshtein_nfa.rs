@@ -98,8 +98,8 @@ impl LevRow for u64 {
     }
     #[inline]
     fn low_bits(n: usize) -> Self {
-        debug_assert!(n <= 64);
-        if n == 64 { !0 } else { (1u64 << n) - 1 }
+        debug_assert!(n <= Self::CAPACITY);
+        if n == Self::CAPACITY { !0 } else { (1u64 << n) - 1 }
     }
     #[inline]
     fn shl1(self) -> Self {
@@ -107,12 +107,12 @@ impl LevRow for u64 {
     }
     #[inline]
     fn bit(self, pos: usize) -> bool {
-        debug_assert!(pos < 64);
+        debug_assert!(pos < Self::CAPACITY);
         (self >> pos) & 1 == 1
     }
     #[inline]
     fn set_bit(&mut self, pos: usize) {
-        debug_assert!(pos < 64);
+        debug_assert!(pos < Self::CAPACITY);
         *self |= 1u64 << pos;
     }
     #[inline]
@@ -130,8 +130,8 @@ impl LevRow for u128 {
     }
     #[inline]
     fn low_bits(n: usize) -> Self {
-        debug_assert!(n <= 128);
-        if n == 128 { !0 } else { (1u128 << n) - 1 }
+        debug_assert!(n <= Self::CAPACITY);
+        if n == Self::CAPACITY { !0 } else { (1u128 << n) - 1 }
     }
     #[inline]
     fn shl1(self) -> Self {
@@ -139,12 +139,12 @@ impl LevRow for u128 {
     }
     #[inline]
     fn bit(self, pos: usize) -> bool {
-        debug_assert!(pos < 128);
+        debug_assert!(pos < Self::CAPACITY);
         (self >> pos) & 1 == 1
     }
     #[inline]
     fn set_bit(&mut self, pos: usize) {
-        debug_assert!(pos < 128);
+        debug_assert!(pos < Self::CAPACITY);
         *self |= 1u128 << pos;
     }
     #[inline]
@@ -312,7 +312,7 @@ mod tests {
 
     fn accepts<S: LevRow>(needle: &str, max_dist: u32, key: &str) -> bool {
         let mut automaton = CaseFoldLevenshteinNfa::<S>::new(needle, max_dist)
-            .expect("needle should be within NFA bounds");
+            .expect("needle shouldwithin NFA bounds");
         let mut state = automaton.start();
         for &b in key.as_bytes() {
             match automaton.step(&state, b) {
@@ -359,8 +359,8 @@ mod tests {
 
     #[test]
     fn dead_subtrees_are_pruned_mid_key() {
-        let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("hello", 1)
-            .expect("needle should be within NFA bounds");
+        let mut automaton =
+            CaseFoldLevenshteinNfa::<u64>::new("hello", 1).expect("needle shouldwithin NFA bounds");
         let mut state = automaton.start();
         let mut died = false;
         for &b in b"xyzzy" {
@@ -392,8 +392,8 @@ mod tests {
 
     #[test]
     fn invalid_utf8_key_dies() {
-        let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("hello", 3)
-            .expect("needle should be within NFA bounds");
+        let mut automaton =
+            CaseFoldLevenshteinNfa::<u64>::new("hello", 3).expect("needle shouldwithin NFA bounds");
         let state = automaton.start();
         assert!(automaton.step(&state, 0x80).is_none());
     }
@@ -423,7 +423,7 @@ mod tests {
         // Split 'é' (C3 A9) between two step_all calls, as two trie edge
         // labels with the split inside the codepoint would.
         let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("cliché", 0)
-            .expect("needle should be within NFA bounds");
+            .expect("needle shouldwithin NFA bounds");
         let start = automaton.start();
         let mid = automaton.step_all(&start, b"clich\xC3").unwrap();
         assert_eq!(automaton.classify(&mid), StateClass::Live);
