@@ -311,8 +311,8 @@ mod tests {
     use super::*;
 
     fn accepts<S: LevRow>(needle: &str, max_dist: u32, key: &str) -> bool {
-        let mut automaton =
-            CaseFoldLevenshteinNfa::<S>::new(needle, max_dist).expect("within NFA bounds");
+        let mut automaton = CaseFoldLevenshteinNfa::<S>::new(needle, max_dist)
+            .expect("needle should be within NFA bounds");
         let mut state = automaton.start();
         for &b in key.as_bytes() {
             match automaton.step(&state, b) {
@@ -359,8 +359,8 @@ mod tests {
 
     #[test]
     fn dead_subtrees_are_pruned_mid_key() {
-        let mut automaton =
-            CaseFoldLevenshteinNfa::<u64>::new("hello", 1).expect("within NFA bounds");
+        let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("hello", 1)
+            .expect("needle should be within NFA bounds");
         let mut state = automaton.start();
         let mut died = false;
         for &b in b"xyzzy" {
@@ -392,8 +392,8 @@ mod tests {
 
     #[test]
     fn invalid_utf8_key_dies() {
-        let mut automaton =
-            CaseFoldLevenshteinNfa::<u64>::new("hello", 3).expect("within NFA bounds");
+        let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("hello", 3)
+            .expect("needle should be within NFA bounds");
         let state = automaton.start();
         assert!(automaton.step(&state, 0x80).is_none());
     }
@@ -422,8 +422,8 @@ mod tests {
     fn step_all_carries_partial_codepoints_across_labels() {
         // Split 'é' (C3 A9) between two step_all calls, as two trie edge
         // labels with the split inside the codepoint would.
-        let mut automaton =
-            CaseFoldLevenshteinNfa::<u64>::new("cliché", 0).expect("within NFA bounds");
+        let mut automaton = CaseFoldLevenshteinNfa::<u64>::new("cliché", 0)
+            .expect("needle should be within NFA bounds");
         let start = automaton.start();
         let mid = automaton.step_all(&start, b"clich\xC3").unwrap();
         assert_eq!(automaton.classify(&mid), StateClass::Live);
