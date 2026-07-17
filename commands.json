@@ -2190,12 +2190,6 @@
                     "type": "integer",
                     "token": "WINDOW",
                     "optional": true
-                  },
-                  {
-                    "name": "yield_score_as",
-                    "type": "string",
-                    "token": "YIELD_SCORE_AS",
-                    "optional": true
                   }
                 ]
               },
@@ -2234,16 +2228,16 @@
                     "type": "integer",
                     "token": "WINDOW",
                     "optional": true
-                  },
-                  {
-                    "name": "yield_score_as",
-                    "type": "string",
-                    "token": "YIELD_SCORE_AS",
-                    "optional": true
                   }
                 ]
               }
             ]
+          },
+          {
+            "name": "yield_score_as",
+            "type": "string",
+            "token": "YIELD_SCORE_AS",
+            "optional": true
           }
         ]
       },
