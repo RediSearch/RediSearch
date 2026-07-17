@@ -388,6 +388,21 @@ QueryIterator *NewMetricIteratorSortedByScore(t_docId *ids, double *metric_list,
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
 /**
+ * Frees the `numericFilters` array that [`NewGeoRangeIterator`] populated on a
+ * `GeoFilter`, together with the per-range `NumericFilter`s it owns.
+ *
+ * The array is allocated in Rust (`build_geo_numeric_filters` boxes it), so it
+ * must be released with the Rust allocator.
+ *
+ * # Safety
+ *
+ * `filters` must be NULL, or the array stored in `gf.numericFilters` by
+ * [`NewGeoRangeIterator`] (i.e. by `build_geo_numeric_filters`) and not yet
+ * freed.
+ */
+void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
+
+/**
  * Opens the numeric/geo index and creates an iterator over all matching sub-ranges.
  *
  * # Returns
