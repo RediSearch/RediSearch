@@ -453,14 +453,15 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 		# spawns its own $SHARDS-shard cluster, so 12 workers = 36 redis processes
 		# contending for 6 physical cores — oversubscribing the box and churning TCP
 		# connections, causing both per-test timeouts and ephemeral-port exhaustion
-		# (EADDRNOTAVAIL). Cap workers to virtual_cores/SHARDS (12/3 = 4) so
-		# workers*shards stays near the logical-CPU count. Standalone runs one redis
+		# (EADDRNOTAVAIL). Cap workers to virtual_cores/2 (12/2 = 6) so the worker
+		# count matches the 6 physical cores, bounding the oversubscription instead
+		# of scaling it by the logical-CPU count. Standalone runs one redis
 		# per worker and is unaffected, so it keeps the nproc default. Scoped to
-		# macOS 26 (the version on the frequent CI gates); other macOS versions are
-		# run rarely and pass today.
+		# macOS 26 (the version on the frequent CI gates); other macOS versions
+		# are run rarely and pass today.
 		if [[ $REDIS_STANDALONE == 0 && "$(uname -s)" == Darwin && "$(uname -m)" == x86_64 ]] &&
 		   [[ "$(sw_vers -productVersion 2>/dev/null | cut -d. -f1)" == 26 ]]; then
-			parallel=$(( parallel / SHARDS ))
+			parallel=$(( parallel / 2 ))
 		fi
 	else
 		parallel=$PARALLEL
