@@ -28,11 +28,12 @@
 use std::ffi::CString;
 
 use bumpalo::Bump;
+use itertools::Either;
 use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use value::{SharedValue, Value};
 
 use crate::Reducer;
-use crate::collect::storage::Storage;
+use crate::collect::storage::{ProjectedRow, Storage};
 
 /// Look up `name` in a shard-payload item (`Map` or flat `Array`).
 ///
@@ -50,7 +51,7 @@ fn get_field<'a>(item: &'a Value, name: &[u8]) -> Option<&'a SharedValue> {
 
 /// Field-selection state: `FIELDS *` vs explicit list.
 ///
-/// Both variants carry `sort_key_names`; the names feed the heap
+/// Both variants carry `sort_key_names`; the names feed the ranking
 /// comparator and the per-item sort snapshot regardless of mode.
 enum Fields {
     /// `FIELDS *` mode. Every key observed in a shard payload is written
@@ -109,17 +110,6 @@ impl Fields {
     }
 }
 
-/// Snapshot sort-key values for heap comparison, preserving absent keys as
-/// `None` so [`cmp_fields`][value::comparison::cmp_fields] can apply its
-/// missing-worst policy.
-fn snapshot_sort_keys(sort_key_names: &[CString], item: &Value) -> Box<[Option<SharedValue>]> {
-    debug_assert!(matches!(item, Value::Map(_) | Value::Array(_)));
-    sort_key_names
-        .iter()
-        .map(|name| get_field(item, name.to_bytes()).cloned())
-        .collect()
-}
-
 /// Materialize `(k, v)` as a typed [`RLookupRow`] entry.
 ///
 /// Terminates the wire-side `BString → CString` check; a non-string or
@@ -159,6 +149,7 @@ pub struct LocalCollectReducer<'a> {
     input_key: &'a RLookupKey<'a>,
     fields: Fields,
     limit: Option<(u64, u64)>,
+    distinct: bool,
 }
 
 const _: () = assert!(core::mem::offset_of!(LocalCollectReducer<'_>, reducer) == 0);
@@ -185,6 +176,7 @@ impl<'a> LocalCollectReducer<'a> {
         sort_key_names: Box<[CString]>,
         sort_asc_map: u64,
         limit: Option<(u64, u64)>,
+        distinct: bool,
     ) -> Self {
         let fields = match requested {
             Some(requested) => Fields::Specific {
@@ -200,6 +192,7 @@ impl<'a> LocalCollectReducer<'a> {
             input_key,
             fields,
             limit,
+            distinct,
         }
     }
 
@@ -223,14 +216,15 @@ impl LocalCollectCtx {
             lookup: RLookup::new(),
             storage: Storage::new(
                 !r.fields.sort_key_names().is_empty(),
+                r.distinct,
                 r.limit,
                 r.sort_asc_map,
             ),
         }
     }
 
-    /// Deserialize the shard payload carried by `row` into [`RLookupRow`]s,
-    /// honouring `LIMIT` via [`Storage::insert_entry`].
+    /// Add each item of the shard payload carried by `row` (a serialized array
+    /// of per-row maps) to the storage.
     pub fn add(&mut self, r: &LocalCollectReducer, row: &RLookupRow) {
         let Some(Value::Array(items)) = row.get(r.input_key).map(|p| &**p) else {
             tracing_assert::debug_assert_warn!(
@@ -248,11 +242,21 @@ impl LocalCollectCtx {
                 );
                 continue;
             }
-            self.storage.insert_entry(
-                || snapshot_sort_keys(r.fields.sort_key_names(), item),
-                (),
-                || r.fields.prepare_row(item, &mut self.lookup),
-            );
+            match &mut self.storage {
+                Storage::Unranked(unranked) => unranked
+                    .push(|| ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup))),
+                Storage::Ranked(ranked) => {
+                    let item = &**item;
+                    let sort_vals = r
+                        .fields
+                        .sort_key_names()
+                        .iter()
+                        .map(|name| get_field(item, name.to_bytes()));
+                    ranked.consider(sort_vals, (), || {
+                        ProjectedRow::new(r.fields.prepare_row(item, &mut self.lookup))
+                    })
+                }
+            }
         }
     }
 
@@ -272,7 +276,12 @@ impl LocalCollectCtx {
             .map(|k| (k, SharedValue::new_string(k.name().to_bytes().to_vec())))
             .collect();
 
-        SharedValue::new_array(self.storage.drain().map(|row| {
+        let rows = match &mut self.storage {
+            Storage::Unranked(u) => Either::Left(u.drain()),
+            Storage::Ranked(r) => Either::Right(r.drain()),
+        };
+        SharedValue::new_array(rows.map(|projected| {
+            let row = projected.row();
             SharedValue::new_map(
                 template
                     .iter()

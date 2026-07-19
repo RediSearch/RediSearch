@@ -53,9 +53,9 @@ static int chooseTokenChar(std::string_view pattern) {
   return Suffix_ChooseToken(pattern.data(), n, idx.data(), len.data());
 }
 
-// A '?' in the first qualifying (len >= MIN_SUFFIX) token must not prevent a
-// token from being chosen. Before the fix (MOD-16054) the rune scorer returned
-// REDISEARCH_UNINITIALIZED here, forcing a full-trie brute-force fallback.
+// A '?' in the first token must not prevent a token from being chosen. Before
+// the fix (MOD-16054) the rune scorer returned REDISEARCH_UNINITIALIZED here,
+// forcing a full-trie brute-force fallback.
 TEST_F(SuffixChooseTokenTest, questionMarkInFirstTokenStillSelects) {
   // Each case asserts the chosen token's ordinal (which token in the split) and
   // length, making it explicit which '?'-bearing token survives.
@@ -72,8 +72,8 @@ TEST_F(SuffixChooseTokenTest, questionMarkInFirstTokenStillSelects) {
   // not the running best, so the token is still selectable.
   EXPECT_EQ(chooseRune("a??cd").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("a??cd").len, 5u);
-  // Degenerate token "??" (len 2, == MIN_SUFFIX) is a weak but valid filter and
-  // must be chosen over a full-trie fallback.
+  // Degenerate token "??" (len 2) is a weak but valid filter and must be chosen
+  // over a full-trie fallback.
   EXPECT_EQ(chooseRune("??").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("??").len, 2u);
   // "a?c"*"defg": the clean 2nd token "defg" (ordinal 1, len 4) beats the
@@ -105,10 +105,10 @@ TEST_F(SuffixChooseTokenTest, multipleStarsSelectByTokenOrdinal) {
   // trailing-'*' penalty and wins.
   EXPECT_EQ(chooseRune("ab*cd*ef").tokenOrdinal, 2);
   EXPECT_EQ(chooseRune("ab*cd*ef").len, 2u);
-  // Sub-MIN_SUFFIX tokens are skipped for scoring but still counted in the
-  // ordinal: "a"/"b"/"cd"/"ef"/"ghij" -> the chosen "ghij" is the 5th token
-  // (ordinal 4), even though its character offset is 10. Confirms the result is
-  // the split ordinal, not an offset.
+  // Every token is scored, but the longest one still wins: "a"/"b"/"cd"/"ef"/
+  // "ghij" -> the chosen "ghij" is the 5th token (ordinal 4), even though its
+  // character offset is 10. Confirms the result is the split ordinal, not an
+  // offset.
   EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").tokenOrdinal, 4);
   EXPECT_EQ(chooseRune("a*b*cd*ef*ghij").len, 4u);
   EXPECT_EQ(chooseRune("ab*cd*longestmiddle*ef").tokenOrdinal, 2);
@@ -126,19 +126,28 @@ TEST_F(SuffixChooseTokenTest, runeAgreesWithChar) {
   }
 }
 
-// Tokens shorter than MIN_SUFFIX are not usable; with no qualifying token the
-// scorer reports UNINITIALIZED so the caller falls back to a brute-force scan.
-TEST_F(SuffixChooseTokenTest, noQualifyingTokenIsUninitialized) {
-  EXPECT_EQ(chooseTokenRune(""), REDISEARCH_UNINITIALIZED);       // no tokens
-  EXPECT_EQ(chooseTokenRune("*"), REDISEARCH_UNINITIALIZED);      // only '*'
-  EXPECT_EQ(chooseTokenRune("**"), REDISEARCH_UNINITIALIZED);     // only '*'
-  EXPECT_EQ(chooseTokenRune("a"), REDISEARCH_UNINITIALIZED);      // single short token
-  EXPECT_EQ(chooseTokenRune("a*b*c"), REDISEARCH_UNINITIALIZED);  // all tokens len 1
-  // A '?' below MIN_SUFFIX is still too short to be a usable filter: it must be
-  // skipped, not force a selection.
-  EXPECT_EQ(chooseTokenRune("?"), REDISEARCH_UNINITIALIZED);      // single '?'
-  EXPECT_EQ(chooseTokenRune("*?*"), REDISEARCH_UNINITIALIZED);    // token "?" len 1
-  EXPECT_EQ(chooseTokenRune("a*?*b"), REDISEARCH_UNINITIALIZED);  // "a","?","b" all len 1
+// Only a pattern with no literal token ("", or '*' runs) is UNINITIALIZED.
+TEST_F(SuffixChooseTokenTest, noTokenIsUninitialized) {
+  EXPECT_EQ(chooseTokenRune(""), REDISEARCH_UNINITIALIZED);
+  EXPECT_EQ(chooseTokenRune("*"), REDISEARCH_UNINITIALIZED);
+  EXPECT_EQ(chooseTokenRune("**"), REDISEARCH_UNINITIALIZED);
+}
+
+// MOD-16001 dropped the MIN_SUFFIX floor: length-1 tokens are now valid filters
+// the scorer selects instead of rejecting.
+TEST_F(SuffixChooseTokenTest, shortTokensAreSelected) {
+  EXPECT_EQ(chooseRune("a").tokenOrdinal, 0);
+  EXPECT_EQ(chooseRune("a").len, 1u);
+  // Among length-1 tokens the trailing one wins: it avoids the trailing-'*'
+  // penalty its siblings pay.
+  EXPECT_EQ(chooseRune("a*b*c").tokenOrdinal, 2);
+  EXPECT_EQ(chooseRune("a*b*c").len, 1u);
+  EXPECT_EQ(chooseRune("?").tokenOrdinal, 0);
+  EXPECT_EQ(chooseRune("?").len, 1u);
+  EXPECT_EQ(chooseRune("*?*").tokenOrdinal, 0);
+  EXPECT_EQ(chooseRune("*?*").len, 1u);
+  EXPECT_EQ(chooseRune("a*?*b").tokenOrdinal, 2);
+  EXPECT_EQ(chooseRune("a*?*b").len, 1u);
 }
 
 TEST_F(SuffixChooseTokenTest, multiByteCharsScoredByRune) {

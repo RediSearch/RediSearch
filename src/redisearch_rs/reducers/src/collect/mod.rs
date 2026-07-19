@@ -20,8 +20,8 @@
 //! "local to the merge step", not "the local node". See [`local`] and
 //! [`remote`] for per-variant details.
 
-pub mod heap;
 pub mod local;
+pub mod ranking;
 pub mod remote;
 pub mod storage;
 

@@ -21,11 +21,12 @@
 #include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
+#include "disk_gc.h"
+#include "debug_commands.h"
 #include "doc_id_meta.h"
 #include "iterators_ffi.h"
 #include "module_init_ffi.h"
 
-#define JSON_LEN 5 // length of string "json."
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
 RedisModuleString **hashFields = NULL;
@@ -56,13 +57,41 @@ RedisModuleString **hashFields = NULL;
   X(loaded)                               \
   X(copy_to)
 
+// RedisJSON write events that should trigger a document reindex. Unlike the
+// events above, the event string contains a dot, which is not a valid C token,
+// so each entry carries both an identifier (used to generate the enum value)
+// and the actual event string. Each gets its own enum value so individual
+// commands can be handled differently in the future.
+//
+// These events are NOT pointer-cached like the core events: RedisJSON emits
+// them through redismodule-rs, which builds a fresh temporary CString per call
+// and frees it once the notification returns (see notify_keyspace_event in
+// raw.rs). The pointer is therefore neither stable nor long-lived, so we always
+// match them with strcmp instead of caching the pointer.
+#define REDIS_JSON_NOTIFICATION_EVENT_LIST(X) \
+  X(json_set,       "json.set")               \
+  X(json_merge,     "json.merge")             \
+  X(json_mset,      "json.mset")              \
+  X(json_del,       "json.del")               \
+  X(json_numincrby, "json.numincrby")         \
+  X(json_nummultby, "json.nummultby")         \
+  X(json_strappend, "json.strappend")         \
+  X(json_arrappend, "json.arrappend")         \
+  X(json_arrinsert, "json.arrinsert")         \
+  X(json_arrpop,    "json.arrpop")            \
+  X(json_arrtrim,   "json.arrtrim")           \
+  X(json_toggle,    "json.toggle")
+
 // Define an enum value for each event.
 #define DECLARE_EVENT_ENUM(E) E##_cmd,
+#define DECLARE_JSON_EVENT_ENUM(ID, STR) ID##_cmd,
 enum RedisCmd {
   _null_cmd = 0,
   REDIS_NOTIFICATION_EVENT_LIST(DECLARE_EVENT_ENUM)
+  REDIS_JSON_NOTIFICATION_EVENT_LIST(DECLARE_JSON_EVENT_ENUM)
 };
 #undef DECLARE_EVENT_ENUM
+#undef DECLARE_JSON_EVENT_ENUM
 
 // Declare a static variable for each event to hold the cached pointer.
 // This caches the event string pointer for future comparisons to avoid strcmp in hot paths.
@@ -80,8 +109,17 @@ static void freeHashFields() {
   }
 }
 
-int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
-                             RedisModuleString *key) {
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+                               RedisModuleString *key);
+
+// Transform the event string into its corresponding enum value. The core events
+// (REDIS_NOTIFICATION_EVENT_LIST) are pointer-cached: Redis core passes static
+// string literals, so once we have matched an event with strcmp we remember its
+// pointer and short-circuit future notifications with a pointer comparison. The
+// RedisJSON events cannot be cached this way (see REDIS_JSON_NOTIFICATION_EVENT_LIST)
+// and are always matched with strcmp. Returns _null_cmd for anything we don't
+// subscribe to.
+static enum RedisCmd GetRedisCmd(const char *event) {
 
 #define CHECK_CACHED_EVENT(E)     \
   else if (event == E##_event) {  \
@@ -94,18 +132,62 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     E##_event = event;            \
   }
 
+#define CHECK_JSON_EVENT(ID, STR)  \
+  else if (!strcmp(event, STR)) {  \
+    redisCommand = ID##_cmd;       \
+  }
+
   enum RedisCmd redisCommand;
-  RedisModuleKey *kp;
-  DocumentType kType;
-
-  // Transform the event string into its corresponding enum value,
-  // while caching the event string pointer for future comparisons to avoid strcmp in hot paths.
-  // First "iterate" over the cached events, then fall back to strcmp and cache if found.
-
   if (false) {} // dummy first statement to allow the else-if chain
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_CACHED_EVENT)
   REDIS_NOTIFICATION_EVENT_LIST(CHECK_AND_CACHE_EVENT)
+  REDIS_JSON_NOTIFICATION_EVENT_LIST(CHECK_JSON_EVENT)
   else redisCommand = _null_cmd;
+  return redisCommand;
+
+#undef CHECK_CACHED_EVENT
+#undef CHECK_AND_CACHE_EVENT
+#undef CHECK_JSON_EVENT
+}
+
+// Payload carried to a deferred per-key notification job. The per-key job
+// callback only receives (ctx, key, pd), so the original notification type and
+// the precomputed event enum are stashed here. We deliberately do not keep the
+// raw event string: RedisJSON event strings are freed once the notification
+// returns (see GetRedisCmd), and the enum already carries everything the handler
+// needs.
+typedef struct {
+  int type;
+  enum RedisCmd redisCommand;
+} KeyspaceNotificationJob;
+
+void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
+  KeyspaceNotificationJob *job = pd;
+  HandleKeyspaceNotification(ctx, job->type, job->redisCommand, key);
+}
+
+int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
+                                RedisModuleString *key) {
+  enum RedisCmd redisCommand = GetRedisCmd(event);
+  // When running on SearchDisk, defer the actual handling of every event other
+  // than "loaded" to a post-notification per-key job, so indexing runs outside
+  // the keyspace-notification context.
+  if (SearchDisk_IsEnabled() && redisCommand != loaded_cmd) {
+    KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
+    job->type = type;
+    job->redisCommand = redisCommand;
+    int rc = RedisModule_AddPostNotificationJobForKey(ctx, HandlePerKeyJobFunc, key, job, rm_free);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "Failed to add post-notification job for key");
+    return REDISMODULE_OK;
+  }
+  return HandleKeyspaceNotification(ctx, type, redisCommand, key);
+}
+
+int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redisCommand,
+                               RedisModuleString *key) {
+
+  RedisModuleKey *kp;
+  DocumentType kType;
 
   switch (redisCommand) {
 
@@ -161,6 +243,24 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
     case restore_cmd:
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      break;
+
+    // Any RedisJSON write event reindexes the doc. Each command has its own enum
+    // value, so if a command ever needs different handling, split it out of this
+    // group instead of changing the whole set.
+    case json_set_cmd:
+    case json_merge_cmd:
+    case json_mset_cmd:
+    case json_del_cmd:
+    case json_numincrby_cmd:
+    case json_nummultby_cmd:
+    case json_strappend_cmd:
+    case json_arrappend_cmd:
+    case json_arrinsert_cmd:
+    case json_arrpop_cmd:
+    case json_arrtrim_cmd:
+    case json_toggle_cmd:
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
       break;
 
     case rename_from_cmd:
@@ -236,28 +336,6 @@ int HashNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
       RS_ASSERT(!SearchDisk_IsEnabled());
       Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
       break;
-  }
-
-
-/********************************************************
- *              Handling RedisJSON commands             *
- ********************************************************/
-  if (!strncmp(event, "json.", JSON_LEN)) {
-    if (!strcmp(event + JSON_LEN, "set") ||
-        !strcmp(event + JSON_LEN, "merge") ||
-        !strcmp(event + JSON_LEN, "mset") ||
-        !strcmp(event + JSON_LEN, "del") ||
-        !strcmp(event + JSON_LEN, "numincrby") ||
-        !strcmp(event + JSON_LEN, "nummultby") ||
-        !strcmp(event + JSON_LEN, "strappend") ||
-        !strcmp(event + JSON_LEN, "arrappend") ||
-        !strcmp(event + JSON_LEN, "arrinsert") ||
-        !strcmp(event + JSON_LEN, "arrpop") ||
-        !strcmp(event + JSON_LEN, "arrtrim") ||
-        !strcmp(event + JSON_LEN, "toggle")) {
-      // update index
-      Indexes_UpdateMatchingWithSchemaRules(ctx, key, DocumentType_Json, hashFields);
-    }
   }
 
   freeHashFields();
@@ -447,9 +525,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
-      if (!IsEnterprise() && subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:
@@ -483,9 +558,6 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
       trimmingDelayCtx.enableTrimmingTimerId = RedisModule_CreateTimer(ctx, RSGlobalConfig.maxTrimDelayMS, enableTrimmingCallback, NULL);
       trimmingDelayCtx.checkTrimmingStateTimerIdScheduled = true;
       trimmingDelayCtx.enableTrimmingTimerIdScheduled = true;
-      if (!IsEnterprise()) {
-        RedisTopologyUpdater_StopAndRescheduleImmediately(ctx);
-      }
       break;
 
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE:
@@ -530,6 +602,15 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
   }
 }
 
+static void ClusterTopologyChangeEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                       void *data) {
+  REDISMODULE_NOT_USED(eid);
+  REDISMODULE_NOT_USED(subevent);
+  RedisModuleClusterTopologyChangeInfo *info = data;
+  RedisModule_Log(ctx, "verbose", "Got cluster topology change event (change flags: 0x%llx)", (unsigned long long)info->change_flags);
+  RedisTopologyUpdater_OnTopologyChanged(ctx);
+}
+
 static void ServerReadyEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   REDISMODULE_NOT_USED(eid);
   REDISMODULE_NOT_USED(subevent);
@@ -568,24 +649,57 @@ static bool g_hotRestartSave = false;
 // The catch is *ownership*: the Rust index handle is owned by
 // the C IndexSpec as a raw pointer (sp->diskSpec, a Box::into_raw), and the
 // ONLY thing that ever drops that Box is SearchDisk_CloseIndex.
+//
+// The teardown runs in three steps, waiting out any in-flight disk GC run in the
+// middle. This close force-drops the Box directly, bypassing the StrongRef refcount
+// that normally serialises a background GC cycle against the close (on FT.DROPINDEX
+// the StrongRef destructor defers the close until periodicCb releases its ref).
+// Without the wait, a GC compaction cycle still running run_gc against a spec we
+// drop here dereferences a freed database -> SIGSEGV (see
+// docs/design/gc-shutdown-teardown-race-crash.md).
 static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
   if (!specDict_g) {
     return;
   }
+
+  // Pass 1: main-thread teardown + mark for deletion on every disk spec.
+  // SearchDisk_MarkIndexForDeletion also disable_compactions(), which cancels the
+  // in-flight GC cycle (the GC pool has a single thread) so the wait below returns
+  // promptly instead of sitting through a full compaction.
   dictIterator *iter = dictGetIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     if (sp && sp->diskSpec) {
-      // Unregister must always precede close (see SearchDisk_CloseIndex docs).
-      SearchDisk_UnregisterIndex(ctx, sp);
+      // Main-thread teardown must always precede close (see SearchDisk_CloseIndex docs).
+      SearchDisk_CloseIndexOnMainThread(ctx, sp);
       SearchDisk_MarkIndexForDeletion(sp->diskSpec);
+    }
+  }
+  dictReleaseIterator(iter);
+
+  // Take the run lock and disable disk GC, waiting out any in-flight run: after this
+  // no run is executing and none will start.
+  DiskGC_LockRunsAndDisable();
+
+  // Pass 2: drop each Rust handle — closes SpeedB and deletes the marked files.
+  iter = dictGetIterator(specDict_g);
+  while ((entry = dictNext(iter))) {
+    StrongRef spec_ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    if (sp && sp->diskSpec) {
       SearchDisk_CloseIndex(sp->diskSpec);
       sp->diskSpec = NULL;
     }
   }
   dictReleaseIterator(iter);
+
+  DiskGC_UnlockRuns();
+
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_AFTER_DISK_INDEX_CLOSE);
+#endif
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
@@ -594,6 +708,14 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     RedisModule_Log(ctx, "notice", "%s",
                     "Deleting on-disk search indexes on shutdown (not a hot restart)");
     DeleteDiskIndexesOnShutdown(ctx);
+  } else {
+    // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
+    // shared DiskContext; wait out any in-flight disk GC run first so no compaction
+    // races that close. The checkpoint (index_spec_pre_checkpoint) already
+    // disable_compactions()d during the save, so this wait is prompt. Nothing clears
+    // sp->diskSpec here, so release the lock immediately — the wait is all we need.
+    DiskGC_LockRunsAndDisable();
+    DiskGC_UnlockRuns();
   }
   SearchDisk_Close(ctx);
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
@@ -663,7 +785,7 @@ void Initialize_KeyspaceNotifications() {
       REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
       REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
     }
-    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, HashNotificationCallback);
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
   }
 }
@@ -691,24 +813,36 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
 static bool vecsimdisk_sst_consistency_lock_held = false;
 
 // Begin a consistent on-disk save window.
-// Shared by the SST replication fork (flush = SearchDisk_PreFork) and the
-// foreground hot-restart save (flush = SearchDisk_PreCheckpoint), so the two
-// callers cannot drift apart on the lock/flag protocol. Pairs with
-// DiskConsistencyWindow_End.
+// Shared by the SST replication checkpoint (flush = SearchDisk_PreCheckpoint),
+// the SST replication fork (flush = SearchDisk_PreFork) and the foreground
+// hot-restart save (flush = SearchDisk_PreCheckpoint), so the callers cannot
+// drift apart on the lock/flag protocol. Pairs with DiskConsistencyWindow_End
+// or DiskConsistencyWindow_Close.
 static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
   VecSimDisk_AcquireConsistencyLock();
   vecsimdisk_sst_consistency_lock_held = true;
   ForEachIndex(flush);
 }
 
-// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin.
+// Release the consistency lock opened by DiskConsistencyWindow_Begin without
+// running any per-index finalize work. Used where there is no matching disk
+// hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
+//
+// The caller must check vecsimdisk_sst_consistency_lock_held before calling
+// this on a path where the window may never have been opened.
+static void DiskConsistencyWindow_Close(void) {
+  VecSimDisk_ReleaseConsistencyLock();
+  vecsimdisk_sst_consistency_lock_held = false;
+}
+
+// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin,
+// running `finalize` against every disk-backed index before releasing the lock.
 //
 // The caller must check vecsimdisk_sst_consistency_lock_held before calling
 // this on a path where the window may never have been opened (e.g. SST ABORT).
 static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
   ForEachIndex(finalize);
-  VecSimDisk_ReleaseConsistencyLock();
-  vecsimdisk_sst_consistency_lock_held = false;
+  DiskConsistencyWindow_Close();
 }
 
 // SST replication event handler.
@@ -729,10 +863,18 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   switch (subevent) {
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_CHECKPOINT");
-      ForEachIndex(SearchDisk_PreCheckpoint);
+      // Hold the consistency lock across the checkpoint so background vector
+      // index jobs cannot mutate on-disk state while the checkpoint is taken.
+      // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
+      // fresh window afterwards.
+      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      // POST_CHECKPOINT has no matching disk hook - just close the window
+      // opened at PRE_CHECKPOINT.
+      RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
+      DiskConsistencyWindow_Close();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
@@ -855,6 +997,17 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "notice", "Subscribe to cluster slot migration events");
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
+
+  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
+  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
+  // before the Enterprise flow fully supports it (e.g. connections auth).
+  if (!IsEnterprise()) {
+    RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
+      RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "
+                                      "topology will not be refreshed automatically");
+    }
+  }
   if (SearchDisk_IsEnabled()) {
     RedisModule_Log(ctx, "notice", "Subscribe to Server ready event");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ServerReady, ServerReadyEvent);

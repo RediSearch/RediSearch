@@ -64,6 +64,7 @@ impl Decoder for FieldsOnly {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
@@ -136,6 +137,7 @@ impl Decoder for FieldsOnlyWide {
         RSIndexResult::build_term().build()
     }
 
+    #[inline(always)]
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,

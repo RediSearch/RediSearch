@@ -10,8 +10,12 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+itertools.workspace = true
+rqe_wildcard.workspace = true
+string_utils.workspace = true
 trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+rstest.workspace = true

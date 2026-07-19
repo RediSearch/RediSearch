@@ -48,6 +48,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_VECTOR_NORMALIZER:
       case RP_HYBRID_MERGER:
       case RP_DEPLETER:
+      case RP_DISK_ASYNC_LOADER:
         printProfileType(RPTypeToString(rp->type));
         break;
 

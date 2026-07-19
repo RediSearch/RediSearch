@@ -224,6 +224,6 @@ jobs:
           # queued the PR, and our `if:` still requires a human-applied
           # `backport-<branch>-agent` label). The comment/label triggers come
           # from humans and pass the gate without this. Mirrors
-          # .github/actions/codex-ci-triage/action.yml.
+          # the shared codex-ci-triage action (redislabsdev/redisearch-ci-common).
           allow-bots: true
           allow-bot-users: github-merge-queue[bot]

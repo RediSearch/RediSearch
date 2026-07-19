@@ -399,6 +399,11 @@ for workers in [0, 4]:
     # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
     compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
     for compression_type in compression_types:
+        # Full-precision synchronous (WORKERS 0) Vamana construction over this test's large
+        # windows overruns the per-test timeout under coverage instrumentation (MOD-12324).
+        # The async and compressed variants stay in budget; the full matrix still runs standalone.
+        if CODE_COVERAGE and workers == 0 and compression_type == 'NO_COMPRESSION':
+            continue
         for data_type in VECSIM_SVS_DATA_TYPES:
             metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:

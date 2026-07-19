@@ -21,7 +21,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable")'
         type: string
-        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+        default: 8897348030c20bcd26841bc7d3ec7227f8187aeb
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -96,47 +96,11 @@ jobs:
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
-    runs-on: ubuntu-slim
-    env:
-      TAGS: | # Make sure there is no trailing comma!
-        [
-          {"Key": "Name",         "Value": "redisearch-ci-runner"},
-          {"Key": "Environment",  "Value": "CI"},
-          {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
-          {"Key": "PR",           "Value": "${{ github.event.number }}"},
-          {"Key": "Owner",        "Value": "${{ github.actor }}"},
-          {"Key": "Project",      "Value": "${{ github.repository }}"}
-        ]
-    outputs:
-      label: ${{ steps.start-ec2-runner.outputs.label }}
-      ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
-          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
-      - name: Generate GitHub App token
-        id: generate-app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GH_PR_APP_ID }}
-          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-administration: write
-      - name: Start EC2 runner
-        id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.6.1
-        with:
-          mode: start
-          github-token: ${{ steps.generate-app-token.outputs.token }}
-          ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
-          ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
-          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
-          aws-resource-tags: ${{ env.TAGS }}
+    uses: ./.github/workflows/task-start-ec2-runner.yml
+    secrets: inherit
+    with:
+      ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+      ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
 
   build-image:
     needs: get-config
@@ -445,7 +409,7 @@ jobs:
       - name: Record standalone failures to flaky DB
         if: ${{ always() && inputs.standalone && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_standalone.txt
@@ -486,7 +450,7 @@ jobs:
       - name: Record coordinator failures to flaky DB
         if: ${{ always() && inputs.coordinator && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        uses: ./.github/actions/flaky-record-results
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: .failed_coordinator.txt
@@ -584,14 +548,30 @@ jobs:
       - name: Collect failed-test-only logs
         # Build a focused log bundle containing only logs for tests that actually
         # failed, so downstream tools (e.g. Codex triage) get high-signal input.
-        # Driven by RLTest's FAILEDFILE output (test ids in `test_file.py:test_name`
-        # form). RLTest log filenames embed the test id as `..._<file>_<test>_...`,
-        # so we convert each failed id to a glob and copy matching files.
+        # Driven by RLTest's FAILEDFILE output (test ids in `test_file:test_name`
+        # form, e.g. `test_foo:TestBar.test_baz` for class-based tests).
+        #
+        # RLTest creates one Env — and one set of redis logs — per test *class*
+        # (or per module-level function), not per method, and names the files
+        # `<uuid>.<role>-<file>_<class-or-func>-<env>.log`; the method name is NOT
+        # part of the filename. So we key the glob on `<file>_<class-or-func>`,
+        # dropping any `.method` suffix from the failed id — otherwise the glob can
+        # never match and the focused bundle silently misses the real failure.
+        #
+        # Mirror the "Upload Artifacts" guard: with fail-fast disabled the test
+        # steps are continue-on-error, so a unit-test-only failure never trips
+        # `failure()` here and we must check the step outcomes explicitly —
+        # otherwise no focused bundle is produced for unit-test-only failures.
         if: >
           failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
+        env:
+          C_UNIT_TESTS_OUTCOME: ${{ steps.c_unit_tests.outcome }}
         run: |
           set +e
           DEST="failed-test-logs"
@@ -605,7 +585,10 @@ jobs:
               local file_part="${test_id%%:*}"
               local test_part="${test_id#*:}"
               local file_no_py="${file_part%.py}"
-              local pattern="*-${file_no_py}_${test_part}-*.log*"
+              # Log files are named per class/function, not per method: turn
+              # `Class.method` into `Class` (a bare function name is unchanged).
+              local class_part="${test_part%%.*}"
+              local pattern="*-${file_no_py}_${class_part}-*.log*"
               find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | \
                 while read -r log; do
                   mkdir -p "$DEST/$(dirname "$log")"
@@ -617,25 +600,42 @@ jobs:
           copy_for_failed_list ".failed_standalone.txt"
           copy_for_failed_list ".failed_coordinator.txt"
 
-          # Always include the run-level RLTest summary log if present — it gives
-          # session-level context that complements per-test logs.
-          find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
-            mkdir -p "$DEST/$(dirname "$log")"
-            cp "$log" "$DEST/$log"
-          done
+          # The C/C++ CTest summary logs (rstest*.log) are only relevant when the
+          # C/C++ unit tests themselves failed. Including them unconditionally is
+          # misleading for flow-test failures: they report "100% tests passed" and,
+          # when no per-test flow logs match, become the *only* content the triage
+          # sees — making a real failure look like a clean run. Gate strictly on a
+          # C/C++ unit-test failure: a Rust-only failure leaves these CTest logs
+          # passing, so copying them would recreate the same misleading artifact
+          # (the real Rust failure lives in the job log, surfaced via the triage
+          # KEY FAILURE LINES extraction instead).
+          if [ "$C_UNIT_TESTS_OUTCOME" = "failure" ]; then
+            find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
+              mkdir -p "$DEST/$(dirname "$log")"
+              cp "$log" "$DEST/$log"
+            done
+          fi
 
-          # Stash the failed-test lists alongside the logs for downstream consumers.
-          for f in .failed_standalone.txt .failed_coordinator.txt; do
-            [ -f "$f" ] && cp "$f" "$DEST/$f"
-          done
+          # Stash the failed-test lists alongside the logs under non-hidden names.
+          # The triage prompt treats `failed-tests-*.txt` as the authoritative list
+          # of distinct failures; copying the source `.failed_*.txt` verbatim would
+          # both miss that naming convention and be silently dropped on upload,
+          # since actions/upload-artifact excludes hidden (dot-prefixed) files.
+          [ -f .failed_standalone.txt ] && cp .failed_standalone.txt "$DEST/failed-tests-standalone.txt"
+          [ -f .failed_coordinator.txt ] && cp .failed_coordinator.txt "$DEST/failed-tests-coordinator.txt"
 
           echo "Failed-test logs bundled:"
           find "$DEST" -type f | wc -l
           exit 0
 
       - name: Upload Failed-Only Test Logs
+        # Keep this guard in lockstep with "Collect failed-test-only logs" above,
+        # otherwise the bundle is built but never uploaded (or vice versa).
         if: >
           failure() || (
+            (steps.rust_unit_tests_miri.outcome == 'failure') ||
+            steps.rust_unit_tests.outcome == 'failure' ||
+            steps.c_unit_tests.outcome == 'failure' ||
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
@@ -708,27 +708,8 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
-    runs-on: ubuntu-slim
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
-          aws-region: ${{ secrets.PERFORMANCE_EC2_AWS_REGION }}
-      - name: Generate GitHub App token
-        id: generate-app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GH_PR_APP_ID }}
-          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-administration: write
-      - name: Stop EC2 runner
-        uses: machulav/ec2-github-runner@v2.6.1
-        with:
-          mode: stop
-          github-token: ${{ steps.generate-app-token.outputs.token }}
-          label: ${{ needs.start-runner.outputs.label }}
-          ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}
+    uses: ./.github/workflows/task-stop-ec2-runner.yml
+    secrets: inherit
+    with:
+      label: ${{ needs.start-runner.outputs.label }}
+      ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

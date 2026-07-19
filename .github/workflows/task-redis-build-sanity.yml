@@ -1,0 +1,346 @@
+name: Redis Build Sanity
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos-15, macos-26)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      redis-repository:
+        description: 'Redis repository to use for the modernized build flow'
+        type: string
+        required: true
+      redis-ref:
+        description: 'Redis ref containing modules-update/bootstrap/build/run'
+        type: string
+        required: true
+      redisearch-repository:
+        description: 'RediSearch repository to inject into Redis modules.yaml'
+        type: string
+        required: true
+      redisearch-ref:
+        description: 'RediSearch ref/SHA to inject into Redis modules.yaml'
+        type: string
+        required: true
+      test-timeout:
+        description: 'Timeout in minutes for the build-flow smoke'
+        type: number
+        default: 120
+
+env:
+  REDISEARCH_CI_SYSTEM_PATH: >-
+    /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  get-config:
+    name: Get build configurations for platform
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  start-runner:
+    needs: get-config
+    name: Start self-hosted EC2 runner
+    if: ${{ needs.get-config.outputs.ec2_image_id }}
+    uses: ./.github/workflows/task-start-ec2-runner.yml
+    secrets: inherit
+    with:
+      ec2-image-id: ${{ needs.get-config.outputs.ec2_image_id }}
+      ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
+
+  redis-build-sanity:
+    needs: [get-config, start-runner]
+    name: Redis build sanity on ${{ needs.get-config.outputs.name }}
+    if: |
+      !cancelled() &&
+      needs.get-config.result == 'success' &&
+      (!needs.get-config.outputs.ec2_image_id || needs.start-runner.result == 'success')
+    runs-on: ${{ needs.get-config.outputs.ec2_image_id && needs.start-runner.outputs.label || needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      needs.get-config.outputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            needs.get-config.outputs.container,
+            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: /bin/bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(needs.get-config.outputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        if: ${{ needs.get-config.outputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+
+      - name: Free up disk space (non-container)
+        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+
+      - name: Disable automatic apt updates (self-hosted Linux)
+        if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
+        run: |
+          echo "Disabling apt auto-update services on self-hosted runner..."
+          sudo systemctl stop apt-daily.timer apt-daily.service apt-daily-upgrade.timer apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl disable apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
+          sudo systemctl mask apt-daily.service apt-daily-upgrade.service unattended-upgrades.service 2>/dev/null || true
+          sudo pkill -f "apt.systemd.daily" || true
+          sudo pkill -f "unattended-upgrade" || true
+
+      - name: Setup platform dependencies
+        if: needs.get-config.outputs.setup_script
+        run: ${{ format(env.SETUP_RETRY_LOOP, needs.get-config.outputs.setup_script) }}
+
+      - name: Post-setup
+        if: needs.get-config.outputs.post_setup_script
+        run: ${{ needs.get-config.outputs.post_setup_script }}
+
+      - name: Install Redis build-flow prerequisites
+        env:
+          INSTALL_MODE: ${{ needs.get-config.outputs.install_mode }}
+        run: |
+          run_pkg() {
+            if [ -n "$INSTALL_MODE" ]; then
+              $INSTALL_MODE "$@"
+            else
+              "$@"
+            fi
+          }
+
+          ensure_curl() {
+            command -v curl >/dev/null 2>&1 && return 0
+
+            if command -v dnf >/dev/null 2>&1; then
+              run_pkg dnf install -y curl-minimal || run_pkg dnf install -y curl
+            elif command -v yum >/dev/null 2>&1; then
+              run_pkg yum install -y curl
+            elif command -v tdnf >/dev/null 2>&1; then
+              run_pkg tdnf install -y --noplugins curl
+            elif command -v apk >/dev/null 2>&1; then
+              run_pkg apk add --no-cache curl
+            elif command -v apt-get >/dev/null 2>&1; then
+              run_pkg apt-get install -y --no-install-recommends curl
+            fi
+
+            command -v curl >/dev/null 2>&1
+          }
+
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            run_pkg apt-get update
+            run_pkg apt-get install -y --no-install-recommends bash ca-certificates curl findutils gawk git make
+          elif command -v dnf >/dev/null 2>&1; then
+            run_pkg dnf install -y bash ca-certificates findutils gawk git gzip make tar
+          elif command -v yum >/dev/null 2>&1; then
+            run_pkg yum install -y bash ca-certificates findutils gawk git gzip make tar
+          elif command -v apk >/dev/null 2>&1; then
+            run_pkg apk add --no-cache bash ca-certificates curl findutils gawk git make
+          elif command -v tdnf >/dev/null 2>&1; then
+            run_pkg tdnf install -y --noplugins bash ca-certificates findutils gawk git gzip make tar
+          elif command -v brew >/dev/null 2>&1; then
+            brew list git >/dev/null 2>&1 || brew install git
+          fi
+
+          ensure_curl
+          git config --global --add safe.directory '*'
+
+      - name: Checkout Redis
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.redis-repository }}
+          ref: ${{ inputs.redis-ref }}
+          path: redis
+
+      - name: Configure GitHub token for module clone
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Create CI Redis manifest for this RediSearch ref
+        working-directory: redis
+        env:
+          MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+          REDISEARCH_REPOSITORY: ${{ inputs.redisearch-repository }}
+          REDISEARCH_REF: ${{ inputs.redisearch-ref }}
+        run: |
+          test -f modules/modules.yaml
+          # Redis uses this manifest to determine which module SHA to clone.
+          # Keep the checkout clean and point CI at a patched manifest copy.
+          cp modules/modules.yaml "$MANIFEST_FILE"
+          repo_url="https://github.com/${REDISEARCH_REPOSITORY}.git"
+          tmp="$(mktemp)"
+          awk -v repo="$repo_url" -v ref="$REDISEARCH_REF" '
+            /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+              in_redisearch = ($0 ~ /^[[:space:]]*-[[:space:]]*name:[[:space:]]*redisearch[[:space:]]*$/)
+            }
+            in_redisearch && /^[[:space:]]+repo:[[:space:]]*/ {
+              print "    repo: " repo
+              next
+            }
+            in_redisearch && /^[[:space:]]+ref:[[:space:]]*/ {
+              print "    ref: " ref
+              next
+            }
+            { print }
+          ' "$MANIFEST_FILE" > "$tmp"
+          mv "$tmp" "$MANIFEST_FILE"
+          awk '
+            /^[[:space:]]*-[[:space:]]*name:[[:space:]]*redisearch[[:space:]]*$/ { show = 1; count = 0 }
+            show && count < 5 { print; count++ }
+            show && count >= 5 { show = 0 }
+          ' "$MANIFEST_FILE"
+
+      - name: Run make modules-update redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          make modules-update redisearch
+
+      # Bootstrap may install toolchains and persist them through GITHUB_PATH/GITHUB_ENV.
+      # Keep build in a later step so those updates are visible.
+      - name: Run make bootstrap redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          make bootstrap redisearch
+
+      - name: Run make build redisearch
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+          REDISEARCH_LTO: ${{ needs.get-config.outputs.enable_lto }}
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          make build redisearch LTO="$REDISEARCH_LTO"
+
+      - name: Verify make run loads RediSearch
+        working-directory: redis
+        env:
+          MODULES_MANIFEST_FILE: ${{ github.workspace }}/redis/modules/modules-ci.yaml
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          python3 - <<'PY'
+          import os
+          import socket
+          import subprocess
+          import sys
+          import time
+
+          root = os.getcwd()
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+              sock.bind(("127.0.0.1", 0))
+              port = sock.getsockname()[1]
+
+          env = os.environ.copy()
+          env["ARGS"] = (
+              f"--bind 127.0.0.1 --port {port} "
+              "--save '' --appendonly no --protected-mode no"
+          )
+          proc = subprocess.Popen(["make", "run", "redisearch"], cwd=root, env=env)
+          cli = os.path.join(root, "src", "redis-cli")
+
+          try:
+              deadline = time.monotonic() + 90
+              while time.monotonic() < deadline:
+                  rc = proc.poll()
+                  if rc is not None:
+                      raise SystemExit(rc or 1)
+                  ping = subprocess.run(
+                      [cli, "-h", "127.0.0.1", "-p", str(port), "PING"],
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.DEVNULL,
+                      universal_newlines=True,
+                      check=False,
+                  )
+                  if ping.stdout.strip() == "PONG":
+                      break
+                  time.sleep(1)
+              else:
+                  raise RuntimeError("redis-server did not accept PING before timeout")
+
+              command_info = subprocess.run(
+                  [cli, "-h", "127.0.0.1", "-p", str(port), "--raw", "COMMAND", "INFO", "FT.SEARCH"],
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  universal_newlines=True,
+                  check=True,
+              )
+              if "ft.search" not in command_info.stdout.lower():
+                  print(command_info.stdout)
+                  raise RuntimeError("FT.SEARCH command was not registered")
+          finally:
+              subprocess.run(
+                  [cli, "-h", "127.0.0.1", "-p", str(port), "SHUTDOWN", "NOSAVE"],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  check=False,
+              )
+              try:
+                  proc.wait(timeout=20)
+              except subprocess.TimeoutExpired:
+                  proc.kill()
+                  proc.wait()
+          PY
+
+  stop-runner:
+    name: Stop self-hosted EC2 runner
+    needs: [start-runner, redis-build-sanity]
+    if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}
+    uses: ./.github/workflows/task-stop-ec2-runner.yml
+    secrets: inherit
+    with:
+      label: ${{ needs.start-runner.outputs.label }}
+      ec2-instance-id: ${{ needs.start-runner.outputs.ec2-instance-id }}

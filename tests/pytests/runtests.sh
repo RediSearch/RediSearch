@@ -77,8 +77,7 @@ help() {
 		LOG_LEVEL=<level>     Set log level (default: debug)
 		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
 
-		PARALLEL=1            Runs tests in parallel
-		SLOW=1                Do not test in parallel
+		PARALLEL=0|1|N       Test workers: 0=serial, 1=nproc (default), N=exact count
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 

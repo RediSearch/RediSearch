@@ -65,12 +65,13 @@ typedef struct HybridRequest {
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
 
-    // Array of cursors for reply_callback path (internal hybrid search).
+    // Array of depleted cursors for reply_callback path (internal hybrid search).
+    // Non-NULL only after the initial cursor pipelines are safe to publish.
     // Protected by cursorMutex to synchronize with timeout callback.
     // Cleanup is handled by:
     // - reply_callback: frees array after replying with cursor IDs
-    // - timeout_callback: acquires lock and frees cursors if they were already created
-    // - HybridRequest_StartCursors: checks timedOut flag before creating, or frees on error
+    // - timeout_callback: acquires lock and consumes published cursors, if any
+    // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
 
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
@@ -240,6 +241,17 @@ void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on failure
  */
 int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *scoreKey, HybridPipelineParams *params, QueryError *status);
+
+/**
+ * Free the heap-owned members of a HybridPipelineParams (scoring and EXPLAINSCORE
+ * contexts) and NULL them out, without freeing the params struct itself.
+ *
+ * Safe to call repeatedly and after ownership has been transferred to the merger
+ * (the relevant pointers are NULLed on transfer, so this becomes a no-op). Use it
+ * to release a stack- or caller-owned HybridPipelineParams on an error path before
+ * the merge pipeline is built; freeHybridParams() calls it for heap-allocated params.
+ */
+void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 
 /**
  * Build the complete hybrid search pipeline.

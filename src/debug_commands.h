@@ -32,6 +32,7 @@ typedef struct BgIndexingDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
   bool pauseBeforeOOMretry; // Whether to pause before the first OOM retry
+  bool simulateAsyncOOM; // Force the AsyncScan driver into its OOM terminal branch (test hook)
 
 } BgIndexingDebugCtx;
 
@@ -155,12 +156,35 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"
 #define SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK              "BeforeQITimeoutCheck"
 #define SYNC_POINT_AFTER_SCHEDULE_DEPLETERS             "AfterScheduleDepleters"
+#define SYNC_POINT_ASYNC_SCAN_BEFORE_FIRST_BATCH        "AsyncScanBeforeFirstBatch"
+#define SYNC_POINT_ASYNC_SCAN_BETWEEN_BATCHES           "AsyncScanBetweenBatches"
+// Disk async loader: parked after the spec read-lock is released and before the GIL is taken
+// (RSE redisearch_disk). Lets a test update a key while a load batch is staged, and is the point
+// the deadlock test (MOD-15306) uses to hold a writer against the loader.
+#define SYNC_POINT_BEFORE_LOADER_GIL                    "BeforeLoaderGil"
+#define SYNC_POINT_BEFORE_COMPACTION_APPLY              "BeforeCompactionApply"
+#define SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE      "GcBeforeDeletedIdsRemove"
+// Disk shutdown teardown: parked in DeleteDiskIndexesOnShutdown. Lets a test keep
+// the process alive after the free so a GC run parked at
+// SYNC_POINT_GC_BEFORE_DELETED_IDS_REMOVE deterministically wakes into the freed DB
+// (use-after-free) when the disk-GC/teardown handshake was missing.
+#define SYNC_POINT_AFTER_DISK_INDEX_CLOSE               "AfterDiskIndexClose"
+// Disk async loader: parked right after a swap-prefetch is issued for a non-resident key and
+// before the worker waits for the completion (RSE redisearch_disk). Lets a test mutate or delete
+// the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
+// and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
+#define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
 // Returns true on success, false if max sync points reached
 // NOTE: Not thread-safe. Must only be called from the main thread.
 bool SyncPoint_Arm(const char *name);
+// Like SyncPoint_Arm, but a parked SyncPoint_Wait self-releases after
+// `auto_release_ms` even without a SIGNAL (0 = wait for SIGNAL, as SyncPoint_Arm).
+// For tests where the thread that would SIGNAL is itself blocked waiting on the
+// parked work (e.g. disable_compactions() during FT.DROPINDEX).
+bool SyncPoint_ArmWithTimeout(const char *name, long long auto_release_ms);
 // Signal a waiting thread at the named sync point to continue (also disarms it)
 void SyncPoint_Signal(const char *name);
 // Check if a thread is waiting at the named sync point

@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::fmt;
-
-use crate::TrieMap;
+//! A UTF-8 keyed trie map. See [`StrTrieMap`].
 
 pub mod iter;
+
+use crate::TrieMap;
+use std::fmt;
 
 /// UTF-8 keyed view over [`TrieMap`].
 ///
@@ -23,12 +24,6 @@ pub mod iter;
 /// noted otherwise on the wrapper method itself.
 pub struct StrTrieMap<Data> {
     inner: TrieMap<Data>,
-}
-
-impl<Data> Default for StrTrieMap<Data> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<Data> StrTrieMap<Data> {
@@ -106,6 +101,17 @@ impl<Data> StrTrieMap<Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
 
+    /// Yield a reference to the value of every entry whose key starts with
+    /// `prefix`, in lexicographical order. See [`TrieMap::prefixed_values`].
+    ///
+    /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
+    /// boundaries align with byte boundaries. Empty `prefix` yields zero
+    /// matches (this differs from the inner method, which would yield all
+    /// entries).
+    pub fn prefixed_values(&self, prefix: &str) -> iter::PrefixedValues<'_, Data> {
+        iter::PrefixedValues::new(&self.inner, prefix)
+    }
+
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty
@@ -141,6 +147,12 @@ impl<Data> StrTrieMap<Data> {
         todo!("UTF-8 wildcard iteration over StrTrieMap not yet implemented");
         #[expect(unreachable_code)]
         std::iter::empty()
+    }
+}
+
+impl<Data> Default for StrTrieMap<Data> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

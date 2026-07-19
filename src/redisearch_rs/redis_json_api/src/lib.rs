@@ -8,12 +8,14 @@
 */
 
 mod key_values;
+#[cfg(feature = "test-mock")]
+pub mod mock;
 mod path;
 mod results;
 mod value;
 
 use ffi::RedisJSONAPI as RedisJsonApiVTable;
-use redis_module::RedisString;
+use redis_module::{RedisString, key::KeyFlags};
 use std::{error::Error, ffi::CStr, fmt};
 
 pub use key_values::KeyValuesIterator;
@@ -24,8 +26,8 @@ pub use value::{JsonType, JsonValue, JsonValueRef};
 /// Minimum supported API version.
 pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER as i32;
 
-/// Latest API version (V7).
-pub const LATEST_API_VERSION: i32 = 7;
+/// Latest API version (V8).
+pub const LATEST_API_VERSION: i32 = 8;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";
@@ -69,6 +71,12 @@ impl RedisJsonApi {
         }
 
         Some(Self { vtable })
+    }
+
+    /// Construct an API handle from a caller-provided vtable.
+    #[cfg(feature = "test-mock")]
+    pub const fn from_vtable(vtable: &'static RedisJsonApiVTable) -> Self {
+        Self { vtable }
     }
 
     /// Returns the current API version.
@@ -149,7 +157,7 @@ impl RedisJsonApi {
         &self,
         ctx: *mut ffi::RedisModuleCtx,
         key_name: &RedisString,
-        flags: i32,
+        flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
         let vtable = self.vtable();
         let open_key_with_flags = vtable
@@ -157,7 +165,45 @@ impl RedisJsonApi {
             .expect("RedisJSON API function `openKeyWithFlags` not available");
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key_with_flags(ctx, key_name.inner.cast(), flags) };
+        let ptr = unsafe {
+            open_key_with_flags(
+                ctx,
+                key_name.inner.cast(),
+                flags.bits() | redis_module::raw::REDISMODULE_READ as i32,
+            )
+        };
+
+        if ptr.is_null() {
+            None
+        } else {
+            Some(JsonValueRef { ptr, api: self })
+        }
+    }
+
+    /// Gets the JSON root from an already-open [`RedisModuleKey`] handle.
+    ///
+    /// Returns `None` if the key is `NULL`, is not a module type, or does not hold JSON.
+    /// The caller owns the key handle and must keep it open while the returned
+    /// [`JsonValueRef`] is in use.
+    ///
+    /// Only available with RedisJSON API v8 and later.
+    ///
+    /// # Safety
+    ///
+    /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
+    ///
+    /// [`RedisModuleKey`]: ffi::RedisModuleKey
+    pub unsafe fn open_from_handle(
+        &self,
+        redis_key: *mut ffi::RedisModuleKey,
+    ) -> Option<JsonValueRef<'_>> {
+        let vtable = self.vtable();
+        let get_json_from_handle = vtable
+            .getJsonFromHandle
+            .expect("RedisJSON API function `getJsonFromHandle` not available");
+
+        // Safety: ensured by caller (1.)
+        let ptr = unsafe { get_json_from_handle(redis_key) };
 
         if ptr.is_null() {
             None

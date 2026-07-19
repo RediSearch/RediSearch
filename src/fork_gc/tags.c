@@ -49,9 +49,9 @@ void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagHeader header = {.field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
-                          .uniqueId = tagIdx->uniqueId};
+                          .uniqueId = TagIndex_GetId(tagIdx)};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
+      TrieMapIterator *iter = TagIndex_IterateValues(tagIdx);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
@@ -145,7 +145,7 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
     tagIdx = TagIndex_Open(fs);
     RS_LOG_ASSERT_FMT(tagIdx, "tag field '%.*s' was not opened", (int)fieldNameLen, fieldName);
 
-    if (tagIdx->uniqueId != tagUniqueId) {
+    if (TagIndex_GetId(tagIdx) != tagUniqueId) {
       status = FGC_CHILD_ERROR;
       goto loop_cleanup;
     }
@@ -166,10 +166,11 @@ FGCError FGC_parentHandleTags(ForkGC *gc) {
       // index without spec context.
       info.bytes_freed += InvertedIndex_MemUsage(idx);
       IndexStats_BlockCountAdd(&sctx->spec->stats, -(int64_t)InvertedIndex_NumBlocks(idx));
-      TrieMap_Delete(tagIdx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
+      TagIndex_DeleteTagValue(tagIdx, tagVal, tagValLen);
 
-      if (tagIdx->suffix) {
-        deleteSuffixTrieMap(tagIdx->suffix, tagVal, tagValLen);
+      // Empty values (INDEXEMPTY) are never inserted into the suffix triemap, so skip the delete.
+      if (TagIndex_HasSuffix(tagIdx) && tagValLen) {
+        TagIndex_DeleteTagSuffix(tagIdx, tagVal, tagValLen);
       }
     }
 

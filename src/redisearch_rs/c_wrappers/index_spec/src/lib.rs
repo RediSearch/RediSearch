@@ -169,9 +169,9 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         self.0.monitorFieldExpiration = monitor;
     }
 
-    /// Returns the document table.
-    pub const fn doc_table(&self) -> ffi::DocTable {
-        self.0.docs
+    /// Returns a mutable reference to the spec's document table.
+    pub const fn doc_table_mut(&mut self) -> &mut ffi::DocTable {
+        &mut self.0.docs
     }
 
     /// Return a mutable reference to the `existingDocs` inverted index, if present.
@@ -280,7 +280,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Check whether the document with the given id exists in this spec's document table.
-    pub fn doc_exists(&self, id: ffi::t_docId) -> bool {
+    pub fn doc_exists(&self, id: rqe_core::DocId) -> bool {
         // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
         unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
     }

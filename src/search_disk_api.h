@@ -20,6 +20,13 @@ extern "C" {
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
 typedef struct QueryError QueryError;
+// Forward declarations for the async field loader fn-ptr below. These are
+// compatible redeclarations of the canonical typedefs (result_processor.h,
+// search_ctx.h, rlookup.h) and avoid pulling those headers in here.
+typedef struct ResultProcessor ResultProcessor;
+typedef struct RedisSearchCtx RedisSearchCtx;
+typedef struct RLookup RLookup;
+typedef struct RLookupKey RLookupKey;
 
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
@@ -107,6 +114,24 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
+// Stats reported by a single GC compaction cycle.
+//
+// Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
+// and the callee fills the fields it knows about.
+typedef struct DiskGCRunStats {
+  // Number of deleted document IDs removed in this cycle.
+  size_t num_cleaned_docs;
+  // Bytes freed by the compaction (storage layer's view). Signed because
+  // future compaction strategies (e.g. block splitting) may transiently
+  // allocate more than they free; matches the `InfoGCStats::totalCollectedBytes`
+  // convention.
+  ssize_t bytes_collected;
+  // Wall-clock duration of this compaction cycle, in milliseconds, measured by
+  // the disk implementation. Keeping it in this struct lets every per-cycle
+  // counter be populated in one place on the disk side.
+  size_t cycle_time_ms;
+} DiskGCRunStats;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
@@ -115,9 +140,10 @@ typedef struct BasicDiskAPI {
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
+   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -142,8 +168,8 @@ typedef struct BasicDiskAPI {
    *                     IndexSpec for its lifetime.
    * @return Pointer to the index spec, or NULL on error
    *
-   * @note This opens the database but does NOT register it with Redis. Call registerIndex after this
-   *       to register with BigModule APIs.
+   * @note This both opens the database and registers it with Redis BigModule APIs.
+   *       Registration is atomic with creation; there is no separate register step.
    */
   RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
@@ -151,28 +177,24 @@ typedef struct BasicDiskAPI {
    * @param disk Pointer to the disk context (for cleanup of index metrics)
    * @param index Pointer to the index spec
    *
-   * @note This closes the database but does NOT unregister from Redis. Call unregisterIndex
-   *       before this to unregister from BigModule APIs.
+   * @note This closes the database but performs no Redis module API calls, so it is safe
+   *       to run on a background thread. The matching main-thread teardown
+   *       (BigUnregisterDb) is performed by closeIndexOnMainThread, which must be called
+   *       before this on the main thread.
    */
   void (*closeIndexSpec)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
-   * @brief Register an index's database with Redis BigModule APIs
+   * @brief Main-thread half of closing an index: performs every teardown step that needs
+   *        the Redis module API (today: BigUnregisterDb).
    * @param ctx Redis module context (required, must be valid)
    * @param index Pointer to the index spec
    *
-   * @note Must be called from the main thread with a valid RedisModuleCtx.
-   *       Call this after openIndexSpec to register the database with Redis.
+   * @note Must be called from the main thread with a valid RedisModuleCtx, and must
+   *       precede closeIndexSpec. The split exists because closeIndexSpec may run on
+   *       a background thread (the StrongRef destructor) and cannot make Redis module
+   *       API calls from there.
    */
-  void (*registerIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
-  /**
-   * @brief Unregister an index's database from Redis BigModule APIs
-   * @param ctx Redis module context (required, must be valid)
-   * @param index Pointer to the index spec
-   *
-   * @note Must be called from the main thread with a valid RedisModuleCtx.
-   *       Call this before closeIndexSpec to unregister the database from Redis.
-   */
-  void (*unregisterIndex)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
@@ -271,6 +293,41 @@ typedef struct BasicDiskAPI {
    *         existing indexes via updateWriteBufferSize.
    */
   size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
+
+  /**
+   * @brief Store a new max_open_files cap on the disk context.
+   *
+   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
+   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
+   *
+   * @param ctx Redis module context
+   * @param disk Pointer to the disk context
+   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
+   */
+  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
+
+  /**
+   * Create a result processor that loads document fields from disk asynchronously.
+   *
+   * Drop-in replacement for RPLoader_New: the pipeline calls this instead of
+   * RPLoader_New whenever the spec is disk-backed. The returned ResultProcessor
+   * must set QEXEC_S_HAS_LOAD in *outStateFlags when it will load fields,
+   * mirroring RPLoader_New, so downstream cursor handling (HasLoader) treats it
+   * as a loader.
+   *
+   * @param sctx          Search context (owns the spec and the disk handle)
+   * @param reqflags      Request flags (QEXEC_F_*)
+   * @param lk            Lookup the loaded fields are written into
+   * @param keys          Keys to load; NULL with nkeys 0 to load all fields
+   * @param nkeys         Number of entries in `keys`
+   * @param outStateFlags Out: OR'd with QEXEC_S_HAS_LOAD when loading is scheduled
+   * @return A valid ResultProcessor. Like RPLoader_New, construction is infallible:
+   *         allocation goes through the module allocator (aborts on OOM), so this
+   *         must not return NULL. Disk-read failures surface later, at RP execution.
+   */
+  ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
+                                                    RLookup *lk, const RLookupKey **keys,
+                                                    size_t nkeys, uint32_t *outStateFlags);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -494,11 +551,15 @@ typedef struct IndexDiskAPI {
    * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
    * openIndexSpec time.
    *
-   * @param index Pointer to the disk index
+   * On return, `stats` is populated with per-cycle counters
+   * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
+   * call; the implementation only writes the fields it knows about.
    *
-   * @return Number of deletedIDs removed from the disk index
+   * @param index Pointer to the disk index
+   * @param stats Caller-allocated, zero-initialized stats out-parameter
+   *              (MUST NOT be NULL)
    */
-  size_t (*runGC)(RedisSearchDiskIndexSpec *index);
+  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.
@@ -528,6 +589,17 @@ typedef struct IndexDiskAPI {
    * @param new_budget New total buffer budget in bytes (will be divided internally)
    */
   void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
+
+  /**
+   * @brief Apply a new max_open_files cap to this index's database at runtime.
+   *
+   * Bounds the number of files this index's database keeps open, recycling the
+   * least-recently-used ones and reopening on demand.
+   *
+   * @param index Pointer to the disk index
+   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
+   */
+  void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
    * @brief Master-side SST replication PRE_CHECKPOINT hook.
@@ -834,6 +906,40 @@ typedef struct VectorDiskAPI {
                                   void *vecIndex, const VecSimParamsDisk *params);
 } VectorDiskAPI;
 
+/**
+ * @brief Per-field disk metrics for a TEXT field.
+ *
+ * All text fields share the single `fulltext` column family, so per-field byte
+ * usage cannot be read from a dedicated CF. Instead it is attributed from the
+ * `field_mask` carried inside each posting: bytes are bucketed as `exclusive`
+ * (posting belongs to a single field) or `shared` (posting belongs to two or
+ * more fields, charged in full to every participating field). These counters
+ * are maintained on the disk side (write/GC/RDB).
+ *
+ * Bytes are *logical* serialized posting bytes, not physical SST bytes, and are
+ * eventually consistent: deletes are reflected once GC compacts the affected
+ * postings, not at delete time.
+ */
+typedef struct PerFieldTextDiskMetrics {
+  bool available;            // false for an unknown ftId or when counters are unavailable
+  uint64_t exclusive_bytes;  // logical posting bytes charged solely to this field
+  uint64_t shared_bytes;     // logical posting bytes for postings shared with other fields
+} PerFieldTextDiskMetrics;
+
+/**
+ * @brief Per-field disk metrics for a TAG, NUMERIC, or VECTOR field.
+ *
+ * Each of these field types owns its own column family (`tag_<index>`,
+ * `numeric_<index>`, `vector_<index>`), so per-field metrics are read directly
+ * from that field's CF. No new counters are maintained for this type; the
+ * values come from the storage layer's per-CF statistics on demand.
+ */
+typedef struct PerFieldCfDiskMetrics {
+  bool available;              // false when the field has no CF or data is unavailable
+  uint64_t total_bytes;        // field's byte footprint: estimated live (uncompacted) size of its CF
+  uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
+} PerFieldCfDiskMetrics;
+
 typedef struct MetricsDiskAPI {
   /**
    * @brief Collect metrics for an index and store them in the disk context
@@ -916,6 +1022,65 @@ typedef struct MetricsDiskAPI {
    * @param ctx Redis module info context
    */
   void (*outputInfoMetrics)(RedisSearchDisk *disk, RedisModuleInfoCtx *ctx);
+
+  /**
+   * @brief Get per-field disk metrics for a TEXT field.
+   *
+   * Text fields share the single `fulltext` column family; the field is
+   * identified by its bit position in the field mask (`FieldSpec.ftId`), which
+   * is how the disk-side exclusive/shared byte counters are keyed.
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown bit or when the counters are not available, without
+   * crashing.
+   *
+   * @param index Pointer to the index spec
+   * @param ftId  Text field id — the field's bit position in the field mask
+   * @return Per-field text byte metrics
+   */
+  PerFieldTextDiskMetrics (*getTextFieldMetrics)(const RedisSearchDiskIndexSpec *index,
+                                                 t_fieldId ftId);
+
+  /**
+   * @brief Get per-field disk metrics for a TAG or NUMERIC field.
+   *
+   * These field types each own their own column family (`tag_<index>`,
+   * `numeric_<index>`), named with the field's unique `fieldIndex`. The disk
+   * side resolves the field's CF from `fieldIndex` and reads its per-CF
+   * statistics. VECTOR fields are keyed by name instead — use
+   * `getVectorFieldMetrics`.
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown index, an unsupported field type, or when no CF
+   * data is available, without crashing.
+   *
+   * @param index      Pointer to the index spec
+   * @param fieldIndex Unique field index identifying the field's column family
+   * @return Per-field column-family metrics
+   */
+  PerFieldCfDiskMetrics (*getCfFieldMetrics)(const RedisSearchDiskIndexSpec *index,
+                                             t_fieldIndex fieldIndex);
+
+  /**
+   * @brief Get per-field disk metrics for a VECTOR field.
+   *
+   * A vector field's column family is named `vector_<fieldName>`, so — unlike
+   * TAG/NUMERIC fields — its CF is keyed by the field name, not the numeric
+   * field index. The name passed here must be the same raw field name used when
+   * the vector index storage was created/bound (`VecSimParamsDisk`'s disk
+   * context `indexName`).
+   *
+   * Data-only: performs no Redis reply formatting. Returns `{ .available =
+   * false }` for an unknown name or when no CF data is available, without
+   * crashing.
+   *
+   * @param index        Pointer to the index spec
+   * @param fieldName    Raw vector field name identifying the field's CF
+   * @param fieldNameLen Length of `fieldName` in bytes
+   * @return Per-field column-family metrics
+   */
+  PerFieldCfDiskMetrics (*getVectorFieldMetrics)(const RedisSearchDiskIndexSpec *index,
+                                                 const char *fieldName, size_t fieldNameLen);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {

@@ -490,7 +490,9 @@ long calc_results_len(AREQ *req, size_t limit) {
   size_t resultFactor = getResultsFactor(req);
 
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? qctx->totalResults : MIN(req->maxSearchResults, qctx->totalResults);
+  // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
+  size_t reported = QITR_ReportedTotal(qctx);
+  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -519,8 +521,17 @@ static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, 
     TotalGlobalStats_CountQuery(AREQ_RequestFlags(req), duration);
   }
 
-  // Reset the total results length:
-  qctx->totalResults = 0;
+  // Reset the total results length. WITHCOUNT preserves it across cursor
+  // reads — the value is the shard-summed total set once at Phase B start,
+  // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
+  if (!HasWithCount(req)) {
+    qctx->totalResults = 0;
+  } else {
+    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
+    // permanently so later cursor reads stay corrected.
+    qctx->totalResults = QITR_ReportedTotal(qctx);
+  }
+  qctx->skippedResults = 0;
   QueryError_ClearError(qctx->err);
 }
 
@@ -611,7 +622,9 @@ static long prepareSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply,
   }
 
   RedisModule_Reply_Array(reply);
-  RedisModule_Reply_LongLong(reply, qctx->totalResults);
+  // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_Reply_LongLong(reply,
+      QITR_ReportedTotal(qctx));
 
   return resultsLen;
 }
@@ -673,6 +686,29 @@ static void finishSendChunkReply_Resp2(AREQ *req, RedisModule_Reply *reply, bool
   }
 }
 
+static bool shouldSetCursorDone(AREQ *req, int rc) {
+  if ((req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING) &&
+      req->reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+    return true;
+  }
+
+  if (rc == RS_RESULT_OK) {
+    return false;
+  }
+
+  if (rc == RS_RESULT_TIMEDOUT) {
+    switch (req->reqConfig.timeoutPolicy) {
+      case TimeoutPolicy_Return:
+        return false;
+      case TimeoutPolicy_ReturnStrict:
+      case TimeoutPolicy_Fail:
+        return true;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Serializes results and handles the main reply logic for RESP2.
  * Returns the final rc value and updates state accordingly.
@@ -721,12 +757,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 done_2:
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
-    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
-    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
-    state->cursor_done = state->cursor_done
-                         || (rc != RS_RESULT_OK
-                             && !(rc == RS_RESULT_TIMEDOUT
-                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
     trackWarnings_Resp2(req, qctx, rc);
     finishSendChunkReply_Resp2(req, reply, state->cursor_done);
@@ -872,8 +903,9 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc, bool cursor_done) {
   RedisModule_Reply_ArrayEnd(reply); // >results
 
-  // <total_results>
-  RedisModule_ReplyKV_LongLong(reply, "total_results", qctx->totalResults);
+  // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+  RedisModule_ReplyKV_LongLong(reply, "total_results",
+      QITR_ReportedTotal(qctx));
 
   // <error>
   _replyWarnings(req, reply, rc);
@@ -947,12 +979,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
-    // Preserve a pre-set cursor_done (forced by AREQ_ReplyWithStoredResults on
-    // shard timeout under RETURN_STRICT); otherwise derive it from rc.
-    state->cursor_done = state->cursor_done
-                         || (rc != RS_RESULT_OK
-                             && !(rc == RS_RESULT_TIMEDOUT
-                                  && req->reqConfig.timeoutPolicy != TimeoutPolicy_Fail));
+    state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
     finishSendChunkReply_Resp3(req, reply, qctx, rc, state->cursor_done);
 
@@ -1184,6 +1211,7 @@ void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_EndReply(reply);
   // Release the spec read lock before dropping our reference to `req`.
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req));
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
   AREQ_DecrRef(req);
 }
 
@@ -1251,6 +1279,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  // The lock state must be clean from the previous cycle before this one may take it.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   // Check if timed out while in the job queue.
   if (AREQ_TimedOut(req)) {
@@ -1341,6 +1371,10 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
 error:
   AREQ_ReplyOrStoreError(req, outctx, &status);
+  // Both jumps here explicitly unlocked, and `req` is still owned by BCRctx.
+  // The success paths are checked inside AREQ_Execute / runCursor, where the
+  // request is still alive (it may already be freed once we reach `cleanup`).
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
@@ -1350,7 +1384,9 @@ cleanup:
 
 /**
  * Validate SORTBY for disk indexes.
- * In disk/flex mode, SORTBY is only allowed on vector score (distance) fields.
+ * In disk/flex mode, FT.SEARCH SORTBY is only allowed on vector score
+ * (distance) fields. FT.AGGREGATE SORTBY is unrestricted (sort keys load via
+ * the disk async loader).
  * Must be called after QAST_Iterate so that metricRequests is populated.
  *
  * Current flex assumptions (asserted):
@@ -1364,6 +1400,14 @@ cleanup:
 static int validateSortbyForDiskIndex(AREQ *req, QueryError *status) {
   // Skip validation if disk is not enabled
   if (!SearchDisk_IsEnabledForValidation()) {
+    return REDISMODULE_OK;
+  }
+
+  // SORTBY in aggregations is allowed on disk: the arrange step loads the sort
+  // keys through the disk async loader. The restriction (and the single-field
+  // asserts) below apply to FT.SEARCH only, so this early-return must precede
+  // them — a multi-field aggregate SORTBY would trip the asserts.
+  if (IsAggregate(req)) {
     return REDISMODULE_OK;
   }
 
@@ -1432,7 +1476,10 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+  // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
+  // Warning rather than an error; skip the hard-fail here and let it handle it.
+  if (AREQ_ShouldCheckTimeout(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail &&
+      !IsProfile(req)) {
     TimedOut_WithStatus(&sctx->time.timeout, status);
   }
 
@@ -1659,6 +1706,9 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->storedReplyState.hasStoredResults);
+  if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+  }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
   // No-op for shapes that already accumulated their rows in state.results.
@@ -1686,8 +1736,9 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req) {
   // This is the end of the request lifecycle, so no need to restore.
   qctx->err = &stored->err;
 
-  // Build ChunkSerializeState from stored results. Stored strict-timeout cursor reads must keep
-  // the cursor id in the reply so the caller can retry the paused cursor.
+  // Build ChunkSerializeState from stored results. RETURN_STRICT timeout paths
+  // deplete cursor replies during serialization so the caller cannot keep
+  // pulling from an incomplete query.
   ChunkSerializeState state = {
     .results = stored->results,
     .r = NULL,
@@ -1808,10 +1859,12 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
-    // Won the claim: reply in the normal RETURN_STRICT cursor shape; the worker
-    // parks the already-taken cursor. Record on the real request (its marker's stage).
+    // The worker has not entered the stored-results phase yet. Reply in the
+    // normal RETURN_STRICT cursor shape, depleted: once a cursor read times out
+    // under RETURN_STRICT, the caller must not continue pulling from it.
+    // Record on the real request (its marker's stage).
     recordAREQTimeoutStage(req, /*isError=*/false);
-    return cursor_read_empty_reply_timeout(ctx, node->cursorId, IsInternal(req));
+    return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
 
   // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
@@ -1828,6 +1881,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->storedReplyState.hasStoredResults) {
+    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
     // real timeout; a completed read (rc EOF) is a no-op race, so record nothing.
@@ -1885,6 +1939,44 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+/**
+ * Reject disk (flex) requests whose pipeline would carry the async loader when
+ * execution is about to happen inline on the main thread: the loader blocks on
+ * prefetch completions delivered by the main thread, so inline execution would
+ * deadlock. Aggregations nearly always load fields, so all of them are
+ * rejected (a predictable error beats a plan-shape-dependent one); searches
+ * load fields unless NOCONTENT / RETURN 0 was given, so those stay usable in
+ * MULTI/Lua.
+ *
+ * Returns REDISMODULE_ERR with `status` set (thread-local spec cleared) when
+ * the request must be rejected, REDISMODULE_OK otherwise.
+ */
+static int rejectDiskLoaderInlineExecution(AREQ *r, const RedisSearchCtx *sctx,
+                                           QueryError *status) {
+  if (!sctx->spec || !sctx->spec->diskSpec) {
+    return REDISMODULE_OK;
+  }
+  const char *error = NULL;
+  if (IsAggregate(r)) {
+    error = "FT.AGGREGATE in a context that cannot block (MULTI/EXEC or Lua "
+            "scripts) is not supported in Redis Flex";
+  } else if (IsSearch(r) &&
+             (!(AREQ_RequestFlags(r) & QEXEC_F_SEND_NOFIELDS) ||
+              AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_LOAD))) {
+    // Field return or an explicit LOAD step both put the async loader in the
+    // pipeline (NOCONTENT/RETURN 0 alone does not).
+    error = "FT.SEARCH with field return in a context that cannot block "
+            "(MULTI/EXEC or Lua scripts) is not supported in Redis Flex; "
+            "use NOCONTENT or RETURN 0";
+  }
+  if (error) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_ARGUMENT, error);
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
   if (RunInThread(ctx)) {
@@ -1896,7 +1988,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     AREQ_IncrRef(r);
     blockClientCtx.freePrivData = BlockClient_FreeAREQ;
     blockClientCtx.privdata = r;
-    blockClientCtx.ast = &r->ast;
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
@@ -1923,6 +2014,14 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
     RS_ASSERT(rc == 0);
   } else {
+    // RunInThread is false either when WORKERS is 0 or when the client cannot
+    // be blocked (MULTI/EXEC, Lua). Flex enforces WORKERS > 0, so a disk
+    // request reaching this inline branch is always a non-blockable client —
+    // which still happens: any FT.AGGREGATE inside MULTI/EXEC lands here.
+    if (rejectDiskLoaderInlineExecution(r, sctx, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
     RedisSearchCtx_LockSpecRead(sctx);
@@ -1965,6 +2064,24 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
 }
 
 /**
+ * Reject a user-facing cursor aggregation on disk (flex). The public/internal
+ * split keys on the command's leading underscore: internal "_FT.*" dispatch
+ * (the coordinator's WITHCURSOR fan-out, including its debug variant) must
+ * pass. On rejection, the thread-local spec installed by prepareRequest is
+ * cleared; callers bail through their shared error path (goto error).
+ */
+static int rejectUserCursorOnDisk(RedisModuleString **argv, const AREQ *r, CommandType type,
+                                  QueryError *status) {
+  if (type == COMMAND_AGGREGATE && (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) &&
+      *RedisModule_StringPtrLen(argv[0], NULL) != '_' &&
+      !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
+    CurrentThread_ClearIndexSpec();
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
+/**
  * @param profileOptions is a bitmask of EXEC_* flags defined in ProfileOptions enum.
  */
 int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1974,10 +2091,6 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     return RedisModule_WrongArity(ctx);
   }
 
-  if (type == COMMAND_AGGREGATE &&
-      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail
@@ -1998,6 +2111,10 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
     }
+    goto error;
+  }
+
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 
@@ -2106,15 +2223,18 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
   sendChunk(req, reply, num);
   RedisSearchCtx_UnlockSpec(AREQ_SearchCtx(req)); // Verify that we release the spec lock
+  // Below this point the cursor (and with it `req`) may be freed, paused, or
+  // handed off, so the lock must be released here, on this worker thread.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   if (req->useReplyCallback) {
     if (req->syncCtx.aggregateResultsClaimLost) {
       // The strict timeout callback won the sync claim and already replied with
-      // either cursor 0 (initial FT.AGGREGATE WITHCURSOR) or this cursor id
-      // (follow-up FT.CURSOR READ). Keep cursor ownership consistent with the
-      // id already returned to the caller.
+      // cursor 0. Keep cursor ownership consistent with the depleted id already
+      // returned to the caller.
       req->storedReplyState.cursor = NULL;
-      if (AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) {
+      if ((AREQ_RequestFlags(req) & QEXEC_F_IS_AGGREGATE) ||
+          shouldSetCursorDone(req, RS_RESULT_TIMEDOUT)) {
         Cursor_Free(cursor);
       } else {
         Cursor_Pause(cursor);
@@ -2237,6 +2357,9 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
   // (no-op if already timed out while queued, via the SetExecutionStage freeze).
   AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
+  // A paused cursor must have released the spec lock at the end of the
+  // previous read cycle.
+  RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
   if (!AREQ_TimedOut(req) || AREQ_RequiresThreadsSyncResults(req)) {
     cursorRead(ctx, cr_ctx->cursor, cr_ctx->count, true);
   } else {
@@ -2278,6 +2401,27 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
   AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_PIPELINE);
   cursorRead(ctx, cursor, count, false);
   return REDISMODULE_OK;
+}
+
+/**
+ * Check whether a shard cursor's index is disk (flex) backed. The AREQ's
+ * sctx->spec is a raw pointer that dangles if the index was dropped while the
+ * cursor was idle, so the spec is inspected through the cursor's weak ref.
+ * Returns false when the index is gone — callers fall through and cursorRead
+ * replies with the canonical "index was dropped" error.
+ */
+static bool cursorIsDiskBacked(const Cursor *cursor) {
+  if (!cursor_HasSpecWeakRef(cursor)) {
+    return false;
+  }
+  StrongRef check_ref = IndexSpecRef_Promote(cursor->spec_ref);
+  const IndexSpec *liveSpec = StrongRef_Get(check_ref);
+  if (!liveSpec) {
+    return false;
+  }
+  const bool isDisk = liveSpec->diskSpec != NULL;
+  IndexSpecRef_Release(check_ref);
+  return isDisk;
 }
 
 /**
@@ -2355,9 +2499,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   if (RunInThread(ctx) && !upstreamBC) {
     // Shard/standalone path: block and dispatch to worker. Non-RETURN policies arm
-    // the blocked-client timer with reply/timeout callbacks;
-    // BlockCursorClientWithTimeout requires cursor->execState != NULL (it dereferences it
-    // for the AST).
+    // the blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
     // Reused cursor AREQ: reset to QUEUE so a queued re-read isn't attributed to a
     // stale stage; cursorRead_ctx advances it to PIPELINE at pickup.
@@ -2399,6 +2541,21 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     //   (1) Coord+FAIL: upstreamBC != NULL, privdata is a CoordRequestCtx.
     //   (2) Coord+RETURN: upstreamBC != NULL, privdata is NULL.
     //   (3) NumShards==1 or !RunInThread(): upstreamBC == NULL.
+
+    // Disk (flex) shard cursors must not resume inline: the async-loader
+    // pipeline blocks on prefetch completions delivered by the main thread, so
+    // a main-thread read would deadlock. Only sub-case (3) can carry a
+    // disk-backed pipeline; coordinator cursors (1)/(2) have no local spec.
+    if (!upstreamBC && cursor->execState && cursorIsDiskBacked(cursor)) {
+      // Keep the cursor valid for a later blockable read; only this read is
+      // rejected.
+      Cursor_Pause(cursor);
+      return RedisModule_ReplyWithError(
+          ctx,
+          "Cursor READ in a context that cannot block (MULTI/EXEC or Lua scripts) is not "
+          "supported in Redis Flex");
+    }
+
     if (reqCtx) {
       // Sub-case (1): lock out the main-thread timeout callback while we
       // read/update the AREQ.
@@ -2536,10 +2693,6 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return RedisModule_WrongArity(ctx);
   }
 
-  if (type == COMMAND_AGGREGATE &&
-      SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.AGGREGATE")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   AREQ *r = NULL;
@@ -2562,6 +2715,10 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);
     }
+    goto error;
+  }
+
+  if (rejectUserCursorOnDisk(argv, r, type, &status) != REDISMODULE_OK) {
     goto error;
   }
 

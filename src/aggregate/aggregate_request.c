@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate.h"
+#include "aggregate_debug.h"
 #include "search_result_ffi.h"
 #include "reducer.h"
 
@@ -351,10 +352,6 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
-    if (((*papCtx->reqflags) & QEXEC_F_IS_AGGREGATE) && ((*papCtx->reqflags) & QEXEC_F_HAS_WITHCOUNT)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-      return ARG_ERROR;
-    }
     if (parseCursorSettings(papCtx->reqflags, papCtx->cursorConfig, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
@@ -663,13 +660,14 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_AddRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
-        if (IsCursor(req) && !IsInternal(req)) {
-          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "FT.AGGREGATE does not support using WITHCOUNT and WITHCURSOR together");
-          return REDISMODULE_ERR;
-        }
       }
       optimization_specified = true;
     } else if (AC_AdvanceIfMatch(ac, "WITHOUTCOUNT")) {
+      // WITHOUTCOUNT enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+      // on disk indexes (it relies on RAM-only structures). Reject rather than silently degrade.
+      if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHOUTCOUNT", status)) {
+        return REDISMODULE_ERR;
+      }
       AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
       if (IsAggregate(req)) {
         AREQ_RemoveRequestFlags(req, QEXEC_F_HAS_WITHCOUNT);
@@ -721,17 +719,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
-    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
+    // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4.
+    // Disk specs reject dialect 4 after parseAggPlan (once the dialect is final), so the optimizer
+    // is never actually run for them.
     AREQ_AddRequestFlags(req, QEXEC_OPTIMIZE);
-  }
-
-  // QEXEC_OPTIMIZE can be set either by the dialect-4 default above or by an
-  // explicit WITHOUTCOUNT token earlier in this function. Either way, the
-  // QOptimizer pipeline reads from the RAM DocTable / NumericRangeTree, which
-  // aren't populated on disk specs. Force-disable so QOptimizer_Iterators is
-  // never entered for disk specs (it asserts the same).
-  if (isDiskIndex) {
-    AREQ_RemoveRequestFlags(req, QEXEC_OPTIMIZE);
   }
 
   QEFlags reqFlags = AREQ_RequestFlags(req);
@@ -785,13 +776,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       f->explicitReturn = 1;
     }
     FieldList_RestrictReturn(&req->outFields);
-  }
-
-  // Currently we don't support loading fields from disk indexes
-  // We require the NOCONTENT flag to be set or a RETURN 0 clause to be specified
-  if (isDiskIndex && !(req->reqflags & QEXEC_F_SEND_NOFIELDS)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_NOCONTENT_OR_RETURN0_REQUIRED, NULL);
-    return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
@@ -1027,12 +1011,8 @@ error:
   return REDISMODULE_ERR;
 }
 
-static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, bool isDiskIndex, QueryError *status) {
+static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
-  if (isDiskIndex) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SEARCH_LOAD_UNSUPPORTED, NULL);
-    return REDISMODULE_ERR;
-  }
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
@@ -1234,7 +1214,7 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "LOAD")) {
-      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, isDiskIndex, status) != REDISMODULE_OK) {
+      if (handleLoad(papCtx->plan, papCtx->reqflags, ac, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     } else if (AC_AdvanceIfMatch(ac, "FILTER")) {
@@ -1261,7 +1241,20 @@ int parseAggPlan(ParseAggPlanContext *papCtx, ArgsCursor *ac, bool isDiskIndex, 
 }
 
 static bool IsNeededDepleter(AREQ *req) {
-  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req);
+  // For cursored requests we only want a depleter when this AREQ owns its
+  // local data source and totalResults is computed by counting rows through
+  // the pipeline (RPIndexIterator increments it per row). That covers both a
+  // standalone request (no cluster) and a shard-side internal cursor in a
+  // cluster — i.e. any non-coordinator AREQ. In both cases, draining the
+  // upstream into a buffer up front lets the first FT.CURSOR READ report the
+  // full total before paginating.
+  //
+  // The cluster coordinator AREQ does not own a local data source: it reads
+  // from RPNet and totalResults is set once at Phase B start from accumulated
+  // shard metadata, so a coordinator-side cursor depleter would buffer the
+  // whole cluster stream before the first cursor chunk for no benefit.
+  return !HasSortBy(req) && !HasGroupBy(req) && !IsCount(req) &&
+         (!IsCursor(req) || !IsCoordinator(req));
 }
 
 // This function should only be called from the main thread (calling RunInThread() is not thread safe)
@@ -1319,6 +1312,14 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   };
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
+  }
+
+  // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
+  // on disk.
+  if (isDiskIndex && req->reqConfig.dialectVersion >= 4) {
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("DIALECT 4", status)) {
+      goto error;
+    }
   }
 
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
@@ -1689,6 +1690,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 static void AREQ_Free(AREQ *req) {
+  if (IsDebug(req)) {
+    // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
+    AREQ_Debug_FreeParams((AREQ_Debug *)req);
+  }
   ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)
@@ -1814,7 +1819,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             const AggregationPipelineParams *aggregationParams,
                                             QueryError *status) {
   Pipeline_Initialize(&req->pipeline, req->reqConfig.timeoutPolicy, status);
-  if (!(AREQ_RequestFlags(req) & QEXEC_F_BUILDPIPELINE_NO_ROOT)) {
+  if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
         .sctx = req->sctx,

@@ -51,6 +51,41 @@ def testBasicGCWithEmptyInvIdx(env):
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'world').error().contains('Can not find the inverted index')
 
 @skip(cluster=True)
+def testGCMissingFieldNumRecords(env):
+    # Regression: deleting documents indexed in a missing-field (INDEXMISSING)
+    # inverted index must not underflow the spec's num_records. Missing-field
+    # entries are not counted in num_records on insertion, so the fork GC must
+    # not subtract them on removal (it previously did, driving num_records
+    # negative once enough missing-field docs were collected).
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.assertOk(env.cmd('ft.create', 'idx', 'schema', 't', 'text', 'm', 'tag', 'INDEXMISSING'))
+    waitForIndex(env, 'idx')
+
+    n = 100
+    for i in range(n):
+        # Even docs carry field `m`; odd docs are missing it (populating the
+        # missing-field index for `m`).
+        if i % 2 == 0:
+            env.cmd('hset', f'doc{i}', 't', 'hello', 'm', 'x')
+        else:
+            env.cmd('hset', f'doc{i}', 't', 'hello')
+
+    # Half the docs are missing `m`.
+    env.assertEqual(env.cmd('ft.search', 'idx', 'ismissing(@m)', 'LIMIT', 0, 0, 'DIALECT', 2)[0], n // 2)
+    before = int(index_info(env, 'idx')['num_records'])
+    env.assertGreater(before, 0)
+
+    # Delete everything and collect.
+    for i in range(n):
+        env.cmd('del', f'doc{i}')
+    forceInvokeGC(env, 'idx')
+
+    # num_records must return to 0 -- and above all must never be negative.
+    after = int(index_info(env, 'idx')['num_records'])
+    env.assertEqual(after, 0)
+    env.assertGreaterEqual(after, 0)
+
+@skip(cluster=True)
 def testNumericGCIntensive(env):
     NumberOfDocs = 1000
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
@@ -657,10 +692,22 @@ def testForceGCBypassesThreshold(env):
 
 # Regression for [MOD-15940](https://redislabs.atlassian.net/browse/MOD-15940)
 @skip(cluster=True)
-def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
+def testForkGCEmptyTagSuffixTrieMap_emptyValue_MOD_15996():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    waitForIndex(env, 'idx')
+    env.cmd('HSET', 'doc1', 't', '')
+    env.expect('DEL', 'doc1').equal(1)
+    forceInvokeGC(env, 'idx')
+    env.expect('PING').equal(True)
+
+
+@skip(cluster=True)
+def testForkGCEmptyTextSuffixTrie_emptyValue():
+    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
     waitForIndex(env, 'idx')
     env.cmd('HSET', 'doc1', 't', '')
     env.expect('DEL', 'doc1').equal(1)

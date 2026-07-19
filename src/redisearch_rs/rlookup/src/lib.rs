@@ -20,8 +20,13 @@ extern crate redisearch_rs;
 #[cfg(all(test, feature = "unittest"))]
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
+#[cfg(any(test, feature = "unittest"))]
+pub use bindings::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
-pub use load_document::{DocumentFormat, DocumentLoader, LoadAllError, LoadFieldError};
+pub use load_document::{
+    DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, JsonDocumentFormat,
+    LoadAllError, LoadFieldError,
+};
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,

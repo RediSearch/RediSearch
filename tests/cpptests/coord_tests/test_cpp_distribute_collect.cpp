@@ -41,21 +41,15 @@ namespace {
 class DistributeCollectTest : public ::testing::Test {
 private:
   RedisModuleCtx *ctx = nullptr;
-  bool previousEnableUnstableFeatures = false;
 
 protected:
   // `AREQ_Compile` + `AGGPLN_Distribute` are purely syntactic — neither
   // resolves keys against an `IndexSpec`, so no `FT.CREATE` is needed here.
-  // The only required global state is the unstable-features gate that
-  // `CollectArgs_Parse` consults.
   void SetUp() override {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
-    previousEnableUnstableFeatures = RSGlobalConfig.enableUnstableFeatures;
-    RSGlobalConfig.enableUnstableFeatures = true;
   }
 
   void TearDown() override {
-    RSGlobalConfig.enableUnstableFeatures = previousEnableUnstableFeatures;
     if (ctx) {
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
@@ -86,7 +80,7 @@ protected:
 
     QueryError qerr = QueryError_Default();
     AREQ *r = AREQ_New();
-    AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT);
+    AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
     int rc = AREQ_Compile(r, ctx, rmArgs, rmArgs.size(), false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {

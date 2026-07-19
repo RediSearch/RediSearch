@@ -24,6 +24,36 @@ pub fn unicode_tolower(s: &str) -> String {
     s.chars().flat_map(char::to_lowercase).collect()
 }
 
+/// Convert a UTF-8 string to lowercase per-character, borrowing it unchanged
+/// when it is already lowercase.
+///
+/// Lowercases each [`char`] independently like [`unicode_tolower`], but
+/// allocates only when a character actually changes.
+pub fn unicode_tolower_cow(s: &str) -> Cow<'_, str> {
+    // `s` is already lowercase when folding every char leaves it unchanged.
+    if s.chars().all(|c| c.to_lowercase().eq([c])) {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(unicode_tolower(s))
+    }
+}
+
+/// Convert a UTF-8 string to lowercase per-character, without
+/// context-dependent casing rules.
+///
+/// Returns `None` — without allocating the full lowercase copy — once the
+/// result would exceed `max` codepoints.
+pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
+    let mut out = String::new();
+    for (count, c) in s.chars().flat_map(char::to_lowercase).enumerate() {
+        if count == max {
+            return None;
+        }
+        out.push(c);
+    }
+    Some(out)
+}
+
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
 pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 

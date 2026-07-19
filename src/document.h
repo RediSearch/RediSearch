@@ -17,6 +17,7 @@
 #include "byte_offsets.h"
 #include "rmutil/args.h"
 #include "json.h"
+#include "ttl_table.h"
 
 // Forward declaration of the C-side write-batch wrapper (defined in search_disk.h).
 // Forward-declared here to avoid pulling the entire disk-API surface into document.h.
@@ -98,7 +99,7 @@ typedef struct Document {
   float score;
   t_docId docId;
   t_expirationTimePoint docExpirationTime;
-  FieldExpiration* fieldExpirations;
+  FieldExpirations fieldExpirations;
   const char *payload;
   size_t payloadSize;
   uint32_t flags;
@@ -212,9 +213,18 @@ void Document_Clear(Document *doc);
  * the document must then be freed using Document_Free().
  *
  * The document must already have the docKey set
+ *
+ * `openKey` is an optional already-open handle for the document key. Pass it when
+ * the caller already holds the key open and pinned (e.g. the async scan key
+ * callback) so the load reuses the handle instead of opening the same key a second
+ * time, which is unsafe while the caller's handle is live; pass NULL otherwise. The
+ * caller retains ownership of `openKey` and must keep it valid for the duration of
+ * the call.
  */
-int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError* status);
-int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError* status);
+int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
+int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
+                                 QueryError* status);
 
 /**
  * Append a `FieldExpiration` entry for `field` (at position `ii` in
@@ -223,7 +233,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
  * `t_fieldIndex`, which is the invariant the TTL table relies on.
  */
 void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
-                                      size_t ii, arrayof(FieldExpiration) *out);
+                                      size_t ii, FieldExpirations *out);
 
 /**
  * Load all the fields into the document.
@@ -323,6 +333,12 @@ typedef struct RSAddDocumentCtx {
     SearchDiskWriteBatchHandle *batch;
     t_docId oldDocId;
     uint32_t oldDocLen;
+    // Optional already-open key handle for the document, supplied by the caller
+    // (e.g. the async scan key callback, where the engine hands us an open,
+    // pinned key). When non-NULL, applyDocTable updates the DocIdMeta mapping
+    // through this handle (DocIdMeta_SetWithOpenKey) instead of reopening the key by
+    // name. The caller retains ownership; it must outlive AddDocumentCtx_Submit.
+    RedisModuleKey *openKey;
   } disk;
 } RSAddDocumentCtx;
 

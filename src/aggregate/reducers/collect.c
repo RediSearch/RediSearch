@@ -217,13 +217,6 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
   RS_ASSERT(options && out);
   out->sortAscMap = SORTASCMAP_INIT;
 
-  if (!RSGlobalConfig.enableUnstableFeatures) {
-    QueryError_SetError(options->status, QUERY_ERROR_CODE_INVAL,
-      "`COLLECT` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
-      "Enable it with `CONFIG SET search-enable-unstable-features yes`");
-    return false;
-  }
-
   // COLLECT always requires field/sort names to carry an `@` prefix.
   ReducerOptions strict_opts = *options;
   strict_opts.strictPrefix = true;
@@ -262,6 +255,10 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out) {
     ARG_OPT_OPTIONAL,
     ARG_OPT_CALLBACK, handleCollectLimit, &pctx,
     ARG_OPT_END);
+
+  ArgParser_AddFlag(parser, "DISTINCT",
+    "Deduplicate by projected fields",
+    &pctx.args->distinct);
 
   ArgParseResult result = ArgParser_Parse(parser);
 
@@ -344,7 +341,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       args.sortAscMap,
       args.has_limit,
       args.limit_offset,
-      args.limit_count
+      args.limit_count,
+      args.distinct
     );
   } else {
     arrayof(const RLookupKey *) field_keys = NULL;
@@ -375,7 +373,8 @@ Reducer *RDCRCollect_New(const ReducerOptions *options) {
       args.has_limit,
       args.limit_offset,
       args.limit_count,
-      ReducerOpts_IsInternal(options)
+      ReducerOpts_IsInternal(options),
+      args.distinct
     );
     array_free(field_keys);
     array_free(sort_keys);

@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Bound;
-
 use inverted_index::NumericFilter;
 use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 
 #[test]
 fn node_type_returns_discriminant() {
@@ -35,7 +33,6 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::Wildcard,
         QueryNodeType::Tag,
         QueryNodeType::Fuzzy,
-        QueryNodeType::LexRange,
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
@@ -200,55 +197,6 @@ fn as_enum_prefix() {
 }
 
 #[test]
-fn as_enum_lex_range_unbounded() {
-    let mock = MockQueryNode::new(QueryNodeType::LexRange);
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert_eq!(begin, Bound::Unbounded);
-    assert_eq!(end, Bound::Unbounded);
-}
-
-#[test]
-fn as_enum_lex_range_inclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        true,
-        end_str.as_mut_ptr().cast(),
-        true,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Included(_)));
-    assert!(matches!(end, Bound::Included(_)));
-}
-
-#[test]
-fn as_enum_lex_range_exclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        false,
-        end_str.as_mut_ptr().cast(),
-        false,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Excluded(_)));
-    assert!(matches!(end, Bound::Excluded(_)));
-}
-
-#[test]
 fn as_enum_all_payload_variants() {
     for ty in [
         QueryNodeType::Geo,
@@ -276,4 +224,53 @@ fn as_enum_all_payload_variants() {
         );
         assert!(matches, "unexpected variant for {ty}");
     }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (array_new_sz)")]
+fn query_node_mut_narrows_child_field_masks() {
+    // A phrase node with mask 0b0110 and two children with broader masks.
+    // Narrowing each child against the parent intersects the masks in place,
+    // and `as_ref` still exposes the child for read-only evaluation.
+    let mut child1 = MockQueryNode::new(QueryNodeType::Token);
+    child1.opts_mut().field_mask = 0b1111;
+    let mut child2 = MockQueryNode::new(QueryNodeType::Numeric);
+    child2.opts_mut().field_mask = 0b1010;
+
+    let mut parent = MockQueryNode::new(QueryNodeType::Phrase);
+    parent.opts_mut().field_mask = 0b0110;
+    parent.set_children(&[child1.as_ptr(), child2.as_ptr()]);
+
+    let node = unsafe { QueryNodeRef::new(parent.as_non_null()) };
+    // SAFETY: `node` is the sole wrapper to this subtree for the duration of
+    // the test; no other wrapper or derived reference is live.
+    let mut node = unsafe { node.as_mut() };
+    assert_eq!(node.num_children(), 2);
+    let mask = node.opts().field_mask;
+
+    {
+        let mut c0 = node.child_mut(0);
+        c0.and_field_mask(mask);
+        assert_eq!(c0.opts().field_mask, 0b0110); // 0b1111 & 0b0110
+        assert_eq!(c0.as_ref().node_type(), QueryNodeType::Token);
+    }
+    {
+        let mut c1 = node.child_mut(1);
+        c1.and_field_mask(mask);
+        assert_eq!(c1.opts().field_mask, 0b0010); // 0b1010 & 0b0110
+        assert_eq!(c1.as_ref().node_type(), QueryNodeType::Numeric);
+    }
+
+    // The parent's own mask is untouched.
+    assert_eq!(node.opts().field_mask, 0b0110);
+}
+
+#[test]
+#[should_panic(expected = "out of bounds")]
+fn query_node_mut_child_out_of_bounds_panics() {
+    let mock = MockQueryNode::new(QueryNodeType::Wildcard);
+    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
+    // SAFETY: sole wrapper to a leaf node; no other wrapper or reference live.
+    let mut node = unsafe { node.as_mut() };
+    let _ = node.child_mut(0);
 }

@@ -34,3 +34,10 @@ tests/deps/RedisJSON
 **/target/*
 compile_commands.json
 .claude/worktrees/
+# Marker file created by the parent repo's modules-update orchestration
+# (modules/common.mk) to indicate the upstream source is ready to build.
+# Not tracked by redisearch upstream.
+/.prepared
+# Per-run memtier_benchmark result files dropped in the repo root by
+# `redisbench-admin run-local` (named <setup>-<timestamp>--<test>.json).
+oss-*--*.json

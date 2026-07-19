@@ -773,7 +773,8 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, VecSimParams *par
 
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
-    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32) {
+    if (params->algoParams.hnswParams.type != VecSimType_FLOAT32 &&
+        params->algoParams.hnswParams.type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(params->algoParams.hnswParams.type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk index does not support %s vector type", typeName);
@@ -1715,7 +1716,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       goto failure;
     }
-    SearchDisk_RegisterIndex(ctx, spec);
   }
 
   if (AC_IsInitialized(&acStopwords)) {
@@ -1744,11 +1744,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     SchemaRule_FilterFields(spec);
   }
 
-  if (isSpecOnDiskForValidation(spec) && !(spec->flags & Index_SkipInitialScan)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_FLEX_SKIP_INITIAL_SCAN_MISSING_ARGUMENT, "Flex index requires SKIPINITIALSCAN argument");
-    goto failure;
-  }
-
   return spec_ref;
 
 failure:  // Result-like contract: on failure the error is set in `status`, the
@@ -1756,7 +1751,7 @@ failure:  // Result-like contract: on failure the error is set in `status`, the
           // INVALID_STRONG_REF is returned. On success a valid spec is returned.
   spec->flags &= ~Index_Temporary;
   if (spec->diskSpec) {
-    SearchDisk_UnregisterIndex(ctx, spec);
+    SearchDisk_CloseIndexOnMainThread(ctx, spec);
   }
   IndexSpec_Unlink(spec_ref, false);
   return INVALID_STRONG_REF;
@@ -2194,9 +2189,11 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
 
   sp->scanner = NULL;
   sp->scan_in_progress = false;
+  sp->scan_failed_OOM = false;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
+  sp->resume_bg_indexing = false;
   sp->monitorDocumentExpiration = RSGlobalConfig.monitorExpiration;
   sp->monitorFieldExpiration = RSGlobalConfig.monitorExpiration &&
                                RedisModule_HashFieldMinExpire != NULL;
@@ -2864,7 +2861,7 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = &sp->fields[i];
     if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec);
+    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
   }
 }
 
@@ -2936,7 +2933,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
   // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
   // in the first document insertion
   IndexSpec_EnsureTagDiskIndexes(sp);
-  SearchDisk_RegisterIndex(ctx, sp);
 
   return true;
 }
@@ -2996,6 +2992,12 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
+    // Persist whether the source node was mid background-indexing, so the
+    // loading node (replica / hot-restart) can restart the async scan and
+    // finish a partially populated index. A scan actively in progress or a
+    // previous scan that failed on OOM both leave the index incomplete.
+    // See Indexes_FinishSSTReplication.
+    RedisModule_SaveUnsigned(rdb, (uint64_t)(sp->scan_in_progress || sp->scan_failed_OOM));
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
@@ -3118,6 +3120,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    // Symmetric with IndexSpec_RdbSave: whether the source node was mid
+    // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
+    // the async scan and backfill the remaining documents.
+    sp->resume_bg_indexing = (bool)LoadUnsigned_IOError(rdb, goto cleanup);
     IndexScoringStats_RdbLoad(rdb, &sp->stats.scoring, encver);
     if (sp->terms) {
       TrieType_Free(sp->terms);
@@ -3138,8 +3144,8 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 
 cleanup:
   if (sp && sp->diskSpec) {
-    // Idempotent — no-op if registration never happened on this path.
-    SearchDisk_UnregisterIndex(ctx, sp);
+    // Idempotent — no-op if the open never registered on this path.
+    SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
   StrongRef_Release(spec_ref);
 cleanup_no_index:
@@ -3161,7 +3167,6 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     }
     IndexSpec_PopulateVectorDiskParams(sp);
     IndexSpec_EnsureTagDiskIndexes(sp);
-    SearchDisk_RegisterIndex(ctx, sp);
   }
   return REDISMODULE_OK;
 }
@@ -3358,7 +3363,8 @@ int CompareVersions(Version v1, Version v2) {
 }
 
 
-int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type) {
+int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        DocumentType type, RedisModuleKey *openKey) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   if (!spec->rule) {
@@ -3385,10 +3391,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   int rv = REDISMODULE_ERR;
   switch (type) {
   case DocumentType_Hash:
-    rv = Document_LoadSchemaFieldHash(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldHash(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Json:
-    rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
+    rv = Document_LoadSchemaFieldJson(&doc, &sctx, openKey, &status);
     break;
   case DocumentType_Unsupported:
     RS_ABORT("Should receive valid type");
@@ -3400,8 +3406,10 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     IndexError_AddQueryError(&spec->stats.indexError, &status, doc.docKey);
 
     // if a document did not load properly, it is deleted
-    // to prevent mismatch of index and hash
-    IndexSpec_DeleteDoc(spec, ctx, key);
+    // to prevent mismatch of index and hash. Reuse the caller's pinned handle
+    // (if any) so a scan-path cleanup does not reopen the key by name — inside
+    // the async scan the key is not addressable by name.
+    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
     QueryError_ClearError(&status);
     Document_Free(&doc);
     return REDISMODULE_ERR;
@@ -3414,6 +3422,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   RSAddDocumentCtx *aCtx = NewAddDocumentCtx(spec, &doc, &status);
   aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+  // Reuse the caller's open key handle for the DocIdMeta update, if provided.
+  aCtx->disk.openKey = openKey;
   AddDocumentCtx_Submit(aCtx, &sctx, DOCUMENT_ADD_REPLACE);
 
   Document_Free(&doc);
@@ -3454,7 +3464,27 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   }
 }
 
-void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+// DocIdMeta access for the delete path. When an already-open, pinned key handle
+// is supplied (e.g. from the async scan key callback, where the key is not
+// addressable by name), reuse it via the *WithOpenKey variants instead of
+// reopening the key by name; otherwise fall back to the name-based variants.
+// This mirrors the open-key plumbing on the indexing success path
+// (`actxDocIdMetaGet` / `actxDocIdMetaSet`) so both paths treat the same key
+// consistently.
+static int lookupDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
+                           RedisModuleKey *openKey, uint64_t specId, uint64_t *docId) {
+  return openKey ? DocIdMeta_GetWithOpenKey(openKey, specId, docId)
+                 : DocIdMeta_Get(ctx, key, specId, docId);
+}
+
+static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
+                         RedisModuleKey *openKey, uint64_t specId) {
+  return openKey ? DocIdMeta_DeleteWithOpenKey(openKey, specId)
+                 : DocIdMeta_Delete(ctx, key, specId);
+}
+
+void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                RedisModuleKey *openKey) {
   t_docId id = 0;
   uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
@@ -3462,7 +3492,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
     // Look up docId from key metadata
     uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+    if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK ||
+        docId == 0) {
       // Nothing to delete
       return;
     }
@@ -3480,7 +3511,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     // this, a key that survives in the keyspace but is de-indexed (e.g. an HSET
     // that makes it stop passing the index FILTER) would keep a stale mapping
     // pointing at an already-deleted docId.
-    DocIdMeta_Delete(ctx, key, spec->specId);
+    dropDocIdMeta(ctx, key, openKey, spec->specId);
   } else {
     RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
     if (!md) {
@@ -3497,12 +3528,13 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   indexSpec_OnDocDeleted(spec, id, docLen);
 }
 
-int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
+int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                        RedisModuleKey *openKey) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
 
   IndexSpec_IncrActiveWrites(spec);
   RedisSearchCtx_LockSpecWrite(&sctx);
-  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key);
+  IndexSpec_DeleteDoc_Unsafe(spec, ctx, key, openKey);
   IndexSpec_DecrActiveWrites(spec);
   RedisSearchCtx_UnlockSpec(&sctx);
 

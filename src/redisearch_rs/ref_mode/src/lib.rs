@@ -54,6 +54,20 @@ mod sealed {
 /// The `fmt::Debug` supertrait lets containing types derive `Debug` without
 /// requiring an explicit `where R: Debug` bound at every use site.
 pub trait Ref: sealed::Sealed + fmt::Debug {
+    /// Returns `true` iff this [`Ref`] mode is [`Active`].
+    ///
+    /// Sealed-trait dispatch lets generic code branch between [`Active`] and
+    /// [`Suspended`] at runtime without resorting to specialization. Since
+    /// the value is statically determined per instantiation, the compiler
+    /// monomorphises the branch away.
+    ///
+    /// The intended use is gating an `unsafe` operation that is only sound
+    /// when the [`Active`] invariant holds — e.g. dereferencing a pointer
+    /// stored in a generic [`SharedPtr<Self, _>`]-bearing struct.
+    fn is_active() -> bool
+    where
+        Self: Sized;
+
     /// Format a [`SharedPtr`] of this mode for `Debug`.
     ///
     /// In [`Active`] mode the pointer is dereferenced and the pointee's
@@ -82,6 +96,10 @@ pub struct Active<'a>(PhantomData<&'a ()>);
 
 impl sealed::Sealed for Active<'_> {}
 impl Ref for Active<'_> {
+    fn is_active() -> bool {
+        true
+    }
+
     fn fmt_ptr<T: ?Sized + fmt::Debug>(
         ptr: &SharedPtr<Self, T>,
         f: &mut fmt::Formatter<'_>,
@@ -103,6 +121,10 @@ pub struct Suspended;
 
 impl sealed::Sealed for Suspended {}
 impl Ref for Suspended {
+    fn is_active() -> bool {
+        false
+    }
+
     fn fmt_ptr<T: ?Sized + fmt::Debug>(
         ptr: &SharedPtr<Self, T>,
         f: &mut fmt::Formatter<'_>,

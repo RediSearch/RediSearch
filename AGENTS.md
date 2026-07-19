@@ -280,7 +280,7 @@ branch for the task.
 Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout. Prefix the branch with your handle (e.g. `alice-`, `bob-`) to avoid collisions on the shared remote. Pass `--no-track` so the new branch does not inherit `origin/master` as its upstream — otherwise a later `git push --force` without an explicit target can try to force-push the feature branch onto master:
 
 ```bash
-git worktree add --no-track -b <your-handle>-<feature> .claude/worktrees/<your-handle>-<feature> origin/master
+git worktree add --no-track -b <your-handle>-<feature> .worktree/<your-handle>-<feature> origin/master
 ```
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
@@ -296,6 +296,10 @@ Follow [/rust-docs-guidelines](.skills/rust-docs-guidelines/SKILL.md) when writi
 Invoke [/port-c-module](.skills/port-c-module/SKILL.md) to plan the porting of a C module.
 Invoke [/write-rust-tests](.skills/write-rust-tests/SKILL.md) to add tests to Rust code.
 Invoke [/rust-review](.skills/rust-review/SKILL.md) to review Rust code changes.
+
+### Benchmarking
+Invoke [/run-macro-benchmarks](.skills/run-macro-benchmarks/SKILL.md) to run an end-to-end macro benchmark (`tests/benchmarks/*.yml`) against a real redis-server.
+Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust micro-benchmarks and compare performance with the C implementation.
 
 ### General
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.

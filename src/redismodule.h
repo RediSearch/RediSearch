@@ -598,7 +598,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_KEY 17
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
-#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE 20
+#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
 
 /* RL Extension: Use IDs >= 1000 to maintain ABI compatibility with OSS Redis */
 #define REDISMODULE_EVENT_SHARDING 1000
@@ -741,6 +742,10 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
     },
+    RedisModuleEvent_ClusterTopologyChange = {
+        REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE,
+        1
+    },
     RedisModuleEvent_SSTReplication = {
         REDISMODULE_EVENT_SST_REPLICATION,
         1
@@ -855,6 +860,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
+
+/* RedisModuleEvent_ClusterTopologyChange has no meaningful subevent. */
+#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 0
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -1020,6 +1028,26 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 
 #define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
 
+/* Reason flags reported in RedisModuleClusterTopologyChangeInfo.change_flags.
+ * More than one bit may be set when several changes were collapsed into a
+ * single (debounced) RedisModuleEvent_ClusterTopologyChange notification. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster, or its address changed. */
+
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
+
+typedef struct RedisModuleClusterTopologyChangeInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint64_t change_flags;  /* Bitmask of REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*
+                               reasons that contributed to this notification. */
+} RedisModuleClusterTopologyChangeInfoV1;
+
+#define RedisModuleClusterTopologyChangeInfo RedisModuleClusterTopologyChangeInfoV1
+
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
     REDISMODULE_ACL_LOG_CMD, /* Command authorization failure */
@@ -1145,7 +1173,10 @@ typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
 typedef int (*RedisModuleNotificationFunc)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key);
-typedef void (*RedisModulePostNotificationJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobFunc) (RedisModuleCtx *ctx, void *pd);
+typedef void (*RedisModulePostNotifyJobPerKeyFunc) (RedisModuleCtx *ctx, RedisModuleString *key, void *pd);
+/* Backward-compatible alias for the original (pre-rename) name. */
+typedef RedisModulePostNotifyJobFunc RedisModulePostNotificationJobFunc;
 typedef void *(*RedisModuleTypeLoadFunc)(RedisModuleIO *rdb, int encver);
 typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef int (*RedisModuleTypeAuxLoadFunc)(RedisModuleIO *rdb, int encver, int when);
@@ -1169,6 +1200,76 @@ typedef void (*RedisModuleAppendOnlySyncCallback)(RedisModuleCtx *ctx, void *pri
 typedef void (*RedisModuleForkDoneHandler) (int exitcode, int bysignal, void *user_data);
 typedef void (*RedisModuleScanCB)(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata);
 typedef void (*RedisModuleScanKeyCB)(RedisModuleKey *key, RedisModuleString *field, RedisModuleString *value, void *privdata);
+
+/* ----- RedisModule_AsyncScan: enums, filter struct, callbacks -----
+ * Synced from redis-flex src/redismodule.h. These slots are optional: on a
+ * non-Flex server the corresponding RedisModule_AsyncScan* pointers stay NULL
+ * (REDISMODULE_GET_API does not abort Init), so callers must probe before use. */
+
+/* Scan mode (mutually exclusive). */
+typedef enum RedisModuleAsyncScanMode {
+    REDISMODULE_ASYNCSCAN_MODE_META_ONLY      = 0,
+    REDISMODULE_ASYNCSCAN_MODE_META_AND_VALUE = 1,
+} RedisModuleAsyncScanMode;
+
+/* Return code from RedisModule_AsyncScanStart and _AsyncScanNextBatch. */
+typedef enum RedisModuleAsyncScanResult {
+    REDISMODULE_ASYNCSCAN_OK            = 0,
+    REDISMODULE_ASYNCSCAN_BUSY          = 1,
+    REDISMODULE_ASYNCSCAN_EXHAUSTED     = 2,
+    REDISMODULE_ASYNCSCAN_IN_PROGRESS   = 3,
+    REDISMODULE_ASYNCSCAN_INVALID       = 4,
+    REDISMODULE_ASYNCSCAN_UNSUPPORTED   = 5,
+    REDISMODULE_ASYNCSCAN_OUT_OF_MEMORY = 6,
+    REDISMODULE_ASYNCSCAN_ABORTED       = 7,
+    REDISMODULE_ASYNCSCAN_DATASET_RESET = 8,
+    REDISMODULE_ASYNCSCAN_IO_ERROR      = 9,
+} RedisModuleAsyncScanResult;
+
+/* Reason passed to done_cb. */
+typedef enum RedisModuleAsyncScanDoneReason {
+    REDISMODULE_ASYNCSCAN_DONE_BATCH_DONE    = 0,
+    REDISMODULE_ASYNCSCAN_DONE_COMPLETED     = 1,
+    REDISMODULE_ASYNCSCAN_DONE_ABORTED       = 2,
+    REDISMODULE_ASYNCSCAN_DONE_DATASET_RESET = 3,
+    REDISMODULE_ASYNCSCAN_DONE_OUT_OF_MEMORY = 4,
+    REDISMODULE_ASYNCSCAN_DONE_IO_ERROR      = 5,
+} RedisModuleAsyncScanDoneReason;
+
+/* Result of RedisModule_AsyncScanAbort. */
+typedef enum RedisModuleAsyncScanAbortResult {
+    REDISMODULE_ASYNCSCAN_ABORT_TRIGGERED = 0,
+    REDISMODULE_ASYNCSCAN_ABORT_NOOP      = 1,
+} RedisModuleAsyncScanAbortResult;
+
+/* Filter spec for RedisModule_AsyncScanStart. Prefix-set and type-set are
+ * AND-ed; entries within each set are OR-ed. Input-only — the engine
+ * deep-copies prefixes and resolves type names at Start; the caller may free
+ * or reuse everything as soon as the call returns. */
+typedef struct RedisModuleAsyncScanFilter {
+    const char **prefixes;
+    size_t       num_prefixes;
+    const char **types;
+    size_t       num_types;
+} RedisModuleAsyncScanFilter;
+
+/* Per-key callback. Fires once per delivered key on the main thread, GIL held;
+ * in META_AND_VALUE the value is pinned in RAM for the duration of this call. */
+typedef void (*RedisModuleAsyncScanKeyCB)(
+    RedisModuleCtx        *ctx,
+    RedisModuleScanCursor *cursor,
+    RedisModuleKey        *key,
+    RedisModuleString     *name,
+    void                  *privdata);
+
+/* Call-completion callback. Fires exactly once per Start/NextBatch call that
+ * returned OK, after every per-key callback for that batch has returned. */
+typedef void (*RedisModuleAsyncScanCallDoneCB)(
+    RedisModuleCtx                  *ctx,
+    RedisModuleScanCursor           *cursor,
+    void                            *privdata,
+    RedisModuleAsyncScanDoneReason   reason);
+
 typedef RedisModuleString * (*RedisModuleConfigGetStringFunc)(const char *name, void *privdata);
 typedef long long (*RedisModuleConfigGetNumericFunc)(const char *name, void *privdata);
 typedef int (*RedisModuleConfigGetBoolFunc)(const char *name, void *privdata);
@@ -1522,6 +1623,10 @@ REDISMODULE_API void (*RedisModule_ScanCursorRestart)(RedisModuleScanCursor *cur
 REDISMODULE_API void (*RedisModule_ScanCursorDestroy)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_Scan)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleScanCB fn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ScanKey)(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleScanCursor * (*RedisModule_ScanCursorCreateWithName)(const char *name) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanStart)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, RedisModuleAsyncScanFilter *filter, RedisModuleAsyncScanMode scan_mode, const int *open_mode, RedisModuleAsyncScanKeyCB key_cb, RedisModuleAsyncScanCallDoneCB done_cb, size_t batch_size, void *privdata) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanResult (*RedisModule_AsyncScanNextBatch)(RedisModuleCtx *ctx, RedisModuleScanCursor *cursor, size_t batch_size) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleAsyncScanAbortResult (*RedisModule_AsyncScanAbort)(RedisModuleScanCursor *cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetContextFlagsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetModuleOptionsAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)(void) REDISMODULE_ATTR;
@@ -1549,7 +1654,8 @@ REDISMODULE_API int (*RedisModule_ThreadSafeContextTryLock)(RedisModuleCtx *ctx)
 REDISMODULE_API void (*RedisModule_ThreadSafeContextUnlock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SubscribeToKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_UnsubscribeFromKeyspaceEvents)(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc cb) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotificationJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddPostNotificationJob)(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_AddPostNotificationJobForKey)(RedisModuleCtx *ctx, RedisModulePostNotifyJobPerKeyFunc callback, RedisModuleString *key, void *pd, void (*free_pd)(void*)) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_NotifyKeyspaceEvent)(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetNotifyKeyspaceEvents)(void) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientDisconnected)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1988,6 +2094,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ScanCursorDestroy);
     REDISMODULE_GET_API(Scan);
     REDISMODULE_GET_API(ScanKey);
+    /* Optional on non-Flex servers — pointer stays NULL if absent (the
+     * GET_API macro here does not abort Init). Probe before use. */
+    REDISMODULE_GET_API(ScanCursorCreateWithName);
+    REDISMODULE_GET_API(AsyncScanStart);
+    REDISMODULE_GET_API(AsyncScanNextBatch);
+    REDISMODULE_GET_API(AsyncScanAbort);
     REDISMODULE_GET_API(GetContextFlagsAll);
     REDISMODULE_GET_API(GetModuleOptionsAll);
     REDISMODULE_GET_API(GetKeyspaceNotificationFlagsAll);
@@ -2017,6 +2129,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SubscribeToKeyspaceEvents);
     REDISMODULE_GET_API(UnsubscribeFromKeyspaceEvents);
     REDISMODULE_GET_API(AddPostNotificationJob);
+    REDISMODULE_GET_API(AddPostNotificationJobForKey);
     REDISMODULE_GET_API(NotifyKeyspaceEvent);
     REDISMODULE_GET_API(GetNotifyKeyspaceEvents);
     REDISMODULE_GET_API(BlockedClientDisconnected);

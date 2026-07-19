@@ -115,6 +115,13 @@ typedef struct redisearch_thpool_t {
                                                 '-<thread id>'*/
 } redisearch_thpool_t;
 
+/* Set (for its whole lifetime) to the pool a worker thread belongs to, from
+ * within thread_do. NULL on any non-worker thread (e.g. the main thread).
+ * Used to detect re-entrant job submission: a worker submitting jobs to its
+ * OWN pool must not run the verify_init all-threads barrier, because the
+ * submitting worker cannot also arrive at that barrier -> deadlock. */
+static __thread redisearch_thpool_t *g_thpool_self = NULL;
+
 
 /* ========================== PROTOTYPES ============================ */
 
@@ -440,6 +447,17 @@ static void redisearch_thpool_push_chain_verify_init_threads(
   thpool_priority priority) {
   redisearch_thpool_push_chain(thpool_p, f_newjob_p, l_newjob_p, n, priority);
 
+  /* Never run verify_init from within one of this pool's own worker threads.
+   * verify_init coordinates every live worker through a barrier; the submitting
+   * worker is one of them but is stuck here initiating the barrier, so it can
+   * never be reached. The pool is already running (the caller is a live
+   * worker), so the jobs just pushed will be drained by the running workers;
+   * spawning or reviving threads is only ever required from a non-worker
+   * thread. */
+  if (g_thpool_self == thpool_p) {
+    return;
+  }
+
   /* Initialize threads if needed */
   redisearch_thpool_verify_init(thpool_p);
 }
@@ -645,6 +663,10 @@ static int thread_init(redisearch_thpool_t *thpool_p, volatile bool *started) {
 static void *thread_do(void *p) {
   struct thread_do_args *args = (struct thread_do_args *)p;
   redisearch_thpool_t *thpool_p = args->thpool_p;
+
+  /* Remember which pool this worker serves, so job submissions made from within
+   * a job it runs can skip the verify_init barrier (see g_thpool_self). */
+  g_thpool_self = thpool_p;
 
   /* Set thread name for profiling and debugging */
   char thread_name[16] = {0};

@@ -21,7 +21,7 @@
 #include "search_disk.h"
 #include "spec.h"
 #include "indexes.h"
-#include "indexes_scan.h"
+#include "indexes_scanner.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics

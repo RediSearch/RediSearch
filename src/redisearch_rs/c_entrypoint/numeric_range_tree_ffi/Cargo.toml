@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 cheadergen.workspace = true
 numeric_range_tree.workspace = true
+index_result.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { path = "../inverted_index_ffi" }
 generational_slab.workspace = true

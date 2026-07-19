@@ -34,7 +34,9 @@ pub struct RangeIter<'tm, 'f, Data> {
 #[derive(Clone, Copy, Debug)]
 /// One of the bounds for a [`RangeFilter`].
 pub struct RangeBoundary<'f> {
+    /// The boundary value.
     pub value: &'f [u8],
+    /// Whether `value` itself falls inside the range.
     pub is_included: bool,
 }
 
@@ -56,9 +58,14 @@ impl<'f> RangeBoundary<'f> {
     }
 }
 
+/// A key range with optional lower and upper bounds.
+///
+/// A `None` bound leaves that side unbounded; [`RangeFilter::all`] leaves both open.
 #[derive(Clone, Copy, Debug)]
 pub struct RangeFilter<'f> {
+    /// Lower bound; `None` leaves the range open at the bottom.
     pub min: Option<RangeBoundary<'f>>,
+    /// Upper bound; `None` leaves the range open at the top.
     pub max: Option<RangeBoundary<'f>>,
 }
 
@@ -130,9 +137,13 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
             return RangeIter::empty();
         };
 
-        // Shorten the boundaries. The minimum may be gone entirely.
+        // Shorten the boundaries. When the descent fully consumes `min.value`
+        // we can drop the lower bound only if it's inclusive — an exclusive
+        // empty-suffix marker still has to ride along so the entry whose key
+        // equals `min.value` is skipped at this exact depth.
+        let descended_past_min = subroot_prefix.len() < min.value.len();
         let filter = RangeFilter {
-            min: (subroot_prefix.len() != min.value.len()).then(|| RangeBoundary {
+            min: (descended_past_min || !min.is_included).then(|| RangeBoundary {
                 value: &min.value[subroot_prefix.len()..],
                 is_included: min.is_included,
             }),

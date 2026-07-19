@@ -148,6 +148,7 @@ typedef struct {
 #define HasSortBy(r) ((r)->reqflags & QEXEC_F_HAS_SORTBY)
 #define HasGroupBy(r) ((r)->reqflags & QEXEC_F_HAS_GROUPBY)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsCoordinator(r) ((r)->reqflags & QEXEC_F_IS_COORDINATOR)
 #define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 
 // Indicates whether a query should run in the background.

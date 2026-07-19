@@ -12,10 +12,11 @@
 
 pub mod eval;
 
-// The query wrapper types live in the `query` crate (`c_wrappers/query`); they
-// are re-exported here so `query_eval` (and its FFI crate) can refer to them
-// through a single module.
+// The query wrapper types live in the `query` crate (`c_wrappers/query`), and
+// the scorer/expander name modules in `query_types`; both are re-exported here
+// so `query_eval` (and its FFI crate) can refer to them through a single module.
 pub use query::{QueryEvalContext, QueryNode, QueryNodeRef};
+pub use query_types::{expanders, scorers};
 
 #[cfg(test)]
 mod _test_link {

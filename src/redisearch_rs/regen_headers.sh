@@ -60,6 +60,8 @@ if [[ "${RUST_DYN_CRT:-}" == "1" ]]; then
     rustflags="-C target-feature=-crt-static"
 fi
 
+RUST_TOOLCHAIN=$(cat "$REPO_ROOT/.rust-nightly")
+
 # List the target for C header generations:
 # - All crates in the c_entrypoint/ folder (with a few excludes)
 # - All crates that use explicit `#[cheadergen::config(export, ..)] annotations
@@ -67,6 +69,7 @@ fi
 #   we expose.
 exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --lang c \
+    --rust-toolchain="${RUST_TOOLCHAIN}" \
     --prune-orphans \
     --skip-empty \
     --exclude=redisearch_rs \
@@ -82,7 +85,8 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" cheadergen generate \
     --package=rqe_iterators \
     --package=search_result \
     --package=query_flags \
-    --package=query_node_type \
+    --package=query_types \
+    --package=query_eval \
     --config=cheadergen.toml \
     --output-dir=headers \
-    c_entrypoint
+    --input-dir=c_entrypoint

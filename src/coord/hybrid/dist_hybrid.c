@@ -27,6 +27,7 @@
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
+#include "document.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
@@ -227,6 +228,54 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
   }
 }
 
+// Append a reconstructed, old-shard-compatible COMBINE clause built from the
+// coordinator's resolved scoring parameters. All scoring arguments are emitted
+// explicitly with a positive, even argument count and YIELD_SCORE_AS (when
+// present) counted inside the block, so shards of any version parse it and never
+// fall back on their own (possibly different) defaults.
+static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
+  if (!cp || !cp->scoringCtx) {
+    return;
+  }
+  const HybridScoringContext *sc = cp->scoringCtx;
+  const bool hasAlias = cp->scoreAlias != NULL;
+  char numBuf[32];
+  const size_t numBufSize = sizeof(numBuf);
+  int n;
+
+  MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
+  if (sc->scoringType == HYBRID_SCORING_RRF) {
+    // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
+    MRCommand_Append(xcmd, "RRF", strlen("RRF"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  } else {
+    // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
+    MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "BETA", strlen("BETA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  }
+  if (hasAlias) {
+    MRCommand_Append(xcmd, "YIELD_SCORE_AS", strlen("YIELD_SCORE_AS"));
+    MRCommand_Append(xcmd, cp->scoreAlias, strlen(cp->scoreAlias));
+  }
+}
+
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
@@ -234,6 +283,8 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // modification by the command modifier callback in SHARD_K_RATIO optimization).
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            bool sendExplainScore,
+                            const HybridCombineWireParams *combineParams,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -264,28 +315,16 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, outKArgIndex);
 
-  int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
-  combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
-  bool hasCombine = combineOffset != -1;
-
-  // Add COMBINE
-  if (combineOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[combineOffset]);
-    // Add RRF/LINEAR and its arguments
-    argOffset = RMUtil_ArgIndex("RRF", argv + vsimOffset, argc - vsimOffset);
-    if (argOffset == -1) {
-      argOffset = RMUtil_ArgIndex("LINEAR", argv + vsimOffset, argc - vsimOffset);
-    }
-    argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-    if (argOffset != -1 && argOffset < argc - 2) {
-      long long nargs;
-      RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
-
-      for (int i = 0; i < nargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      }
-    }
-  }
+  // Always reconstruct and forward the coordinator's resolved COMBINE clause
+  // (in the legacy counted form).
+  // Forwarding it unconditionally - even when the client omitted COMBINE and
+  // the coordinator filled in defaults - pins every shard to identical fusion
+  // parameters (constant/weights/window), so hybrid results stay consistent
+  // across shards of different versions during a rolling upgrade rather than
+  // each shard falling back on its own (possibly changed) defaults. This also
+  // normalizes the positional YIELD_SCORE_AS form and a zero argument count
+  // into the counted form that all shard versions accept.
+  MRCommand_appendCombine(xcmd, combineParams);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -332,6 +371,12 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   if (argOffset != -1) {
     MRCommand_AppendRstr(xcmd, argv[argOffset]);
     MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  }
+
+  // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
+  // tree and the shard's merger wraps it.
+  if (sendExplainScore) {
+    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
   }
 
   // Add WITHCURSOR
@@ -411,7 +456,13 @@ static void HybridRequest_buildDistRPChain(AREQ *r, MRCommand *xcmd,
 }
 
 static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorRequest, HybridPipelineParams *hybridParams) {
-  const size_t window = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+  const bool isRRF = hybridParams->scoringCtx->scoringType == HYBRID_SCORING_RRF;
+  const size_t window =
+      isRRF ? hybridParams->scoringCtx->rrfCtx.window : hybridParams->scoringCtx->linearCtx.window;
+
+  // RRF scores a doc by its rank, so tied branch scores need a tiebreaker; otherwise their order
+  // follows non-deterministic shard arrival order. Break ties by `__key` (multi-shard path only).
+  const char *scoreTieBreakField = isRRF ? UNDERSCORE_KEY : NULL;
 
   // TODO: would be better to look for a vector node (recursive search on the ast) and decide according to its query type (knn/range)
   const bool isKNN = vectorRequest->ast.root->type == QN_VECTOR;
@@ -419,8 +470,10 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 
   PLN_ArrangeStep *searchArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(searchRequest));
   searchArrangeStep->limit = window;
+  searchArrangeStep->scoreTieBreakField = scoreTieBreakField;
 
   PLN_ArrangeStep *vectorArrangeStep = AGPLN_GetOrCreateArrangeStep(AREQ_AGGPlan(vectorRequest));
+  vectorArrangeStep->scoreTieBreakField = scoreTieBreakField;
   if (isKNN) {
     // Vector subquery is a KNN query
     // Heapsize should be min(window, KNN K)
@@ -663,6 +716,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     for (size_t i = 0; i < hreq->nrequests; i++) {
         AREQ *areq = hreq->requests[i];
         if (AGGPLN_Distribute(AREQ_AGGPlan(areq), status) != REDISMODULE_OK) {
+            HybridPipelineParams_Cleanup(&hybridParams);
             return REDISMODULE_ERR;
         }
     }
@@ -670,15 +724,27 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
+    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
+    // hands scoringCtx ownership to the merger and nulls the local pointer. The
+    // scoring context object itself is kept alive by the merger, so borrowing it
+    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
+    // when building the per-shard command below.
+    HybridCombineWireParams combineParams = {
+        .scoringCtx = hybridParams.scoringCtx,
+        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    };
+
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
+      HybridPipelineParams_Cleanup(&hybridParams);
       return REDISMODULE_ERR;
     }
 
     // Construct the command string
     MRCommand xcmd;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
-                                 sp, &hreq->kArgIndex);
+    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
+                                 &combineParams, &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -770,6 +836,7 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     bool maxPrefixSearch = false;
     bool maxPrefixVsim = false;
+    bool shardTimedOutWarning = false;
 
     const struct timespec *deadline =
         (hreq->sctx && HybridRequest_ShouldCheckTimeout(hreq))
@@ -778,11 +845,17 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Errors from cursor establishment go into the dispatcher's `status` so
     // DistHybridCleanups can reply with them.
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status, oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim, deadline, &hreq->syncCtx)) {
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
+                                     oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
+                                     &shardTimedOutWarning, deadline, &hreq->syncCtx)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
         return REDISMODULE_ERR;
+    }
+
+    if (shardTimedOutWarning) {
+        hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
     }
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
@@ -1063,6 +1136,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
         return;
     }
 
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
+    }
+
     scheduleDepleters(hreq);
 
 #ifdef ENABLE_ASSERT
@@ -1151,9 +1228,20 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
     applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
+    // The tail (merge) pipeline runs only on the coordinator, so the tail debug
+    // timeout takes effect here.
+    if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
+      PipelineAddTimeoutAfterCount(&hreq->tailPipeline->qctx, hreq->sctx,
+                                   debugParams.tail_timeout_count);
+    }
+
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
+    }
+
+    if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
+        HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
     }
 
     scheduleDepleters(hreq);
@@ -1240,6 +1328,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // FT.PROFILE ... HYBRID even on this fast path.
     // Empty reply uses a fresh request; record here. Pre-pipeline -> QUEUE.
     CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
+    coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
+    return REDISMODULE_OK;
+  }
+
+  if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
