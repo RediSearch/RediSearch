@@ -3,8 +3,22 @@
 //! This module implements a table-driven UTF-8 parser which should
 //! theoretically contain the minimal number of branches (1). The only branch is
 //! on the `Action` returned from unpacking a transition.
+//!
+//! ## Differences with the original `utf8parse`
+//!
+//! - The nightly-only benchmarks, and the `nightly` feature gating them, have
+//!   been removed.
+//!
+//! ## License
+//!
+//! This codebase is **originally the [`utf8parse`](https://github.com/alacritty/vte)
+//! crate** (version 0.2.2), which is licensed under either:
+//!
+//! - [Apache License 2.0](./LICENSE-APACHE)
+//! - [MIT License](./LICENSE-MIT)
+//!
+//! We have kept the same license(s) for this codebase.
 #![deny(clippy::all, clippy::if_not_else, clippy::enum_glob_use)]
-#![cfg_attr(all(feature = "nightly", test), feature(test))]
 #![no_std]
 
 use core::char;
@@ -37,7 +51,10 @@ const CONTINUATION_MASK: u8 = 0b0011_1111;
 impl Parser {
     /// Create a new Parser
     pub fn new() -> Parser {
-        Parser { point: 0, state: State::Ground }
+        Parser {
+            point: 0,
+            state: State::Ground,
+        }
     }
 
     /// Advance the parser
@@ -61,72 +78,35 @@ impl Parser {
             Action::InvalidSequence => {
                 self.point = 0;
                 receiver.invalid_sequence();
-            },
+            }
             Action::EmitByte => {
                 receiver.codepoint(byte as char);
-            },
+            }
             Action::SetByte1 => {
                 let point = self.point | ((byte & CONTINUATION_MASK) as u32);
+                // SAFETY: the DFA only emits `SetByte1` at the end of a sequence it has
+                // fully validated — overlong encodings, surrogates, and values above
+                // U+10FFFF are rejected — so `point` is a valid Unicode scalar value.
                 let c = unsafe { char::from_u32_unchecked(point) };
                 self.point = 0;
 
                 receiver.codepoint(c);
-            },
+            }
             Action::SetByte2 => {
                 self.point |= ((byte & CONTINUATION_MASK) as u32) << 6;
-            },
+            }
             Action::SetByte2Top => {
                 self.point |= ((byte & 0b0001_1111) as u32) << 6;
-            },
+            }
             Action::SetByte3 => {
                 self.point |= ((byte & CONTINUATION_MASK) as u32) << 12;
-            },
+            }
             Action::SetByte3Top => {
                 self.point |= ((byte & 0b0000_1111) as u32) << 12;
-            },
+            }
             Action::SetByte4 => {
                 self.point |= ((byte & 0b0000_0111) as u32) << 18;
-            },
-        }
-    }
-}
-
-#[cfg(all(feature = "nightly", test))]
-mod benches {
-    extern crate std;
-    extern crate test;
-
-    use super::{Parser, Receiver};
-
-    use self::test::{black_box, Bencher};
-
-    static UTF8_DEMO: &[u8] = include_bytes!("../tests/UTF-8-demo.txt");
-
-    impl Receiver for () {
-        fn codepoint(&mut self, c: char) {
-            black_box(c);
-        }
-
-        fn invalid_sequence(&mut self) {}
-    }
-
-    #[bench]
-    fn parse_bench_utf8_demo(b: &mut Bencher) {
-        let mut parser = Parser::new();
-
-        b.iter(|| {
-            for byte in UTF8_DEMO {
-                parser.advance(&mut (), *byte);
             }
-        })
-    }
-
-    #[bench]
-    fn std_string_parse_utf8(b: &mut Bencher) {
-        b.iter(|| {
-            for c in std::str::from_utf8(UTF8_DEMO).unwrap().chars() {
-                black_box(c);
-            }
-        });
+        }
     }
 }

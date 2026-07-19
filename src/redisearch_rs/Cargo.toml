@@ -53,6 +53,7 @@ members = [
     "vector_score_source_bencher",
     "trie_rs",
     "ttl_table",
+    "utf8parse",
     "ttl_table_bencher",
     "value",
     "varint",
@@ -224,7 +225,7 @@ tracing-subscriber = { version = "0.3.22", default-features = false, features = 
 ] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
-utf8parse = { path = "../../deps/utf8parse" }
+utf8parse = { path = "./utf8parse" }
 walkdir = "2"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 wyhash = "0.5"
