@@ -10,6 +10,7 @@
 #include "aggregate_debug.h"
 #include "search_result_ffi.h"
 #include "reducer.h"
+#include "reducers/collect_parse.h"
 
 #include <cursor.h>
 #include <query.h>
@@ -849,46 +850,6 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
   return NULL;
 }
 
-static void asciiToLower(char *s) {
-  for (; *s; s++) {
-    if (*s >= 'A' && *s <= 'Z') {
-      *s += 'a' - 'A';
-    }
-  }
-}
-
-// Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
-// field/sort name, so a name can never be mistaken for a keyword.
-static bool isCollectKeyword(const char *tok) {
-  static const char *const keywords[] = {"FIELDS", "SORTBY", "ASC", "DESC", "LIMIT", "DISTINCT"};
-  if (!tok || tok[0] == '@') {
-    return false;
-  }
-  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
-    if (!strcasecmp(tok, keywords[i])) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Lowercase COLLECT's option keywords in place so the generated alias (lowercased by
-// getReducerAlias) and the coordinator's byte-wise remote-reducer dedup (AC_Equals) agree.
-// Otherwise two COLLECTs differing only in keyword case get the same synthetic remote alias
-// without deduping, failing the query with SEARCH_FIELD_DUP in cluster (MOD-16365).
-static void normalizeCollectKeywords(const ArgsCursor *args) {
-  if (args->type == AC_TYPE_RSTRING) {
-    return;  // RedisModuleString* tokens, not mutable char buffers (never used for COLLECT)
-  }
-  ArgsCursor it = *args;
-  while (!AC_IsAtEnd(&it)) {
-    char *tok = (char *)AC_GetStringNC(&it, NULL);
-    if (isCollectKeyword(tok)) {
-      asciiToLower(tok);
-    }
-  }
-}
-
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status) {
   // Just a list of functions..
@@ -902,8 +863,10 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
+  // Keyword case must be canonical: getReducerAlias lowercases the args while the reducer
+  // dedup compares bytes (MOD-16365).
   if (!strcasecmp(name, "COLLECT")) {
-    normalizeCollectKeywords(&gr->args);
+    CollectArgs_NormalizeKeywords(&gr->args);
   }
 
   // See if there is an alias

@@ -61,6 +61,12 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out);
  */
 void CollectArgs_Free(CollectArgs *args);
 
+/**
+ * Lowercase COLLECT's option keywords in place. `@`-prefixed (case-sensitive)
+ * field/sort names are left untouched.
+ */
+void CollectArgs_NormalizeKeywords(const ArgsCursor *args);
+
 #ifdef __cplusplus
 }
 #endif

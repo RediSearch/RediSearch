@@ -286,6 +286,43 @@ void CollectArgs_Free(CollectArgs *args) {
   args->sort_names = NULL;
 }
 
+static void asciiToLower(char *s) {
+  for (; *s; s++) {
+    if (*s >= 'A' && *s <= 'Z') {
+      *s += 'a' - 'A';
+    }
+  }
+}
+
+// Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
+// field/sort name, so a name can never be mistaken for a keyword.
+static bool isCollectKeyword(const char *tok) {
+  static const char *const keywords[] = {"FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC,
+                                         "LIMIT", "DISTINCT"};
+  if (!tok || tok[0] == '@') {
+    return false;
+  }
+  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
+    if (!strcasecmp(tok, keywords[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void CollectArgs_NormalizeKeywords(const ArgsCursor *args) {
+  if (args->type == AC_TYPE_RSTRING) {
+    return;  // RedisModuleString* tokens, not mutable char buffers (never used for COLLECT)
+  }
+  ArgsCursor it = *args;
+  while (!AC_IsAtEnd(&it)) {
+    char *tok = (char *)AC_GetStringNC(&it, NULL);
+    if (isCollectKeyword(tok)) {
+      asciiToLower(tok);
+    }
+  }
+}
+
 // ===== Post-parse key resolution (side-effectful: opens RLookupKeys) =====
 
 // Resolves stripped names into a freshly-allocated `arrayof(const RLookupKey *)`.
