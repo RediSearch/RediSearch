@@ -894,9 +894,6 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                         l_newjob_p, n);
     break;
   }
-  /* Wake workers based on the total pending count so that no worker keeps
-   * sleeping while multiple jobs are pending. Busy workers are not blocked on
-   * the condvar, so a broadcast only wakes actual sleepers. */
   if (priority_queue_len_unsafe(priority_queue_p) > 1) {
     pthread_cond_broadcast(&priority_queue_p->has_jobs);
   } else {
