@@ -286,24 +286,29 @@ void CollectArgs_Free(CollectArgs *args) {
   args->sort_names = NULL;
 }
 
-static void asciiToLower(char *s) {
-  for (; *s; s++) {
-    if (*s >= 'A' && *s <= 'Z') {
-      *s += 'a' - 'A';
+static void asciiToLower(char *s, size_t len) {
+  for (size_t i = 0; i < len; i++) {
+    if (s[i] >= 'A' && s[i] <= 'Z') {
+      s[i] += 'a' - 'A';
     }
   }
 }
 
 // Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
 // field/sort name, so a name can never be mistaken for a keyword.
-static bool isCollectKeyword(const char *tok) {
-  static const char *const keywords[] = {"FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC,
-                                         "LIMIT", "DISTINCT"};
-  if (!tok || tok[0] == '@') {
+static bool isCollectKeyword(const char *tok, size_t len) {
+#define KW(s) {s, sizeof(s) - 1}
+  static const struct {
+    const char *str;
+    size_t len;
+  } keywords[] = {KW("FIELDS"), KW("SORTBY"), KW(SORT_DIR_ASC),
+                  KW(SORT_DIR_DESC), KW("LIMIT"), KW("DISTINCT")};
+#undef KW
+  if (len == 0 || tok[0] == '@') {
     return false;
   }
   for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
-    if (!strcasecmp(tok, keywords[i])) {
+    if (len == keywords[i].len && !strncasecmp(tok, keywords[i].str, len)) {
       return true;
     }
   }
@@ -316,9 +321,10 @@ void CollectArgs_NormalizeKeywords(const ArgsCursor *args) {
   }
   ArgsCursor it = *args;
   while (!AC_IsAtEnd(&it)) {
-    char *tok = (char *)AC_GetStringNC(&it, NULL);
-    if (isCollectKeyword(tok)) {
-      asciiToLower(tok);
+    size_t len = 0;
+    char *tok = (char *)AC_GetStringNC(&it, &len);
+    if (tok && isCollectKeyword(tok, len)) {
+      asciiToLower(tok, len);
     }
   }
 }
