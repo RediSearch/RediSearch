@@ -22,6 +22,7 @@ CoordRequestCtx *CoordRequestCtx_New(CommandType type) {
   CoordRequestCtx *ctx = rm_calloc(1, sizeof(CoordRequestCtx));
   ctx->type = type;
   atomic_store_explicit(&ctx->timedOut, false, memory_order_relaxed);
+  RS_AtomicIntStoreRelaxed(&ctx->execPhase, QUERY_TIMEOUT_STAGE_QUEUE);
   pthread_mutex_init(&ctx->setReqLock, NULL);
   ctx->preRequestError = QueryError_Default();
   return ctx;

@@ -165,8 +165,7 @@ size_t IndexesGlobalStats_GetLogicallyDeletedDocs() {
   return READ(RSGlobalStats.totalStats.logically_deleted);
 }
 
-// Records a blocked-client query timeout into the per-stage breakdown. See the
-// header for why this is a subset of the aggregate `timeout` counter.
+// Records a blocked-client query timeout into the per-stage breakdown.
 void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord) {
   QueriesGlobalStats *q = &RSGlobalStats.totalStats.queries;
   QueryTimeoutStageStats *stages =

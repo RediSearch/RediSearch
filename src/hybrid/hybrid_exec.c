@@ -317,13 +317,12 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
  * Handles error/timeout checking and sends error reply if needed.
  * Returns true if an error was sent (caller should skip to cleanup).
  */
-/* Record a per-stage timeout for a hybrid request into the blocked-client
- * breakdown, iff it timed out via the blocked-client mechanism
- * (HybridRequest_TimedOut is set only by the blocked-client timeout callbacks). */
+/* Record this hybrid request's blocked-client timeout into the per-stage
+ * breakdown, at the stage its execution-phase marker had reached when the deadline
+ * fired. Must be called exactly once per blocked-client timeout callback, right
+ * after HybridRequest_SetTimedOut (which freezes the marker). */
 static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
-  if (HybridRequest_TimedOut(hreq)) {
-    QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
-  }
+  QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
 }
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply,
@@ -952,6 +951,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
+  recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
@@ -969,7 +969,6 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(hreq->requests[0]));
-  recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -996,11 +995,10 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
 
   // Signal timeout to the worker and to all subquery depleters.
   HybridRequest_SetTimedOut(hreq);
+  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
-    // The worker has not reached the tail aggregation phase yet. The empty reply
-    // uses a fresh error state, so record on the real request (its marker's stage).
-    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+    // The worker has not reached the tail aggregation phase yet.
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1009,8 +1007,6 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   // waiting here would hold the GIL it needs. Preempt and reply empty; the
   // worker will finish after this callback returns.
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
-    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
-    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1018,12 +1014,6 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   RS_ASSERT(hreq->storedReplyState.hasStoredResults);
-
-  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
-  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
-  if (hreq->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
-    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
-  }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
@@ -1054,6 +1044,9 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
+  // Record at the stage the deadline caught the request (REPLY once the cursors
+  // were published, QUEUE/PIPELINE before that).
+  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
   // Lock only long enough to synchronize with cursor publication in HybridRequest_StartCursors.
   // Replying pauses cursors and can touch other locks, so it must happen after unlocking.
@@ -1063,10 +1056,6 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   hreq->cursors = NULL;
   HybridRequest_UnlockCursors(hreq);
 
-  // Both reply shapes below count the aggregate (shard) timeout warning; record the
-  // per-stage breakdown once here, at the stage the request's marker had reached
-  // (REPLY once the cursors were published, QUEUE/PIPELINE before that).
-  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
   if (cursors) {
     // If cursors were published - reply with them
     replyWithCursors(ctx, cursors, hreq, true);

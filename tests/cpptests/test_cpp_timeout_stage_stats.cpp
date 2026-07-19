@@ -14,9 +14,9 @@
 // Verifies the per-stage blocked-client timeout breakdown (MOD-13192):
 // QueryTimeoutStageStats_Record bumps the matching per-stage sub-counter, while
 // the aggregate `timeout` counter is owned separately by
-// Query{Errors,Warnings}GlobalStats_UpdateError/Warning. The breakdown is a
-// subset of the aggregate (only blocked-client timeouts are broken down), so the
-// two are intentionally NOT coupled.
+// Query{Errors,Warnings}GlobalStats_UpdateError/Warning. The breakdown counts
+// blocked-client timeout callback invocations and is intentionally independent
+// of the aggregate counters.
 class TimeoutStageStatsTest : public ::testing::Test {};
 
 static const QueryTimeoutStageStats &stagesOf(const QueriesGlobalStats &s, bool isError, bool coord) {

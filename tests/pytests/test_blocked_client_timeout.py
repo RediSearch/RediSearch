@@ -3312,7 +3312,14 @@ class TestCoordinatorTimeout:
                         message=f"Expected no warning (pipeline completed before timeout took effect), "
                                 f"got {result.get('warning', [])}")
 
-        _verify_metrics_not_changed(env, env, before_info, [])
+        # The aggregate coordinator timeout warning must not increment (complete
+        # reply), but the breakdown counts the callback invocation (post-pipeline
+        # = REPLY).
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]),
+                        int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]) + 1,
+                        message="Blocked-client timeout after store should bump the REPLY stage")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_REPLY_METRIC])
 
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
@@ -3392,9 +3399,14 @@ class TestCoordinatorTimeout:
                         message=f"Expected no warning (pipeline completed before timeout took effect), "
                                 f"got {result.get('warning', [])}")
 
-        # Coordinator timeout warning metric must not increment because the
-        # timeout callback found stored results and replied with them.
-        _verify_metrics_not_changed(env, env, before_info, [])
+        # The aggregate coordinator timeout warning must not increment (complete
+        # reply, no user-visible timeout), but the breakdown counts the callback
+        # invocation at the stage the deadline caught it (post-pipeline = REPLY).
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]),
+                        int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]) + 1,
+                        message="Blocked-client timeout after store should bump the REPLY stage")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_REPLY_METRIC])
 
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
@@ -3702,9 +3714,14 @@ class TestCoordinatorTimeout:
                         message=f"Expected no warnings (pipeline completed before timeout took effect), "
                                 f"got {result.get('warnings', [])}")
 
-        # Coordinator timeout warning metric must not increment because the
-        # timeout callback found stored results and replied with them.
-        _verify_metrics_not_changed(env, env, before_info, [])
+        # The aggregate coordinator timeout warning must not increment (complete
+        # reply, no user-visible timeout), but the breakdown counts the callback
+        # invocation at the stage the deadline caught it (post-pipeline = REPLY).
+        after_info = info_modules_to_dict(env)
+        env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]),
+                        int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]) + 1,
+                        message="Blocked-client timeout after store should bump the REPLY stage")
+        _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_REPLY_METRIC])
 
         resetStoreResultsDebug(env)
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
@@ -6434,7 +6451,14 @@ class TestShardTimeout:
                             message=f"Expected full stored result set, got: {result}")
             env.assertEqual(result.get('warnings', []), [],
                             message=f"Completed stored results should not warn: {result}")
-            _verify_metrics_not_changed(env, env, before_info, [])
+            # The deadline fired after the pipeline finished (marker = REPLY): the
+            # breakdown counts the callback invocation even though the complete
+            # stored reply goes out without a user-visible timeout warning.
+            after_info = info_modules_to_dict(env)
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]),
+                            int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_REPLY_METRIC]) + 1,
+                            message="Blocked-client timeout after store should bump the REPLY stage")
+            _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_REPLY_METRIC])
         finally:
             resetStoreResultsDebug(env)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()

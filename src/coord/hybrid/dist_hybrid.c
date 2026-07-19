@@ -1071,6 +1071,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       // Query timed out before request creation
       return;
     }
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
+    // hybrid request does not exist yet, so the coord-level marker carries the stage.
+    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
 
@@ -1112,10 +1115,11 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
+    // Advance the request's own marker before publishing it: once SetRequest makes
+    // it visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
-    // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Store coordinator start time for dispatch time tracking
@@ -1163,6 +1167,9 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if(CoordRequestCtx_TimedOut(reqCtx)) {
       return;
     }
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
+    // hybrid request does not exist yet, so the coord-level marker carries the stage.
+    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
 
@@ -1207,10 +1214,11 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
+    // Advance the request's own marker before publishing it: once SetRequest makes
+    // it visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
-    // Picked up by the coordinator: attribute a timeout from here on to PIPELINE.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
@@ -1285,13 +1293,14 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
+
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
   wakeHybridAbortChannels(hreq);
 
-  // Reply with timeout error, recording the per-stage breakdown for the stage the
-  // coord request reached.
+  // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -1316,6 +1325,9 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
+
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 
   wakeHybridAbortChannels(hreq);
@@ -1326,15 +1338,11 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
     // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
     // FT.PROFILE ... HYBRID even on this fast path.
-    // Empty reply uses a fresh request; record here. Pre-pipeline -> QUEUE.
-    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
 
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
-    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
-    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
@@ -1347,11 +1355,6 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
   // tail already accumulated into `storedReplyState.results` before the deadline.
-  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
-  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
-  if (hreq->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
-    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
-  }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);

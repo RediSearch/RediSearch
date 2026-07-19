@@ -62,26 +62,28 @@ typedef enum {
   QUERY_TIMEOUT_STAGE_COUNT
 } QueryTimeoutStage;
 
-// Per-stage breakdown of the query-timeout counter. Only blocked-client timeouts are
-// broken down here, so the three stages sum to <= the aggregate `timeout` counter.
+// Per-stage breakdown of blocked-client query timeouts: every blocked-client timeout
+// callback invocation is counted at the stage the deadline caught the request. Tracked
+// independently of the aggregate `timeout` counters (which count user-visible timeout
+// replies, including non-blocked-client detections).
 typedef struct {
-  size_t queue;    // timed out before the result-processor pipeline started running
-  size_t pipeline; // timed out during result-processor pipeline execution
-  size_t reply;    // timed out during reply serialization
+  size_t queue;     // timed out before execution started (waiting in a job queue)
+  size_t pipeline;  // timed out while executing (result-processor pipeline / fan-out)
+  size_t reply;     // timed out after execution, while the reply was pending/serializing
 } QueryTimeoutStageStats;
 
 typedef struct {
   size_t syntax; // Number of syntax errors
   size_t arguments; // Number of parse arguments errors
-  size_t timeout; // Number of timeout errors (aggregate; timeout_by_stage is a subset)
-  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of blocked-client timeout errors
+  size_t timeout; // Number of timeout errors
+  QueryTimeoutStageStats timeout_by_stage; // Blocked-client timeouts by stage (FAIL policy)
   size_t oom; // Number of OOM errors
   size_t unavailableSlots; // Number of ASM inaccuracy errors
 } QueryErrorsGlobalStats;
 
 typedef struct {
-  size_t timeout; // Aggregate timeout warnings (timeout_by_stage is a subset)
-  QueryTimeoutStageStats timeout_by_stage; // Per-stage breakdown of blocked-client timeout warnings
+  size_t timeout; // Number of timeout warnings
+  QueryTimeoutStageStats timeout_by_stage; // Blocked-client timeouts by stage (RETURN_STRICT policy)
   size_t oom;
   size_t maxPrefixExpansion;
   size_t asm_inaccuracy;
@@ -193,8 +195,9 @@ void QueryErrorsGlobalStats_UpdateError(QueryErrorCode error, int toAdd, bool co
 // `toAdd` can be negative to decrease the counter.
 void QueryWarningsGlobalStats_UpdateWarning(QueryWarningCode code, int toAdd, bool coord);
 
-// Record one blocked-client query timeout into the per-stage breakdown (a subset of
-// the aggregate `timeout`). `isError`: FAIL -> error, RETURN* -> warning; `coord`: side.
+// Record one blocked-client query timeout into the per-stage breakdown. Called
+// exactly once per blocked-client timeout callback, after the timedOut flag froze
+// the stage marker. `isError`: FAIL -> error, RETURN_STRICT -> warning; `coord`: side.
 void QueryTimeoutStageStats_Record(QueryTimeoutStage stage, bool isError, bool coord);
 
 // Update the number of active io threads.

@@ -765,22 +765,6 @@ OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
 OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
 
-# Guard: the per-stage blocked-client timeout breakdown is a strict subset of the
-# aggregate timeout counter (queued+executing+replying <= timeout), per section and
-# per errors/warnings. Enforces MOD-13192's subset invariant.
-def assert_timeout_stage_subset(env, info_dict=None, conn=None):
-  info_dict = info_dict if info_dict is not None else info_modules_to_dict(conn if conn is not None else env)
-  for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
-    sec = info_dict.get(section, {})
-    for kind in ('errors', 'warnings'):
-      agg = next((m for m in sec if m.endswith(f'total_query_{kind}_timeout')), None)
-      if agg is None:
-        continue
-      total = int(sec[agg])
-      stages = sum(int(sec[m]) for m in sec if m.startswith(agg + '_while_'))
-      env.assertTrue(stages <= total,
-                     message=f"{section} {kind}: per-stage sum {stages} > aggregate {total}")
-
 # Expect env and conn so we can assert
 def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
   info_dict = info_modules_to_dict(conn)
@@ -792,8 +776,6 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
       if any(metric == ig or metric.startswith(ig + '_') for ig in ignored_metrics):
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
-  # Enforce the per-stage subset invariant on the current snapshot.
-  assert_timeout_stage_subset(env, info_dict)
 
 def _common_warnings_errors_test_scenario(env):
   """Common setup for warnings and errors tests"""
