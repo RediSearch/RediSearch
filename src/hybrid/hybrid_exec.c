@@ -994,7 +994,9 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   HybridRequest_SetTimedOut(hreq);
 
   if (HybridRequest_TryClaimAggregateResults(hreq)) {
-    // The worker has not reached the tail aggregation phase yet.
+    // The worker has not reached the tail aggregation phase yet. The empty reply
+    // uses a fresh error state, so record on the real request (its marker's stage).
+    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1003,6 +1005,8 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   // waiting here would hold the GIL it needs. Preempt and reply empty; the
   // worker will finish after this callback returns.
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
+    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
+    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
     return common_hybrid_query_reply_empty(ctx, QUERY_ERROR_CODE_TIMED_OUT, false,
                                            IsProfile(hreq));
   }
@@ -1010,6 +1014,12 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   RS_ASSERT(hreq->storedReplyState.hasStoredResults);
+
+  // Single source for the per-stage stat. Only a partial (rc==TIMEDOUT) reply is a
+  // real timeout; a completed pipeline (rc EOF) is a no-op race, so record nothing.
+  if (hreq->storedReplyState.rc == RS_RESULT_TIMEDOUT) {
+    recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
+  }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
@@ -1049,6 +1059,9 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   hreq->cursors = NULL;
   HybridRequest_UnlockCursors(hreq);
 
+  // Both reply shapes below count the aggregate (shard) timeout warning; record the
+  // per-stage breakdown once here, at the stage the request's marker had reached.
+  recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
   if (cursors) {
     // If cursors were published - reply with them
     replyWithCursors(ctx, cursors, hreq, true);
