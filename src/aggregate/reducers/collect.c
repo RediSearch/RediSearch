@@ -299,10 +299,11 @@ static void asciiToLower(char *s, size_t len) {
 static bool isCollectKeyword(const char *tok, size_t len) {
   static const char *const keywords[] = {"FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC,
                                          "LIMIT", "DISTINCT"};
+  static const size_t nkeywords = sizeof(keywords) / sizeof(keywords[0]);
   if (len == 0 || tok[0] == '@') {
     return false;
   }
-  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
+  for (size_t i = 0; i < nkeywords; i++) {
     if (len == strlen(keywords[i]) && !strncasecmp(tok, keywords[i], len)) {
       return true;
     }
