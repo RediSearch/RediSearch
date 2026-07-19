@@ -13,6 +13,7 @@
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include "info/info_redis/block_client.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -50,6 +51,7 @@ typedef struct ConcurrentCmdCtx {
   WeakRef spec_ref;
   rs_wall_clock_ns_t coordStartTime;  // Time when command was received on coordinator
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
+  struct Cursor *cursor;              // Cursor taken on the main thread (coord FT.CURSOR READ), or NULL
 } ConcurrentCmdCtx;
 
 /* Run a function on the concurrent thread pool */
@@ -132,6 +134,10 @@ int ConcurrentCmdCtx_GetPoolId(const ConcurrentCmdCtx *cctx) {
   return cctx->poolId;
 }
 
+struct Cursor *ConcurrentCmdCtx_GetCursor(const ConcurrentCmdCtx *cctx) {
+  return cctx->cursor;
+}
+
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,
                                           RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                           ConcurrentSearchHandlerCtx *handlerCtx) {
@@ -141,16 +147,25 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 ||
             (handlerCtx->bcCtx.timeout_callback != NULL && handlerCtx->bcCtx.reply_callback != NULL));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeout_callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
+  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback,
+                                       handlerCtx->bcCtx.timeout_callback,
+                                       handlerCtx->bcCtx.brc ? BlockedRequestCtx_OnFree : NULL,
+                                       handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.privdata) {
-    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  if (handlerCtx->bcCtx.brc) {
+    // Bind the request wrapper (allocated on the main thread by the dispatcher)
+    // to this cycle: sets it as the blocked client's privdata and records the
+    // dispatch-time timeout policy. Safe against the just-armed timer: the
+    // timeout callback runs on this same thread.
+    BlockedRequestCtx_BeginCycle(handlerCtx->bcCtx.brc, cmdCtx->bc,
+                                 handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeoutPolicy);
   }
 
   cmdCtx->argc = argc;
   cmdCtx->spec_ref = handlerCtx->spec_ref;
   cmdCtx->coordStartTime = handlerCtx->coordStartTime;
   cmdCtx->numShards = handlerCtx->numShards;
+  cmdCtx->cursor = handlerCtx->cursor;
   cmdCtx->ctx = RedisModule_GetThreadSafeContext(cmdCtx->bc);
   RS_AutoMemory(cmdCtx->ctx);
   cmdCtx->handler = handler;

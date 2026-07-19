@@ -43,8 +43,7 @@ struct BlockedRequestCtx;
  * as the blocked client's privdata, captures the timeout policy for the cycle,
  * and performs the per-read RETURN_STRICT reset for AREQ cursor cycles. */
 void BlockedRequestCtx_BeginCycle(struct BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
-                                  RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy,
-                                  void *coord_ctx);
+                                  RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy);
 
 /* Unlink the cycle's registry node and clear the per-cycle fields. Called from
  * OnFree; callable directly only in tests. */

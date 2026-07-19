@@ -383,8 +383,6 @@ struct BlockedRequestCtx {
   RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle; immutable
                                   // for the cycle (sticky-policy pattern,
                                   // MOD-16023, generalized to all cycles)
-  void *coord_ctx;              // CoordRequestCtx*/MRCtx* on coordinator
-                                // paths (wired in Step 5); NULL for shard
   // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
   // results/error here before UnblockClient; the reply or timeout callback
   // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
@@ -629,6 +627,12 @@ void AREQ_CleanUpStoredCursor(AREQ *req);
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+/* Like RSCursorReadCommand, but for the coordinator's blocking FT.CURSOR READ
+ * path (FAIL / RETURN_STRICT): `takenCursor` was taken for execution on the
+ * main thread at dispatch and its wrapper is the blocked client's privdata.
+ * Pass NULL for every other path (the cursor is then taken here by id). */
+int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          struct Cursor *takenCursor);
 int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

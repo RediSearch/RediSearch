@@ -14,6 +14,7 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 #include "rs_wall_clock.h"
+#include "config.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -49,15 +50,22 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 // Context for concurrent search handler
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
-struct CoordRequestCtx;  // Forward declaration
+struct BlockedRequestCtx;  // Forward declaration
+struct Cursor;             // Forward declaration
 
 // Context for blocking client
 typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
-  void *privdata;                         // Private data for the blocked client
-  void (*free_privdata)(RedisModuleCtx*, void*);           // Callback to free private data
+  // Wrapper owning the request executed by this command. Allocated on the main
+  // thread before blocking; becomes the blocked client's privdata (freed via
+  // BlockedRequestCtx_OnFree). ConcurrentSearch_HandleRedisCommandEx runs
+  // BlockedRequestCtx_BeginCycle on it right after blocking the client.
+  struct BlockedRequestCtx *brc;
+  // Timeout policy captured on the main thread at dispatch (avoids a TOCTOU
+  // against a concurrent FT.CONFIG SET); recorded on the cycle by BeginCycle.
+  RSTimeoutPolicy timeoutPolicy;
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {
@@ -66,6 +74,10 @@ typedef struct ConcurrentSearchHandlerCtx {
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
+  // Cursor taken for execution on the main thread (coord FT.CURSOR READ with a
+  // blocking policy); NULL otherwise. The BG handler reads it back via
+  // ConcurrentCmdCtx_GetCursor instead of re-taking by id.
+  struct Cursor *cursor;
   ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
 
@@ -115,6 +127,10 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmd
 
 // Returns the thread pool ID the command was dispatched on.
 int ConcurrentCmdCtx_GetPoolId(const struct ConcurrentCmdCtx *cctx);
+
+/* Cursor taken for execution on the main thread at dispatch (coord FT.CURSOR
+ * READ with a blocking policy); NULL otherwise. */
+struct Cursor *ConcurrentCmdCtx_GetCursor(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

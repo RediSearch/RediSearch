@@ -76,9 +76,9 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
-def _get_coord_req_ctx_free_count(env):
-    """Read the coordinator CoordRequestCtx_Free invocation counter (debug builds)."""
-    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REQ_CTX_FREE_COUNT'))
+def _get_blocked_request_onfree_count(env):
+    """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
                                                expected_results,
@@ -4331,7 +4331,7 @@ class TestCoordinatorTimeout:
         run after the timeout reply. The cursor must still be gone because the
         timeout reply advertises cursor id 0.
 
-        Polled with the ``GET_COORD_REQ_CTX_FREE_COUNT`` debug counter to
+        Polled with the ``GET_BLOCKED_REQUEST_ONFREE_COUNT`` debug counter to
         deterministically witness the free callback running before checking the
         old cursor id, without blocking the main-thread dispatcher.
         """
@@ -4341,7 +4341,7 @@ class TestCoordinatorTimeout:
         prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
             _setup_return_strict_cursor_state(env)
 
-        free_count_before = _get_coord_req_ctx_free_count(env)
+        free_count_before = _get_blocked_request_onfree_count(env)
 
         # Trigger the simplest timeout scenario (pre-pickup) for read 1.
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -4371,9 +4371,9 @@ class TestCoordinatorTimeout:
         # the worker job completes; polling avoids a deadlock that a sync-point
         # in CoordRequestCtx_Free would cause.
         wait_for_condition(
-            lambda: (_get_coord_req_ctx_free_count(env) > free_count_before,
+            lambda: (_get_blocked_request_onfree_count(env) > free_count_before,
                      {'before': free_count_before,
-                      'now': _get_coord_req_ctx_free_count(env)}),
+                      'now': _get_blocked_request_onfree_count(env)}),
             'Timeout waiting for CoordRequestCtx_Free counter to bump after read 1',
             timeout=10,
         )
