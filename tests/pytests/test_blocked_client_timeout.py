@@ -5,7 +5,7 @@ from test_info_modules import (
     wait_for_info_metric,
     WARN_ERR_SECTION, COORD_WARN_ERR_SECTION,
     TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC,
-    TIMEOUT_WARNING_SHARD_PIPELINE_METRIC,
+    TIMEOUT_WARNING_SHARD_PIPELINE_METRIC, TIMEOUT_WARNING_SHARD_REPLY_METRIC,
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
     TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
     TIMEOUT_ERROR_COORD_REPLY_METRIC,
@@ -2154,15 +2154,15 @@ class TestCoordinatorTimeout:
                                    message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
 
             # The shard replied with the already-published cursors from the timeout
-            # callback: shard warning +1, attributed to the PIPELINE stage (the tail
-            # never ran, so the marker never advanced to REPLY).
+            # callback: shard warning +1, attributed to the REPLY stage (the marker
+            # advances to REPLY once the cursor mapping is published).
             after_shard_info = info_modules_to_dict(target_shard)
             env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
                             int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
                             message="Shard timeout warning should be +1")
-            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]),
-                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]) + 1,
-                            message="Shard _FT.HYBRID published-cursor timeout should bump the PIPELINE stage")
+            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_REPLY_METRIC]),
+                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_REPLY_METRIC]) + 1,
+                            message="Shard _FT.HYBRID published-cursor timeout should bump the REPLY stage")
         finally:
             try:
                 target_shard.execute_command(

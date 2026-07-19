@@ -853,6 +853,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     }
     req->cursors = cursors;
     cursors = NULL;
+    // Cursors are published: the remaining work is handing off the mapping reply,
+    // so a timeout from here on is attributed to the REPLY stage (no-op if the
+    // timeout already fired, via the SetExecutionStage freeze).
+    HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
     HybridRequest_UnlockCursors(req);
 
     // Pause after store cursors (hybrid cursors only)
@@ -1060,7 +1064,8 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   HybridRequest_UnlockCursors(hreq);
 
   // Both reply shapes below count the aggregate (shard) timeout warning; record the
-  // per-stage breakdown once here, at the stage the request's marker had reached.
+  // per-stage breakdown once here, at the stage the request's marker had reached
+  // (REPLY once the cursors were published, QUEUE/PIPELINE before that).
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
   if (cursors) {
     // If cursors were published - reply with them
