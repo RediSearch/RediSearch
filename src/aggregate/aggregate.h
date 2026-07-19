@@ -723,8 +723,6 @@ void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
 
-#undef RS_Atomic
-
 #ifdef __cplusplus
 }
 #endif
