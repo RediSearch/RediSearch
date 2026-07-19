@@ -15,16 +15,18 @@
 #ifdef __cplusplus
 #include <atomic>
 #define RS_Atomic(T) std::atomic<T>
-#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
-#define RS_AtomicIntLoadRelaxed(p)      (((std::atomic<int> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicIntStoreRelaxed(p, v)  (((std::atomic<int> *)(p))->store((v), std::memory_order_relaxed))
+#define RS_AtomicBoolLoadRelaxed(p) (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicBoolStoreRelaxed(p, v) \
+  (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
+#define RS_AtomicIntLoadRelaxed(p) (((std::atomic<int> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicIntStoreRelaxed(p, v) \
+  (((std::atomic<int> *)(p))->store((v), std::memory_order_relaxed))
 #else
 #define RS_Atomic(T) _Atomic(T)
-#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicBoolLoadRelaxed(p) __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
 #define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
-#define RS_AtomicIntLoadRelaxed(p)      __atomic_load_n((int *)(p), __ATOMIC_RELAXED)
-#define RS_AtomicIntStoreRelaxed(p, v)  __atomic_store_n((int *)(p), (v), __ATOMIC_RELAXED)
+#define RS_AtomicIntLoadRelaxed(p) __atomic_load_n((int *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicIntStoreRelaxed(p, v) __atomic_store_n((int *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
-#endif // RS_ATOMIC_H__
+#endif  // RS_ATOMIC_H__
