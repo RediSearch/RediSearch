@@ -849,6 +849,31 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
   return NULL;
 }
 
+// Lowercase an ASCII string in place (avoids locale-dependent tolower()).
+static void asciiToLower(char *s) {
+  for (; *s; s++) {
+    if (*s >= 'A' && *s <= 'Z') {
+      *s += 'a' - 'A';
+    }
+  }
+}
+
+// A COLLECT arg token is an option keyword iff it is bare and matches one of the known
+// keywords. `@`-prefixed tokens are field/sort names, which are case-sensitive; COLLECT
+// requires the `@` prefix on every name, so a bare token can only be a keyword or a number.
+static bool isCollectKeyword(const char *tok) {
+  static const char *const keywords[] = {"FIELDS", "SORTBY", "ASC", "DESC", "LIMIT", "DISTINCT"};
+  if (!tok || tok[0] == '@') {
+    return false;
+  }
+  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
+    if (!strcasecmp(tok, keywords[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // COLLECT is the only reducer whose argument list interleaves case-insensitive option
 // keywords (FIELDS/SORTBY/ASC/DESC/LIMIT/DISTINCT) with case-sensitive `@field` names.
 // The synthetic reducer alias lowercases the whole arg list (getReducerAlias), but the
@@ -857,25 +882,16 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
 // alias yet fail to dedup, producing two remote reducers with a colliding synthetic alias
 // and failing the query with SEARCH_FIELD_DUP (MOD-16365). Canonicalize the keyword tokens
 // to lowercase up front, on the reducer's own (owned, mutable) arg tokens, so the alias and
-// the dedup agree everywhere the args are later forwarded. `@field`/`@sort` names are left
-// untouched, preserving their case; a bare token can only be a keyword or a number.
-static void normalizeCollectKeywords(ArgsCursor *args) {
-  static const char *const kw[] = {"FIELDS", "SORTBY", "ASC", "DESC", "LIMIT", "DISTINCT"};
+// the dedup agree everywhere the args are later forwarded.
+static void normalizeCollectKeywords(const ArgsCursor *args) {
   if (args->type == AC_TYPE_RSTRING) {
     return;  // tokens are RedisModuleString*, not mutable char buffers (never used for COLLECT)
   }
-  for (size_t i = 0; i < args->argc; i++) {
-    char *tok = (char *)args->objs[i];
-    if (!tok || tok[0] == '@') {
-      continue;  // field/sort names are case-sensitive
-    }
-    for (size_t k = 0; k < sizeof(kw) / sizeof(kw[0]); k++) {
-      if (!strcasecmp(tok, kw[k])) {
-        for (char *p = tok; *p; p++) {
-          if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
-        }
-        break;
-      }
+  ArgsCursor it = *args;  // iterate a copy; the caller's cursor position is untouched
+  while (!AC_IsAtEnd(&it)) {
+    char *tok = (char *)AC_GetStringNC(&it, NULL);
+    if (isCollectKeyword(tok)) {
+      asciiToLower(tok);
     }
   }
 }
