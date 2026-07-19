@@ -25,7 +25,7 @@ pub enum Action {
 ///
 /// There is a state for each initial input of the 3 and 4 byte sequences since
 /// the following bytes are subject to different conditions than a tail byte.
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     /// Ground state; expect anything
@@ -53,7 +53,7 @@ impl State {
     /// This takes the current state and input byte into consideration, to determine the next state
     /// and any action that should be taken.
     #[inline]
-    pub fn advance(self, byte: u8) -> (State, Action) {
+    pub const fn advance(self, byte: u8) -> (State, Action) {
         match self {
             State::Ground => match byte {
                 0x00..=0x7f => (State::Ground, Action::EmitByte),

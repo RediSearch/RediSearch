@@ -50,7 +50,7 @@ const CONTINUATION_MASK: u8 = 0b0011_1111;
 
 impl Parser {
     /// Create a new Parser
-    pub fn new() -> Parser {
+    pub const fn new() -> Parser {
         Parser {
             point: 0,
             state: State::Ground,
