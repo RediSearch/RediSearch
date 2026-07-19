@@ -5,6 +5,7 @@ from test_info_modules import (
     wait_for_info_metric,
     WARN_ERR_SECTION, COORD_WARN_ERR_SECTION,
     TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC,
+    TIMEOUT_WARNING_SHARD_PIPELINE_METRIC,
     TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC,
     TIMEOUT_ERROR_COORD_QUEUE_METRIC, TIMEOUT_ERROR_COORD_PIPELINE_METRIC,
     TIMEOUT_ERROR_COORD_REPLY_METRIC,
@@ -985,6 +986,9 @@ class TestCoordinatorTimeout:
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        # No timeout occurs in this test: no error/warning metric may change, in
+        # particular not the per-stage timeout breakdown (checked at the end).
+        before_info = info_modules_to_dict(env)
 
         # Test with 'fail' policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
@@ -1047,6 +1051,10 @@ class TestCoordinatorTimeout:
         env.assertEqual(result.get('warning', []), [],
                         message="Expected no warning with 'fail' policy (FT.HYBRID)")
 
+        # None of the queries timed out, so no error/warning metric changed --
+        # including the per-stage timeout breakdown.
+        _verify_metrics_not_changed(env, env, before_info, [])
+
         # Restore previous policy
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -1059,6 +1067,9 @@ class TestCoordinatorTimeout:
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        # No timeout occurs in this test: no error/warning metric may change, in
+        # particular not the per-stage timeout breakdown (checked at the end).
+        before_info = info_modules_to_dict(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Run FT.AGGREGATE with cursor, small chunk size to force multiple reads
@@ -1078,6 +1089,10 @@ class TestCoordinatorTimeout:
 
         env.assertEqual(total_results, self.n_docs,
                         message=f"Expected {self.n_docs} total results across all cursor reads")
+
+        # No cursor read timed out, so no error/warning metric changed -- including
+        # the per-stage timeout breakdown.
+        _verify_metrics_not_changed(env, env, before_info, [])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
@@ -2028,6 +2043,7 @@ class TestCoordinatorTimeout:
                 blocked_client_id[0] = cid
             return paused and cid is not None, {'paused': paused, 'client_id': cid}
 
+        before_shard_info = info_modules_to_dict(target_shard)
         try:
             target_shard.execute_command(
                 debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_BEFORE_HYBRID_STORE_CURSORS', 'true')
@@ -2056,6 +2072,16 @@ class TestCoordinatorTimeout:
                            message=f"RETURN_STRICT cursor-mapping timeout should not hard-error: {result}")
             assert_timeout_warning(env, result,
                                    message=f"FT.HYBRID cursor-mapping timeout, got: {result}")
+
+            # The shard's blocked-client timeout fired while the worker was paused
+            # inside cursor creation (mid-pipeline): shard warning +1, PIPELINE stage.
+            after_shard_info = info_modules_to_dict(target_shard)
+            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
+                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
+                            message="Shard timeout warning should be +1")
+            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]),
+                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]) + 1,
+                            message="Shard _FT.HYBRID cursor-mapping timeout should bump the PIPELINE stage")
         finally:
             try:
                 target_shard.execute_command(
@@ -2097,6 +2123,7 @@ class TestCoordinatorTimeout:
                 blocked_client_id[0] = cid
             return paused and cid is not None, {'paused': paused, 'client_id': cid}
 
+        before_shard_info = info_modules_to_dict(target_shard)
         try:
             target_shard.execute_command(
                 debug_cmd(), 'QUERY_CONTROLLER', 'SET_PAUSE_AFTER_HYBRID_STORE_CURSORS', 'true')
@@ -2125,6 +2152,17 @@ class TestCoordinatorTimeout:
                            message=f"RETURN_STRICT cursor-mapping timeout should not hard-error: {result}")
             assert_timeout_warning(env, result,
                                    message=f"FT.HYBRID existing cursor-mapping timeout, got: {result}")
+
+            # The shard replied with the already-published cursors from the timeout
+            # callback: shard warning +1, attributed to the PIPELINE stage (the tail
+            # never ran, so the marker never advanced to REPLY).
+            after_shard_info = info_modules_to_dict(target_shard)
+            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]),
+                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_METRIC]) + 1,
+                            message="Shard timeout warning should be +1")
+            env.assertEqual(int(after_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]),
+                            int(before_shard_info[WARN_ERR_SECTION][TIMEOUT_WARNING_SHARD_PIPELINE_METRIC]) + 1,
+                            message="Shard _FT.HYBRID published-cursor timeout should bump the PIPELINE stage")
         finally:
             try:
                 target_shard.execute_command(
@@ -6283,6 +6321,10 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
                             message="Coord timeout warning should be +1")
+            # The worker pool is paused, so the hybrid job never left the queue.
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC]),
+                            int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_QUEUE_METRIC]) + 1,
+                            message="Queued FT.HYBRID timeout should bump the QUEUE stage")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
@@ -6344,6 +6386,11 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
                             message="Coord timeout warning should be +1")
+            # The worker was picked up (marker advanced to PIPELINE) and parked at
+            # the claim sync point, so the timeout lands in the PIPELINE stage.
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
+                            int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
+                            message="FT.HYBRID claim-race timeout should bump the PIPELINE stage")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             if not signaled:
@@ -6440,6 +6487,11 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
                             message="Coord timeout warning should be +1")
+            # The worker is parked in the safe-loader GIL gate mid-pipeline, so the
+            # preempted timeout lands in the PIPELINE stage.
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
+                            int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
+                            message="FT.HYBRID safe-loader timeout should bump the PIPELINE stage")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
@@ -6488,6 +6540,11 @@ class TestShardTimeout:
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
                             str(base_warn_coord + 1),
                             message="Coord timeout warning should be +1")
+            # The stored reply is partial (rc==TIMEDOUT), so the marker never advanced
+            # to REPLY: the timeout is attributed to the PIPELINE stage.
+            env.assertEqual(int(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]),
+                            int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_PIPELINE_METRIC]) + 1,
+                            message="FT.HYBRID partial stored-reply timeout should bump the PIPELINE stage")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             resetAggregateResultsDebug(env)
@@ -6502,6 +6559,9 @@ class TestShardTimeout:
         env = self.env
 
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        # No timeout occurs in this test: no error/warning metric may change, in
+        # particular not the per-stage timeout breakdown (checked at the end).
+        before_info = info_modules_to_dict(env)
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
 
         # Run FT.AGGREGATE with cursor, small chunk size to force multiple reads
@@ -6521,6 +6581,10 @@ class TestShardTimeout:
 
         env.assertEqual(total_results, self.n_docs,
                         message=f"Expected {self.n_docs} total results across all cursor reads")
+
+        # No cursor read timed out, so no error/warning metric changed -- including
+        # the per-stage timeout breakdown.
+        _verify_metrics_not_changed(env, env, before_info, [])
 
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy).ok()
 
