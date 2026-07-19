@@ -849,7 +849,6 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
   return NULL;
 }
 
-// Lowercase an ASCII string in place (avoids locale-dependent tolower()).
 static void asciiToLower(char *s) {
   for (; *s; s++) {
     if (*s >= 'A' && *s <= 'Z') {
@@ -858,9 +857,8 @@ static void asciiToLower(char *s) {
   }
 }
 
-// A COLLECT arg token is an option keyword iff it is bare and matches one of the known
-// keywords. `@`-prefixed tokens are field/sort names, which are case-sensitive; COLLECT
-// requires the `@` prefix on every name, so a bare token can only be a keyword or a number.
+// Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
+// field/sort name, so a name can never be mistaken for a keyword.
 static bool isCollectKeyword(const char *tok) {
   static const char *const keywords[] = {"FIELDS", "SORTBY", "ASC", "DESC", "LIMIT", "DISTINCT"};
   if (!tok || tok[0] == '@') {
@@ -874,20 +872,15 @@ static bool isCollectKeyword(const char *tok) {
   return false;
 }
 
-// COLLECT is the only reducer whose argument list interleaves case-insensitive option
-// keywords (FIELDS/SORTBY/ASC/DESC/LIMIT/DISTINCT) with case-sensitive `@field` names.
-// The synthetic reducer alias lowercases the whole arg list (getReducerAlias), but the
-// remote-reducer dedup in the coordinator compares bytes (AC_Equals -> strcmp). So two
-// COLLECTs differing only in keyword case (e.g. `FIELDS` vs `fields`) map to the same
-// alias yet fail to dedup, producing two remote reducers with a colliding synthetic alias
-// and failing the query with SEARCH_FIELD_DUP (MOD-16365). Canonicalize the keyword tokens
-// to lowercase up front, on the reducer's own (owned, mutable) arg tokens, so the alias and
-// the dedup agree everywhere the args are later forwarded.
+// Lowercase COLLECT's option keywords in place so the generated alias (lowercased by
+// getReducerAlias) and the coordinator's byte-wise remote-reducer dedup (AC_Equals) agree.
+// Otherwise two COLLECTs differing only in keyword case get the same synthetic remote alias
+// without deduping, failing the query with SEARCH_FIELD_DUP in cluster (MOD-16365).
 static void normalizeCollectKeywords(const ArgsCursor *args) {
   if (args->type == AC_TYPE_RSTRING) {
-    return;  // tokens are RedisModuleString*, not mutable char buffers (never used for COLLECT)
+    return;  // RedisModuleString* tokens, not mutable char buffers (never used for COLLECT)
   }
-  ArgsCursor it = *args;  // iterate a copy; the caller's cursor position is untouched
+  ArgsCursor it = *args;
   while (!AC_IsAtEnd(&it)) {
     char *tok = (char *)AC_GetStringNC(&it, NULL);
     if (isCollectKeyword(tok)) {
