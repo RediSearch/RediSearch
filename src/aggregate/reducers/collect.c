@@ -297,18 +297,13 @@ static void asciiToLower(char *s, size_t len) {
 // Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
 // field/sort name, so a name can never be mistaken for a keyword.
 static bool isCollectKeyword(const char *tok, size_t len) {
-#define KW(s) {s, sizeof(s) - 1}
-  static const struct {
-    const char *str;
-    size_t len;
-  } keywords[] = {KW("FIELDS"), KW("SORTBY"), KW(SORT_DIR_ASC),
-                  KW(SORT_DIR_DESC), KW("LIMIT"), KW("DISTINCT")};
-#undef KW
+  static const char *const keywords[] = {"FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC,
+                                         "LIMIT", "DISTINCT"};
   if (len == 0 || tok[0] == '@') {
     return false;
   }
   for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
-    if (len == keywords[i].len && !strncasecmp(tok, keywords[i].str, len)) {
+    if (len == strlen(keywords[i]) && !strncasecmp(tok, keywords[i], len)) {
       return true;
     }
   }
