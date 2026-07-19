@@ -82,55 +82,56 @@ def wait_for_condition(check_fn, message, timeout=120):
         log = f"{message}: {timeout_msg}"
         raise Exception(f'Error: {e}, log: {log}')
 
-if RS_TEST_ENTERPRISE:
-    class RediSearchEnterpriseStandaloneEnv(Env):
-        """Standalone-only Env: re-seeds the single-shard coordinator topology
-        (see _seed_single_shard_topology further below) after every (re)start,
-        since the enterprise build otherwise leaves the coordinator
-        uninitialized until SEARCH.CLUSTERSET arrives."""
+class RediSearchEnterpriseStandaloneEnv(Env):
+    """Standalone-only Env: re-seeds the single-shard coordinator topology
+    (see _seed_single_shard_topology further below) after every (re)start,
+    since the enterprise build otherwise leaves the coordinator
+    uninitialized until SEARCH.CLUSTERSET arrives."""
 
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._seed_topology()
+
+    def start(self, *args, **kwargs):
+        super().start(*args, **kwargs)
+        self._seed_topology()
+
+    def dumpAndReload(self, restart=False, shardId=None, timeout_sec=40):
+        super().dumpAndReload(restart=restart, shardId=shardId, timeout_sec=timeout_sec)
+        if restart:
             self._seed_topology()
 
-        def start(self, *args, **kwargs):
-            super().start(*args, **kwargs)
-            self._seed_topology()
-
-        def dumpAndReload(self, restart=False, shardId=None, timeout_sec=40):
-            super().dumpAndReload(restart=restart, shardId=shardId, timeout_sec=timeout_sec)
-            if restart:
-                self._seed_topology()
-
-        def _seed_topology(self):
-            # 'existing' (external) servers set up their own topology.
-            try:
-                if 'existing' in self.env:
-                    return
-            except Exception:
+    def _seed_topology(self):
+        # 'existing' (external) servers set up their own topology.
+        try:
+            if 'existing' in self.env:
                 return
-            if self.isCluster():
-                raise RuntimeError(
-                    "RediSearchEnterpriseStandaloneEnv is standalone-only; "
-                    "do not use with a cluster env")
-            conn = self.getConnection()
-            port = conn.connection_pool.connection_kwargs.get('port')
-            try:
-                _seed_single_shard_topology(conn, port)
-            except Exception:
-                pass
-            # Also seed the slave, if any (useSlaves=True).
-            try:
-                slave_conn = self.getSlaveConnection()
-                slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
-                _seed_single_shard_topology(slave_conn, slave_port)
-            except Exception:
-                pass
+        except Exception:
+            return
+        if self.isCluster():
+            raise RuntimeError(
+                "RediSearchEnterpriseStandaloneEnv is standalone-only; "
+                "do not use with a cluster env")
+        conn = self.getConnection()
+        port = conn.connection_pool.connection_kwargs.get('port')
+        try:
+            _seed_single_shard_topology(conn, port)
+        except Exception:
+            pass
+        # Also seed the slave, if any (useSlaves=True).
+        try:
+            slave_conn = self.getSlaveConnection()
+            slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
+            _seed_single_shard_topology(slave_conn, slave_port)
+        except Exception:
+            pass
 
-    # Make bare Env(...) construction (fixture-injected tests and direct
-    # `from RLTest import Env; env = Env(...)` call sites alike) yield this
-    # subclass, via the RLTest __new__ hook.
-    Defaults.env_class = RediSearchEnterpriseStandaloneEnv  # read by RLTest's Env.__new__ hook (RedisLabsModules/RLTest#254)
+
+# Activate the seeding subclass for bare Env(...) construction, but only under
+# enterprise (read by RLTest's Env.__new__ hook). In OSS the class above stays
+# defined but unused, so setting env_class here would be a no-op at best.
+if RS_TEST_ENTERPRISE:
+    Defaults.env_class = RediSearchEnterpriseStandaloneEnv
 
 # Base for suite-defined Env subclasses so they inherit enterprise seeding
 # (the Env.__new__ hook only redirects bare Env(), not subclasses).
