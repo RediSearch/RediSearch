@@ -894,7 +894,7 @@ static void priority_queue_push_chain_unsafe(priorityJobqueue *priority_queue_p,
                         l_newjob_p, n);
     break;
   }
-  if (n > 1) {
+  if (priority_queue_len_unsafe(priority_queue_p) > 1) {
     pthread_cond_broadcast(&priority_queue_p->has_jobs);
   } else {
     pthread_cond_signal(&priority_queue_p->has_jobs);
