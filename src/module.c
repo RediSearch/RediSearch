@@ -3111,10 +3111,10 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 // Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
 // handler advances it, the main-thread timeout callbacks read it.
 static inline void searchReqCtx_SetExecutionStage(searchRequestCtx *req, QueryTimeoutStage stage) {
-  __atomic_store_n(&req->execPhase, (int)stage, __ATOMIC_RELAXED);
+  RS_AtomicIntStoreRelaxed(&req->execPhase, (int)stage);
 }
 static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx *req) {
-  return (QueryTimeoutStage)__atomic_load_n(&req->execPhase, __ATOMIC_RELAXED);
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&req->execPhase);
 }
 
 // Record an FT.SEARCH-coordinator per-stage timeout, reading the search request's

@@ -27,21 +27,10 @@
 #include "info/global_stats.h" // QueryTimeoutStage (execution-phase marker + timeout breakdown)
 
 #include "rmutil/rm_assert.h"
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
-#include <atomic>
-#define RS_Atomic(T) std::atomic<T>
-#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
-#define RS_AtomicIntLoadRelaxed(p)      (((std::atomic<int> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicIntStoreRelaxed(p, v)  (((std::atomic<int> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
-#else
-#define RS_Atomic(T) _Atomic(T)
-#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
-#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
-#define RS_AtomicIntLoadRelaxed(p)      __atomic_load_n((int *)(p), __ATOMIC_RELAXED)
-#define RS_AtomicIntStoreRelaxed(p, v)  __atomic_store_n((int *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -186,8 +175,10 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
-  // Execution-phase marker (QueryTimeoutStage), advanced QUEUE -> PIPELINE -> REPLY by
-  // the executing thread and read by the timeout callbacks; frozen once `timedOut` is set.
+  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
+  // the executing thread (QUEUE -> PIPELINE -> REPLY) and frozen once `timedOut` is
+  // set. The main-thread timeout callbacks only read it to attribute a timeout to
+  // the pipeline stage it occurred in.
   RS_Atomic(int) execPhase;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
