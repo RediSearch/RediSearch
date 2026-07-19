@@ -1518,10 +1518,9 @@ def test_two_identical_collect_reducers():
 
 
 def test_two_collect_reducers_case_variant_keywords():
-    # MOD-16365: two REDUCE COLLECT calls that are identical except for the case
-    # of the option keywords (FIELDS/SORTBY/ASC) must still dedup on the remote
-    # side. Before the fix the coordinator emitted two remote reducers sharing one
-    # lowercased synthetic alias and failed with SEARCH_FIELD_DUP in cluster.
+    # Option keywords are case-insensitive: two COLLECTs differing only in
+    # keyword case (FIELDS/SORTBY/ASC) are the same reducer and must return
+    # the same results.
     env = Env(protocol=3)
     _setup_hash(env)
 
