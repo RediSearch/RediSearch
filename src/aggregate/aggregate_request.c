@@ -849,6 +849,37 @@ PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, Arg
   return NULL;
 }
 
+// COLLECT is the only reducer whose argument list interleaves case-insensitive option
+// keywords (FIELDS/SORTBY/ASC/DESC/LIMIT/DISTINCT) with case-sensitive `@field` names.
+// The synthetic reducer alias lowercases the whole arg list (getReducerAlias), but the
+// remote-reducer dedup in the coordinator compares bytes (AC_Equals -> strcmp). So two
+// COLLECTs differing only in keyword case (e.g. `FIELDS` vs `fields`) map to the same
+// alias yet fail to dedup, producing two remote reducers with a colliding synthetic alias
+// and failing the query with SEARCH_FIELD_DUP (MOD-16365). Canonicalize the keyword tokens
+// to lowercase up front, on the reducer's own (owned, mutable) arg tokens, so the alias and
+// the dedup agree everywhere the args are later forwarded. `@field`/`@sort` names are left
+// untouched, preserving their case; a bare token can only be a keyword or a number.
+static void normalizeCollectKeywords(ArgsCursor *args) {
+  static const char *const kw[] = {"FIELDS", "SORTBY", "ASC", "DESC", "LIMIT", "DISTINCT"};
+  if (args->type == AC_TYPE_RSTRING) {
+    return;  // tokens are RedisModuleString*, not mutable char buffers (never used for COLLECT)
+  }
+  for (size_t i = 0; i < args->argc; i++) {
+    char *tok = (char *)args->objs[i];
+    if (!tok || tok[0] == '@') {
+      continue;  // field/sort names are case-sensitive
+    }
+    for (size_t k = 0; k < sizeof(kw) / sizeof(kw[0]); k++) {
+      if (!strcasecmp(tok, kw[k])) {
+        for (char *p = tok; *p; p++) {
+          if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
+        }
+        break;
+      }
+    }
+  }
+}
+
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status) {
   // Just a list of functions..
@@ -860,6 +891,10 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, name, rv);
     goto error;
+  }
+
+  if (!strcasecmp(name, "COLLECT")) {
+    normalizeCollectKeywords(&gr->args);
   }
 
   // See if there is an alias
