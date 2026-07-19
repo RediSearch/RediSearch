@@ -546,8 +546,6 @@ typedef struct {
   bool cursor_done;         // Whether the cursor is done
 } ChunkSerializeState;
 
-/**
- * Handles error/timeout checking and sends error reply if needed.
 /* Record a per-stage timeout into the blocked-client breakdown, iff this request
  * timed out via the blocked-client mechanism (AREQ_TimedOut is set only by the
  * blocked-client timeout callbacks). Paired with the aggregate `timeout`
@@ -559,7 +557,8 @@ static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
   }
 }
 
-/*
+/**
+ * Handles error/timeout checking and sends error reply if needed.
  * Returns true if an error was sent (caller should skip to cleanup).
  * Shared by both RESP2 and RESP3 implementations.
  */
