@@ -1333,6 +1333,8 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   if (HybridRequest_TimeoutPreemptSafeLoaderGIL(hreq)) {
+    // BG lost the claim and is parked in the safe-loader GIL gate (marker = PIPELINE).
+    CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
     coord_hybrid_query_reply_empty(ctx, argv, argc, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
