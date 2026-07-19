@@ -84,9 +84,10 @@ impl Parser {
             }
             Action::SetByte1 => {
                 let point = self.point | ((byte & CONTINUATION_MASK) as u32);
-                // SAFETY: the DFA only emits `SetByte1` at the end of a sequence it has
-                // fully validated — overlong encodings, surrogates, and values above
-                // U+10FFFF are rejected — so `point` is a valid Unicode scalar value.
+                // SAFETY: `State::advance` only yields `SetByte1` on the final continuation
+                // byte of a sequence whose earlier transitions already rejected overlong
+                // encodings, surrogates, and values above U+10FFFF, so `point` is a valid
+                // Unicode scalar value.
                 let c = unsafe { char::from_u32_unchecked(point) };
                 self.point = 0;
 
