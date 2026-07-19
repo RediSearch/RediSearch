@@ -2402,10 +2402,19 @@ int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   if (takenCursor) {
     // Coord blocking path. The per-read RETURN_STRICT reset already ran on the
-    // main thread (BeginCycle). Mirrors cursorRead_ctx: FAIL bails and drops
-    // the cursor if the timer already replied; RETURN_STRICT always runs the
-    // read so it can store a cursor-shaped timeout reply, signal the waiting
-    // timeout callback, and park/free the cursor.
+    // main thread (BeginCycle).
+    if (AREQ_RequiresThreadsSyncResults(takenReq) &&
+        !BlockedRequestCtx_TryOwnStrictRead(takenReq->brc, BRC_READ_OWNER_BG)) {
+      // RETURN_STRICT: the timeout callback fired before this worker dequeued
+      // the read, won the owner latch, and already replied with a depleted
+      // cursor. Free the taken cursor; store nothing (nobody is waiting).
+      Cursor_Free(takenCursor);
+      return REDISMODULE_OK;
+    }
+    // Mirrors cursorRead_ctx: FAIL bails and drops the cursor if the timer
+    // already replied; RETURN_STRICT (latch won) always runs the read so it
+    // can store a cursor-shaped reply, signal a waiting timeout callback, and
+    // park/free the cursor.
     if (!AREQ_TimedOut(takenReq) || AREQ_RequiresThreadsSyncResults(takenReq)) {
       cursorRead(ctx, takenCursor, count, false);
     } else {

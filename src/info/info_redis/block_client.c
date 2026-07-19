@@ -37,6 +37,7 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   brc->bc = bc;
   brc->reply_cb = reply_cb;
   brc->timeout_policy = policy;
+  atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
   RedisModule_BlockClientSetPrivateData(bc, brc);
   // Cursor cycles reuse the wrapper across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean

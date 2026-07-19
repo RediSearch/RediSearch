@@ -1136,18 +1136,25 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
   // The cursor was taken for execution on the main thread before the timer was
-  // armed, so its parked request is always attached to the wrapper here, and
-  // the BG read is guaranteed to run: under RETURN_STRICT it never early-bails
-  // on the timeout flag, and it always stores a (possibly timeout-shaped)
-  // reply and signals completion before disposing of the cursor.
+  // armed, so its parked request is always attached to the wrapper here.
   AREQ *req = brc->query.areq;
   AREQ_SetTimedOut(req);
+
+  if (BlockedRequestCtx_TryOwnStrictRead(brc, BRC_READ_OWNER_TIMEOUT)) {
+    // The BG worker has not dequeued the read job yet. Waiting here would
+    // block the main thread on BG progress (deadlock if the pool is
+    // paused/saturated); reply with a depleted cursor instead. The worker
+    // observes the lost latch at its entry and frees the taken cursor without
+    // storing a reply.
+    return coord_cursor_read_empty_reply_timeout(ctx, 0);
+  }
 
   // Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
   RequestSyncState_WakeAbortChannel(&req->syncState);
 
-  // Sync with BG.
+  // BG owns the read: a started RETURN_STRICT read always stores a
+  // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->brc->reply.hasStoredResults) {

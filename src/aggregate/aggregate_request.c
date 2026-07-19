@@ -1172,6 +1172,14 @@ bool AREQ_TryClaimAggregateResults(AREQ *req) {
                                                  memory_order_relaxed, memory_order_relaxed);
 }
 
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
+  int expected = BRC_READ_OWNER_NONE;
+  // acq_rel: the winner's subsequent actions (BG running the read / the timer
+  // replying depleted) must be ordered against the loser's observation.
+  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
+                                                 memory_order_acq_rel, memory_order_acquire);
+}
+
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {
   pthread_mutex_lock(&req->brc->aggregateResultsLock);
   req->brc->aggregateResultsDone = true;

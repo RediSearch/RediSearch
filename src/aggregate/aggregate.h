@@ -182,6 +182,13 @@ typedef enum {
   REQUEST_KIND_HYBRID,
 } RequestKind;
 
+/* Values of BlockedRequestCtx.strictReadOwner (see the field's doc). */
+typedef enum {
+  BRC_READ_OWNER_NONE = 0,
+  BRC_READ_OWNER_BG,
+  BRC_READ_OWNER_TIMEOUT,
+} BrcStrictReadOwner;
+
 /* Heap-allocated owning wrapper around a top-level request. Defined below the
  * AREQ struct (it references AREQ/HybridRequest only by pointer). */
 typedef struct BlockedRequestCtx BlockedRequestCtx;
@@ -383,6 +390,16 @@ struct BlockedRequestCtx {
   RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle; immutable
                                   // for the cycle (sticky-policy pattern,
                                   // MOD-16023, generalized to all cycles)
+  /* Coord RETURN_STRICT cursor-read owner latch. Replaces the old
+   * CoordRequestCtx `setReqLock` + `req == NULL` proxy for "has the BG worker
+   * dequeued this read": the BG handler CASes NONE→BG at its entry; the
+   * RETURN_STRICT timeout callback CASes NONE→TIMEOUT after flipping the
+   * timeout flag. A timer that wins replies with a depleted empty cursor and
+   * never waits (the BG job may be queued behind a paused/saturated pool); a
+   * BG that loses frees the taken cursor and stores nothing. A timer that
+   * loses may wait: a started RETURN_STRICT read always stores a reply and
+   * signals completion. Reset by BeginCycle. */
+  RS_Atomic(int) strictReadOwner;
   // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
   // results/error here before UnblockClient; the reply or timeout callback
   // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
@@ -690,6 +707,10 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
  * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
+
+/* CAS BlockedRequestCtx.strictReadOwner NONE -> `owner`. Returns true if this
+ * caller won the latch (see the field's doc for the protocol). */
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
