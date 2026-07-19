@@ -130,7 +130,17 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  JSONResultsIterator jsonIter = (*RLookupKey_GetPath(kk) == '$') ? japi->get(*keyobj, RLookupKey_GetPath(kk)) : NULL;
+  JSONResultsIterator jsonIter = NULL;
+  if (*RLookupKey_GetPath(kk) == '$') {
+    // Reuse the path compiled once for this loader when available (MOD-16899), otherwise fall
+    // back to the string API which recompiles the JSONPath on every call. `activeCompiledPath` is
+    // only ever set when RedisJSON exposes `getWithPath` (api ver >= 9), so it is safe to call.
+    if (options->activeCompiledPath) {
+      jsonIter = japi->getWithPath(*keyobj, options->activeCompiledPath);
+    } else {
+      jsonIter = japi->get(*keyobj, RLookupKey_GetPath(kk));
+    }
+  }
 
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
@@ -155,6 +165,46 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
                           void **keyobj);
 
+void LoadOptions_CompileKeyPaths(RLookupLoadOptions *options) {
+  options->compiledPaths = NULL;
+  options->activeCompiledPath = NULL;
+  // Only worth precompiling (and only safe to touch `getWithPath`) when RedisJSON exposes the V9
+  // API. Otherwise leave `compiledPaths` NULL and fall back to the string-based `japi->get`.
+  if (!japi || japi_ver < 9 || !japi->getWithPath || options->nkeys == 0) {
+    return;
+  }
+  RedisModuleCtx *ctx = options->sctx ? options->sctx->redisCtx : NULL;
+  JSONPath *paths = rm_calloc(options->nkeys, sizeof(*paths));
+  for (size_t i = 0; i < options->nkeys; ++i) {
+    const char *path = RLookupKey_GetPath(options->keys[i]);
+    // Only JSONPaths (starting with '$') are resolved through the RedisJSON API; leave the rest
+    // NULL so their loading keeps its existing behavior.
+    if (path && *path == '$') {
+      RedisModuleString *err = NULL;
+      paths[i] = japi->pathParse(path, ctx, &err);
+      if (err) {
+        RedisModule_FreeString(ctx, err);
+      }
+    }
+  }
+  options->compiledPaths = paths;
+}
+
+void LoadOptions_FreeCompiledPaths(RLookupLoadOptions *options) {
+  if (!options->compiledPaths) {
+    return;
+  }
+  if (japi && japi->pathFree) {
+    for (size_t i = 0; i < options->nkeys; ++i) {
+      if (options->compiledPaths[i]) {
+        japi->pathFree(options->compiledPaths[i]);
+      }
+    }
+  }
+  rm_free(options->compiledPaths);
+  options->compiledPaths = NULL;
+  options->activeCompiledPath = NULL;
+}
 
 int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
   // Load the document from the schema. This should be simple enough...
@@ -193,6 +243,8 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
+      // Select the path compiled once for this key (NULL -> string-path fallback in getKeyCommonJSON).
+      options->activeCompiledPath = options->compiledPaths ? options->compiledPaths[ii] : NULL;
       if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
         goto done;
       }

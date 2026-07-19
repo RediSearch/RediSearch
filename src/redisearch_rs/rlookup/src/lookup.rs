@@ -495,6 +495,10 @@ fn load_specific_keys<'a>(
         cachedOnly: false,
         dmd: ptr::null(),
         forceString: false,
+        // JSONPath precompilation (MOD-16899) is only set up by the C aggregate/search loader;
+        // this path always uses the string-based `japi->get` fallback.
+        compiledPaths: ptr::null_mut(),
+        activeCompiledPath: ptr::null(),
     };
 
     // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.

@@ -9,6 +9,7 @@
 #ifndef RLOOKUP_LOAD_DOCUMENT_H
 #define RLOOKUP_LOAD_DOCUMENT_H
 #include "rlookup.h"
+#include "rejson_api.h"
 #include "hiredis/sds.h"
 
 #ifdef __cplusplus
@@ -41,6 +42,23 @@ typedef struct {
   size_t nkeys;
 
   /**
+   * Optional array (length `nkeys`, parallel to `keys`) of JSONPaths pre-compiled once from each
+   * key's path, so JSON loading does not recompile the same path for every document (MOD-16899).
+   * Entry `i` is NULL when key `i` is not a JSON path (does not start with `$`), failed to
+   * compile, or when RedisJSON is older than the version exposing `getWithPath`. NULL when not
+   * precompiled at all (the loader then falls back to the string-based `japi->get`).
+   * Owned by the loader; built by `LoadOptions_CompileKeyPaths` and freed by
+   * `LoadOptions_FreeCompiledPaths`.
+   */
+  JSONPath *compiledPaths;
+
+  /**
+   * Scratch slot set to `compiledPaths[i]` for the key currently being loaded, so the fixed
+   * `GetKeyFunc` signature does not need the key index. NULL selects the string-path fallback.
+   */
+  JSONPath activeCompiledPath;
+
+  /**
    * Load only cached keys (don't open keys)
    */
   bool cachedOnly;
@@ -58,6 +76,17 @@ typedef struct {
 
   struct QueryError *status;
 } RLookupLoadOptions;
+
+/**
+ * Precompile the JSONPath of each key in `options->keys` (once), storing the handles in a freshly
+ * allocated `options->compiledPaths`. No-op (leaves `compiledPaths` NULL) when there are no keys,
+ * RedisJSON is not loaded, or the loaded RedisJSON does not expose `getWithPath` (api ver < 9), in
+ * which case JSON loading transparently falls back to the string-based `japi->get`.
+ */
+void LoadOptions_CompileKeyPaths(RLookupLoadOptions *options);
+
+/** Free the handles allocated by `LoadOptions_CompileKeyPaths` and the array itself. */
+void LoadOptions_FreeCompiledPaths(RLookupLoadOptions *options);
 
 int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options);
 

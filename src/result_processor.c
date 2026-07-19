@@ -1014,6 +1014,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
+  LoadOptions_FreeCompiledPaths(&lc->loadopts);
   rm_free(lc->loadopts.keys);
 }
 
@@ -1033,6 +1034,10 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
     self->loadopts.nkeys = nkeys;
     self->load_all = false;
+    // Compile each JSON field's path once for the whole query, so JSON loading does not
+    // recompile the same JSONPath for every document (MOD-16899). No-op for HASH / older
+    // RedisJSON; freed in rploaderFreeInternal.
+    LoadOptions_CompileKeyPaths(&self->loadopts);
   } else {
     self->load_all = true;
     RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
