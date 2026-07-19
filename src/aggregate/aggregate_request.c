@@ -1089,7 +1089,7 @@ AREQ *AREQ_New(void) {
   req->prefixesOffset = 0;
   req->keySpaceVersion = INVALID_KEYSPACE_VERSION;
   req->querySlots = NULL;
-  RequestSyncState_Init(&req->syncCtx);
+  RequestSyncState_Init(&req->syncState);
   req->brc = NULL;
   req->storedReplyState.err = QueryError_Default();
   return req;
@@ -1187,9 +1187,9 @@ void AREQ_WaitForAggregateResultsComplete(AREQ *req) {
  * the request's embedded RequestSyncState, not on the wrapper itself. */
 static bool BlockedRequestCtx_OwnedRequestTimedOut(BlockedRequestCtx *brc) {
   if (brc->kind == REQUEST_KIND_AREQ) {
-    return RequestSyncState_GetTimedOut(&brc->query.areq->syncCtx);
+    return RequestSyncState_GetTimedOut(&brc->query.areq->syncState);
   }
-  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncCtx);
+  return RequestSyncState_GetTimedOut(&brc->query.hybrid->syncState);
 }
 
 /* See aggregate.h for the full handshake contract. The aggregateResultsLock
@@ -1232,7 +1232,7 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->brc->aggregateResultsDone = false;
   req->brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->brc->aggregateResultsLock);
-  RequestSyncState_ClearTimedOut(&req->syncCtx);
+  RequestSyncState_ClearTimedOut(&req->syncState);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
     ((RPNet *)root)->drainOnly = false;
@@ -1613,7 +1613,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request's timed-out flag onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer (read via SearchTime_IsTimedOut).
-  sctx->time.timedOutFlag = &req->syncCtx.timedOut;
+  sctx->time.timedOutFlag = &req->syncState.timedOut;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1860,7 +1860,7 @@ void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
-  RequestSyncState_Destroy(&req->syncCtx);
+  RequestSyncState_Destroy(&req->syncState);
 
   rm_free(req);
 }

@@ -43,7 +43,7 @@ typedef struct HybridRequest {
 
     // Synchronization context for timeout/reply callbacks.
     // Holds the per-request timeout flag and abort-wake channel.
-    RequestSyncState syncCtx;
+    RequestSyncState syncState;
 
     // Non-owning back-pointer to the heap wrapper that owns this request.
     BlockedRequestCtx *brc;
@@ -89,7 +89,7 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RequestSyncState_GetTimedOut(&req->syncCtx);
+  return RequestSyncState_GetTimedOut(&req->syncState);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker

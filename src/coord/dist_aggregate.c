@@ -301,7 +301,7 @@ static int rpnetCreateIterator(RPNet *nc) {
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
   // Paired with RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
-  RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+  RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
   DebugBgIterator_Set(it);
@@ -1084,7 +1084,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
   // Wake it so it observes the Timeout and exits the pipeline promptly.
-  RequestSyncState_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncState);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1196,7 +1196,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  RequestSyncState_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncState);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);

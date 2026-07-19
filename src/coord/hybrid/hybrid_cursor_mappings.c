@@ -287,7 +287,7 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
                                  QueryError *status, const RSOomPolicy oomPolicy,
                                  const RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch,
                                  bool *maxPrefixVsim, bool *shardTimedOutWarning,
-                                 const struct timespec *deadline, RequestSyncState *syncCtx) {
+                                 const struct timespec *deadline, RequestSyncState *syncState) {
     CursorMappings *searchMappings = StrongRef_Get(searchMappingsRef);
     CursorMappings *vsimMappings = StrongRef_Get(vsimMappingsRef);
     RS_ASSERT(array_len(searchMappings->mappings) == 0 && array_len(vsimMappings->mappings) == 0);
@@ -325,18 +325,18 @@ bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappingsR
     // Register the iterator's channel so an external abort - the coordinator timeout
     // callback (RequestSyncState_WakeAbortChannel) or a client disconnect - can wake
     // this wait promptly. Unregistered below before the iterator is released.
-    RequestSyncState_RegisterAbortWakeChannel(syncCtx, MRIterator_GetChannel(it));
+    RequestSyncState_RegisterAbortWakeChannel(syncState, MRIterator_GetChannel(it));
 
     // Pass both the deadline and the abort flag: `deadline` is NULL under RETURN-STRICT /
     // disabled timeout checks, where the abort flag is the only wake (chan.c requires
     // at least one non-NULL).
     bool timedOut = false;
-    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncCtx->timedOut, &timedOut);
+    MRReply *r = MRIterator_NextWithTimeout(it, deadline, &syncState->timedOut, &timedOut);
     RS_ASSERT(r == NULL);  // the callbacks never AddReply; a non-NULL reply is a bug
 
-    RequestSyncState_UnregisterAbortWakeChannel(syncCtx);
+    RequestSyncState_UnregisterAbortWakeChannel(syncState);
 
-    if (timedOut || RequestSyncState_GetTimedOut(syncCtx)) {
+    if (timedOut || RequestSyncState_GetTimedOut(syncState)) {
         QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         MRIterator_Release(it);
         return false;

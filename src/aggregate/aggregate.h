@@ -313,7 +313,7 @@ typedef struct AREQ {
   ProfilePrinterCtx profileCtx;
 
   // Per-request synchronization slot (timeout flag + abort-wake channel).
-  RequestSyncState syncCtx;
+  RequestSyncState syncState;
 
   // Non-owning back-pointer to the heap wrapper that owns this request.
   // Set for the top-level request; NULL for hybrid sub-AREQs.
@@ -629,10 +629,10 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 
 static inline bool AREQ_TimedOut(AREQ *req) {
-  return RequestSyncState_GetTimedOut(&req->syncCtx);
+  return RequestSyncState_GetTimedOut(&req->syncState);
 }
 static inline void AREQ_SetTimedOut(AREQ *req) {
-  RequestSyncState_SetTimedOut(&req->syncCtx);
+  RequestSyncState_SetTimedOut(&req->syncState);
 }
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
@@ -665,7 +665,7 @@ void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
 /* RP_SAFE_LOADER GIL handshake (deadlock avoidance for RETURN_STRICT). Reached
- * only on the sync path: the loader links its syncCtx only when
+ * only on the sync path: the loader links its brc only when
  * requiresAggregateResultsSync is set, and the Preempt callers are the
  * RETURN_STRICT timeout callbacks, so no in-helper policy gate is needed.
  *
@@ -690,7 +690,7 @@ bool BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(BlockedRequestCtx *sync);
  *   - brc->aggregatingResults (CAS claim)
  *   - brc->aggregateResultsDone (signal latch)
  *   - brc->safeLoadersHoldingGIL (GIL-handshake latch)
- *   - syncCtx.timedOut (timer latch from the previous chunk's timer)
+ *   - syncState.timedOut (timer latch from the previous chunk's timer)
  *   - RPNet::drainOnly on the root proc when it is RP_NETWORK (so the next
  *     read does not short-circuit to EOF on the first empty-channel observation).
  * Caller MUST hold the per-request setRequestLock so the timer cannot publish a
