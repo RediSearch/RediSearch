@@ -35,6 +35,32 @@ void DocIdMeta_SetForgetDocIdMetadata(bool inProgress) {
   ForgetDocIdMetadata = inProgress;
 }
 
+// MOD-16954 instrumentation: aggregate per-key RDB save/load counters. See
+// doc_id_meta.h. These are single-threaded (RDB save/load runs on one thread
+// per session), so plain statics are fine.
+static size_t g_saveKeys = 0, g_saveEntries = 0;
+static size_t g_loadKeysAttached = 0, g_loadEntriesAttached = 0, g_loadKeysForgotten = 0;
+static uint64_t g_saveMinDocId = 0, g_saveMaxDocId = 0;
+
+void DocIdMeta_ResetSaveStats(void) {
+  g_saveKeys = g_saveEntries = 0;
+  g_saveMinDocId = g_saveMaxDocId = 0;
+}
+void DocIdMeta_LogSaveStats(const char *phase) {
+  RedisModule_Log(RSDummyContext, "notice",
+                  "MOD-16954 DocIdMeta RDB SAVE summary [%s]: keys_with_meta=%zu entries=%zu docId_range=[%llu..%llu]",
+                  phase, g_saveKeys, g_saveEntries,
+                  (unsigned long long)g_saveMinDocId, (unsigned long long)g_saveMaxDocId);
+}
+void DocIdMeta_ResetLoadStats(void) {
+  g_loadKeysAttached = g_loadEntriesAttached = g_loadKeysForgotten = 0;
+}
+void DocIdMeta_LogLoadStats(const char *phase) {
+  RedisModule_Log(RSDummyContext, "notice",
+                  "MOD-16954 DocIdMeta RDB LOAD summary [%s]: keys_attached=%zu entries_attached=%zu keys_forgotten=%zu",
+                  phase, g_loadKeysAttached, g_loadEntriesAttached, g_loadKeysForgotten);
+}
+
 // Helper macros for casting between uint64_t and void* for dict keys/values.
 #define SPECID_TO_KEY(specId) ((void*)(uintptr_t)(specId))
 #define KEY_TO_SPECID(key)    ((uint64_t)(uintptr_t)(key))
@@ -161,10 +187,13 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
   }
 
   if (forgetDocIDMetadata) {
+    g_loadKeysForgotten++;
     *meta = 0;
     return DOCID_META_RDB_LOAD_SKIP;
   }
 
+  g_loadKeysAttached++;
+  g_loadEntriesAttached += dictSize(specIdToDocId);
   *meta = (uint64_t)(specIdToDocId);
   return DOCID_META_RDB_LOAD_ATTACH;
 
@@ -206,6 +235,10 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     dictReleaseIterator(iter);
   }
 
+  // MOD-16954 instrumentation: this key carries docId metadata into the RDB.
+  g_saveKeys++;
+  g_saveEntries += validEntries;
+
   // Save entry count. Version is handled by encver in the KeyMeta API.
   RedisModule_SaveUnsigned(rdb, validEntries);
 
@@ -222,6 +255,9 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
     if (docId == DOCID_META_INVALID || !isSpecValid(specId)) {
       continue;
     }
+    // MOD-16954 instrumentation: track the docId range being persisted.
+    if (g_saveMaxDocId == 0 || docId < g_saveMinDocId) g_saveMinDocId = docId;
+    if (docId > g_saveMaxDocId) g_saveMaxDocId = docId;
     RedisModule_SaveUnsigned(rdb, specId);
     RedisModule_SaveUnsigned(rdb, docId);
   }

@@ -72,6 +72,15 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId);
 // become no-ops. Called from notifications.c during persistence events.
 void DocIdMeta_SetForgetDocIdMetadata(bool inProgress);
 
+// MOD-16954 instrumentation: aggregate RDB save/load counters for DocIdMeta.
+// Reset at the start of a persistence/loading session and logged at its end,
+// from notifications.c, to see how much per-key docId metadata crosses the wire
+// on the SST path (where it is kept) vs is dropped on the plain-RDB path.
+void DocIdMeta_ResetSaveStats(void);
+void DocIdMeta_LogSaveStats(const char *phase);
+void DocIdMeta_ResetLoadStats(void);
+void DocIdMeta_LogLoadStats(const char *phase);
+
 #ifdef __cplusplus
 }
 #endif

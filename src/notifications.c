@@ -916,6 +916,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+    DocIdMeta_ResetSaveStats();  // MOD-16954 instrumentation
+    RedisModule_Log(ctx, "notice", "MOD-16954 persistence RDB save started (useSst=%d)", (int)useSst);
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
     if (!useSst) {
@@ -924,6 +926,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    DocIdMeta_ResetSaveStats();  // MOD-16954 instrumentation
     if (!useSst) {
       RedisModule_Log(ctx, "notice", "Persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
@@ -939,6 +942,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
+    DocIdMeta_LogSaveStats(useSst ? "persistence-ended-sst" : "persistence-ended-rdb");  // MOD-16954
     if (vecsimdisk_sst_consistency_lock_held) {
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions via PostFork on success.
@@ -1128,9 +1132,10 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
     // from the keyspace and the stale docIds are meaningless, so we FORGET.
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
+    DocIdMeta_ResetLoadStats();  // MOD-16954 instrumentation
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
-    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
+    RedisModule_Log(RSDummyContext, "notice", "MOD-16954 Loading RDB event started (useSst=%d, keepDocIdMeta=%d)", (int)useSst, (int)useSst);
     break;
   case REDISMODULE_SUBEVENT_LOADING_SST_START:
     RedisModule_Log(RSDummyContext, "notice", "Loading SST event started");
@@ -1148,6 +1153,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     // keeps the flag ON, so useSst still covers it.
     bool finishSst = useSst || g_partialRdbLoadStaged;
     g_partialRdbLoadStaged = false;
+    DocIdMeta_LogLoadStats(finishSst ? "loading-ended-sst" : "loading-ended-rdb");  // MOD-16954
     // Re-enable the DocIdMeta RDB callbacks now that this load is done.
     DocIdMeta_SetForgetDocIdMetadata(false);
     if (!SearchDisk_IsEnabled()) {
