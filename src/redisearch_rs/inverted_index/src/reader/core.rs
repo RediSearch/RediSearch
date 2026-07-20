@@ -157,9 +157,7 @@ where
             // the offset is still valid. Leave `self.buf` as it is (its
             // value is about to be overwritten by `rewind` on the active
             // side) and report that a re-seek is needed.
-            return RefreshOutcome::NeedsReseek {
-                last_doc_id: self.last_doc_id,
-            };
+            return RefreshOutcome::NeedsReseek;
         }
 
         // SAFETY: as above — the contract excludes any concurrent aliasing
@@ -191,9 +189,7 @@ where
                 // offsets after resume. Force a re-seek so the active side rewinds
                 // and re-decodes the current document, rebuilding every borrowed
                 // slice against the live buffer.
-                return RefreshOutcome::NeedsReseek {
-                    last_doc_id: self.last_doc_id,
-                };
+                return RefreshOutcome::NeedsReseek;
             } else {
                 // Same base address: the allocation did not move (an in-place realloc
                 // preserves the bytes the offset slice borrows, and blocks only grow

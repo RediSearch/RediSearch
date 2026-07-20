@@ -38,13 +38,10 @@ pub enum RefreshOutcome {
     /// allocation). Either way the cached block offset — and any
     /// `RSOffsetSlice` the iterator's result borrows from that buffer — is no
     /// longer valid. The caller must promote to Active, rewind, and re-seek to
-    /// `last_doc_id`, which re-decodes the current document and rebuilds every
-    /// borrowed slice against the live buffer.
-    NeedsReseek {
-        /// The last document ID the iterator returned before suspending.
-        /// Resume target for the active-side re-seek.
-        last_doc_id: DocId,
-    },
+    /// the last document it returned before suspending, which re-decodes the
+    /// current document and rebuilds every borrowed slice against the live
+    /// buffer.
+    NeedsReseek,
 }
 
 /// A reader is something which knows how to read / decode the records from an [`InvertedIndex`](crate::InvertedIndex).

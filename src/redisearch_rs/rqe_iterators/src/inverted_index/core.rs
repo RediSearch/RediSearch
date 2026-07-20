@@ -560,7 +560,7 @@ where
 
         // Whatever offsets we borrowed from the index may be stale.
         // To make promotion from suspended to active safe, we unset them.
-        if let RefreshOutcome::NeedsReseek { .. } = outcome
+        if outcome == RefreshOutcome::NeedsReseek
             && let Some(term) = self.result.as_term_mut()
         {
             match term {
@@ -610,7 +610,7 @@ where
             // before any result has been returned, so if GC or a moved block buffer occurs
             // while a freshly-created iterator is suspended, resume will reseek to that first doc
             // and report Ok, causing the next read() to skip the first result.
-            RefreshOutcome::NeedsReseek { .. } => {
+            RefreshOutcome::NeedsReseek => {
                 active.rewind();
 
                 if last_doc_id == 0 {
