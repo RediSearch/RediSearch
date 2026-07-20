@@ -2371,9 +2371,6 @@ static inline int coordCursorReadReturnStrict(RedisModuleCtx *ctx, CoordRequestC
     return REDISMODULE_OK;
   }
   AREQ_ResetForCursorReadReturnStrict(cursor->execState);
-  // Advance the AREQ's own marker before publishing it: once SetRequest makes it
-  // visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-  AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_PIPELINE);
   CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
   cursorRead(ctx, cursor, count, false);
@@ -2461,7 +2458,8 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   // Coord cursor reads (FAIL and RETURN_STRICT) execute from here on; advance the
   // coord-level marker so a timeout is attributed to PIPELINE. The reused AREQ's
-  // own marker takes over once it is attached to the ctx below (set pre-publish).
+  // own marker takes over once it is attached to the ctx below (SetRequest seeds
+  // it from this marker).
   if (reqCtx) {
     CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
@@ -2553,11 +2551,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         Cursor_Free(cursor);
         return REDISMODULE_OK;
       }
-      // Advance the reused AREQ's own marker (overriding any stale stage left by a
-      // prior read) before publishing it: once SetRequest makes it visible,
-      // CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-      AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_PIPELINE);
-      // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut).
+      // Attach AREQ to the ctx (IncrRefs, propagates useReplyCallback/timedOut/stage).
       CoordRequestCtx_SetRequest(reqCtx, cursor->execState);
       CoordRequestCtx_UnlockSetRequest(reqCtx);
     } else if (cursor->execState) {

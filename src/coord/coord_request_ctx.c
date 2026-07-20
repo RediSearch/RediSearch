@@ -75,11 +75,16 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   // Propagate policy-derived flags from the sticky ctx (single source of truth):
   // useReplyCallback for FAIL/RETURN_STRICT, plus the aggregate-results sync that
   // RETURN_STRICT needs. Mirrors the callbacks armed at dispatch in module.c.
+  // Also seed the request's execution-stage marker from the coord-level one, which
+  // it takes over from once published (see CoordRequestCtx_ExecutionStage). This
+  // also overrides any stale stage left on a reused cursor AREQ by a prior read.
+  QueryTimeoutStage stage = (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
   if (ctx->type == COMMAND_HYBRID) {
     HybridRequest *hreq = (HybridRequest *)req;
     hreq->useReplyCallback = ctx->useReplyCallback;
     hreq->syncCtx.requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
+    HybridRequest_SetExecutionStage(hreq, stage);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     // Do not derive requiresAggregateResultsSync here: the FT.CURSOR READ path
     // attaches an existing cursor AREQ (aggregate_exec.c) via a ctx whose
@@ -87,6 +92,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
     // the cursor set at WITHCURSOR time. The query exec path sets it explicitly
     // from the request-captured policy instead.
     ((AREQ *)req)->useReplyCallback = ctx->useReplyCallback;
+    AREQ_SetExecutionStage((AREQ *)req, stage);
   } else {
     COORD_REQUEST_CTX_UNSUPPORTED_TYPE();
   }

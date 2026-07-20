@@ -956,9 +956,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
-  // Advance the AREQ's own marker before publishing it: once SetRequest makes it
-  // visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1291,9 +1288,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
     r->syncCtx.requiresAggregateResultsSync = true;
   }
-  // Advance the AREQ's own marker before publishing it: once SetRequest makes it
-  // visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
 

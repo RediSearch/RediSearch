@@ -4461,6 +4461,9 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
     MRCtx_SetTimedOut(mrctx);
+    // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+    // marker advances), like the other blocked-client timeout callbacks.
+    recordSearchTimeoutStage(MRCtx_GetPrivData(mrctx), /*isError=*/true);
 
     // Coordinate with any queued/in-flight reducer so the blocked client is not
     // destroyed while it is still being used on a background thread.
@@ -4472,7 +4475,6 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   }
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-  recordSearchTimeoutStage(mrctx ? MRCtx_GetPrivData(mrctx) : NULL, /*isError=*/true);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
@@ -4496,6 +4498,10 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Get searchRequestCtx (always valid - allocated on main thread before blocking)
   // req is parsed in the main thread and confirmed to be valid before blocking the client
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+
+  // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+  // marker advances), like the other blocked-client timeout callbacks.
+  recordSearchTimeoutStage(req, /*isError=*/false);
 
   // Try to claim reducing - if we get it, run reducer on main thread
   // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
@@ -4528,10 +4534,9 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   RS_ASSERT(rCtx);
   req->timedOut = true;
 
-  // Confirmed blocked-client coord timeout: record aggregate + per-stage here,
-  // protocol-independently (RESP2 has no reply warning slot), like the queryOOM path.
+  // Confirmed blocked-client coord timeout: count the aggregate warning adjacent to
+  // the reply, protocol-independently (RESP2 has no reply warning slot).
   QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
-  recordSearchTimeoutStage(req, /*isError=*/false);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   if (req->profileArgs > 0) {

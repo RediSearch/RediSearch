@@ -1115,9 +1115,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // Create and set request atomically while holding lock
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    // Advance the request's own marker before publishing it: once SetRequest makes
-    // it visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
@@ -1214,9 +1211,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
 
-    // Advance the request's own marker before publishing it: once SetRequest makes
-    // it visible, CoordRequestCtx_ExecutionStage reads it instead of the coord marker.
-    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
     CoordRequestCtx_SetRequest(reqCtx, hreq);
     CoordRequestCtx_UnlockSetRequest(reqCtx);
 
