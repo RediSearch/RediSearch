@@ -120,13 +120,13 @@ fn lower_runes_replaces_invalid_utf8() {
 #[test]
 fn lower_runes_too_long_errors() {
     // One rune past the maximum yields `RuneStrTooLong` rather than truncating.
-    let content = vec![b'a'; string_utils::MAX_RUNE_STR_LEN + 1];
+    let content = vec![b'a'; string_utils::runes::MAX_RUNE_STR_LEN + 1];
     with_token(Some(&content), 0, |tok| {
         let err = tok
             .as_lower_runes_lossy()
             .expect("token carries a string")
             .expect_err("string exceeds the maximum rune length");
-        assert_eq!(err.len, string_utils::MAX_RUNE_STR_LEN + 1);
+        assert_eq!(err.len, string_utils::runes::MAX_RUNE_STR_LEN + 1);
     });
 }
 

@@ -12,7 +12,7 @@
 use std::{ffi::CStr, ptr::NonNull};
 
 use query_term::RSTokenFlags;
-use string_utils::{RuneStrTooLong, str_to_lower_runes};
+use string_utils::runes::{RuneStrTooLong, str_to_lower_runes};
 
 /// Safe, read-only, [`Copy`] handle borrowing a query-node's [`ffi::RSToken`].
 ///
