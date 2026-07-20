@@ -12,8 +12,8 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{IteratorType, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams, timespec};
-use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
+use ffi::{VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams, timespec};
+use rqe_iterators::{ExpirationChecker, IteratorType, RQEIterator, c2rust::CRQEIterator};
 use top_k::TopKIterator;
 
 use crate::{
@@ -64,9 +64,9 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 ///
 /// # Safety
 ///
-/// - `index` must be valid for `'index`, which outlives the returned iterator.
-/// - `query_vector` must satisfy the [`VectorScoreSource`] query-vector length
-///   invariant for `index`.
+/// 1. `index` must be valid for `'index`, which outlives the returned iterator.
+/// 2. `query_vector` must satisfy the [`VectorScoreSource`] query-vector length
+///    invariant for `index`.
 #[expect(clippy::too_many_arguments)]
 pub unsafe fn new_vector_top_k<'index, E>(
     index: NonNull<VecSimIndex>,
@@ -94,8 +94,7 @@ where
                 searchMode: VecSearchMode_STANDARD_KNN,
                 ..query_params
             };
-            // SAFETY: `index` validity and the query-vector length invariant are
-            // guaranteed by this function's contract.
+            // SAFETY: guaranteed by invariants 1 and 2 of this function's contract.
             let source = unsafe {
                 VectorScoreSource::new(
                     index,
@@ -113,8 +112,7 @@ where
         }
         VectorChildReduction::Filtered(child) => {
             let child_est = child.num_estimated();
-            // SAFETY: `index` validity and the query-vector length invariant are
-            // guaranteed by this function's contract.
+            // SAFETY: guaranteed by invariants 1 and 2 of this function's contract.
             let source = unsafe {
                 VectorScoreSource::new(
                     index,
