@@ -979,8 +979,9 @@ class TestCoordinatorTimeout:
 
     def test_return_strict_timeout_with_shard_timeout_warning(self):
         """A coord blocked-client timeout racing a shard-propagated TIMEOUT warning
-        must count the timeout warning exactly once (regression: the partial callback
-        counted it, then sendSearchResults counted the shard warning string again).
+        must count the timeout warning exactly once (the propagated shard warnings
+        and the coordinator's own timedOut fallback are mutually exclusive reply
+        branches in sendSearchResults; a regression once counted both).
 
         Choreography: shards reply with a TIMEOUT warning (TIMEOUT_AFTER_N 0
         INTERNAL_ONLY), the coord reducer is parked in the paused coord pool, then

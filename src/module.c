@@ -3163,11 +3163,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
         const char *warning_str = MRReply_String(currentWarning, NULL);
         QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-        // A shard-propagated timeout warning is already counted by
-        // DistSearchTimeoutPartialCallback when the blocked client timed out.
-        if (!(req->timedOut && warningCode == QUERY_WARNING_CODE_TIMED_OUT)) {
-          QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
-        }
+        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
 
         // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
@@ -3180,8 +3176,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
       RedisModule_Reply_ArrayEnd(reply);
     } else if (req->timedOut) {
-      // Stats are recorded protocol-independently in DistSearchTimeoutPartialCallback;
-      // here we only emit the RESP3 warning entry (RESP2 has no reply warning slot).
+      QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
       RedisModule_Reply_Array(reply);
         RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
       RedisModule_Reply_ArrayEnd(reply);
@@ -4533,10 +4528,6 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
   req->timedOut = true;
-
-  // Confirmed blocked-client coord timeout: count the aggregate warning adjacent to
-  // the reply, protocol-independently (RESP2 has no reply warning slot).
-  QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   if (req->profileArgs > 0) {

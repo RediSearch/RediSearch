@@ -100,6 +100,11 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
  */
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 
+// Read the coord-level execution-phase marker (mirrors RequestSyncCtx_GetExecutionStage).
+static inline QueryTimeoutStage CoordRequestCtx_GetExecutionStage(CoordRequestCtx *ctx) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
+}
+
 // The stage the coord request reached, for timeout attribution. Before the request
 // object exists the coord-level marker applies (QUEUE until a coord thread picks the
 // job up); afterwards the request's own marker (PIPELINE fanning out/reducing, REPLY
@@ -107,7 +112,7 @@ void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 static inline QueryTimeoutStage CoordRequestCtx_ExecutionStage(CoordRequestCtx *ctx) {
   void *req = CoordRequestCtx_GetRequest(ctx);
   if (!req) {
-    return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
+    return CoordRequestCtx_GetExecutionStage(ctx);
   }
   return ctx->type == COMMAND_HYBRID ? HybridRequest_ExecutionStage((HybridRequest *)req)
                                      : AREQ_ExecutionStage((AREQ *)req);

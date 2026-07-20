@@ -78,7 +78,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   // Also seed the request's execution-stage marker from the coord-level one, which
   // it takes over from once published (see CoordRequestCtx_ExecutionStage). This
   // also overrides any stale stage left on a reused cursor AREQ by a prior read.
-  QueryTimeoutStage stage = (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
+  QueryTimeoutStage stage = CoordRequestCtx_GetExecutionStage(ctx);
   if (ctx->type == COMMAND_HYBRID) {
     HybridRequest *hreq = (HybridRequest *)req;
     hreq->useReplyCallback = ctx->useReplyCallback;
