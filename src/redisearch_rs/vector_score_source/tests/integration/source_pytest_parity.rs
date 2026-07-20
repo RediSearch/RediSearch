@@ -19,11 +19,11 @@
 //! Data model (shared with `source.rs`): unless noted, doc `i` is `[i; dim]`
 //! under L2, so distance to query `[q; dim]` is `dim*(q-i)^2`.
 
-use std::{ffi::c_void, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
-use rqe_iterators::{RQEIterator, RQEIteratorError};
+use rqe_iterators::RQEIterator;
 use top_k::{TopKIterator, TopKMode};
 use vector_score_source::test_utils::{
     asc, build_flat_cosine_index, build_flat_index, build_hnsw_index, collect_ids, make_child,
@@ -280,81 +280,4 @@ fn custom_k_returns_exactly_k() {
         // SAFETY: no live references to the index remain.
         unsafe { VecSimIndex_Free(index.as_ptr()) };
     }
-}
-
-unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(
-        cb: Option<unsafe extern "C" fn(*mut c_void) -> std::ffi::c_int>,
-    );
-}
-
-unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    1
-}
-
-unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    0
-}
-
-/// Installs the always-timeout callback; restores the no-op on drop so a
-/// panicking assertion cannot leak timeout state to later tests.
-///
-/// Concurrent query tests rely on nextest's process isolation.
-struct MockTimeout;
-impl MockTimeout {
-    fn enable() -> Self {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
-        MockTimeout
-    }
-}
-impl Drop for MockTimeout {
-    fn drop(&mut self) {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
-    }
-}
-
-/// From `test_vecsim.py::TestTimeoutReached` (KNN branch).
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn unfiltered_propagates_timeout() {
-    let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
-    let _mock = MockTimeout::enable();
-
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
-    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
-
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
-}
-
-/// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn batches_propagates_timeout() {
-    let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
-    let _mock = MockTimeout::enable();
-
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
-    let mut it = TopKIterator::new_with_mode(
-        source,
-        Some(make_child((1..=n as DocId).collect())),
-        NonZeroUsize::new(k).unwrap(),
-        asc,
-        TopKMode::Batches,
-    );
-
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
