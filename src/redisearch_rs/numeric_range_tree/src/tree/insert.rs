@@ -279,7 +279,7 @@ impl NumericRangeTree {
         node_idx: NodeIndex,
         rv: &mut AddResult,
         compress_floats: bool,
-        empty_leaves: &mut CheckedCount,
+        empty_leaves: &mut usize,
     ) {
         let parent_range = nodes[node_idx]
             .take_range()
@@ -347,7 +347,7 @@ impl NumericRangeTree {
             newly_empty <= 1,
             "a non-empty parent must yield at least one non-empty child"
         );
-        *empty_leaves += newly_empty;
+        *empty_leaves = empty_leaves.checked_add(newly_empty).expect("Overflow!");
 
         // Replace the old leaf with a new internal node.
         nodes[node_idx] = NumericRangeNode::internal_indexed(
