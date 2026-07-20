@@ -16,7 +16,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, SkipToOutcomeRaw,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -35,20 +35,29 @@ use crate::{
 ///    layout-identical, which is what lets `suspend`/`resume` reinterpret the
 ///    `Box` in place. This holds because the struct is `#[repr(C)]` and every
 ///    `Rf`-dependent field is layout-stable across modes: `result` is a
-///    [`RawIndexResult`] (proven layout-compatible
-///    in `index_result`), `reader: R` is covered by its own invariant, and the
-///    `read_impl`/`skip_to_impl` fields are `fn` pointers (pointer-sized in every
-///    mode). Enforced, for a representative reader, by the `const _` proof below.
+///    [`RawIndexResult`] (proven layout-compatible in `index_result`) and
+///    `reader: R` is covered by its own invariant. The `read_impl`/`skip_to_impl`
+///    fn-pointer fields are frozen at the mode-independent reader parameter `RA`
+///    (see below), so they are the *same type* in every mode — the cast does not
+///    reinterpret them at all. Enforced, for a representative reader, by the
+///    `const _` proof below.
 ///
 /// # Type Parameters
 ///
 /// * `Rf` - The [`Ref`] mode: [`Active<'a>`] gives the iterator working,
 ///   readable references into the index; [`Suspended`]
 ///   produces a passive carrier with no callable surface.
-/// * `R` - The reader type used to read the inverted index.
+/// * `R` - The reader type used to read the inverted index. Weakens to
+///   `R::Suspended` when the iterator is suspended.
 /// * `E` - The expiration checker type used to check for expired documents.
+/// * `RA` - The **active** reader type the `read_impl`/`skip_to_impl` dispatch
+///   pointers are compiled for. Defaults to `R` (the active instantiation) and,
+///   unlike `R`, is **not** remapped on suspend — so those fn-pointer fields keep
+///   an identical type across the `Active`/`Suspended` cast. It only appears
+///   inside the `fn`-pointer field types (which take `&mut InvIndIterator`), so a
+///   suspended carrier cannot invoke them.
 #[repr(C)]
-pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker> {
+pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
     /// The reader used to iterate over the inverted index.
     pub(super) reader: R,
     /// if we reached the end of the index.
@@ -80,21 +89,36 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker> {
     /// The implementation of the [`read`](RQEIterator::read) method.
     /// Using dynamic dispatch so we can pick the right version during the
     /// iterator construction saving to re-do the checks each time [`read()`](RQEIterator::read) is called.
-    read_impl: fn(&mut Self) -> Result<Option<&mut RawIndexResult<'query, Rf>>, RQEIteratorError>,
+    ///
+    /// Typed over the frozen active reader `RA` (not `Self`/`Rf`), so the field
+    /// keeps an identical type across the suspend/resume cast and can only be
+    /// invoked on the active form.
+    read_impl: ReadImpl<'query, RA, E>,
     /// The implementation of the [`skip_to`](RQEIterator::skip_to) method.
-    #[expect(
-        clippy::type_complexity,
-        reason = "Specialised fn pointer parameterised by Rf — extracting it to a type alias \
-                  would hide the Rf dependency that drives transmute soundness across modes."
-    )]
-    skip_to_impl:
-        fn(&mut Self, DocId) -> Result<Option<SkipToOutcomeRaw<'_, 'query, Rf>>, RQEIteratorError>,
+    /// Typed over the frozen active reader `RA` — see [`Self::read_impl`].
+    skip_to_impl: SkipToImpl<'query, RA, E>,
 }
+
+/// Dispatch pointer backing [`RQEIterator::read`], frozen at the active reader
+/// `RA` (see [`RawInvIndIterator`]'s type parameters) so it is layout-stable
+/// across the suspend/resume cast.
+type ReadImpl<'query, RA, E> =
+    for<'s> fn(
+        &'s mut InvIndIterator<'query, RA, E>,
+    ) -> Result<Option<&'s mut RSIndexResult<'query>>, RQEIteratorError>;
+
+/// Dispatch pointer backing [`RQEIterator::skip_to`], frozen at the active
+/// reader `RA` — see [`ReadImpl`].
+type SkipToImpl<'query, RA, E> =
+    for<'s> fn(
+        &'s mut InvIndIterator<'query, RA, E>,
+        DocId,
+    ) -> Result<Option<SkipToOutcome<'s, 'query>>, RQEIteratorError>;
 
 /// Alias for an [`Active`] [`RawInvIndIterator`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type InvIndIterator<'index, R, E = NoOpChecker> =
-    RawInvIndIterator<'index, Active<'index>, R, E>;
+    RawInvIndIterator<'index, Active<'index>, R, E, R>;
 
 // Compile-time proof of invariant 1 on `RawInvIndIterator`: for a representative
 // concrete reader, the `Active` and `Suspended` instantiations are
@@ -104,11 +128,15 @@ const _: () = {
     use inverted_index::{RawIndexReaderCore, doc_ids_only::DocIdsOnly};
     use std::mem::{align_of, offset_of, size_of};
     type A = InvIndIterator<'static, RawIndexReaderCore<Active<'static>, DocIdsOnly>, NoOpChecker>;
+    // `S` mirrors the suspended form: the reader slot weakens to the `Suspended`
+    // reader, but the frozen `RA` slot stays the *active* reader (matching `A`),
+    // so `read_impl`/`skip_to_impl` are the same type in `A` and `S`.
     type S = RawInvIndIterator<
         'static,
         Suspended,
         RawIndexReaderCore<Suspended, DocIdsOnly>,
         NoOpChecker,
+        RawIndexReaderCore<Active<'static>, DocIdsOnly>,
     >;
     assert!(offset_of!(A, reader) == offset_of!(S, reader));
     assert!(offset_of!(A, at_eos) == offset_of!(S, at_eos));
@@ -123,7 +151,7 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-impl<'query, Rf: Ref, R, E> RawInvIndIterator<'query, Rf, R, E> {
+impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     /// Read the cached `last_doc_id` regardless of mode.
     ///
     /// `last_doc_id` is a plain `t_docId` field whose value survives the
@@ -451,7 +479,7 @@ where
 }
 // ---- Suspend / Resume ------------------------------------------------------
 
-impl<'query, RS, E> RawInvIndIterator<'query, Suspended, RS, E>
+impl<'query, RS, E, RA> RawInvIndIterator<'query, Suspended, RS, E, RA>
 where
     RS: ResumableReader,
     E: ExpirationChecker + 'static,
@@ -488,7 +516,9 @@ where
     R::Suspended: ResumableReader,
     E: ExpirationChecker + 'static,
 {
-    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E>;
+    // Reader weakens `R -> R::Suspended`, but the frozen `RA` slot stays `R` (the
+    // active reader), so `read_impl`/`skip_to_impl` keep an identical type.
+    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E, R>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         // Reuse the same allocation so external pointers into the iterator
@@ -508,19 +538,21 @@ where
         // borrowed-data transition explicit and auditable.
         unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
 
-        // SAFETY: `result` is now the suspended form; the remaining `Rf`-dependent
-        // fields (`reader`, the `fn` pointers) are handled by reinterpreting the
-        // whole `#[repr(C)]` struct, which is sound by invariant 1 on
-        // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
-        // `R`. `Box::from_raw` reuses the same allocation, so the box address is
+        // SAFETY: `result` is now the suspended form; the only other `Rf`-dependent
+        // field, `reader`, is reinterpreted `R -> R::Suspended` — sound by
+        // invariant 1 on `RawInvIndIterator` (const proof above) given invariant 1
+        // on the reader `R`. The `read_impl`/`skip_to_impl` fn-pointer fields are
+        // frozen at `RA = R` and so are *not* reinterpreted by this cast at all.
+        // `Box::from_raw` reuses the same allocation, so the box address is
         // preserved.
         unsafe {
-            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E>>())
+            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E, R>>())
         }
     }
 }
 
-impl<'query, RS, E> RQESuspendedIterator<'query> for RawInvIndIterator<'query, Suspended, RS, E>
+impl<'query, RS, E, RA> RQESuspendedIterator<'query>
+    for RawInvIndIterator<'query, Suspended, RS, E, RA>
 where
     RS: ResumableReader,
     E: ExpirationChecker + 'static,
@@ -591,12 +623,15 @@ where
         // in-place conversion keeps the borrowed-data transition explicit.
         unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
 
-        // SAFETY: `result` is now the active form; the remaining `Rf`-dependent
-        // fields (`reader`, the `fn` pointers) are handled by reinterpreting the
-        // whole `#[repr(C)]` struct, which is sound by invariant 1 on
-        // `RawInvIndIterator` (const proof above) given invariant 1 on the reader
-        // `RS`. `Box::from_raw` reuses the same allocation, so the box address is
-        // preserved.
+        // SAFETY: `result` is now the active form; the only other `Rf`-dependent
+        // field, `reader`, is reinterpreted `RS -> RS::Resumed<'a>` — sound by
+        // invariant 1 on `RawInvIndIterator` (const proof above) given invariant 1
+        // on the reader `RS`. The `read_impl`/`skip_to_impl` fn-pointer fields are
+        // frozen at the active reader `RA`; the cast changes that slot only by
+        // lifetime (`RA` -> `RS::Resumed<'a>`, the same reader type modulo
+        // lifetime, which is erased in codegen), never across the Active/Suspended
+        // boundary or a genuinely different reader type. `Box::from_raw` reuses the
+        // same allocation, so the box address is preserved.
         let mut active =
             unsafe { Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>()) };
 
