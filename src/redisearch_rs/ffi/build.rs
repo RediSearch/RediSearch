@@ -384,7 +384,11 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/search_disk.h",
-        fns: &["SearchDisk_GetMaxDocId"],
+        fns: &[
+            "SearchDisk_GetMaxDocId",
+            "SearchDisk_IndexTags",
+            "SearchDisk_NewTagIterator",
+        ],
         types: &[],
         vars: &[],
     },

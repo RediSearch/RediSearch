@@ -160,6 +160,7 @@ top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
 vector_score_source = { path = "./vector_score_source" }
+tag_index = { path = "./tag_index" }
 tracing_redismodule = { path = "./tracing_redismodule" }
 trie_rs = { path = "./trie_rs" }
 rdb_io = { path = "./rdb_io" }
