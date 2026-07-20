@@ -201,6 +201,64 @@ fn test_split_with_identical_values() {
     );
 }
 
+/// Regression test for the `empty_leaves` underflow crash (MOD-16877, a
+/// production crash on 8.6.6): a split that creates an empty child leaf must
+/// count it.
+///
+/// With float compression enabled, cardinality is estimated over the original
+/// f64 values while entries are stored — and split-redistributed — as compressed
+/// f32. When enough distinct f64 values collapse to a single f32, the split is
+/// triggered (HLL sees them as distinct) but every stored value is identical, so
+/// all entries are redistributed to one child and the other child leaf is created
+/// empty. That empty leaf must be reflected in `empty_leaves`; otherwise a later
+/// add routed to it decrements the counter below zero and aborts the process via
+/// the non-unwinding FFI boundary.
+#[test]
+fn test_split_with_compression_collapse_counts_empty_leaf() {
+    let mut tree = NumericRangeTree::new(true); // float compression ON
+
+    // Distinct f64 values tightly clustered within a single f32 rounding bucket
+    // around 100.5 (exactly representable in f32). Each differs from the next by
+    // 1e-7 — far above the f64 ULP near 100.5 (~1e-14), so they are distinct to
+    // the HLL cardinality estimator, but far below the f32 ULP near 100.5
+    // (~7.6e-6), so all round to the same stored f32 (100.5), well within the
+    // 0.01 compression threshold.
+    let value_at = |i: u64| 100.5 + (i - 1) as f64 * 1e-7;
+
+    // Add distinct-but-collapsing values until the first split fires. Because the
+    // stored values are all identical (f32 100.5), the redistribution sends every
+    // entry to the left child and leaves the right child empty. This empty leaf
+    // must be counted; before the fix, `empty_leaves` stayed 0 here (caught by the
+    // `check_tree_invariants` assertion inside `add`).
+    let mut split_at = None;
+    for i in 1..=(SPLIT_TRIGGER + 8) {
+        tree.add(i, value_at(i), false, 0);
+        if tree.num_leaves() == 2 {
+            split_at = Some(i);
+            break;
+        }
+    }
+    let split_at = split_at.expect("compressed-but-distinct values should trigger a split");
+
+    // Right after the split, before any further add re-populates it:
+    assert_eq!(
+        tree.empty_leaves(),
+        1,
+        "the empty child leaf created by the split must be counted"
+    );
+
+    // Routing uses the *original* f64 value, so the next (larger) value is routed
+    // to the empty right child and re-populates it. Before the fix this decremented
+    // `empty_leaves` from 0, underflowing the counter and aborting the process.
+    let next = split_at + 1;
+    tree.add(next, value_at(next), false, 0);
+    assert_eq!(
+        tree.empty_leaves(),
+        0,
+        "re-populating the empty leaf should bring the counter back to zero"
+    );
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "Too slow to run under miri")]
 fn test_deep_tree_balancing() {
