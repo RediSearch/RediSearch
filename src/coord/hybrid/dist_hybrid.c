@@ -1071,6 +1071,9 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       // Query timed out before request creation
       return;
     }
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
+    // hybrid request does not exist yet, so the coord-level marker carries the stage.
+    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
 
@@ -1161,6 +1164,9 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     if(CoordRequestCtx_TimedOut(reqCtx)) {
       return;
     }
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
+    // hybrid request does not exist yet, so the coord-level marker carries the stage.
+    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
 
@@ -1281,6 +1287,9 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
+
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
   wakeHybridAbortChannels(hreq);
 
@@ -1309,6 +1318,9 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   CoordRequestCtx_SetTimedOut(CoordReqCtx);
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
 
   HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
 

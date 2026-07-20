@@ -3108,6 +3108,22 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 
 }
 
+// Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
+// handler advances it, the main-thread timeout callbacks read it.
+static inline void searchReqCtx_SetExecutionStage(searchRequestCtx *req, QueryTimeoutStage stage) {
+  RS_AtomicIntStoreRelaxed(&req->execPhase, (int)stage);
+}
+static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx *req) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&req->execPhase);
+}
+
+// Record an FT.SEARCH-coordinator per-stage timeout, reading the search request's
+// own marker (QUEUE -> PIPELINE at dequeue -> REPLY after reduction). Coord side.
+static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError) {
+  QueryTimeoutStage stage = req ? searchReqCtx_GetExecutionStage(req) : QUERY_TIMEOUT_STAGE_QUEUE;
+  QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
+}
+
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
   searchRequestCtx *req = rCtx->searchCtx;
 
@@ -3529,6 +3545,13 @@ cleanup:
     }
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
+  }
+
+  // Reduction/post-processing done, about to hand off the reply: advance the marker
+  // so a timeout from here on is attributed to REPLY (frozen once already timed out).
+  searchRequestCtx *doneReq = MRCtx_GetPrivData(mc);
+  if (doneReq && !MRCtx_IsTimedOut(mc)) {
+    searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
@@ -4295,6 +4318,12 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncCtx_SetExecutionStage).
+  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  }
   FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
@@ -4427,6 +4456,9 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
     MRCtx_SetTimedOut(mrctx);
+    // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+    // marker advances), like the other blocked-client timeout callbacks.
+    recordSearchTimeoutStage(MRCtx_GetPrivData(mrctx), /*isError=*/true);
 
     // Coordinate with any queued/in-flight reducer so the blocked client is not
     // destroyed while it is still being used on a background thread.
@@ -4461,6 +4493,10 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Get searchRequestCtx (always valid - allocated on main thread before blocking)
   // req is parsed in the main thread and confirmed to be valid before blocking the client
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+
+  // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+  // marker advances), like the other blocked-client timeout callbacks.
+  recordSearchTimeoutStage(req, /*isError=*/false);
 
   // Try to claim reducing - if we get it, run reducer on main thread
   // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
@@ -5069,6 +5105,12 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+  }
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncCtx_SetExecutionStage).
+  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   // send argv not including the _FT.DEBUG
   DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
