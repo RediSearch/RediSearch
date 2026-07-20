@@ -1,6 +1,7 @@
 from RLTest import Env
 from includes import *
 from common import *
+from test_info_modules import info_modules_to_dict
 import psutil
 
 # Test data with deterministic vectors
@@ -153,7 +154,6 @@ def test_maxprefixexpansions_warning_search_only():
     conn = env.getClusterConnectionIfNeeded()
     conn.execute_command('HSET', 'doc:5', 'description', 'runo')
     conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
-
     # Only SEARCH returns results, VSIM returns empty
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
                        '@embedding', '$BLOB', 'RANGE', '2', 'RADIUS', '0.01', 'PARAMS', '2', 'BLOB', query_vector)
@@ -181,6 +181,10 @@ def test_maxprefixexpansions_warning_both_components():
     conn = env.getClusterConnectionIfNeeded()
     conn.execute_command('HSET', 'doc:5', 'description', 'runo')
     conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+    coord_section = 'search_coordinator_warnings_and_errors'
+    metric = 'search_coord_total_query_warnings_max_prefix_expansions'
+    before_info = info_modules_to_dict(env)
+    base_warning_count = int(before_info[coord_section][metric])
 
     # Both SEARCH and VSIM return results
     response = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'run*', 'VSIM', \
@@ -188,6 +192,9 @@ def test_maxprefixexpansions_warning_both_components():
     warning = get_warnings(response)
     env.assertTrue('Max prefix expansions limit was reached (SEARCH)' in warning)
     env.assertTrue('Max prefix expansions limit was reached (VSIM)' in warning)
+    after_info = info_modules_to_dict(env)
+    env.assertEqual(after_info[coord_section][metric], str(base_warning_count + 1),
+                    message="Coordinator max-prefix warning should be +1 per query")
 
 @skip(cluster=True)
 def test_tail_property_not_loaded_error_standalone():
