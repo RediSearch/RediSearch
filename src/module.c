@@ -3163,7 +3163,11 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
         MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
         const char *warning_str = MRReply_String(currentWarning, NULL);
         QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
-        QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+        // A shard-propagated timeout warning is already counted by
+        // DistSearchTimeoutPartialCallback when the blocked client timed out.
+        if (!(req->timedOut && warningCode == QUERY_WARNING_CODE_TIMED_OUT)) {
+          QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
+        }
 
         // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
@@ -5105,6 +5109,12 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+  }
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncCtx_SetExecutionStage).
+  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   // send argv not including the _FT.DEBUG
   DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
