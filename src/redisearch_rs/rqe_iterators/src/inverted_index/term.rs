@@ -14,9 +14,9 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
-    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
-    opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
+    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, block_max_score::BlockScorer,
+    doc_ids_only::DocIdsOnly, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only,
+    full, offsets_only, opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
 };
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref};
@@ -229,6 +229,15 @@ where
     }
 
     #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
+    }
+
+    #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::InvIdxTerm
     }
@@ -346,6 +355,16 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     #[inline(always)]
     fn refresh_buffer_pointers(&mut self) {
         term_ir_dispatch!(self, refresh_buffer_pointers)
+    }
+
+    #[inline(always)]
+    fn current_block_max_score(&self, scorer: &BlockScorer) -> f64 {
+        term_ir_dispatch!(self, current_block_max_score, scorer)
+    }
+
+    #[inline(always)]
+    fn advance_to_next_promising_block(&mut self, min_score: f64, scorer: &BlockScorer) -> bool {
+        term_ir_dispatch!(self, advance_to_next_promising_block, min_score, scorer)
     }
 }
 
