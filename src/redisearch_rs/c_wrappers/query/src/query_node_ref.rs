@@ -27,6 +27,18 @@ pub enum WildcardMode {
     Contains,
 }
 
+impl WildcardMode {
+    /// The human-readable label for this mode, as surfaced in user-facing
+    /// messages (e.g. the "query string is too long" error).
+    pub const fn type_str(self) -> &'static str {
+        match self {
+            Self::Prefix => "PREFIX",
+            Self::Suffix => "SUFFIX",
+            Self::Contains => "INFIX",
+        }
+    }
+}
+
 /// Typed view of a query-node's per-type payload.
 ///
 /// Produced by [`QueryNodeRef::as_enum`].  Each variant that carries a

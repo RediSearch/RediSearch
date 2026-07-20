@@ -424,6 +424,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
+            "IndexSpec_AddTerm",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
@@ -444,7 +445,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/suffix.h",
-        fns: &["Suffix_IterateContains"],
+        fns: &["Suffix_IterateContains", "addSuffixTrie"],
         types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
