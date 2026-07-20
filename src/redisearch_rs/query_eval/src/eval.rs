@@ -914,16 +914,7 @@ fn eval_token_disk<'index>(
     term.set_idf(idf);
     term.set_bm25_idf(bm25_idf);
 
-    // The query's own scorer wins; a query that sets none falls back to the
-    // configured default, while a custom (non built-in) scorer conservatively
-    // needs offsets since we can't resolve what it does.
-    let scorer = match ctx.scorer() {
-        RequestedScorer::Unset => config.default_scorer,
-        RequestedScorer::Custom(_) => None,
-        RequestedScorer::BuiltIn(scorer) => Some(scorer),
-    };
-    let needs_offsets = slop_forces_offsets(opts.max_slop, opts.in_order)
-        || scorer.is_none_or(BuiltInScorer::needs_offsets);
+    let needs_offsets = expansion_needs_offsets(ctx, opts, config);
 
     let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
         .expect("query.sctx.diskSnapshot is null for a disk-backed token query");
@@ -1047,4 +1038,24 @@ fn eval_geometry<'index>(
     }
 
     NonNull::new(ret).map(Evaluated::C)
+}
+
+/// Whether a term disk reader must carry term offsets: required when the node
+/// forces slop/in-order matching, or when the effective scorer needs positions.
+/// Used only on the disk path.
+fn expansion_needs_offsets(
+    ctx: &mut QueryEvalContext,
+    opts: &QueryNodeOptions,
+    config: Config,
+) -> bool {
+    // The query's own scorer wins; a query that sets none falls back to the
+    // configured default, while a custom (non built-in) scorer conservatively
+    // needs offsets since we can't resolve what it does.
+    let scorer = match ctx.scorer() {
+        RequestedScorer::Unset => config.default_scorer,
+        RequestedScorer::Custom(_) => None,
+        RequestedScorer::BuiltIn(scorer) => Some(scorer),
+    };
+    slop_forces_offsets(opts.max_slop, opts.in_order)
+        || scorer.is_none_or(BuiltInScorer::needs_offsets)
 }
