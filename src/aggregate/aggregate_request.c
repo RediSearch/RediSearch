@@ -1153,9 +1153,9 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
-  // Idempotent after EndCycle; still required for cycles that do not run
-  // EndCycle yet (coordinator paths until Step 5). Must run while the owned
-  // request is alive: disposing a stashed cursor clears its execState.
+  // Idempotent after EndCycle; kept as a safety net for wrappers freed
+  // outside a cycle. Must run while the owned request is alive: disposing a
+  // stashed cursor clears its execState.
   ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {

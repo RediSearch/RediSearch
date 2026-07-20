@@ -23,7 +23,8 @@
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
-  // new cycle may begin on the same wrapper. Until Step 2b moves cursor
+  // new cycle may begin on the same wrapper.
+  // TRANSITIONAL(MOD-16691): until the cursor-ownership step moves cursor
   // park/free from the BG thread to OnFree, there is a narrow window where a
   // concurrent FT.CURSOR READ can reach a paused cursor before the previous
   // cycle's OnFree ran — this assert makes that overlap loud in debug builds.
@@ -31,8 +32,9 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // The cycle's hold on the wrapper: keeps the wrapper (and the owned request)
   // alive until OnFree, so the reply/timeout callbacks may dereference the
   // privdata even if the BG worker released its own hold (e.g. a cursor freed
-  // on ITERDONE) before the client was unblocked. Refcount bridge until Step 2b
-  // makes the cycle the single owner.
+  // on ITERDONE) before the client was unblocked.
+  // TRANSITIONAL(MOD-16691): expressed through the refcount bridge until the
+  // cursor-ownership step makes the cycle the single owner.
   BlockedRequestCtx_IncrRef(brc);
   brc->bc = bc;
   brc->reply_cb = reply_cb;
@@ -102,7 +104,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // Registry bookkeeping only (FT.INFO / crash reports). The callbacks reach
   // the request through the blocked client's privdata (the BlockedRequestCtx),
   // so the node carries no privdata and holds no reference. Unlinked in
-  // EndCycle; Step 3 links the wrapper itself instead.
+  // EndCycle; TRANSITIONAL(MOD-16691): Step 3 links the wrapper itself instead.
   BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, NULL, NULL);
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,

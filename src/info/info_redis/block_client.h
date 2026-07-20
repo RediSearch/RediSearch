@@ -39,9 +39,10 @@ struct BlockedRequestCtx;
 /* Bind the per-cycle fields on `brc`. Called on the main thread after
  * RedisModule_BlockClient returned `bc` (with BlockedRequestCtx_OnFree
  * registered as free_privdata) and before dispatching BG work. Takes the
- * cycle's reference on the wrapper (refcount bridge until Step 2b), sets `brc`
- * as the blocked client's privdata, captures the timeout policy for the cycle,
- * and performs the per-read RETURN_STRICT reset for AREQ cursor cycles. */
+ * cycle's reference on the wrapper (TRANSITIONAL(MOD-16691) refcount bridge
+ * until the cursor-ownership step), sets `brc` as the blocked client's
+ * privdata, captures the timeout policy for the cycle, and performs the
+ * per-read RETURN_STRICT reset for AREQ cursor cycles. */
 void BlockedRequestCtx_BeginCycle(struct BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy);
 

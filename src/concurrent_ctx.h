@@ -77,6 +77,8 @@ typedef struct ConcurrentSearchHandlerCtx {
   // Cursor taken for execution on the main thread (coord FT.CURSOR READ with a
   // blocking policy); NULL otherwise. The BG handler reads it back via
   // ConcurrentCmdCtx_GetCursor instead of re-taking by id.
+  // TRANSITIONAL(MOD-16691): folds into the wrapper's per-cycle cursor state
+  // once the cursor-ownership step lands.
   struct Cursor *cursor;
   ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
