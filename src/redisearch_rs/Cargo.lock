@@ -199,7 +199,11 @@ dependencies = [
 name = "c_trie"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "c_trie",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "strum",
  "workspace_hack",
 ]

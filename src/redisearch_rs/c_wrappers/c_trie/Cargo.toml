@@ -8,7 +8,23 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Enabled when building tests so `build.rs` links the C code (`libredisearch_c_bundle`).
+# See https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
 [dependencies]
 ffi.workspace = true
 strum.workspace = true
 workspace_hack.workspace = true
+
+[dev-dependencies]
+# Crates required to link and invoke the C trie symbols from tests.
+c_trie = { path = ".", features = ["unittest"] }
+# `mock_allocator` disables the `RedisAlloc` global allocator so the mock's
+# `RedisModule_Alloc` routes to the system allocator instead of recursing.
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+redis_mock.workspace = true
