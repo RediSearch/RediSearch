@@ -419,6 +419,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
+            "IndexSpec_AddTerm",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
@@ -455,7 +456,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["strToLowerRunes", "strToRunesN"],
+        fns: &["runesToStr", "strToLowerRunes", "strToRunesN"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },

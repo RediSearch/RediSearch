@@ -37,12 +37,14 @@ pub use query_types::{expanders, scorers};
 use scorers::{BuiltInScorer, RequestedScorer};
 
 mod config;
+mod expansion;
 mod nodes;
 
 pub use config::Config;
 
 use nodes::{
-    geo, geometry, ids, missing, not, null, numeric, optional, phrase, token, union, wildcard,
+    geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
+    wildcard,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -194,6 +196,7 @@ pub fn eval_node<'index>(
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
+        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node, config),

@@ -32,6 +32,12 @@ pub struct Config {
     /// scorer name), in which case a query with no scorer of its own is treated
     /// as a custom scorer.
     pub default_scorer: Option<BuiltInScorer>,
+    /// Minimum pattern length (in bytes) a prefix/suffix/contains query must
+    /// reach before it is expanded; shorter patterns produce no matches.
+    pub min_term_prefix: u32,
+    /// Maximum number of terms a prefix/suffix/contains query expands to before
+    /// the trie walk stops and a warning is recorded.
+    pub max_prefix_expansions: usize,
     /// Minimum number of children for a union iterator to use a heap-based
     /// implementation instead of a flat linear scan.
     pub min_union_iter_heap: usize,
@@ -39,18 +45,23 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        // Reuse the shared iterator-config default so the union-heap threshold
-        // keeps a single source of truth.
+        // Reuse the shared iterator-config defaults so the prefix-expansion knobs
+        // keep a single source of truth.
         let IteratorsConfig {
+            min_term_prefix,
+            max_prefix_expansions,
             min_union_iter_heap,
             ..
         } = IteratorsConfig::default();
+        let max_prefix_expansions = max_prefix_expansions as usize;
         let min_union_iter_heap = min_union_iter_heap as usize;
 
         Self {
             numeric_compress: false,
             prioritize_intersect_union_children: false,
             default_scorer: None,
+            min_term_prefix,
+            max_prefix_expansions,
             min_union_iter_heap,
         }
     }
