@@ -1187,8 +1187,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
   HybridRequest *hreq = brc->query.hybrid;
 
-  // Signal timeout to the background thread. The request has been attached to
-  // the wrapper since before the timer was armed (main-thread allocation).
+  // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
@@ -1214,8 +1213,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
   HybridRequest *hreq = brc->query.hybrid;
 
-  // Signal timeout to the background thread. The request has been attached to
-  // the wrapper since before the timer was armed (main-thread allocation).
+  // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
 
   wakeHybridAbortChannels(hreq);

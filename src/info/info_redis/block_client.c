@@ -66,7 +66,7 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // reference (it deliberately clears execState first — correct only in the
   // refcount==0 context of BlockedRequestCtx_Free). Disposing the stash here is
   // also what prevents the RETURN_STRICT preempt path from leaking the cursor
-  // reserved by an initial WITHCURSOR query (MOD-8477 / PR #10085).
+  // reserved by an initial WITHCURSOR query.
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_CleanUpStoredCursor(brc->query.areq);
   }

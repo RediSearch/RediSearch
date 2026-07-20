@@ -3779,10 +3779,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the request shell and its owning wrapper on the main thread, so
-  // the wrapper is the blocked client's privdata from the start and the BG
-  // thread only fills the request in place (no late-attach race with the
-  // timeout callback). Parsing still happens on the BG thread.
+  // Allocate the request shell and its owning wrapper here, on the main
+  // thread, so the timeout callback always reaches an installed request
+  // through the blocked client's privdata. Parsing happens on the BG thread.
   AREQ *r;
   if (isDebug) {
     AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
@@ -3890,10 +3889,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the hybrid request shell and its owning wrapper on the main
-  // thread, so the wrapper is the blocked client's privdata from the start
-  // (no late-attach race with the timeout callback). Parsing still happens on
-  // the BG thread; the sub-AREQ contexts are detached thread-safe contexts.
+  // Allocate the hybrid request shell and its owning wrapper here, on the
+  // main thread, so the timeout callback always reaches an installed request
+  // through the blocked client's privdata. Parsing happens on the BG thread;
+  // the sub-AREQ contexts are detached thread-safe contexts.
   const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
@@ -4012,13 +4011,11 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
           "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
           info.queryTimeoutMS, capped);
       }
-      // Take the cursor for execution on the main thread: the parked request's
-      // wrapper becomes the blocked client's privdata (armed timer callbacks
-      // reach a fully-installed request; no late-attach race), and the BG
-      // handler receives the cursor through the ConcurrentCmdCtx instead of
-      // re-taking it by id. BeginCycle performs the per-read RETURN_STRICT
-      // reset — safe here because taking the cursor proves the previous read
-      // cycle's BG work is done with it.
+      // Take the cursor for execution here, on the main thread: the parked
+      // request's wrapper becomes the blocked client's privdata, and the BG
+      // handler receives the cursor through the ConcurrentCmdCtx. BeginCycle
+      // performs the per-read RETURN_STRICT reset — safe because taking the
+      // cursor proves the previous read cycle's BG work is done with it.
       Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
       if (!cursor) {
         // Taken by a concurrent READ, or reaped between the peek and here.

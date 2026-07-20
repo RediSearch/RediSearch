@@ -153,10 +153,8 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
                                        handlerCtx->bcCtx.timeoutMS);
 
   if (handlerCtx->bcCtx.brc) {
-    // Bind the request wrapper (allocated on the main thread by the dispatcher)
-    // to this cycle: sets it as the blocked client's privdata and records the
-    // dispatch-time timeout policy. Safe against the just-armed timer: the
-    // timeout callback runs on this same thread.
+    // Safe against the just-armed timer: the timeout callback runs on this
+    // same thread.
     BlockedRequestCtx_BeginCycle(handlerCtx->bcCtx.brc, cmdCtx->bc,
                                  handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeoutPolicy);
   }

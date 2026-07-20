@@ -2379,8 +2379,8 @@ int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         QueryError_SetWithoutUserDataFmt(&err, QUERY_ERROR_CODE_ARG_UNRECOGNIZED,
                                          "Unknown argument `%s`", count_str);
         AREQ_ReplyOrStoreError(takenReq, ctx, &err);
-        // The cursor stays alive across an argument error (as it always has);
-        // park it back for a later read.
+        // The cursor stays alive across an argument error; park it back for a
+        // later read.
         Cursor_Pause(takenCursor);
         return REDISMODULE_OK;
       }

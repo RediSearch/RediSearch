@@ -356,10 +356,9 @@ struct BlockedRequestCtx {
    * bails at its post-claim check) and replies empty without running the
    * pipeline. The loser waits for the winner's completion signal.
    * Gated by `requiresAggregateResultsSync`.
-   * NOTE: this whole block is the current RETURN_STRICT sync mechanism, hosted
-   * verbatim by the refactor (design §4.3). A planned follow-up flips it so
-   * the timeout callback never waits on BG state (mark flag → serialize →
-   * drain a thread-safe results store), replacing the claim/latch/wait. */
+   * NOTE: a planned follow-up flips this mechanism so the timeout callback
+   * never waits on BG state (mark flag → serialize → drain a thread-safe
+   * results store), replacing the whole claim/latch/wait block. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
   bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
@@ -386,9 +385,10 @@ struct BlockedRequestCtx {
   RedisModuleCmdFunc reply_cb;  // NULL => BG replied inline via a thread-safe
                                 // ctx; non-NULL => BG stores results and this
                                 // runs on main after UnblockClient
-  RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle; immutable
-                                  // for the cycle (sticky-policy pattern,
-                                  // MOD-16023, generalized to all cycles)
+  RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle and
+                                  // immutable for the cycle, so BG and the
+                                  // timeout callback agree on one value even
+                                  // if FT.CONFIG SET changes it mid-flight
   // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
   // results/error here before UnblockClient; the reply or timeout callback
   // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
@@ -411,8 +411,7 @@ struct BlockedRequestCtx {
 
   /* TRANSITIONAL(MOD-16691): "has the BG worker dequeued this cursor read?"
    * latch for coord RETURN_STRICT cursor reads; per-cycle, reset by
-   * BeginCycle. Replaces the old CoordRequestCtx `setReqLock` + `req == NULL`
-   * proxy: the BG handler CASes NONE→BG at its entry; the RETURN_STRICT
+   * BeginCycle. The BG handler CASes NONE→BG at its entry; the RETURN_STRICT
    * timeout callback CASes NONE→TIMEOUT after flipping the timeout flag. A
    * timer that wins replies with a depleted empty cursor and never waits (the
    * BG job may be queued behind a paused/saturated pool); a BG that loses
@@ -439,8 +438,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
  * zero. Deleted together with `refcount` once the cursor-ownership step makes
- * the wrapper single-owner (the coordinator no longer holds references as of
- * the CoordRequestCtx removal). */
+ * the wrapper single-owner. */
 BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
 void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
 

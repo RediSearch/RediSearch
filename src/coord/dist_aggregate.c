@@ -1002,9 +1002,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
-  // Signal timeout to the background thread. The request has been attached to
-  // the wrapper since before the timer was armed (main-thread allocation), so
-  // no coordination with a late attach is needed.
+  // Signal timeout to the background thread
   AREQ_SetTimedOut(brc->query.areq);
 
   // Reply with timeout error
@@ -1043,8 +1041,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
   AREQ *req = brc->query.areq;
 
-  // Signal timeout to the background thread. The request has been attached to
-  // the wrapper since before the timer was armed (main-thread allocation).
+  // Signal timeout to the background thread
   AREQ_SetTimedOut(req);
 
   if (AREQ_TryClaimAggregateResults(req)) {
@@ -1135,8 +1132,6 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   }
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
-  // The cursor was taken for execution on the main thread before the timer was
-  // armed, so its parked request is always attached to the wrapper here.
   AREQ *req = brc->query.areq;
   AREQ_SetTimedOut(req);
 
