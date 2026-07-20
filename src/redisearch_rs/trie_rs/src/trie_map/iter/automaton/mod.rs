@@ -30,6 +30,9 @@
 //! - [`classify`](Automaton::classify): tag the current state with a
 //!   [`StateClass`] that tells the driver whether to yield the current
 //!   key and whether to keep recursing.
+//! - [`literal_prefix`](Automaton::literal_prefix): a byte prefix every
+//!   accepted key starts with (or `None`), letting the traversal jump
+//!   straight to that subtree instead of descending from the root.
 //!
 //! [`driver::AutomatonIter`] is the generic iterator that drives any
 //! `Automaton` over a trie via a DFS that carries the post-edge state
@@ -138,4 +141,17 @@ pub trait Automaton {
         }
         Some(s)
     }
+
+    /// A byte prefix that every accepted key starts with, if the automaton
+    /// knows one. [`TrieMap::automaton_iter`](crate::TrieMap::automaton_iter)
+    /// uses it to jump straight to the subtree holding the keys with that
+    /// prefix instead of descending from the trie root.
+    ///
+    /// # Contract
+    ///
+    /// Every key the automaton accepts must start with the returned bytes —
+    /// keys outside the prefix subtree are never visited, so a too-long or
+    /// wrong prefix silently drops matches. Return `None` to disable the
+    /// jump and descend from the trie root.
+    fn literal_prefix(&self) -> Option<&[u8]>;
 }
