@@ -430,20 +430,22 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // gate keeps the common no-filtering case free of its per-record check.
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
-        if filter_validity || filter_expiration {
-            batch.retain(|doc_id, score| {
-                if filter_validity && !self.validity.is_valid(doc_id) {
-                    return false;
-                }
-                if filter_expiration {
-                    let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                    if self.expiration.is_expired(&record) {
-                        return false;
-                    }
-                }
-                true
-            });
+        if !filter_validity && !filter_expiration {
+            return Ok(Some(batch));
         }
+        let batch = batch.retain(|doc_id, score| {
+            self.timeout.check_timeout()?;
+            if filter_validity && !self.validity.is_valid(doc_id) {
+                return Ok(false);
+            }
+            if filter_expiration {
+                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
+                if self.expiration.is_expired(&record) {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        })?;
         Ok(Some(batch))
     }
 
