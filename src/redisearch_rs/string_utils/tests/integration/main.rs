@@ -11,6 +11,8 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
+mod runes_to_string;
+mod runes_to_utf8;
 mod str_to_lower_runes;
 mod tag_strtolower;
 mod unicode_tolower;
