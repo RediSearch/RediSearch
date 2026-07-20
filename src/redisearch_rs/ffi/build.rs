@@ -444,8 +444,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/suffix.h",
-        fns: &[],
-        types: &[],
+        fns: &["Suffix_IterateContains"],
+        types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
@@ -462,14 +462,18 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        fns: &[
+            "Trie_DecrementNumDocs",
+            "Trie_GetNode",
+            "Trie_IterateContains",
+        ],
         types: &[],
         vars: &[],
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieNode_NumDocs"],
-        types: &[],
+        types: &["TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
