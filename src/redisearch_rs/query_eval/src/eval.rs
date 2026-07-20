@@ -23,8 +23,8 @@ use query_term::RSQueryTerm;
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, build_geo_range_iterator, build_numeric_filter_iterator,
-    build_term_iterator,
+    Empty, IteratorsConfig, RQEIteratorPrintable, build_geo_range_iterator,
+    build_numeric_filter_iterator, build_term_iterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -46,7 +46,7 @@ use crate::{
 /// These are snapshotted from the process-wide configuration once, at the FFI
 /// entry point, and threaded through evaluation as an explicit parameter rather
 /// than read from global state deep inside the dispatcher.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// Whether numeric inverted indexes use the compressed on-disk encoding.
     pub numeric_compress: bool,
@@ -60,6 +60,28 @@ pub struct Config {
     /// scorer name), in which case a query with no scorer of its own is treated
     /// as a custom scorer.
     pub default_scorer: Option<BuiltInScorer>,
+    /// Minimum number of children for a union iterator to use a heap-based
+    /// implementation instead of a flat linear scan.
+    pub min_union_iter_heap: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        // Reuse the shared iterator-config default so the union-heap threshold
+        // keeps a single source of truth.
+        let IteratorsConfig {
+            min_union_iter_heap,
+            ..
+        } = IteratorsConfig::default();
+        let min_union_iter_heap = min_union_iter_heap as usize;
+
+        Self {
+            numeric_compress: false,
+            prioritize_intersect_union_children: false,
+            default_scorer: None,
+            min_union_iter_heap,
+        }
+    }
 }
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -205,7 +227,7 @@ pub fn eval_node<'index>(
         QueryNode::Geometry { geomq } => eval_geometry(ctx, geomq),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
-        _ => eval_node_c(ctx, node),
+        _ => eval_node_c(ctx, node, config),
     }
 }
 
@@ -217,14 +239,17 @@ pub fn eval_node<'index>(
 fn eval_node_c<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     let q = ctx.as_non_null().as_ptr();
     let n = node.as_non_null().as_ptr();
+    let config = (&raw const config).cast::<ffi::EvalConfig>();
     // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
     // with exclusive access, since `ctx` is `&mut`) and `n` from a live
     // `QueryNodeRef` (a valid `RSQueryNode`), satisfying `Query_EvalNode`'s
-    // contract.
-    let it = unsafe { ffi::Query_EvalNode(q, n) };
+    // contract. `config` points to a live `Config` valid for the duration of the
+    // call.
+    let it = unsafe { ffi::Query_EvalNode(q, n, config) };
     NonNull::new(it).map(Evaluated::C)
 }
 
@@ -620,7 +645,7 @@ fn eval_union<'index>(
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
 
     // Recursively evaluate every child, narrowing its field mask first.
     //
@@ -697,7 +722,7 @@ fn eval_numeric<'index>(
         predicate: FieldExpirationPredicate::Default,
     };
 
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
@@ -737,7 +762,7 @@ fn eval_geo<'index>(
     }
 
     let sctx = NonNull::from(ctx.sctx());
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
     // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
     // `&mut` is sound.
     let gf_ref = unsafe { &mut *gf };
