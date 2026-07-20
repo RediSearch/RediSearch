@@ -39,6 +39,24 @@
 #define VSIM_SUFFIX "(VSIM)"
 #define POST_PROCESSING_SUFFIX "(POST PROCESSING)"
 
+typedef uint8_t HybridWarningMask;
+
+enum {
+  HYBRID_WARNING_NONE = 0,
+  HYBRID_WARNING_TIMEOUT = 1U << 0,
+  HYBRID_WARNING_MAX_PREFIX_EXPANSIONS = 1U << 1,
+};
+
+static void updateHybridWarningMetrics(HybridWarningMask warnings) {
+  if (warnings & HYBRID_WARNING_TIMEOUT) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
+  }
+  if (warnings & HYBRID_WARNING_MAX_PREFIX_EXPANSIONS) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1,
+                                           COORD_ERR_WARN);
+  }
+}
+
 // Send a warning message to the client, optionally appending a suffix to identify the source
 static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, const char *suffix) {
   if (suffix) {
@@ -55,41 +73,43 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 // Handles query errors and sends warnings to client.
 // ignoreTimeout: ignore timeout in tail if there's a timeout in subquery
 // suffix: identifies where the error occurred ("SEARCH"/"VSIM"/"POST PROCESSING")
-// Returns true if a timeout occurred and was processed as a warning
-static inline bool handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err, int returnCode, const char *suffix, bool ignoreTimeout) {
-  bool timeoutOccurred = false;
+// Returns the category of warning emitted, if any.
+static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err,
+                                                      int returnCode, const char *suffix,
+                                                      bool ignoreTimeout) {
   if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
-    // Track warnings in global statistics
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT), suffix);
-    timeoutOccurred = true;
+    return HYBRID_WARNING_TIMEOUT;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error - convert to warning
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
     QueryError_ClearError(err);
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, COORD_ERR_WARN);
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);
+    return HYBRID_WARNING_MAX_PREFIX_EXPANSIONS;
   }
 
-  return timeoutOccurred;
+  return HYBRID_WARNING_NONE;
 }
 
 // Reply with warnings, adding suffixes to indicate the originating context (search/vsim/post-processing)
-static void replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
-                                       QueryProcessingCtx *qctx, int postProcessingRC) {
-  bool timeoutInSubquery = false;
+static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, HybridRequest *hreq,
+                                                   QueryProcessingCtx *qctx, int postProcessingRC) {
+  HybridWarningMask warnings = HYBRID_WARNING_NONE;
 
   // Handle warnings from each subquery, adding appropriate suffix
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     QueryError* err = &hreq->errors[i];
     const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
-    timeoutInSubquery = handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false) || timeoutInSubquery;
+    warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
   }
 
   // Handle warnings from post-processing stage
-  handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX, timeoutInSubquery);
+  const bool timeoutInSubquery = warnings & HYBRID_WARNING_TIMEOUT;
+  warnings |= handleAndReplyWarning(reply, qctx->err, postProcessingRC, POST_PROCESSING_SUFFIX,
+                                    timeoutInSubquery);
+  return warnings;
 }
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
@@ -300,7 +320,8 @@ done:
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
     }
 
-    replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+    const HybridWarningMask warnings = replyWarningsWithSuffixes(reply, hreq, qctx, rc);
+    updateHybridWarningMetrics(warnings);
 
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 
