@@ -9,7 +9,9 @@
 
 use std::ffi::c_void;
 
-use super::{IndexReader, IndexReaderCore, NumericReader, ResumableReader, SuspendableReader};
+use super::{
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+};
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{FieldSpec, IndexFlags};
 use index_result::RSIndexResult;
@@ -86,9 +88,15 @@ impl NumericFilter {
 ///
 /// This should only be wrapped around readers that return numeric records.
 ///
-/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
-/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
-/// the whole `FilterNumericReader` is too.
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterNumericReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field. This is the layout compatibility the
+///    [`SuspendableReader`]/[`ResumableReader`] contract requires. Enforced by
+///    the `const _` proof below.
 #[repr(C)]
 pub struct FilterNumericReader<IR> {
     /// The numeric filter that is used to filter the records.
@@ -97,6 +105,22 @@ pub struct FilterNumericReader<IR> {
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
+
+// Compile-time proof of invariant 1 on `FilterNumericReader`, for a
+// representative concrete numeric-encoded inner reader. The inner reader's own
+// layout compatibility is invariant 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::numeric::Numeric;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterNumericReader<RawIndexReaderCore<Active<'static>, Numeric>>;
+    type S = FilterNumericReader<RawIndexReaderCore<Suspended, Numeric>>;
+    assert!(offset_of!(A, filter) == offset_of!(S, filter));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
     /// Create a new filter numeric reader with the given filter and inner iterator.
@@ -107,7 +131,10 @@ impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
 
 /// `FilterNumericReader<IR>` suspends to `FilterNumericReader<IR::Suspended>`
 /// — only the inner reader switches modes.
-impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterNumericReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
     type Suspended = FilterNumericReader<IR::Suspended>;
 }
 
@@ -115,12 +142,21 @@ impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
 /// `FilterNumericReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
 /// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
 /// the resumed core reader provides.
-impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterNumericReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
 where
     for<'a> Self: 'static,
     for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
+    }
 }
 
 impl<'index, E> FilterNumericReader<IndexReaderCore<'index, E>> {
