@@ -10,6 +10,7 @@
 //! [`NumericScoreBatch`] — a [`ScoreBatch`] over a drained numeric iterator.
 
 use rqe_core::DocId;
+use rqe_iterators::RQEIteratorError;
 use top_k::ScoreBatch;
 
 /// A [`ScoreBatch`] backed by a doc-id-ordered `Vec<(DocId, f64)>`.
@@ -32,12 +33,31 @@ impl NumericScoreBatch {
         Self { items, pos: 0 }
     }
 
-    /// Drop records for which `keep` returns `false`, preserving the strictly
-    /// increasing doc-id order. Called before the batch is consumed, so `pos`
-    /// stays at `0`.
-    pub(crate) fn retain(&mut self, keep: impl Fn(DocId, f64) -> bool) {
+    /// Drop records for which `keep` returns `Ok(false)`, preserving the strictly
+    /// increasing doc-id order, and return the filtered batch. Called before the
+    /// batch is read, so `pos` stays at `0`.
+    ///
+    /// `keep` is fallible so it can poll the query deadline per record. The first
+    /// [`Err`] is returned and short-circuits the scan.
+    pub(crate) fn retain(
+        mut self,
+        mut keep: impl FnMut(DocId, f64) -> Result<bool, RQEIteratorError>,
+    ) -> Result<Self, RQEIteratorError> {
         debug_assert_eq!(self.pos, 0, "retain must run before the batch is read");
-        self.items.retain(|&(doc_id, score)| keep(doc_id, score));
+        let mut result = Ok(());
+        self.items.retain(|&(doc_id, score)| {
+            if result.is_err() {
+                return false;
+            }
+            match keep(doc_id, score) {
+                Ok(keep) => keep,
+                Err(err) => {
+                    result = Err(err);
+                    false
+                }
+            }
+        });
+        result.map(|()| self)
     }
 }
 
