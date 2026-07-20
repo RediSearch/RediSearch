@@ -201,8 +201,9 @@ fn test_split_with_identical_values() {
     );
 }
 
-/// Regression test for the `empty_leaves` underflow crash (MOD production crash
-/// on 8.6.6): a split that creates an empty child leaf must count it.
+/// Regression test for the `empty_leaves` underflow crash (MOD-16877, a
+/// production crash on 8.6.6): a split that creates an empty child leaf must
+/// count it.
 ///
 /// With float compression enabled, cardinality is estimated over the original
 /// f64 values while entries are stored — and split-redistributed — as compressed
