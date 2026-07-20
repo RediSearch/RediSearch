@@ -463,6 +463,35 @@ fn iterator_read_propagates_timeout() {
 }
 
 #[test]
+fn filtering_scan_is_timeout_aware() {
+    // Single-leaf tree of four records, materialized into one batch. The clock's
+    // deadline is already elapsed, but its granularity is one above the record
+    // count, so the four per-record polls in materialization never reach a real
+    // probe. The timeout can only surface if the stale-record filtering scan
+    // keeps polling the same amortized counter past that granularity.
+    let pairs = [(1u64, 4.0), (2, 3.0), (3, 2.0), (4, 1.0)];
+    let tree = tree_from(&pairs);
+    let past_deadline =
+        || TimeoutContextClock::new(Duration::from_nanos(1), pairs.len() as u32 + 1);
+
+    // No filtering: materialization alone stays below the probe granularity, so
+    // the batch is produced without timing out.
+    let mut unfiltered =
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(past_deadline());
+    assert!(unfiltered.next_batch().unwrap().is_some());
+
+    // With a validity filter, the post-materialization scan polls per record and
+    // crosses the deadline that materialization alone could not reach.
+    let mut filtered = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_validity(DeletedDocs::from_iter([2]))
+        .with_timeout(past_deadline());
+    assert!(matches!(
+        filtered.next_batch(),
+        Err(RQEIteratorError::TimedOut)
+    ));
+}
+
+#[test]
 fn amortized_check_does_not_probe_below_granularity() {
     // Deadline is in the past, but with a granularity far above the record count
     // the clock is never probed, so the batch is produced without timing out.
