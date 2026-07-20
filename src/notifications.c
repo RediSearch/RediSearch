@@ -871,6 +871,7 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
+      ForEachIndex(SearchDisk_LogDocTablePostCheckpoint);  // MOD-16954 instrumentation
       // POST_CHECKPOINT has no matching disk hook - just close the window
       // opened at PRE_CHECKPOINT.
       RS_ASSERT(vecsimdisk_sst_consistency_lock_held);

@@ -600,8 +600,21 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
   disk->index.flush(index);
 }
 
+// MOD-16954 instrumentation: dump the on-disk doc-table live count at the SST
+// consistency-window hooks. live = max_doc_id - deleted_ids (ids are assigned
+// densely; each is either live or tombstoned), which should equal FT.SEARCH *.
+static void logDocTableCount_MOD16954(IndexSpec *sp, const char *at) {
+  uint64_t maxId = SearchDisk_GetMaxDocId(sp->diskSpec);
+  uint64_t del = SearchDisk_GetDeletedIdsCount(sp->diskSpec);
+  RedisModule_Log(RSDummyContext, "notice",
+                  "MOD-16954 doc-table @%s: max_doc_id=%llu deleted_ids=%llu live=%lld",
+                  at, (unsigned long long)maxId, (unsigned long long)del,
+                  (long long)maxId - (long long)del);
+}
+
 void SearchDisk_PreCheckpoint(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
+  logDocTableCount_MOD16954(sp, "PRE_CHECKPOINT (master, pre-snapshot)");
   // No read/write lock taken from spec. Disabling compaction and calling SearchDisk_PreCheckpoint from main thread
   // ensures no writes while checkpoint taken.
   disk->index.preCheckpoint(sp->diskSpec);
@@ -609,12 +622,22 @@ void SearchDisk_PreCheckpoint(IndexSpec *sp) {
 
 void SearchDisk_PreFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
+  logDocTableCount_MOD16954(sp, "PRE_FORK (master, pre-fork)");
   disk->index.preFork(sp->diskSpec);
 }
 
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.postFork(sp->diskSpec);
+  logDocTableCount_MOD16954(sp, "POST_FORK (master, post-fork)");
+}
+
+// MOD-16954 instrumentation: POST_CHECKPOINT closes the consistency window with
+// no per-index disk callback, so this is invoked via ForEachIndex to dump the
+// doc-table count after the checkpoint was taken. Guards non-disk specs.
+void SearchDisk_LogDocTablePostCheckpoint(IndexSpec *sp) {
+  if (!disk || !sp || !sp->diskSpec) return;
+  logDocTableCount_MOD16954(sp, "POST_CHECKPOINT (master, post-snapshot)");
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {

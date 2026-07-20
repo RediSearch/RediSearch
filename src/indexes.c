@@ -953,6 +953,18 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(!sp->diskRegistered);
     bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
     RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
+    // MOD-16954 instrumentation: doc-table live count on the replica right after
+    // the SST index is opened (before any backfill scan). live = max_doc_id -
+    // deleted_ids, which should equal FT.SEARCH *. resume_bg_indexing triggers a
+    // keyspace re-scan below (a suspected source of phantom/duplicate docs).
+    {
+      uint64_t maxId = SearchDisk_GetMaxDocId(sp->diskSpec);
+      uint64_t del = SearchDisk_GetDeletedIdsCount(sp->diskSpec);
+      RedisModule_Log(ctx, "notice",
+                      "MOD-16954 doc-table @FINISH_SST (replica, post-open): max_doc_id=%llu deleted_ids=%llu live=%lld resume_bg_indexing=%d",
+                      (unsigned long long)maxId, (unsigned long long)del,
+                      (long long)maxId - (long long)del, (int)sp->resume_bg_indexing);
+    }
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);

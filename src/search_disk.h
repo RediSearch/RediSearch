@@ -883,6 +883,10 @@ void SearchDisk_PreFork(IndexSpec *sp);
  */
 void SearchDisk_PostFork(IndexSpec *sp);
 
+// MOD-16954 instrumentation: log the doc-table live count after POST_CHECKPOINT
+// (invoked via ForEachIndex; POST_CHECKPOINT has no per-index disk callback).
+void SearchDisk_LogDocTablePostCheckpoint(IndexSpec *sp);
+
 /**
  * @brief Master-side SST replication ABORT hook for a single index.
  *
