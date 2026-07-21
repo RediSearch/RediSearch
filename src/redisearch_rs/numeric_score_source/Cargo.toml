@@ -17,6 +17,7 @@ build_utils.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 numeric_range_tree.workspace = true
+redis_reply.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
