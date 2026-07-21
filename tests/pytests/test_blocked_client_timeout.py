@@ -3757,7 +3757,7 @@ class TestCoordinatorTimeout:
         callers assert their tail-shape-specific reply expectations.
 
         Shared assertions (single reply, two per-subquery TIMEOUT warnings,
-        coord warning counter ``+2``, other metrics unchanged) and full
+        coord warning counter ``+1``, other metrics unchanged) and full
         cleanup (signal sync point on every shard, restore previous
         on-timeout policy) are performed by this driver.
         """
@@ -3832,14 +3832,12 @@ class TestCoordinatorTimeout:
             env.assertContains('Timeout', warnings[1],
                                message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
 
-            # finishSendChunkReply_hybrid -> replyWarningsWithSuffixes bumps
-            # the coord timeout-warning metric once per subquery that returned
-            # RS_RESULT_TIMEDOUT, so the metric grows by the number of
-            # subqueries.
+            # Both warning strings belong to one top-level FT.HYBRID query, so
+            # the coordinator timeout-warning metric increases only once.
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                            str(base_warn_coord + 2),
-                            message="Coordinator timeout warning should be +2 (one per subquery)")
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1 per query")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
         finally:
             for c in all_shard_conns:
@@ -3866,8 +3864,7 @@ class TestCoordinatorTimeout:
         empty when the timeout fires and the reply carries 0 rows + two
         per-subquery TIMEOUT warnings. This is the channel-wake analogue
         of ``test_return_strict_timeout_all_shards_paused_aggregate``
-        (which bumps the warning counter +1; hybrid bumps +2, one per
-        subquery, see MOD-15973).
+        (both commands bump the warning counter once per top-level query).
         """
         def assert_reply(result):
             env = self.env
@@ -3996,7 +3993,7 @@ class TestCoordinatorTimeout:
         responsive shards, which the driver counts deterministically.
 
         Shared assertions (single reply, two per-subquery TIMEOUT
-        warnings, coord warning counter ``+2``, other metrics
+        warnings, coord warning counter ``+1``, other metrics
         unchanged) and best-effort cleanup (SIGCONT the shard, clear
         coord sync, restore previous on-timeout policy) are performed
         by this driver.
@@ -4124,8 +4121,8 @@ class TestCoordinatorTimeout:
 
             after_info = info_modules_to_dict(env)
             env.assertEqual(after_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC],
-                            str(base_warn_coord + 2),
-                            message="Coordinator timeout warning should be +2 (one per subquery)")
+                            str(base_warn_coord + 1),
+                            message="Coordinator timeout warning should be +1 per query")
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
 
         finally:
