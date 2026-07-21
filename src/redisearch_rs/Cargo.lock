@@ -3581,6 +3581,7 @@ dependencies = [
  "cc",
  "criterion",
  "ffi",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rqe_iterators",

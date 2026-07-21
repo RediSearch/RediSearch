@@ -44,11 +44,13 @@ use std::cmp::Ordering;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
-    HNSWParams, RedisModule_Alloc, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
+    HNSWParams, VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES,
     VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free,
     VecSimIndex_New, VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQueryParams,
     VecSimType_VecSimType_FLOAT32, timespec,
 };
+
+use redis_module::RedisModule_Alloc;
 use rqe_iterators::{IdList, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{TopKIterator, TopKMode};
@@ -57,7 +59,7 @@ use vector_score_source::VectorScoreSource;
 /// Score order for vector distance: ascending (lower distance = better).
 /// Matches the comparator `vector_score_source` uses internally.
 fn asc_cmp(a: &f64, b: &f64) -> Ordering {
-    a.partial_cmp(b).unwrap_or(Ordering::Equal)
+    a.total_cmp(b)
 }
 
 // ── C shim (from hybrid_shim.c, compiled by build.rs) ────────────────────────
