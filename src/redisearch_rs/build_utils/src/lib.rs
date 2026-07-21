@@ -64,13 +64,13 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 /// Link all the relevant C dependencies to allow Rust (testing and benchmarking) code to invoke
 /// RediSearch C symbols.
 ///
-/// This links a single combined static library (`libredisearch_all.a`) that bundles
+/// This links a single combined static library (`libredisearch_c_bundle.a`) that bundles
 /// all C code and dependencies together. The combined library is created by CMake
 /// during the build process.
 pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
-    link_redisearch_all(&bin_root).unwrap_or_else(|e| panic!("{e}"));
+    link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
 }
@@ -120,12 +120,12 @@ fn bin_root() -> PathBuf {
     }
 }
 
-/// Link `libredisearch_all.a` using the `-bundle` modifier, returning an error if the
+/// Link `libredisearch_c_bundle.a` using the `-bundle` modifier, returning an error if the
 /// library is not found.
 ///
 /// The `-bundle` modifier prevents the (very large) C archive from being
 /// embedded into every Rust rlib in the dependency tree. Instead, the linker
-/// flag `-lredisearch_all` propagates to final binaries (tests, benchmarks)
+/// flag `-lredisearch_c_bundle` propagates to final binaries (tests, benchmarks)
 /// where the linker selectively pulls only the objects that are actually
 /// needed. This avoids two problems:
 ///
@@ -138,11 +138,11 @@ fn bin_root() -> PathBuf {
 /// Callers that need soft-fail behaviour (e.g. lint-only runs where the
 /// library has not been built) can inspect the returned `Err` and emit a
 /// `cargo::warning` instead of panicking.
-pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn link_redisearch_c_bundle(bin_root: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let lib_dir = bin_root.join("src");
-    let lib = lib_dir.join("libredisearch_all.a");
+    let lib = lib_dir.join("libredisearch_c_bundle.a");
     if std::fs::exists(&lib).unwrap_or(false) {
-        println!("cargo::rustc-link-lib=static:-bundle=redisearch_all");
+        println!("cargo::rustc-link-lib=static:-bundle=redisearch_c_bundle");
         println!("cargo::rerun-if-changed={}", lib.display());
         println!("cargo::rustc-link-search=native={}", lib_dir.display());
         Ok(lib)
@@ -153,9 +153,9 @@ pub fn link_redisearch_all(bin_root: &Path) -> Result<PathBuf, Box<dyn std::erro
 
 /// Link Intel MKL separately if present.
 ///
-/// MKL is excluded from `libredisearch_all.a` because its ~42K object files
+/// MKL is excluded from `libredisearch_c_bundle.a` because its ~42K object files
 /// overflow the `u16` archive member index in rustc's `ar_archive_writer`.
-/// Like `redisearch_all`, we link with `-bundle` to avoid rlib bloat.
+/// Like `redisearch_c_bundle`, we link with `-bundle` to avoid rlib bloat.
 ///
 /// `svs_lib_dir` is the directory that contains `libmkl_static_library.a`.
 /// Its location varies across build configurations, so callers are responsible

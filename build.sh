@@ -378,7 +378,7 @@ prepare_cmake_arguments() {
   # the CMake cache retains CMAKE_INTERPROCEDURAL_OPTIMIZATION=true and the
   # static libraries already built from it contain LLVM bitcode, which
   # non-LTO consumers reject at link time (the Rust test binaries linking
-  # libredisearch_all.a through the default cc/bfd linker fail with
+  # libredisearch_c_bundle.a through the default cc/bfd linker fail with
   # "file format not recognized"). Inherit LTO from the cache so a re-drive
   # without the LTO argument (e.g. `make test` after an LTO `make build`)
   # keeps the matching clang/lld toolchain. FORCE wipes the directory in
