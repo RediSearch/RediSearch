@@ -117,7 +117,7 @@ static void build_hybrid_empty_internal_reply(RedisModule_Reply *reply, QueryErr
     RedisModule_ReplyKV_Array(reply, "warnings"); // warnings []
     if (QueryError_HasQueryOOMWarning(status)) {
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD, 1, SHARD_ERR_WARN);
-        RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_EOOM));
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
     }
     RedisModule_Reply_ArrayEnd(reply); // ~warnings
 
