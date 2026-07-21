@@ -51,8 +51,10 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "vector_score_source_bencher",
+    "numeric_score_source",
     "trie_rs",
     "ttl_table",
+    "utf8parse",
     "ttl_table_bencher",
     "value",
     "varint",
@@ -110,6 +112,7 @@ build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
+dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
@@ -126,6 +129,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }
@@ -224,7 +228,7 @@ tracing-subscriber = { version = "0.3.22", default-features = false, features = 
 ] }
 unsafe-tools = "0.1.2"
 ureq = "3.1"
-utf8parse = "0.2.2"
+utf8parse = { path = "./utf8parse" }
 walkdir = "2"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 wyhash = "0.5"

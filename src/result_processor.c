@@ -36,6 +36,7 @@
 #include "search_result.h"
 #include "search_result_ffi.h"
 #include "redisearch.h"
+#include "reply.h"
 #include "asm_state_machine.h"
 #include "index_result_async_read.h"
 
@@ -1015,6 +1016,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
   rm_free(lc->loadopts.keys);
+  rm_free(lc->loadopts.profileFields);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1022,7 +1024,9 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    bool withProfile) {
   self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
   self->loadopts.forceLoad = forceLoad;
   self->loadopts.status = &self->status;
@@ -1032,6 +1036,9 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
     memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
     self->loadopts.nkeys = nkeys;
+    if (withProfile) {
+      self->loadopts.profileFields = rm_calloc(nkeys, sizeof(*self->loadopts.profileFields));
+    }
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1041,10 +1048,12 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                          const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                          bool withProfile) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -1092,7 +1101,7 @@ typedef struct RPSafeLoader {
   // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
-  RequestSyncCtx *syncCtx;
+  BlockedRequestCtx *brc;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1274,15 +1283,15 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
-  // Deadlock-avoidance handshake (syncCtx non-NULL only for RETURN_STRICT). Mark
+  // Deadlock-avoidance handshake (brc non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
-  if (self->syncCtx && !RequestSyncCtx_SafeLoaderEnterGIL(self->syncCtx)) {
+  if (self->brc && !BlockedRequestCtx_SafeLoaderEnterGIL(self->brc)) {
     return RS_RESULT_TIMEDOUT;
   }
 
 #ifdef ENABLE_ASSERT
-  // Sync point: pause holding the GIL gate (safeLoaderHoldingGIL == true),
+  // Sync point: pause holding the GIL gate (safeLoadersHoldingGIL > 0),
   // before the Redis lock, so a timeout callback observes it and preempts.
   SyncPoint_WaitUntil(SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE, SearchTime_IsTimedOut, &sctx->time);
 #endif
@@ -1296,10 +1305,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // timeout callback only runs on the main thread while it holds the GIL, so it
   // cannot observe the flag during this window; clearing before the unlock
   // closes the race where a timeout landing in the unlock->clear gap sees a
-  // stale safeLoaderHoldingGIL == true and preempts, dropping already-loaded
+  // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
-  if (self->syncCtx) {
-    RequestSyncCtx_SafeLoaderExitGIL(self->syncCtx);
+  if (self->brc) {
+    BlockedRequestCtx_SafeLoaderExitGIL(self->brc);
   }
 
   // Done loading. Unlock Redis
@@ -1343,10 +1352,12 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                         const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                         bool withProfile) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -1354,7 +1365,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
-  sl->syncCtx = NULL;
+  sl->brc = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1408,13 +1419,54 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
     }
   }
   *outStateflags |= QEXEC_S_HAS_LOAD;
+  const bool withProfile = reqflags & QEXEC_F_PROFILE;
   if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   }
+}
+
+static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
+  RS_LOG_ASSERT(base->type == RP_LOADER || base->type == RP_SAFE_LOADER,
+                "RPLoader profile requested for non-loader RP");
+  if (base->type == RP_SAFE_LOADER) {
+    return &((const RPSafeLoader *)base)->base_loader;
+  }
+  return (const RPLoader *)base;
+}
+
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
+  const RPLoader *loader = RPLoader_GetProfileSource(base);
+  if (loader->loadopts.nkeys == 0) {
+    return;
+  }
+
+  const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
+  RS_LOG_ASSERT(fields, "profileFields must exist for explicit LOAD profile");
+
+  RedisModule_ReplyKV_Array(reply, "Field loads profile");
+  for (size_t ii = 0; ii < loader->loadopts.nkeys; ++ii) {
+    const RLookupKey *key = loader->loadopts.keys[ii];
+    const RLookupLoadFieldProfile *field = &fields[ii];
+    const char *fieldName = RLookupKey_GetPath(key);
+    if (!fieldName) {
+      fieldName = RLookupKey_GetName(key);
+    }
+    if (!fieldName) {
+      fieldName = "";
+    }
+
+    RedisModule_Reply_Map(reply);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, strlen(fieldName));
+    RedisModule_ReplyKV_Double(reply, "Time",
+                               rs_wall_clock_convert_ns_to_ms_d(field->loadTimeNs));
+    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->loadCount);
+    RedisModule_Reply_MapEnd(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 // Consumes the input loader and returns a new safe loader that wraps it.
@@ -1432,7 +1484,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
-  sl->syncCtx = NULL;
+  sl->brc = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1466,11 +1518,11 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 // Link the request sync context into every RP_SAFE_LOADER in the pipeline so
 // they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync) {
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
-      ((RPSafeLoader *)rp)->syncCtx = sync;
+      ((RPSafeLoader *)rp)->brc = sync;
     }
     rp = rp->upstream;
   }

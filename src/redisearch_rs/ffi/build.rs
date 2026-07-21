@@ -431,7 +431,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Release",
         ],
         types: &[],
-        vars: &["isCrdt"],
+        vars: &["isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -484,13 +484,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/dict/dict.h",
         fns: &[
+            "dictIterator",
             "RS_dictAdd",
+            "RS_dictAddRaw",
+            "RS_dictCreate",
             "RS_dictDelete",
             "RS_dictFetchValue",
+            "RS_dictGetIterator",
+            "RS_dictNext",
             "RS_dictRelease",
+            "RS_dictReleaseIterator",
         ],
-        types: &[],
-        vars: &[],
+        types: &["dictType"],
+        vars: &["dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",

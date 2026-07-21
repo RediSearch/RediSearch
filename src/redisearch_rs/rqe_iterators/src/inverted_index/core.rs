@@ -479,6 +479,19 @@ where
 }
 // ---- Suspend / Resume ------------------------------------------------------
 
+/// Outcome of an in-place suspended→active resume
+/// ([`resume_in_place`](RawInvIndIterator::resume_in_place)).
+///
+/// Reports whether the iterator's position is unchanged or whether a re-seek
+/// after a GC/relocation moved it past the previous document.
+pub(crate) enum ResumeStatus {
+    /// The iterator resumed at the same position it held before suspending.
+    Unchanged,
+    /// GC or a block relocation invalidated the cached offset; the re-seek
+    /// landed the iterator on a different (later) document, or off the end.
+    Moved,
+}
+
 impl<'query, RS, E, RA> RawInvIndIterator<'query, Suspended, RS, E, RA>
 where
     RS: ResumableReader,
@@ -507,6 +520,108 @@ where
         // an `IndexSpecReadGuard`). `ResumableReader::refresh_pointers` requires
         // exactly that lock while it dereferences the reader's raw index pointer.
         unsafe { self.reader.refresh_pointers() }
+    }
+
+    /// Perform the full suspended→active resume transition **in place**.
+    ///
+    /// Refreshes the reader's pointers, resets any stale borrowed offsets,
+    /// promotes the `Rf`-carrying `result` field to its active form, and — if
+    /// GC or a block relocation invalidated the cached offset — rewinds and
+    /// re-seeks to the last document the iterator returned. On return, `self`'s
+    /// storage is a valid `InvIndIterator<'a, RS::Resumed<'a>, E>` at the same
+    /// address; the caller only has to reinterpret the owning `Box`'s type,
+    /// which is a layout-identical no-op cast (invariant 1, const proof above).
+    ///
+    /// This is the single shared resume path for the bare-core iterator and for
+    /// every leaf wrapper (`Term`/`Tag`/`Missing`/`Wildcard`/`Numeric`), so the
+    /// borrowed-data transition lives in exactly one place.
+    ///
+    /// # Precondition
+    ///
+    /// Like [`RQESuspendedIterator::resume`], this refreshes the reader pointers
+    /// without an index-identity check of its own. It assumes the caller has
+    /// already established that the underlying inverted index is still live
+    /// (leaf wrappers run their `should_abort` check first).
+    pub(crate) fn resume_in_place<'a>(
+        &mut self,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeStatus, RQEIteratorError>
+    where
+        'query: 'a,
+        RS::Resumed<'a>: IndexReader<'a>,
+    {
+        // We use the last doc id yielded by the iterator, rather than the reader state,
+        // since the reader initializes its own field to the first block's first_doc_id
+        // before any result has been returned, so if GC or a moved block buffer occurs
+        // while a freshly-created iterator is suspended, resume would reseek to that first
+        // doc and report Ok, causing the next read() to skip the first result.
+        let last_doc_id = self.last_doc_id;
+
+        // Step 1: refresh reader pointers *on the suspended form*. This never
+        // materializes a `&'a` borrow of any potentially-dangling field — the
+        // Suspended → Active reinterpretation happens afterwards, only once every
+        // `Rf`-dependent field is valid. Passing `guard` proves the spec read
+        // lock is held for the pointer refresh.
+        let outcome = self.refresh_pointers(guard);
+
+        // Whatever offsets we borrowed from the index may be stale. To make
+        // promotion from suspended to active safe, we unset them while still
+        // suspended, before any active reference to `result` can be formed.
+        if outcome == RefreshOutcome::NeedsReseek
+            && let Some(term) = self.result.as_term_mut()
+        {
+            match term {
+                RawTermRecord::Borrowed { offsets, .. } => {
+                    *offsets = RawOffsetSlice::empty();
+                }
+                RawTermRecord::Owned { .. } | RawTermRecord::FullyOwned { .. } => {
+                    // These variants own their offsets, so no issues.
+                }
+            }
+        }
+
+        // Step 2: convert the `Rf`-carrying `result` field Suspended → Active in
+        // place, then reinterpret the rest of the struct by reborrowing `self`'s
+        // storage as the active iterator. The heap allocation is untouched, so
+        // external pointers into this iterator's interior stay valid.
+        //
+        // `&raw mut` forms a field pointer without creating a reference, leaving
+        // provenance over the whole allocation intact for the reborrow below.
+        let result_slot = &raw mut self.result;
+        // SAFETY: `into_active_in_place`'s preconditions for `'a` hold — the
+        // caller's read lock (witnessed by `guard`) plus the `refresh_pointers`
+        // call above ensure every index-backed pointer inside `result` is
+        // dereferenceable for `'a`; `result_slot` is initialized and unaliased.
+        unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
+        // SAFETY: `result` is now the active form; the remaining `Rf`-dependent
+        // fields (`reader`, the `fn` pointers) are layout-identical across modes
+        // by invariant 1 on `RawInvIndIterator` (const proof above) given
+        // invariant 1 on the reader `RS`. Reborrowing the same storage as the
+        // active iterator is therefore sound, and no `&mut self` borrow outlives
+        // this reborrow (we never touch `self` again).
+        let active: &mut InvIndIterator<'a, RS::Resumed<'a>, E> =
+            unsafe { &mut *(self as *mut Self).cast() };
+
+        // Step 3: if GC ran while we were suspended, the cached block offset is
+        // stale even though the buffer pointer was refreshed. Rewind and re-seek
+        // to the last doc id.
+        match outcome {
+            RefreshOutcome::Ok => Ok(ResumeStatus::Unchanged),
+            RefreshOutcome::NeedsReseek => {
+                active.rewind();
+
+                if last_doc_id == 0 {
+                    // We hadn't returned anything yet, so there's nothing to
+                    // re-seek; a fresh `read()` will produce the right next doc.
+                    return Ok(ResumeStatus::Unchanged);
+                }
+
+                Ok(match active.skip_to(last_doc_id)? {
+                    Some(SkipToOutcome::Found(_)) => ResumeStatus::Unchanged,
+                    Some(SkipToOutcome::NotFound(_)) | None => ResumeStatus::Moved,
+                })
+            }
+        }
     }
 }
 
@@ -564,14 +679,26 @@ where
 
     /// # Precondition
     ///
-    /// This core resume refreshes the reader's pointers (dereferencing the
-    /// stored index pointer via [`refresh_pointers`](RawInvIndIterator::refresh_pointers))
-    /// without performing an index-identity check of its own. It assumes the
-    /// caller — a leaf wrapper's `resume` (`Term`/`Tag`/`Missing`/`Wildcard`/
-    /// `Numeric`), which runs its `should_abort` identity check *first* — has
-    /// already established that the underlying inverted index is still live
-    /// (not freed or replaced by GC while suspended). The bare-core iterator is
-    /// not resumed directly in production.
+    /// This core resume refreshes the reader's pointers (via
+    /// [`resume_in_place`](RawInvIndIterator::resume_in_place)) without
+    /// performing an index-identity check of its own. It assumes the caller — a
+    /// leaf wrapper's `resume` (`Term`/`Tag`/`Missing`/`Wildcard`/`Numeric`),
+    /// which runs its `should_abort` identity check *first* — has already
+    /// established that the underlying inverted index is still live (not freed
+    /// or replaced by GC while suspended).
+    ///
+    /// The liveness check is deliberately **not** performed here: it is
+    /// leaf-specific (each leaf locates its index differently — `Term` via
+    /// `keysDict`, `Tag` via the tag `TrieMap`, `Missing` via `missingFieldDict`,
+    /// `Wildcard` via `existingDocs`), so it cannot be expressed generically at
+    /// this layer. Consequently, resuming the *bare* core iterator directly —
+    /// i.e. an [`InvIndIterator`] not wrapped by one of those leaves — after the
+    /// index was fully GC'd or replaced while suspended would let
+    /// `resume_in_place` dereference the stale saved index pointer. That path is
+    /// never exercised in production: every core iterator is owned by a leaf
+    /// wrapper whose `resume` gates on `should_abort` before delegating here. If
+    /// a future caller resumes the bare core directly, it must first prove the
+    /// index identity itself.
     fn resume<'a>(
         mut self: Box<Self>,
         guard: &IndexSpecReadGuard<'a>,
@@ -579,87 +706,26 @@ where
     where
         'query: 'a,
     {
-        // If there has been a GC cycle on this key while we were suspended, the offset might not be valid
-        // anymore. This means that we need to seek the last docId we were at.
-        let last_doc_id = self.last_doc_id();
+        // Do the whole borrowed-data transition in place on the boxed value.
+        let status = self.resume_in_place(guard)?;
 
-        // Step 1: refresh reader pointers *on the suspended form*. This
-        // never materializes a `&'a` borrow of any potentially-dangling
-        // field — the `Box<Suspended>` → `Box<Active<'a>>` conversion happens
-        // afterwards, only once every `Rf`-dependent field is valid. Passing
-        // `guard` proves the spec read lock is held for the pointer refresh.
-        let outcome = self.refresh_pointers(guard);
+        // Reinterpret the owning box's type. The heap allocation is preserved,
+        // so external pointers into this iterator's interior (composite
+        // aggregate results) stay valid across the cycle.
+        //
+        // SAFETY: `resume_in_place` left `self`'s storage as a valid
+        // `InvIndIterator<'a, RS::Resumed<'a>, E>` (layout-identical to
+        // `Self` by invariant 1 on `RawInvIndIterator`, const proof above).
+        // `Box::from_raw` reuses the same allocation, so the box address is
+        // preserved.
+        let active = unsafe {
+            Box::from_raw(Box::into_raw(self).cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>())
+        };
 
-        // Whatever offsets we borrowed from the index may be stale.
-        // To make promotion from suspended to active safe, we unset them.
-        if outcome == RefreshOutcome::NeedsReseek
-            && let Some(term) = self.result.as_term_mut()
-        {
-            match term {
-                RawTermRecord::Borrowed { offsets, .. } => {
-                    *offsets = RawOffsetSlice::empty();
-                }
-                RawTermRecord::Owned { .. } | RawTermRecord::FullyOwned { .. } => {
-                    // These variants own their offsets, so no issues.
-                }
-            }
-        }
-
-        // Step 2: convert Suspended → Active in place. The heap allocation is
-        // preserved, so external pointers into this iterator's interior
-        // (composite aggregate results) stay valid across the cycle.
-        let suspended: *mut Self = Box::into_raw(self);
-
-        // SAFETY: `suspended` just came from a `Box`, so it is non-null, aligned,
-        // initialized, and unaliased (we own it). `&raw mut` forms a field
-        // pointer without creating a reference, leaving provenance over the
-        // whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*suspended).result };
-        // SAFETY: `into_active_in_place`'s preconditions for `'a` hold — the
-        // caller's read lock (witnessed by `_guard`) plus the `refresh_pointers`
-        // call above ensure every index-backed pointer inside `result` is
-        // dereferenceable for `'a`; `result_slot` is initialized and unaliased.
-        // Converting the `Rf`-carrying `result` field through the canonical
-        // in-place conversion keeps the borrowed-data transition explicit.
-        unsafe { RawIndexResult::<'query, Suspended>::into_active_in_place::<'a>(result_slot) };
-
-        // SAFETY: `result` is now the active form; the only other `Rf`-dependent
-        // field, `reader`, is reinterpreted `RS -> RS::Resumed<'a>` — sound by
-        // invariant 1 on `RawInvIndIterator` (const proof above) given invariant 1
-        // on the reader `RS`. The `read_impl`/`skip_to_impl` fn-pointer fields are
-        // frozen at the active reader `RA`; the cast changes that slot only by
-        // lifetime (`RA` -> `RS::Resumed<'a>`, the same reader type modulo
-        // lifetime, which is erased in codegen), never across the Active/Suspended
-        // boundary or a genuinely different reader type. `Box::from_raw` reuses the
-        // same allocation, so the box address is preserved.
-        let mut active =
-            unsafe { Box::from_raw(suspended.cast::<InvIndIterator<'a, RS::Resumed<'a>, E>>()) };
-
-        // Step 3: if GC ran while we were suspended, the cached block
-        // offset is stale even though the buffer pointer was refreshed.
-        // Rewind and re-seek to the last doc id.
-        match outcome {
-            RefreshOutcome::Ok => Ok(ResumeOutcome::Ok(active)),
-            // We use the last doc id yielded by the iterator, rather than the reader state,
-            // since the reader initializes this field to the first block's first_doc_id
-            // before any result has been returned, so if GC or a moved block buffer occurs
-            // while a freshly-created iterator is suspended, resume will reseek to that first doc
-            // and report Ok, causing the next read() to skip the first result.
-            RefreshOutcome::NeedsReseek => {
-                active.rewind();
-
-                if last_doc_id == 0 {
-                    // We hadn't returned anything yet, so there's nothing to
-                    // re-seek; a fresh `read()` will produce the right next doc.
-                    return Ok(ResumeOutcome::Ok(active));
-                }
-
-                match active.skip_to(last_doc_id)? {
-                    Some(SkipToOutcome::Found(_)) => Ok(ResumeOutcome::Ok(active)),
-                    Some(SkipToOutcome::NotFound(_)) | None => Ok(ResumeOutcome::Moved(active)),
-                }
-            }
-        }
+        Ok(match status {
+            ResumeStatus::Unchanged => ResumeOutcome::Ok(active),
+            ResumeStatus::Moved => ResumeOutcome::Moved(active),
+        })
     }
 
     fn last_doc_id(&self) -> DocId {

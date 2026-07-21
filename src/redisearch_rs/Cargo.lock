@@ -492,6 +492,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dict"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "hidden_string",
+ "inverted_index",
+ "workspace_hack",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,16 +719,23 @@ dependencies = [
 name = "fork_gc"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "dict",
  "ffi",
+ "fork_gc",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "rmp-serde",
  "rqe_core",
  "serde",
+ "thiserror",
  "tracing",
  "workspace_hack",
 ]
@@ -1052,6 +1069,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field_spec",
@@ -1494,6 +1512,25 @@ dependencies = [
  "rqe_core",
  "serde",
  "tracing",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_score_source"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "index_result",
+ "inverted_index",
+ "itertools 0.15.0",
+ "numeric_range_tree",
+ "numeric_score_source",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "rqe_iterator_type",
+ "rqe_iterators",
+ "top_k",
  "workspace_hack",
 ]
 
@@ -3382,9 +3419,10 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "utf8parse"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
 
 [[package]]
 name = "valuable"

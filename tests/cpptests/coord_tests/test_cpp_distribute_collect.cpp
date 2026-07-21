@@ -18,8 +18,8 @@
 // The key invariants asserted:
 //   - LIMIT on the remote is always rewritten to `0 (offset + count)`.
 //   - LIMIT on the local keeps the user's original offset/count.
-//   - All other tokens (FIELDS, SORTBY, `FIELDS *`) are forwarded verbatim
-//     from the original argv, with no normalization.
+//   - Option keywords are normalized to uppercase on the remote side; all
+//     other tokens — and the entire local argv — are forwarded verbatim.
 //   - The local reducer's `inputAlias` matches the remote reducer's `alias`,
 //     wiring the merge step to its shard payload source.
 
@@ -182,8 +182,9 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_NoLimit) {
 TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   AGGPlan *plan = nullptr;
   // The user omits the per-key direction (`SORTBY 1 @price`, not
-  // `SORTBY 2 @price ASC`). SORTBY is forwarded verbatim with no normalization,
-  // so the omitted direction stays omitted on both sides.
+  // `SORTBY 2 @price ASC`). SORTBY is forwarded as-is (keywords normalized to
+  // uppercase on the remote side only), so the omitted direction stays omitted
+  // on both sides.
   AREQ *r = compileAndDistribute(
       {"FIELDS", "1", "@name", "SORTBY", "1", "@price"}, &plan);
   ASSERT_NE(r, nullptr);
@@ -322,6 +323,27 @@ TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
             (std::vector<std::string>{"FIELDS", "*",
                                       "SORTBY", "2", "@price", "DESC",
                                       "LIMIT", "5", "10"}));
+
+  AREQ_DecrRef(r);
+}
+
+// ----------------------------------------------------------------------------
+// Keyword case normalization
+// ----------------------------------------------------------------------------
+
+TEST_F(DistributeCollectTest, KeywordCase_NormalizedOnRemote_VerbatimOnLocal) {
+  AGGPlan *plan = nullptr;
+  AREQ *r = compileAndDistribute({"fields", "1", "@name"}, &plan);
+  ASSERT_NE(r, nullptr);
+
+  auto pair = locateCollectPair(plan);
+  ASSERT_NE(pair.remote, nullptr);
+  ASSERT_NE(pair.local, nullptr);
+
+  EXPECT_EQ(argsAsStrings(pair.remote),
+            (std::vector<std::string>{"FIELDS", "1", "@name"}));
+  EXPECT_EQ(argsAsStrings(pair.local),
+            (std::vector<std::string>{"fields", "1", "@name"}));
 
   AREQ_DecrRef(r);
 }

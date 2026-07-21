@@ -12,7 +12,8 @@ use std::{io::Cursor, marker::PhantomData, ptr::NonNull, sync::atomic};
 use ref_mode::{Active, Ref, SharedPtr, Suspended};
 
 use super::{
-    IndexReader, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    SuspendableReader, TermReader,
 };
 use crate::{
     DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
@@ -210,9 +211,13 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder + NumericDecoder> Nu
 {
 }
 
-/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
-impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
-    TermReader<'index> for RawIndexReaderCore<Active<'index>, E>
+/// Resolve an opaque [`InvertedIndex`](crate::opaque::InvertedIndex) and compare
+/// it against this reader's own `ii` pointer, via
+/// [`E::from_opaque`](crate::DecodedBy) and
+/// [`points_to_ii`](RawIndexReaderCore::points_to_ii). Implemented for every `Rf`
+/// so leaves (`Term`) can call it from their suspended-side `should_abort` checks.
+impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    PointsToOpaqueIndex for RawIndexReaderCore<Rf, E>
 where
     E::Storage: HasInnerIndex<E>,
 {
@@ -221,6 +226,15 @@ where
         let ii = storage.inner_index();
         self.points_to_ii(ii)
     }
+}
+
+/// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+/// The [`PointsToOpaqueIndex`] supertrait is satisfied via the impl above.
+impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
+    TermReader<'index> for RawIndexReaderCore<Active<'index>, E>
+where
+    E::Storage: HasInnerIndex<E>,
+{
 }
 
 impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>

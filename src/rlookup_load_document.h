@@ -16,6 +16,13 @@ extern "C" {
 #endif
 
 typedef struct {
+  /* Per explicit LOAD key counters. Loader cost can differ by field source,
+   * value size, conversion, and JSON path materialization. */
+  uint64_t loadTimeNs;
+  uint64_t loadCount;
+} RLookupLoadFieldProfile;
+
+typedef struct {
   struct RedisSearchCtx *sctx;
 
   /** Needed for the key name, and perhaps the sortable */
@@ -55,6 +62,8 @@ typedef struct {
    * Force string return; don't coerce to native type
    */
   bool forceString;
+
+  RLookupLoadFieldProfile *profileFields;
 
   struct QueryError *status;
 } RLookupLoadOptions;

@@ -100,7 +100,7 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
  */
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 
-// Read the coord-level execution-phase marker (mirrors RequestSyncCtx_GetExecutionStage).
+// Read the coord-level execution-phase marker (mirrors RequestSyncState_GetExecutionStage).
 static inline QueryTimeoutStage CoordRequestCtx_GetExecutionStage(CoordRequestCtx *ctx) {
   return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
 }

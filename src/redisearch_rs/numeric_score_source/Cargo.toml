@@ -1,0 +1,31 @@
+[package]
+edition.workspace = true
+license-file.workspace = true
+name = "numeric_score_source"
+publish.workspace = true
+version.workspace = true
+
+[features]
+# Links C static libraries at test time (see build.rs).
+# https://github.com/rust-lang/cargo/issues/4789#issuecomment-2308131243
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+index_result.workspace = true
+inverted_index.workspace = true
+numeric_range_tree.workspace = true
+rqe_core.workspace = true
+rqe_iterator_type.workspace = true
+rqe_iterators.workspace = true
+top_k.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+itertools.workspace = true
+numeric_range_tree = {workspace = true, features = ["test-utils"]}
+numeric_score_source = {path = ".", features = ["unittest"]}
+redis_mock.workspace = true
+redisearch_rs = {workspace = true, features = ["mock_allocator"]}

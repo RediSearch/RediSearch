@@ -10,6 +10,11 @@
 use fork_gc::Frame;
 use std::io::{self, Cursor};
 
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 #[test]
 fn read_returns_data_frame_for_length_prefixed_payload() {
     let mut bytes = Vec::new();

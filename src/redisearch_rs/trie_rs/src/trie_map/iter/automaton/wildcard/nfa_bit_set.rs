@@ -73,7 +73,7 @@ impl NfaBitSet for u64 {
     }
     #[inline]
     fn singleton(_: usize, pos: usize) -> Self {
-        debug_assert!(pos < 64);
+        debug_assert!(pos < Self::CAPACITY);
         1u64 << pos
     }
     #[inline]
@@ -82,12 +82,12 @@ impl NfaBitSet for u64 {
     }
     #[inline]
     fn insert(&mut self, pos: usize) {
-        debug_assert!(pos < 64);
+        debug_assert!(pos < Self::CAPACITY);
         *self |= 1u64 << pos;
     }
     #[inline]
     fn contains(&self, pos: usize) -> bool {
-        debug_assert!(pos < 64);
+        debug_assert!(pos < Self::CAPACITY);
         (*self >> pos) & 1 == 1
     }
     #[inline]
@@ -131,7 +131,7 @@ impl NfaBitSet for u128 {
     }
     #[inline]
     fn singleton(_: usize, pos: usize) -> Self {
-        debug_assert!(pos < 128);
+        debug_assert!(pos < Self::CAPACITY);
         1u128 << pos
     }
     #[inline]
@@ -140,12 +140,12 @@ impl NfaBitSet for u128 {
     }
     #[inline]
     fn insert(&mut self, pos: usize) {
-        debug_assert!(pos < 128);
+        debug_assert!(pos < Self::CAPACITY);
         *self |= 1u128 << pos;
     }
     #[inline]
     fn contains(&self, pos: usize) -> bool {
-        debug_assert!(pos < 128);
+        debug_assert!(pos < Self::CAPACITY);
         (*self >> pos) & 1 == 1
     }
     #[inline]
