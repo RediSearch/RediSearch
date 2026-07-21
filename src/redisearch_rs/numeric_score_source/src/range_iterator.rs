@@ -17,7 +17,7 @@
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
 use index_result::RSIndexResult;
-use inverted_index::{IndexReader as _, NumericFilter};
+use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
 use numeric_range_tree::{NumericRange, NumericRangeTree};
 use rqe_core::DocId;
 
@@ -31,6 +31,8 @@ pub struct NumericRangeIterator<'index> {
     ranges: Vec<&'index NumericRange>,
     /// Index of the next range to hand out.
     pos: usize,
+    /// Value predicate applied to each record as a batch is materialized.
+    filter: NumericFilter,
 }
 
 impl<'index> NumericRangeIterator<'index> {
@@ -41,6 +43,7 @@ impl<'index> NumericRangeIterator<'index> {
             tree,
             ranges: tree.find(filter),
             pos: 0,
+            filter: *filter,
         }
     }
 
@@ -49,6 +52,7 @@ impl<'index> NumericRangeIterator<'index> {
     pub fn refind(&mut self, filter: &NumericFilter) {
         self.ranges = self.tree.find(filter);
         self.pos = 0;
+        self.filter = *filter;
     }
 
     /// Sum of `num_docs` across every range in the current window.
@@ -74,23 +78,25 @@ impl<'index> NumericRangeIterator<'index> {
             return None;
         }
         let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(&self.ranges[self.pos..end]);
+        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter);
         self.pos = end;
         Some(batch)
     }
 }
 
-/// Read every record of each range into a single `(doc_id, score)` vector
-/// sorted strictly ascending by doc id.
+/// Read each range's records that satisfy `filter` into a single
+/// `(doc_id, score)` vector sorted strictly ascending by doc id.
 ///
-/// Ranges overlap in doc-id space, so reading them back-to-back yields
+/// A range read through [`FilterNumericReader`] yields only records whose value
+/// lies in the filter's window, since the tree's buckets are coarser than the
+/// window. Ranges overlap in doc-id space, so reading them back-to-back yields
 /// interleaved ids; the sort restores the strictly-increasing order that
 /// [`NumericScoreBatch`] requires for its `skip_to` `partition_point`.
-fn merge_ranges(ranges: &[&NumericRange]) -> NumericScoreBatch {
+fn merge_ranges(ranges: &[&NumericRange], filter: NumericFilter) -> NumericScoreBatch {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
-        let mut reader = range.reader();
+        let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record).unwrap_or(false) {
             let score = record
                 .as_numeric()
@@ -100,4 +106,66 @@ fn merge_ranges(ranges: &[&NumericRange]) -> NumericScoreBatch {
     }
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
     NumericScoreBatch::new(items)
+}
+
+#[cfg(test)]
+mod tests {
+    use inverted_index::NumericFilter;
+    use numeric_range_tree::NumericRangeTree;
+    use top_k::ScoreBatch;
+
+    use super::NumericRangeIterator;
+
+    /// Drain every window into the list of scores it yields.
+    fn drain_scores(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<f64> {
+        let mut it = NumericRangeIterator::new(tree, filter);
+        let mut scores = Vec::new();
+        while let Some(mut batch) = it.next_n(8) {
+            while let Some((_doc_id, score)) = batch.next() {
+                scores.push(score);
+            }
+        }
+        scores
+    }
+
+    #[test]
+    fn next_n_drops_records_outside_the_value_window() {
+        let mut tree = NumericRangeTree::new(false);
+        for id in 0..30u64 {
+            tree.add(id, id as f64, false, 0);
+        }
+        let filter = NumericFilter {
+            min: 10.0,
+            max: 20.0,
+            ..NumericFilter::default()
+        };
+
+        let scores = drain_scores(&tree, &filter);
+
+        assert!(
+            scores.iter().all(|&s| (10.0..=20.0).contains(&s)),
+            "leaked out-of-range values: {scores:?}"
+        );
+        assert!(scores.contains(&10.0) && scores.contains(&20.0));
+    }
+
+    #[test]
+    fn next_n_honors_exclusive_endpoints() {
+        let mut tree = NumericRangeTree::new(false);
+        for id in 0..30u64 {
+            tree.add(id, id as f64, false, 0);
+        }
+        let filter = NumericFilter {
+            min: 10.0,
+            max: 20.0,
+            min_inclusive: false,
+            max_inclusive: false,
+            ..NumericFilter::default()
+        };
+
+        let scores = drain_scores(&tree, &filter);
+
+        assert!(scores.iter().all(|&s| s > 10.0 && s < 20.0));
+        assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
+    }
 }
