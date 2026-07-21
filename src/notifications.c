@@ -920,7 +920,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
-    RedisModule_Log(ctx, "notice", "Background RDB persistence started");
+    RedisModule_Log(ctx, "notice", "SAVE start mode=%s scope=background sst=%s",
+                    useSst ? "PARTIAL_RDB" : "FULL_RDB", useSst ? "true" : "false");
     if (!useSst) {
       DocIdMeta_SetForgetDocIdMetadata(true);
     }
@@ -928,14 +929,14 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
     vecsimdisk_sst_consistency_lock_held = false;
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Foreground RDB persistence started");
+      RedisModule_Log(ctx, "notice", "SAVE start mode=FULL_RDB scope=foreground sst=false");
       DocIdMeta_SetForgetDocIdMetadata(true);
     } else {
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
       // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
       // so open the consistency window here instead (flushing via PreCheckpoint).
-      RedisModule_Log(ctx, "notice", "Hot restart save started (SST + RAM-only RDB)");
+      RedisModule_Log(ctx, "notice", "SAVE start mode=HOT_RESTART scope=foreground sst=true disk_index=preserved");
       // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
       g_hotRestartSave = true;
       DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
@@ -946,9 +947,10 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions via PostFork on success.
       DiskConsistencyWindow_End(SearchDisk_PostFork);
-      RedisModule_Log(ctx, "notice", g_hotRestartSave ? "Hot restart save ended": "RDB persistence ended");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=%s ok=true",
+                      g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "RDB Persistence ended");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB ok=true");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
@@ -957,13 +959,17 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions defensively via ReplicationAbort on failure.
       DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      // The window may have been opened by a foreground hot-restart save
+      // (g_hotRestartSave) or by an SST-replication fork (child observing the
+      // COW-inherited flag) — log the actual mode before clearing the latch.
+      RedisModule_Log(ctx, "warning", "SAVE end mode=%s ok=false",
+                      g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
       // Clear the latch: the save failed, so the process keeps running and a
       // later ordinary shutdown must still delete the on-disk indexes rather
       // than treat this as a successful hot restart (see ShutdownDiskClose).
       g_hotRestartSave = false;
-      RedisModule_Log(ctx, "warning", "Hot restart save failed");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "RDB Persistence failed");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB ok=false");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
@@ -1122,27 +1128,37 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
       // here but may be cleared before LOADING_ENDED (hot restart).
       g_partialRdbLoadStaged = true;
     }
+    // fallthrough
   case REDISMODULE_SUBEVENT_LOADING_AOF_START:
-  case REDISMODULE_SUBEVENT_LOADING_REPL_START:
-    // Symmetric counterpart to the save-side decision in PersistenceEvent.
-    // During an SST + RDB sync the master streams RAM-resident keys together
-    // with their DocIdMeta, and the disk state arrives via the SST files, so
-    // the replica must KEEP the meta it loads (forget = false). For any other
-    // load (plain RDB / AOF / legacy RDB-only replication) the index is rebuilt
-    // from the keyspace and the stale docIds are meaningless, so we FORGET.
+  case REDISMODULE_SUBEVENT_LOADING_REPL_START: {
+    // Two orthogonal dimensions here, logged separately:
+    //  - source: where the data arrives from (chosen by rdbflags in the
+    //    server's loadingFireEvent) — an RDB file, an AOF, or a replication
+    //    full-sync stream.
+    //  - disk strategy (driven by useSst): on an SST load the disk state
+    //    arrives via the SST files and the streamed keys carry their DocIdMeta,
+    //    so we KEEP the meta and reuse the on-disk index. On any non-SST load
+    //    the index is rebuilt from the keyspace and the stale docIds are
+    //    meaningless, so we FORGET. A replication or RDB-file load can be
+    //    either SST or non-SST, so source and strategy are independent.
+    const char *source = subevent == REDISMODULE_SUBEVENT_LOADING_AOF_START    ? "AOF"
+                         : subevent == REDISMODULE_SUBEVENT_LOADING_REPL_START ? "REPLICATION"
+                                                                               : "RDB_FILE";
     DocIdMeta_SetForgetDocIdMetadata(!useSst);
     Indexes_StartRDBLoadingEvent(ctx);
     workersThreadPool_OnEventStart();
-    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event started");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD start source=%s sst=%s disk=%s", source,
+                    useSst ? "true" : "false", useSst ? "reuse-from-SST" : "rebuild-from-keyspace");
     break;
+  }
   case REDISMODULE_SUBEVENT_LOADING_SST_START:
-    RedisModule_Log(RSDummyContext, "notice", "Loading SST event started");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD sst-ingest start");
     break;
   case REDISMODULE_SUBEVENT_LOADING_SST_ENDED:
-    RedisModule_Log(RSDummyContext, "notice", "Loading SST event ended");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD sst-ingest end");
     break;
   case REDISMODULE_SUBEVENT_LOADING_RDB_ENDED:
-    RedisModule_Log(RSDummyContext, "notice", "Loading RDB event ended");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD rdb-stream end");
     break;
   case REDISMODULE_SUBEVENT_LOADING_ENDED: {
     // For a hot restart the server clears the SST_RDB flag before firing this
@@ -1157,16 +1173,12 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
       // This only handles legacy indices that are not available in disk
       Indexes_EndRDBLoadingEvent(ctx);
     } else if (finishSst) {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended (SST + RDB ready). Finish loading");
       Indexes_FinishSSTReplication(ctx);
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    if (!SearchDisk_IsEnabled() || !finishSst) {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully");
-    } else {
-      RedisModule_Log(RSDummyContext, "notice", "Loading event ended successfully (SST + RDB ready). Finished loading successfully");
-    }
+    RedisModule_Log(RSDummyContext, "notice", "LOAD end disk=%s ok=true",
+                    finishSst ? "reuse-from-SST" : "rebuild-from-keyspace");
     break;
   }
   case REDISMODULE_SUBEVENT_LOADING_FAILED:
@@ -1181,7 +1193,7 @@ void RDB_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subeve
     }
     workersThreadPool_OnEventEnd(true);
     Indexes_EndLoading();
-    RedisModule_Log(RSDummyContext, "notice", "Loading event failed");
+    RedisModule_Log(RSDummyContext, "notice", "LOAD end ok=false");
     break;
   default:
     RS_LOG_ASSERT_FMT(0, "Unknown sub-event %llu", (unsigned long long)subevent);
