@@ -31,18 +31,10 @@ typedef struct Cursor {
    */
   WeakRef spec_ref;
 
-  /**
-   * Hybrid request reference. This is a strong reference to the hybrid request.
-   * If the hybrid request is NULL, this is a regular cursor.
-   */
-  StrongRef hybrid_ref;
-
-  /** The parked request's wrapper — the cursor is the request's owner between
-   * cycles, holding one wrapper reference released by Cursor_FreeInternal.
-   * NULL only for the hybrid single-cursor fallback.
-   * TRANSITIONAL(MOD-16691): hybrid sub-cursors hold their reference through
-   * hybrid_ref instead, until the container-handoff step retires it. */
-  BlockedRequestCtx *query;
+  /** The parked request — the cursor is its owner between cycles, holding one
+   * QueryRequest reference released by Cursor_FreeInternal.
+   * Hybrid sub-cursors take theirs at publication (the container handoff). */
+  QueryRequest *query;
 
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
@@ -68,23 +60,18 @@ typedef struct Cursor {
    * Should only be accessed under cursor list lock */
   int pos;
 
-  /** Is it an internal coordinator cursor or a user cursor*/
-  bool is_coord;
-
   /** If true, a call to `Cursor_Pause` should drop it instead.
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
 } Cursor;
 
-/* The AREQ carried by this cursor's wrapper: the parked request for plain
- * cursors, the sub-AREQ for hybrid sub-cursors. NULL for the hybrid
- * single-cursor fallback (no wrapper). */
+/* The AREQ carried by this cursor: the parked request for plain
+ * cursors, the sub-AREQ for hybrid sub-cursors. */
 static inline AREQ *Cursor_AREQ(const Cursor *cur) {
   if (!cur->query) {
     return NULL;
   }
-  RS_ASSERT(cur->query->kind == REQUEST_KIND_AREQ);
-  return cur->query->query.areq;
+  return QueryRequest_GetAREQ(cur->query);
 }
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -136,8 +123,10 @@ typedef struct CursorList {
 extern CursorList g_CursorsList;
 extern CursorList g_CursorsListCoord;
 
+#define CURSOR_IS_COORD(cid) ((cid) % 2 == 1)
+
 static inline CursorList *GetGlobalCursor(uint64_t cid) {
-  return cid % 2 == 1 ? &g_CursorsListCoord : &g_CursorsList;
+  return CURSOR_IS_COORD(cid) ? &g_CursorsListCoord : &g_CursorsList;
 }
 
 /**

@@ -54,6 +54,7 @@ members = [
     "vector_score_source",
     "vector_score_source_bencher",
     "numeric_score_source",
+    "numeric_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -123,6 +124,7 @@ fnv = { path = "./fnv" }
 fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
 geo = { path = "./geo" }
+global_config = { path = "./c_wrappers/global_config" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
@@ -160,6 +162,7 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
+tag_index = { path = "./tag_index" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 timeout = { path = "timeout" }
@@ -185,7 +188,7 @@ bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
 cc = "1.2.53"
-cheadergen = { version = "0.3.1" }
+cheadergen = { version = "0.3.2" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"

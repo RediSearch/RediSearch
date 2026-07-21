@@ -23,6 +23,7 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 field.workspace = true
+global_config.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
@@ -33,9 +34,12 @@ numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
 query_types.workspace = true
 redis-module.workspace = true
 redis_reply.workspace = true
+rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
+top_k.workspace = true
 trie_rs.workspace = true
+vector_score_source.workspace = true
 workspace_hack.workspace = true
 

@@ -54,9 +54,8 @@
 // `queryOffset` is in root-cursor coordinates: for a slice cursor, the
 // caller adds the slice's base (the root offset recorded before AC_GetSlice).
 static void setSubQueryArg(AREQ *sub, uint32_t queryOffset) {
-  BlockedRequestCtx *brc = sub->brc;
-  RS_ASSERT(queryOffset < brc->argc);
-  brc->queryOffset = queryOffset;
+  RS_ASSERT(queryOffset < sub->base.args.argc);
+  sub->base.args.queryOffset = queryOffset;
 }
 
 // Helper function to set error message with proper plural vs singular form
@@ -539,7 +538,7 @@ final:
   // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
   // so the vector node becomes the root directly (no PHRASE/intersection needed).
   // This preserves BY_SCORE ordering from the iterator.
-  if (vreq->brc->queryOffset == QUERY_OFFSET_NONE) {
+  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {
@@ -880,6 +879,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
+
+  // Record whether TIMEOUT was explicitly given, and capture the client's value
+  // BEFORE the foreground-timeout cap below, so the coordinator can forward the
+  // exact client timeout to shards without re-scanning argv.
+  parsedCmdCtx->timeoutSpecified = (hybridParseCtx.specifiedArgs & SPECIFIED_ARG_TIMEOUT) != 0;
+  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->reqConfig->queryTimeoutMS;
 
   // Cap the effective query timeout to search-_max-foreground-timeout-limit
   // when the limit is active. The hybrid request shares a single reqConfig

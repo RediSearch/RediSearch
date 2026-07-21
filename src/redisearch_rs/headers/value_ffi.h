@@ -26,6 +26,13 @@ typedef enum RSValueType {
   RSValueType_Map = 8,
 } RSValueType;
 
+typedef struct QueryError QueryError;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
+
 /**
  * Opaque map structure used during map construction.
  * Holds uninitialized entries that are populated via [`RSValue_MapBuilderSetEntry`]
@@ -33,14 +40,7 @@ typedef enum RSValueType {
  */
 typedef struct RSValueMapBuilder RSValueMapBuilder;
 
-/**
- * The C version of a [`SharedValue`](value::SharedValue)
- */
-typedef struct RSValue RSValue;
-
 typedef struct RedisModuleString RedisModuleString;
-
-typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {

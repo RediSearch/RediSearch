@@ -127,7 +127,7 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
-  // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncState).
+  // QueryTimeoutStage marker for the FT.SEARCH MR coordinator path.
   RS_Atomic(int) execPhase;
 
   struct searchReducerCtx *rctx;
@@ -146,8 +146,6 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug, bool isProfile);
 int RSProfileCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
 int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDebug);
-
-void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
 bool should_return_error(QueryErrorCode errCode);
 

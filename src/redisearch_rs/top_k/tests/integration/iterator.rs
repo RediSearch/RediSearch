@@ -11,7 +11,7 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 use index_result::RSIndexResult;
 use rqe_iterator_type::IteratorType;
@@ -86,6 +86,26 @@ fn asc(a: &f64, b: &f64) -> Ordering {
 
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
     Box::new(IdList::<true>::new(ids))
+}
+
+/// A child result carrying the scoring inputs a text match contributes —
+/// frequency and field mask — set to values [`RSIndexResult::build_metric`]
+/// never produces, so [`drain_scoring_fields`] can tell the two records apart.
+fn scoring_child_result<'a>() -> RSIndexResult<'a> {
+    RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build()
+}
+
+/// Read `it` to EOF, keeping the fields that tell a propagated child record
+/// apart from a metric-only one.
+fn drain_scoring_fields<'a>(it: &mut impl RQEIterator<'a>) -> Vec<(DocId, u32, FieldMask)> {
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+    emitted
 }
 
 /// Build an [`IdList`] from `ids` and wrap it in a [`CRQEIterator`] so the
@@ -214,6 +234,24 @@ fn num_estimated_capped_at_k() {
     ));
 
     assert_eq!(it.num_estimated(), 3);
+}
+
+/// A filtered query yields the intersection, so a selective child bounds the
+/// estimate even when `k` and the source estimate are both far larger.
+#[test]
+fn num_estimated_capped_by_child() {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0), (3, 3.0)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_num_estimated(100);
+    let it = TopKIterator::new(
+        source,
+        make_child(vec![2]),
+        NonZeroUsize::new(100).unwrap(),
+        asc,
+    );
+
+    assert_eq!(it.num_estimated(), 1);
 }
 
 // ── Unfiltered path ───────────────────────────────────────────────────────────
@@ -909,27 +947,16 @@ fn profile_children_with_no_child_is_identity() {
     assert_eq!(doc_ids, vec![1, 2]);
 }
 
+/// Without trimming, the Batches path yields the child's own record, so a
+/// BM25/TFIDF score computed from it is the child's, not zero.
+///
 /// Regression test for MOD-8142 (Python: `test_mod_8142` in
 /// `tests/pytests/test_issues.py`).
-///
-/// A KNN search with `WITHSCORES` returned a score of `0`: the Batches path
-/// carried only `(doc_id, score)` through the heap, so the child's scoring
-/// inputs (`freq`, `field_mask`, term records) that BM25/TFIDF need were lost.
-///
-/// Reproduced without Redis: a child result with non-default scoring fields
-/// must still carry them after passing through `TopKIterator`.
 #[test]
 fn batches_preserves_child_scoring_fields() {
-    use index_result::RSIndexResult;
     use rqe_iterators::IdList;
 
-    // Build a child whose result carries the scoring-relevant fields a
-    // text query would produce (analogous to BM25 inputs from "city").
-    let child_result = RSIndexResult::build_virt()
-        .frequency(7)
-        .field_mask(0xABC)
-        .build();
-    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+    let child = IdList::<true>::with_result(vec![1, 2], scoring_child_result());
 
     // Source emits a single batch containing both doc IDs (analogous to
     // the KNN batch returned by VecSim).
@@ -944,35 +971,22 @@ fn batches_preserves_child_scoring_fields() {
         asc,
     ));
 
-    let mut emitted = Vec::new();
-    while let Some(r) = it.read().unwrap() {
-        emitted.push((r.doc_id, r.freq, r.field_mask));
-    }
+    let emitted = drain_scoring_fields(&mut it);
 
-    // Best-first ASC order; each result should still carry the child's
-    // scoring fields rather than a freshly rebuilt record.
-    assert_eq!(
-        emitted,
-        vec![(2, 7, 0xABC), (1, 7, 0xABC)],
-        "child's scoring fields (freq, field_mask) were dropped — \
-          got {emitted:?}; the BM25-becomes-0 bug from MOD-8142"
-    );
+    // Best-first ASC order, each result carrying the child's scoring fields
+    // rather than a freshly rebuilt record.
+    assert_eq!(emitted, vec![(2, 7, 0xABC), (1, 7, 0xABC)]);
 }
 
-/// The dual of [`batches_preserves_child_scoring_fields`]: when the pipeline can
-/// trim deep results, the child's scoring subtree is never captured, so each
-/// match yields the source's metric-only result (default freq/field_mask) rather
-/// than the child's rich record.
+/// Same setup as [`batches_preserves_child_scoring_fields`], with deep-result
+/// trimming enabled: the child's scoring subtree is never captured, so each
+/// match yields a metric-only result carrying the `build_metric` defaults
+/// (freq 0, [`RS_FIELDMASK_ALL`]) rather than the child's rich record.
 #[test]
 fn batches_trim_deep_results_yields_metric_only() {
-    use index_result::RSIndexResult;
     use rqe_iterators::IdList;
 
-    let child_result = RSIndexResult::build_virt()
-        .frequency(7)
-        .field_mask(0xABC)
-        .build();
-    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+    let child = IdList::<true>::with_result(vec![1, 2], scoring_child_result());
 
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
         BatchStrategy::Continue
@@ -986,15 +1000,15 @@ fn batches_trim_deep_results_yields_metric_only() {
     )
     .with_trim_deep_results(true);
 
-    let mut emitted = Vec::new();
-    while let Some(r) = it.read().unwrap() {
-        emitted.push((r.doc_id, r.freq, r.field_mask));
-    }
+    let emitted = drain_scoring_fields(&mut it);
 
     // Same doc ids and best-first order as the rich path, but the child's
-    // freq/field_mask are absent — the yielded record is the source's
-    // metric-only result.
-    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+    // freq/field_mask are dropped — the yielded record carries the metric-only
+    // defaults instead.
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
 }
 
 /// Adhoc-BF counterpart of [`batches_trim_deep_results_yields_metric_only`]:
@@ -1002,14 +1016,9 @@ fn batches_trim_deep_results_yields_metric_only() {
 /// trimmed.
 #[test]
 fn adhoc_trim_deep_results_yields_metric_only() {
-    use index_result::RSIndexResult;
     use rqe_iterators::IdList;
 
-    let child_result = RSIndexResult::build_virt()
-        .frequency(7)
-        .field_mask(0xABC)
-        .build();
-    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+    let child = IdList::<true>::with_result(vec![1, 2], scoring_child_result());
 
     let source = MockScoreSource::new(vec![], vec![(1, 0.9), (2, 0.5)], |_, _| {
         BatchStrategy::Continue
@@ -1024,12 +1033,12 @@ fn adhoc_trim_deep_results_yields_metric_only() {
     )
     .with_trim_deep_results(true);
 
-    let mut emitted = Vec::new();
-    while let Some(r) = it.read().unwrap() {
-        emitted.push((r.doc_id, r.freq, r.field_mask));
-    }
+    let emitted = drain_scoring_fields(&mut it);
 
-    assert_eq!(emitted, vec![(2, 0, 0), (1, 0, 0)]);
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
 }
 
 /// Trimming skips the child's scoring subtree but must still carry its yielded
@@ -1037,14 +1046,10 @@ fn adhoc_trim_deep_results_yields_metric_only() {
 /// fields rather than part of the rich subtree.
 #[test]
 fn batches_trim_deep_results_preserves_child_metrics() {
-    use index_result::RSIndexResult;
     use rqe_iterators::IdList;
 
-    // Child result with rich scoring fields *and* a yielded metric.
-    let mut child_result = RSIndexResult::build_virt()
-        .frequency(7)
-        .field_mask(0xABC)
-        .build();
+    // The scoring child, plus a yielded metric on top.
+    let mut child_result = scoring_child_result();
     child_result.metrics_mut().push_without_key(42.0);
     let child = IdList::<true>::with_result(vec![1, 2], child_result);
 
@@ -1066,7 +1071,45 @@ fn batches_trim_deep_results_preserves_child_metrics() {
         emitted.push((r.doc_id, r.freq, r.field_mask, metric));
     }
 
-    // Rich subtree is trimmed (freq/field_mask are the source's defaults), but
-    // the child's yielded metric rides along on every result.
-    assert_eq!(emitted, vec![(2, 0, 0, Some(42.0)), (1, 0, 0, Some(42.0))]);
+    // Rich subtree is trimmed (freq/field_mask carry the metric-only defaults),
+    // but the child's yielded metric rides along on every result.
+    assert_eq!(
+        emitted,
+        vec![
+            (2, 0, RS_FIELDMASK_ALL, Some(42.0)),
+            (1, 0, RS_FIELDMASK_ALL, Some(42.0))
+        ]
+    );
+}
+
+/// A trimmed result stands in for the source's own scored record, so its numeric
+/// payload must hold the source score — not the zero the metric-only carrier is
+/// built with — for consumers that read the record numerically rather than
+/// through a lookup key.
+#[test]
+fn batches_trim_deep_results_payload_carries_source_score() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child = IdList::<true>::with_result(vec![1, 2], RSIndexResult::build_virt().build());
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.as_numeric()));
+    }
+
+    // Best-first ASC order, each payload holding that document's source score.
+    assert_eq!(emitted, vec![(2, Some(0.5)), (1, Some(0.9))]);
 }

@@ -31,14 +31,11 @@ use std::{
     sync::{Mutex, MutexGuard, PoisonError},
 };
 
-use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{ScoreSource as _, TopKIterator, TopKMode};
 use vector_score_source::new_vector_top_k_unfiltered;
-use vector_score_source::test_utils::{
-    asc, build_hnsw_index, make_child, make_source, uniform_blob,
-};
+use vector_score_source::test_utils::{TestIndex, asc, make_child, uniform_blob};
 
 // Provide stubs for C symbols that the linked C archive references but that
 // these tests never exercise (Redis module API surface).
@@ -100,18 +97,13 @@ fn unfiltered_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
@@ -122,11 +114,10 @@ fn batches_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child((1..=n as DocId).collect())),
@@ -136,10 +127,6 @@ fn batches_propagates_timeout() {
     );
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// A timed-out unfiltered query must not consume the single-shot budget: the
@@ -152,10 +139,9 @@ fn unfiltered_timeout_does_not_mark_consumed() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
 
-    // SAFETY: index outlives the source (freed at end of scope).
-    let mut source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let mut source = index.source(uniform_blob(n as f32, dim), n, k, n);
 
     {
         let _mock = MockTimeout::enable();
@@ -170,8 +156,4 @@ fn unfiltered_timeout_does_not_mark_consumed() {
         source.all_results_unfiltered_batch().unwrap().is_some(),
         "retry after a timed-out query must re-run it, not short-circuit to EOF"
     );
-
-    drop(source);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }

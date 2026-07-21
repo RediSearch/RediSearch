@@ -12,6 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
+#include "VecSim/vec_sim.h"
 #include "field.h"
 #include "query_types.h"
 #include "rqe_core.h"
@@ -26,15 +27,12 @@ typedef struct AREQ AREQ;
 
 
 /**
- * Smart pointer handle for [`RLookupKey`] that can be
- * invalidated when the iterator that owns the key is freed.
+ * An opaque inverted index structure. The actual implementation is determined at runtime based on
+ * the index flags provided when creating the index. This allows us to have a single interface for
+ * all index types while still being able to optimize the storage and performance for each index
+ * type.
  */
-typedef struct RLookupKeyHandle RLookupKeyHandle;
-
-/**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter NumericFilter;
+typedef struct InvertedIndex InvertedIndex;
 
 /**
  * Builder for Redis maps.
@@ -53,22 +51,9 @@ typedef struct NumericFilter NumericFilter;
 typedef struct MapBuilder MapBuilder;
 
 /**
- * A single term being evaluated at query time.
- *
- * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
- * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
- * [`id`](RSQueryTerm::id) assigned during query parsing.
- *
+ * Filter details to apply to numeric values
  */
-typedef struct RSQueryTerm RSQueryTerm;
-
-/**
- * An opaque inverted index structure. The actual implementation is determined at runtime based on
- * the index flags provided when creating the index. This allows us to have a single interface for
- * all index types while still being able to optimize the storage and performance for each index
- * type.
- */
-typedef struct InvertedIndex InvertedIndex;
+typedef struct NumericFilter NumericFilter;
 
 /**
  * A numeric range tree for efficient range queries over numeric values.
@@ -107,7 +92,33 @@ typedef struct NumericRangeTree NumericRangeTree;
 
 typedef struct RLookupKey RLookupKey;
 
+/**
+ * Smart pointer handle for [`RLookupKey`] that can be
+ * invalidated when the iterator that owns the key is freed.
+ */
+typedef struct RLookupKeyHandle RLookupKeyHandle;
+
+/**
+ * A single term being evaluated at query time.
+ *
+ * Each term carries scoring metadata ([`idf`](RSQueryTerm::idf),
+ * [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
+ * [`id`](RSQueryTerm::id) assigned during query parsing.
+ *
+ */
+typedef struct RSQueryTerm RSQueryTerm;
+
 typedef struct RedisModuleCtx RedisModuleCtx;
+
+/**
+ * Type of the C callback that frees the producer context.
+ */
+typedef void (*FreeProducerCtxFn)(void *ctx);
+
+/**
+ * Type of the C callback that runs the deferred query and returns its results.
+ */
+typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
 
 /**
  * Results returned by a [`ProduceResultsFn`].
@@ -136,16 +147,6 @@ typedef struct VectorRangeResults {
    */
   bool timed_out;
 } VectorRangeResults;
-
-/**
- * Type of the C callback that runs the deferred query and returns its results.
- */
-typedef struct VectorRangeResults (*ProduceResultsFn)(void *ctx);
-
-/**
- * Type of the C callback that frees the producer context.
- */
-typedef void (*FreeProducerCtxFn)(void *ctx);
 
 #ifdef __cplusplus
 extern "C" {
@@ -184,12 +185,13 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 
 /**
- * Get a mutable reference to the [`RLookupKey`] stored inside this metric iterator.
+ * Get a pointer to the [`RLookupKey`] slot inside this metric iterator.
  *
  * # Safety
  *
  * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
+ * 3. The caller has exclusive access to that iterator for the duration of the call.
  */
 RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 
@@ -605,6 +607,41 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
 QueryIterator *NewUnsortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
 /**
+ * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator, whose `type_` is
+ * [`IteratorType::Empty`] rather than [`IteratorType::Hybrid`]. The `VectorTopK_*`
+ * accessors below must not be called on such a handle.
+ *
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * for a hybrid (filtered) query.
+ *
+ * The `query_params` pointer is read once to copy the parameters into the
+ * iterator; it is not retained after this call.
+ *
+ * `can_trim_deep_results` applies only to filtered queries: when `true`, the
+ * pipeline needs no rich results, so each match yields a metric-only result
+ * carrying just the vector score instead of a deep copy of the child's scoring
+ * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+ *
+ * # Safety
+ *
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for `vector_byte_len` bytes, and
+ *    `vector_byte_len` equals the index's expected query-vector size.
+ * 3. `query_params` is non-null and [valid] for a [`VecSimQueryParams`].
+ * 4. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, timespec timeout, bool skip_timeout_checks, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Creates a new wildcard iterator from a query evaluation context.
  *
  * There are three possible code paths:
@@ -722,9 +759,13 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  *
  * 1. `header` is a valid non-null pointer to a [`QueryIterator`].
  * 2. `header` was built via [`NewMetricIteratorSortedByScore`] or [`NewMetricIteratorSortedById`].
- * 3. `key_handle` is either a null pointer or a valid non-null pointer to a [`RLookupKeyHandle`] instance.
+ * 3. The caller has exclusive access to that iterator for the duration of the call.
+ * 4. `key_handle` is either a null pointer, or a valid non-null pointer to a [`RLookupKeyHandle`]
+ *    that stays live until the iterator is freed — not merely for this call. The iterator clears
+ *    the handle's validity flag when it is dropped, so releasing the handle while the iterator is
+ *    still alive is a use-after-free at that later point.
  */
-void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle);
+void SetMetricRLookupHandle(QueryIterator *header, struct RLookupKeyHandle *key_handle);
 
 /**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
@@ -736,6 +777,32 @@ void SetMetricRLookupHandle(QueryIterator *header, RLookupKeyHandle *key_handle)
  *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
+
+/**
+ * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
+ *
+ * The key is initially `NULL`; the metrics-loader result processor writes
+ * through this pointer to set the iterator's score-output key.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ */
+RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
+
+/**
+ * Set the [`RLookupKeyHandle`] back-reference on this iterator.
+ *
+ * The handle is used to invalidate the key pointer when the iterator is freed.
+ *
+ * # Safety
+ *
+ * 1. `it` is a non-null, unaliased handle from [`NewVectorTopKIterator`] that did
+ *    not reduce to `Empty`, whose `index` and `sctx` are still alive.
+ * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ */
+void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
 
 /**
  *

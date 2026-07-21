@@ -219,6 +219,13 @@ pub trait RQEIterator<'index> {
     /// The iterator should check if it is still valid by comparing its stored state
     /// against the current index state.
     ///
+    /// # Exhaustion is terminal
+    ///
+    /// An implementation that was at [`at_eof`](Self::at_eof) on entry must still be at
+    /// it on return, and [`Moved`](RQEValidateStatus::Moved)`{ current: Some(_) }` out
+    /// of the exhausted state is forbidden outright — see [`at_eof`](Self::at_eof),
+    /// which owns the rule and why callers cannot undo acting on it.
+    ///
     /// # Errors
     ///
     /// Revalidation re-reads and seeks the index to restore the position, so it can fail with an
@@ -287,6 +294,15 @@ pub trait RQEIterator<'index> {
     /// strict negations, for an implementation that materialises its result only
     /// on a read: [`current`](Self::current) already answers `None` there while
     /// this is still `false`, as its `# Usage` describes.
+    ///
+    /// # Exhaustion is terminal
+    ///
+    /// Once this is `true` it stays `true` until [`rewind`](Self::rewind), across
+    /// [`revalidate`](Self::revalidate) and [`resume`](RQESuspendedIterator::resume)
+    /// included. Callers act on exhaustion irreversibly: a composite drops the children
+    /// that report it, so one that comes back alive re-enters a parent that has already
+    /// moved on without it, replaying documents from behind the position that parent
+    /// now holds.
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.
