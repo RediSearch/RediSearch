@@ -36,7 +36,10 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, expiration_checker::ExpirationChecker, profile_print::{ProfilePrint, ProfilePrintCtx}, utils::{OwnedSlice, TimeoutContext},
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    expiration_checker::ExpirationChecker,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
+    utils::{OwnedSlice, TimeoutContext},
 };
 
 /// Outcome of examining a single candidate document during [`read`](GeoShape::read_single).

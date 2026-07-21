@@ -14,7 +14,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     RQEIterator, RQEIteratorError, SkipToOutcome,
     not_optimized::NotOptimized,
-    utils::{NoTimeoutChecker, DeadlineTimeoutChecker},
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
 
 /// Granularity used by the production reducer; tests reuse it for parity.

@@ -12,10 +12,7 @@ use std::time::Instant;
 use timeout::TimeoutCheckResult;
 
 use super::filter::{TraversalFilter, VisitAll};
-use crate::{
-    iter::timeout::{IteratorTimeoutState},
-    trie_map::node::Node,
-};
+use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) in lexicographical order.
 ///

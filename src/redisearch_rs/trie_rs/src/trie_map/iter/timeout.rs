@@ -9,7 +9,9 @@
 
 use std::time::Instant;
 
-use timeout::{AnyTimeoutChecker, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
+use timeout::{
+    AnyTimeoutChecker, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker,
+};
 
 pub struct IteratorTimeoutState(AnyTimeoutChecker);
 
@@ -29,8 +31,10 @@ impl From<Option<Instant>> for IteratorTimeoutState {
             None => Self::no_timeout(),
             Some(deadline) => {
                 let duration = deadline.saturating_duration_since(Instant::now());
-                Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(duration, 100)))
-            },
+                Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
+                    duration, 100,
+                )))
+            }
         }
     }
 }

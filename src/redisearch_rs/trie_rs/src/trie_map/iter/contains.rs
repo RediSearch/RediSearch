@@ -9,10 +9,7 @@
 
 use std::time::Instant;
 
-use crate::{
-    iter::timeout::{IteratorTimeoutState},
-    trie_map::node::Node,
-};
+use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
 use memchr::memmem::Finder;
 use timeout::TimeoutCheckResult;
 

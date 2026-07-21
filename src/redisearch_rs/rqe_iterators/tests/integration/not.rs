@@ -14,7 +14,7 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     id_list::IdListSorted,
     not::Not,
-    utils::{NoTimeoutChecker, DeadlineTimeoutChecker},
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
 
 /// Granularity used by the production reducer; tests reuse it for parity.
@@ -91,7 +91,12 @@ fn read_with_empty_child_behaves_like_wildcard() {
 // Child covers full range: NOT should be empty and report EOF.
 #[test]
 fn read_with_child_covering_full_range_yields_no_docs() {
-    let mut it = Not::new(IdListSorted::new(vec![1, 2, 3, 4, 5]), 5, 1.0, NoTimeoutChecker);
+    let mut it = Not::new(
+        IdListSorted::new(vec![1, 2, 3, 4, 5]),
+        5,
+        1.0,
+        NoTimeoutChecker,
+    );
 
     // Child already produces 1..=5, so there is no doc left for NOT to return.
     let res = it.read().expect("read() must not error");
@@ -471,7 +476,12 @@ fn skip_to_propagates_child_timeout() {
 // skip_to when already at EOF should return None immediately.
 #[test]
 fn skip_to_at_eof_returns_none() {
-    let mut it = Not::new(IdListSorted::new(vec![1, 2, 3, 4, 5]), 5, 1.0, NoTimeoutChecker);
+    let mut it = Not::new(
+        IdListSorted::new(vec![1, 2, 3, 4, 5]),
+        5,
+        1.0,
+        NoTimeoutChecker,
+    );
 
     // Exhaust the iterator - child covers full range so NOT produces nothing
     assert!(it.read().unwrap().is_none());

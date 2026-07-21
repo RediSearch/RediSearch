@@ -13,7 +13,9 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_core::DocId;
-use rqe_iterators::{NoOpChecker, NoTracker, RQEIterator, geo_shape::GeoShape, utils::NoTimeoutChecker};
+use rqe_iterators::{
+    NoOpChecker, NoTracker, RQEIterator, geo_shape::GeoShape, utils::NoTimeoutChecker,
+};
 
 /// The Rust [`GeoShape`] configured the way the sorted-id-list benchmark needs:
 /// no timeout, no field-expiration, no memory tracking.

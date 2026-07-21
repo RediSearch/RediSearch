@@ -19,7 +19,7 @@ use rqe_iterators::{
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
     utils::{
-        AnyTimeoutContext, NoTimeoutChecker, TimeoutContextBlockedClient, DeadlineTimeoutChecker,
+        AnyTimeoutContext, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContextBlockedClient,
         duration_from_redis_timespec,
     },
 };

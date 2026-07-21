@@ -48,7 +48,7 @@ pub struct RawNot<'query, Rf: Ref, I, TC> {
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RawIndexResult<'query, Rf>,
     /// Tracks the execution deadline for this iterator. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
     ///
     /// The timeout is absolute for the iterator's lifetime and does not
@@ -68,7 +68,7 @@ where
     /// Build a new [`Not`] iterator.
     ///
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
     /// entirely on this iterator's hot path.
     pub fn new(child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {

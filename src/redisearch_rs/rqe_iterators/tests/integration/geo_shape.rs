@@ -14,7 +14,7 @@ use rqe_iterators::{
     ExpirationChecker, IteratorType, MemTracker, NoOpChecker, NoTracker, RQEIterator,
     RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     geo_shape::GeoShape,
-    utils::{NoTimeoutChecker, DeadlineTimeoutChecker},
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
 use rstest_reuse::apply;
 
@@ -427,7 +427,12 @@ fn memory_tracking_adds_and_subtracts() {
     let tracker = CellTracker::default();
 
     {
-        let it = GeoShape::new(vec![3u64, 1, 2], NoTimeoutChecker, NoOpChecker, tracker.clone());
+        let it = GeoShape::new(
+            vec![3u64, 1, 2],
+            NoTimeoutChecker,
+            NoOpChecker,
+            tracker.clone(),
+        );
 
         // The tracker reflects exactly what the iterator reports.
         assert_eq!(tracker.get(), it.mem_usage());

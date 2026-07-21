@@ -31,7 +31,7 @@ pub trait TimeoutChecker {
     fn reset_counter(&mut self);
 }
 
-/// Amortized clock checker.
+/// Amortized clock [`TimeoutChecker`].
 ///
 /// In "hot paths" (like index scanning or large iterations), calling the system clock
 /// on every iteration is computationally expensive. This context uses a counter to
@@ -74,11 +74,10 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
         // For optimized builds, we only check the deadline
         // once every `self.limit` iterations. In development,
         // we're checking each iteration.
-        if self.counter >= self.limit || cfg!(debug_assertions) {
-            if Instant::now() >= self.deadline {
-                return TimeoutCheckResult::TimedOut;
-            }
-            
+        if (self.counter >= self.limit || cfg!(debug_assertions))
+            && Instant::now() >= self.deadline
+        {
+            return TimeoutCheckResult::TimedOut;
         }
 
         TimeoutCheckResult::Ok
@@ -90,12 +89,12 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
     }
 }
 
-/// Zero-sized no-op [`TimeoutContext`].
+/// Zero-sized no-op [`TimeoutChecker`].
 ///
 /// Used by callers that want to opt out of timeout checks entirely without
 /// having to wrap the context in an [`Option`]. Because the type has no
 /// fields and every method is a no-op, monomorphizing an iterator over
-/// `NoTimeout` collapses the entire timeout machinery to dead code that
+/// `NoTimeoutChecker` collapses the entire timeout machinery to dead code that
 /// the optimizer removes from the hot path.
 pub struct NoTimeoutChecker;
 
@@ -112,7 +111,7 @@ impl TimeoutChecker for NoTimeoutChecker {
     }
 }
 
-/// Type-erased [`TimeoutContext`] wrapping the concrete variants.
+/// Type-erased [`TimeoutChecker`] wrapping the concrete variants.
 pub enum AnyTimeoutChecker {
     /// No timeout source: every probe is a no-op.
     NoTimeout(NoTimeoutChecker),

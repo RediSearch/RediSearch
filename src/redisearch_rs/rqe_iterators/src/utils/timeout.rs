@@ -122,7 +122,7 @@ impl AnyTimeoutContext {
     /// Builds the timeout context from a search context's time settings.
     ///
     /// `skipTimeoutChecks` (or the absence of a deadline) opts out of timeout
-    /// checks entirely, yielding [`NoTimeout`]; otherwise the deadline drives an
+    /// checks entirely, yielding [`NoTimeoutChecker`]; otherwise the deadline drives an
     /// amortized [`DeadlineTimeoutChecker`] that probes the clock once every
     /// `granularity` checks. A search context carries no Blocked Client Timeout
     /// source, so the [`BlockedClient`](Self::BlockedClient) variant is never
@@ -162,7 +162,7 @@ impl TimeoutContext for AnyTimeoutContext {
 mod tests {
     use std::time::Duration;
 
-use super::*;
+    use super::*;
 
     #[test]
     fn clock_context_does_not_time_out_within_deadline() {
