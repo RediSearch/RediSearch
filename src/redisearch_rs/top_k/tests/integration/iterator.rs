@@ -371,7 +371,8 @@ fn yield_timeout_polled_while_skipping_expired() {
         BatchStrategy::Stop
     })
     .with_expired([1, 2])
-    .with_timeout_after(1);
+    // 1 for the batch-boundary poll in collection, then the yield-time poll trips.
+    .with_timeout_after(2);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2, 3]),
@@ -402,7 +403,9 @@ fn yield_timeout_polled_before_yielding_valid() {
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Stop
     })
-    .with_timeout_after(2);
+    // 1 for the batch-boundary poll in collection, then the first yield passes and
+    // the second trips.
+    .with_timeout_after(3);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2, 3]),

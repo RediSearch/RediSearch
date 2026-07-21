@@ -133,9 +133,10 @@ impl<'index> NumericRangeIterator<'index> {
 /// direction; occurrences already handed out by an earlier batch (tracked in
 /// `emitted`) are dropped, since their better value was scored there.
 ///
-/// `timeout` is polled once per record; the amortized counter accumulates
-/// across records and ranges, so the real clock check fires every
-/// `granularity` reads.
+/// `timeout` is polled once per record and once more before the sort, so a
+/// large batch stays deadline-aware across its ordering pass. The amortized
+/// counter accumulates across records and ranges, so the real clock check
+/// fires every `granularity` reads.
 fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
@@ -157,6 +158,7 @@ fn merge_ranges(
             items.push((record.doc_id, score));
         }
     }
+    timeout.check_timeout()?;
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
     coalesce_by_doc_id(&mut items, filter.ascending);
     emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
