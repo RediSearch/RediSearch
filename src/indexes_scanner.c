@@ -12,7 +12,6 @@
 // the debug-scanner variant, and the background-indexing memory-limit helpers.
 
 #include <assert.h>
-#include <math.h>
 
 #include "indexes_scanner.h"
 
