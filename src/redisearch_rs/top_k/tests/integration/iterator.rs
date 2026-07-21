@@ -11,7 +11,7 @@
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
-use rqe_core::DocId;
+use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use index_result::RSIndexResult;
 use rqe_iterator_type::IteratorType;
@@ -51,6 +51,12 @@ impl ScoreSource for TimingOutSource {
         Self: 'r,
     {
         RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
     }
 
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
@@ -157,6 +163,17 @@ fn num_estimated_capped_at_k() {
     let it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
 
     assert_eq!(it.num_estimated(), 3);
+}
+
+#[test]
+fn num_estimated_capped_by_selective_child() {
+    // Source could return up to k=100, but the filter child yields a single doc,
+    // so the intersection can produce at most one result.
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue)
+        .with_num_estimated(100);
+    let it = TopKIterator::new(source, make_child(vec![1]), NonZeroUsize::new(100).unwrap(), asc);
+
+    assert_eq!(it.num_estimated(), 1);
 }
 
 // ── Unfiltered path ───────────────────────────────────────────────────────────
@@ -371,6 +388,33 @@ fn yield_timeout_polled_before_yielding_valid() {
 }
 
 #[test]
+fn retry_after_timeout_discards_partial_collection() {
+    // A scan that times out after collecting some hits, then is re-driven via
+    // read(), must re-collect from scratch. The collection paths append to the
+    // heap without de-duping against leftovers, so a retained partial hit would
+    // resurface as a duplicate doc id. The one-shot deadline fires on the second
+    // adhoc poll (mid-collection, with doc 1 already in the heap) and clears, so
+    // the retry runs clean and must yield each doc exactly once.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_timeout_once_at(2);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![1, 2, 3]);
+    assert!(it.at_eof());
+}
+
+#[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
         vec![
@@ -442,6 +486,12 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             Self: 'r,
         {
             RSIndexResult::build_virt().doc_id(doc_id).build()
+        }
+
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
         }
 
         fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
@@ -659,6 +709,11 @@ fn adhoc_timeout_propagated() {
         {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
+        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        where
+            Self: 'r,
+        {
+        }
         fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
@@ -732,4 +787,178 @@ fn profile_children_with_no_child_is_identity() {
     let doc_ids: Vec<_> =
         std::iter::from_fn(|| profiled.read().unwrap().map(|r| r.doc_id)).collect();
     assert_eq!(doc_ids, vec![1, 2]);
+}
+
+/// Regression test for MOD-8142 (Python: `test_mod_8142` in
+/// `tests/pytests/test_issues.py`).
+///
+/// A KNN search with `WITHSCORES` returned a score of `0`: the Batches path
+/// carried only `(doc_id, score)` through the heap, so the child's scoring
+/// inputs (`freq`, `field_mask`, term records) that BM25/TFIDF need were lost.
+///
+/// Reproduced without Redis: a child result with non-default scoring fields
+/// must still carry them after passing through `TopKIterator`.
+#[test]
+fn batches_preserves_child_scoring_fields() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    // Build a child whose result carries the scoring-relevant fields a
+    // text query would produce (analogous to BM25 inputs from "city").
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    // Source emits a single batch containing both doc IDs (analogous to
+    // the KNN batch returned by VecSim).
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Best-first ASC order; each result should still carry the child's
+    // scoring fields rather than a freshly rebuilt record.
+    assert_eq!(
+        emitted,
+        vec![(2, 7, 0xABC), (1, 7, 0xABC)],
+        "child's scoring fields (freq, field_mask) were dropped — \
+          got {emitted:?}; the BM25-becomes-0 bug from MOD-8142"
+    );
+}
+
+/// The dual of [`batches_preserves_child_scoring_fields`]: when the pipeline can
+/// trim deep results, the child's scoring subtree is never captured, so each
+/// match yields a metric-only result carrying the `build_metric` defaults
+/// (freq 0, [`RS_FIELDMASK_ALL`]) rather than the child's rich record.
+#[test]
+fn batches_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    // Same doc ids and best-first order as the rich path, but the child's
+    // freq/field_mask are dropped — the yielded record carries the metric-only
+    // defaults instead.
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
+}
+
+/// Adhoc-BF counterpart of [`batches_trim_deep_results_yields_metric_only`]:
+/// the child-driven scan also skips capturing the rich record when results are
+/// trimmed.
+#[test]
+fn adhoc_trim_deep_results_yields_metric_only() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    let child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![], vec![(1, 0.9), (2, 0.5)], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(Box::new(child) as Box<dyn RQEIterator<'_> + '_>),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push((r.doc_id, r.freq, r.field_mask));
+    }
+
+    assert_eq!(
+        emitted,
+        vec![(2, 0, RS_FIELDMASK_ALL), (1, 0, RS_FIELDMASK_ALL)]
+    );
+}
+
+/// Trimming skips the child's scoring subtree but must still carry its yielded
+/// metrics (e.g. `AS`-yielded vector distances), which are explicit output/sort
+/// fields rather than part of the rich subtree.
+#[test]
+fn batches_trim_deep_results_preserves_child_metrics() {
+    use index_result::RSIndexResult;
+    use rqe_iterators::IdList;
+
+    // Child result with rich scoring fields *and* a yielded metric.
+    let mut child_result = RSIndexResult::build_virt()
+        .frequency(7)
+        .field_mask(0xABC)
+        .build();
+    child_result.metrics_mut().push_without_key(42.0);
+    let child = IdList::<true>::with_result(vec![1, 2], child_result);
+
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    )
+    .with_trim_deep_results(true);
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        let metric = r.metrics_ref().get(0).map(|m| m.value());
+        emitted.push((r.doc_id, r.freq, r.field_mask, metric));
+    }
+
+    // Rich subtree is trimmed (freq/field_mask carry the metric-only defaults),
+    // but the child's yielded metric rides along on every result.
+    assert_eq!(
+        emitted,
+        vec![
+            (2, 0, RS_FIELDMASK_ALL, Some(42.0)),
+            (1, 0, RS_FIELDMASK_ALL, Some(42.0))
+        ]
+    );
 }

@@ -1172,7 +1172,9 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
  "trie_rs",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -3069,7 +3071,9 @@ dependencies = [
  "index_result",
  "index_spec",
  "inverted_index",
+ "itertools 0.15.0",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
@@ -3470,8 +3474,11 @@ dependencies = [
  "ffi",
  "index_result",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
+ "rlookup",
  "rqe_core",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",
@@ -3486,7 +3493,6 @@ name = "vector_score_source_bencher"
 version = "0.0.1"
 dependencies = [
  "build_utils",
- "cc",
  "criterion",
  "ffi",
  "redis_mock",

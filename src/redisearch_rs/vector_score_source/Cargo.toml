@@ -16,7 +16,10 @@ build_utils = {path = "../build_utils"}
 [dependencies]
 ffi.workspace = true
 index_result.workspace = true
+redis_reply.workspace = true
+rlookup.workspace = true
 rqe_core.workspace = true
+rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 top_k = {path = "../top_k"}
 tracing.workspace = true

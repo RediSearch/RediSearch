@@ -40,7 +40,6 @@
 #include "suffix.h"
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
-#include "iterators/hybrid_reader.h"
 #include "debug_commands.h"
 #include "iterators/optimizer_reader.h"
 #include "search_disk.h"
@@ -893,8 +892,8 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     handle->is_valid = true;
 
     if (it->type == HYBRID_ITERATOR) {
-      handle->key_ptr = HybridIterator_GetOwnKeyRef(it);
-      HybridIterator_SetKeyHandle(it, handle); // Set up back-reference
+      handle->key_ptr = VectorTopK_GetOwnKeyRef(it);
+      VectorTopK_SetKeyHandle(it, handle); // Set up back-reference
     } else { // Must be METRIC_ITERATOR due to the condition above
       handle->key_ptr = GetMetricOwnKeyRef(it);
       SetMetricRLookupHandle(it, handle); // Set up back-reference
