@@ -13,6 +13,8 @@
 
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
+use std::ptr::NonNull;
+
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
@@ -26,15 +28,13 @@ use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
 
 /// Reports whether a doc id still resolves to a live result document — one that
-/// has not been deleted and whose whole-document TTL has not lapsed.
+/// has not been deleted.
 ///
-/// This is the document-level check (deletion + whole-doc expiry); *field*-level
-/// TTL is a separate concern carried by an [`ExpirationChecker`]. The numeric
-/// index keeps entries for stale documents until GC reclaims them, so the source
-/// drops them before they reach the top-k heap. This mirrors the result
-/// processor's per-document validity check: the numeric optimizer's bounded heap
-/// must hold `k` *valid* survivors, and a downstream drop cannot retroactively
-/// admit the live document a stale entry displaced.
+/// Deletion only; TTL expiry is a separate concern carried by an
+/// [`ExpirationChecker`]. The numeric index keeps entries for deleted documents
+/// until GC reclaims them, so the source drops them before they reach the top-k
+/// heap: the bounded heap must hold `k` *valid* survivors, and a downstream drop
+/// cannot retroactively admit the live document a stale entry displaced.
 pub trait DocValidity {
     /// Returns `true` if `doc_id` still resolves to a valid result document.
     fn is_valid(&self, doc_id: DocId) -> bool;
@@ -162,7 +162,7 @@ pub struct NumericScoreSource<
     /// the `Batches number` profile metric. Reset on rewind.
     num_batches: usize,
     /// Document-level validity oracle: drops records for doc ids it reports
-    /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
+    /// invalid (deleted) before they reach the top-k heap.
     /// [`AllValid`] keeps every record.
     validity: V,
     /// Field-level TTL checker: drops records whose sort field has expired before
@@ -187,6 +187,33 @@ impl<'index> NumericScoreSource<'index> {
         Self::with_range_batch_size(tree, filter, ascending, DEFAULT_RANGE_BATCH_SIZE)
     }
 
+    /// Like [`unfiltered`](Self::unfiltered), for a tree that may change while
+    /// the query is suspended.
+    ///
+    /// # Safety
+    ///
+    /// `tree` upholds the safety requirements of [`NumericRangeIterator::from_raw`].
+    pub unsafe fn unfiltered_raw(
+        tree: NonNull<NumericRangeTree>,
+        mut filter: NumericFilter,
+        ascending: bool,
+    ) -> Self {
+        filter.ascending = ascending;
+        // SAFETY: guaranteed by the caller.
+        unsafe {
+            Self::build(
+                tree,
+                filter,
+                RangeWindow::UNBOUNDED,
+                ascending,
+                DEFAULT_RANGE_BATCH_SIZE,
+                0,
+                0,
+                false,
+            )
+        }
+    }
+
     /// Like [`unfiltered`](Self::unfiltered) but with an explicit per-batch range
     /// count, so tests can force multi-batch behavior on small inputs.
     pub fn with_range_batch_size(
@@ -196,16 +223,19 @@ impl<'index> NumericScoreSource<'index> {
         range_batch_size: usize,
     ) -> Self {
         filter.ascending = ascending;
-        Self::build(
-            tree,
-            filter,
-            RangeWindow::UNBOUNDED,
-            ascending,
-            range_batch_size,
-            0,
-            0,
-            false,
-        )
+        // SAFETY: the shared borrow keeps `tree` valid and unmutated for `'index`.
+        unsafe {
+            Self::build(
+                NonNull::from(tree),
+                filter,
+                RangeWindow::UNBOUNDED,
+                ascending,
+                range_batch_size,
+                0,
+                0,
+                false,
+            )
+        }
     }
 
     /// Build a filtered source with the expand-and-retry path enabled.
@@ -215,6 +245,35 @@ impl<'index> NumericScoreSource<'index> {
     /// child's selectivity estimate; both size the retry windows.
     pub fn filtered(
         tree: &'index NumericRangeTree,
+        filter: NumericFilter,
+        window: RangeWindow,
+        ascending: bool,
+        range_batch_size: usize,
+        num_docs: usize,
+        child_estimate: usize,
+    ) -> Self {
+        // SAFETY: the shared borrow keeps `tree` valid and unmutated for `'index`.
+        unsafe {
+            Self::filtered_raw(
+                NonNull::from(tree),
+                filter,
+                window,
+                ascending,
+                range_batch_size,
+                num_docs,
+                child_estimate,
+            )
+        }
+    }
+
+    /// Like [`filtered`](Self::filtered), for a tree that may change while the
+    /// query is suspended.
+    ///
+    /// # Safety
+    ///
+    /// `tree` upholds the safety requirements of [`NumericRangeIterator::from_raw`].
+    pub unsafe fn filtered_raw(
+        tree: NonNull<NumericRangeTree>,
         mut filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,
@@ -223,21 +282,27 @@ impl<'index> NumericScoreSource<'index> {
         child_estimate: usize,
     ) -> Self {
         filter.ascending = ascending;
-        Self::build(
-            tree,
-            filter,
-            window,
-            ascending,
-            range_batch_size,
-            num_docs,
-            child_estimate,
-            true,
-        )
+        // SAFETY: guaranteed by the caller.
+        unsafe {
+            Self::build(
+                tree,
+                filter,
+                window,
+                ascending,
+                range_batch_size,
+                num_docs,
+                child_estimate,
+                true,
+            )
+        }
     }
 
+    /// # Safety
+    ///
+    /// `tree` upholds the safety requirements of [`NumericRangeIterator::from_raw`].
     #[expect(clippy::too_many_arguments, reason = "private constructor")]
-    fn build(
-        tree: &'index NumericRangeTree,
+    unsafe fn build(
+        tree: NonNull<NumericRangeTree>,
         filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,
@@ -246,7 +311,8 @@ impl<'index> NumericScoreSource<'index> {
         child_estimate: usize,
         retry_enabled: bool,
     ) -> Self {
-        let ranges = NumericRangeIterator::new(tree, &filter, window);
+        // SAFETY: guaranteed by the caller.
+        let mut ranges = unsafe { NumericRangeIterator::from_raw(tree, &filter, window) };
         let num_estimated = ranges.total_docs_estimate();
         Self {
             ranges,
@@ -274,7 +340,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     NumericScoreSource<'index, V, E, T>
 {
     /// Attach a document-validity oracle, dropping records for doc ids it reports
-    /// invalid (deleted or whole-doc expired) from every batch. This is the
+    /// invalid (deleted) from every batch. This is the
     /// source's equivalent of the numeric optimizer's per-document validity
     /// check, keeping entries that survive in the index until GC out of the
     /// top-k results.
@@ -468,9 +534,9 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         };
         self.num_batches += 1;
         // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
-        // and field-level TTL, the two the range tree only sheds at GC time. Each
-        // gate keeps the common no-filtering case free of its per-record check.
+        // the bounded top-k: document deletion and field-level TTL, the two the
+        // range tree only sheds at GC time. Each gate keeps the common
+        // no-filtering case free of its per-record check.
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
         if !filter_validity && !filter_expiration {
@@ -500,6 +566,10 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 
     fn num_estimated(&self) -> usize {
         self.num_estimated
+    }
+
+    fn revalidate(&mut self) -> bool {
+        self.ranges.revalidate()
     }
 
     fn rewind(&mut self) {
