@@ -75,6 +75,11 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
     IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
     if (oom) {
       sp->scan_failed_OOM = true;
+      // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
+      // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and
+      // hide the incomplete build. The scanner is still alive here, so this reads
+      // its live scannedKeys/DbSize fraction.
+      sp->scan_failed_OOM_percent = IndexesScanner_IndexedPercent(ctx, scanner, sp);
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
     }
     StrongRef_Release(curr_run_ref);
@@ -141,7 +146,10 @@ double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanne
       return 0;
     }
   } else {
-    return 1.0;
+    // No active scanner: the build completed (1.0), unless the last background
+    // build aborted on OOM — then report the fraction it reached, frozen in
+    // scan_failed_OOM_percent, so a partial index isn't shown as complete.
+    return sp->scan_failed_OOM ? sp->scan_failed_OOM_percent : 1.0;
   }
 }
 

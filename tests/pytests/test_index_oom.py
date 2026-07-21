@@ -65,6 +65,11 @@ def test_stop_background_indexing_on_low_mem(env):
   # Verify that only num_docs_scanned were indexed
   docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, num_docs_scanned)
+  # percent_indexed must reflect the OOM-cancelled build, not default to 1.0:
+  # it is frozen at the fraction scanned when the scan aborted (~num_docs_scanned/num_docs).
+  percent_indexed = index_info(env)['percent_indexed']
+  env.assertLess(percent_indexed, 1.0)
+  env.assertAlmostEqual(percent_indexed, num_docs_scanned / num_docs, delta=0.05)
   # Verify that used_memory is close to 80% (config set) of maxmemory
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
@@ -510,6 +515,8 @@ def test_oom_100_percent(env):
   # Verify OOM status
   error_dict = get_index_errors_dict(env)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+  # The build aborted before indexing any doc; percent_indexed must not report 1.0.
+  env.assertLess(index_info(env)['percent_indexed'], 1.0)
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_success(env):
@@ -549,6 +556,8 @@ def test_pseudo_enterprise_oom_retry_success(env):
   env.assertEqual(docs_in_index, num_docs)
   # Verify index BG indexing status is OK
   env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+  # A build that recovered and completed still reports fully indexed.
+  env.assertEqual(index_info(env)['percent_indexed'], 1.0)
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_failure(env):

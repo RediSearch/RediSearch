@@ -325,6 +325,11 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Fraction of the keyspace the background build had scanned when it aborted on
+  // OOM, frozen before the scanner is freed. FT.INFO reports it as percent_indexed
+  // while scan_failed_OOM holds, so an OOM-cancelled build is distinguishable from
+  // a completed one (which reports 1.0). Only meaningful when scan_failed_OOM is set.
+  double scan_failed_OOM_percent;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
