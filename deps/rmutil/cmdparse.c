@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
-#include <sys/errno.h>
+#include <errno.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
