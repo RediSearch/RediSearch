@@ -182,12 +182,22 @@ pub unsafe trait ResumableReader: 'static {
 /// Marker trait for readers producing numeric values.
 pub trait NumericReader<'index>: IndexReader<'index> {}
 
-/// Trait for readers producing term values.
-pub trait TermReader<'index>: IndexReader<'index> {
+/// Check whether a reader is linked to the same
+/// [`InvertedIndex`](crate::opaque::InvertedIndex) as an externally-held
+/// opaque pointer.
+///
+/// Extracted from [`TermReader`] so it can be implemented for both the
+/// [`Active`](ref_mode::Active) and [`Suspended`](ref_mode::Suspended) reader
+/// forms; leaves (`Term`, FFI enums) call it from their suspended-side
+/// `should_abort` checks during `RQESuspendedIterator::resume`.
+pub trait PointsToOpaqueIndex {
     /// Check if this reader's underlying index points to the same one
     /// contained in the given opaque [`InvertedIndex`](crate::opaque::InvertedIndex).
     fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool;
 }
+
+/// Trait for readers producing term values.
+pub trait TermReader<'index>: IndexReader<'index> + PointsToOpaqueIndex {}
 
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.
