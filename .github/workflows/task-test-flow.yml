@@ -301,6 +301,13 @@ jobs:
           # shape as _TEST_ID_RE in .github/scripts/flaky_db.py.
           LIST=1 make pytest $TEST_CONFIG > "$LIST_RAW" 2>&1 \
             || { echo "LIST=1 enumeration failed:"; cat "$LIST_RAW"; exit 1; }
+          # runtests.sh can exit 0 in LIST mode even when RLTest hit a
+          # collection/import error, which would silently shard a partial list
+          # (and drop the un-collected tests from every shard). Fail explicitly
+          # if the raw output shows a collection failure.
+          if grep -qiE 'Traceback \(most recent call last\)|ImportError|ModuleNotFoundError|ERROR collecting|INTERNALERROR' "$LIST_RAW"; then
+            echo "Test collection failed during LIST=1 enumeration:"; cat "$LIST_RAW"; exit 1
+          fi
           grep -E '^[A-Za-z0-9_-]+:[A-Za-z_][A-Za-z0-9_.]*(\[[^]]+\])?[[:space:]]*$' "$LIST_RAW" \
             | LC_ALL=C sort > "$ALL_SPECS" || true
           total=$(wc -l < "$ALL_SPECS")

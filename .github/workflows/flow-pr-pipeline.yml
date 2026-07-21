@@ -60,6 +60,10 @@ jobs:
   build:
     name: Build (${{ inputs.job-type }})
     needs: [get-config, build-image]
+    # build-image is skipped for non-container platforms; without this guard a
+    # skipped need would skip this job (and the whole pipeline) instead of
+    # falling back to the non-container runner.
+    if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -92,6 +96,7 @@ jobs:
   test-unit:
     name: ${{ inputs.job-type }} (Unit)
     needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -124,6 +129,7 @@ jobs:
   test-flow-standalone:
     name: ${{ inputs.job-type }} (Standalone)
     needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
@@ -159,6 +165,7 @@ jobs:
   test-flow-coordinator:
     name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ inputs.job-type == 'basic-test' && 3 || 4 }})
     needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
     # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
     # PINGs, 5-min timeouts), so split them across file-level shards. The
     # instrumented builds (coverage, sanitize) run noticeably slower, so give
