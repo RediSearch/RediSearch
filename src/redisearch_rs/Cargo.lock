@@ -1190,7 +1190,9 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
  "trie_rs",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -3515,6 +3517,7 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rqe_core",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",
