@@ -920,7 +920,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
-    RedisModule_Log(ctx, "notice", "Backgrond RDB persistence started");
+    RedisModule_Log(ctx, "notice", "Background RDB persistence started");
     if (!useSst) {
       DocIdMeta_SetForgetDocIdMetadata(true);
     }
