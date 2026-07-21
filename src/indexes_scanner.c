@@ -83,7 +83,7 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
       // scannedKeys to (or past) DbSize, which IndexesScanner_IndexedPercent clamps to
       // a complete-looking 1.0 — that must never be reported for a failed build.
       double pct = IndexesScanner_IndexedPercent(ctx, scanner, sp);
-      sp->scan_failed_OOM_percent = pct < 1.0 ? pct : nextafter(1.0, 0.0);
+      sp->scan_failed_OOM_percent = pct < 1.0 ? pct : 1.0;
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
     }
     StrongRef_Release(curr_run_ref);
