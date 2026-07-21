@@ -15,7 +15,7 @@
 //! [`top_k::ScoreSource`] that drives [`TopKIterator`] against a VecSim index.
 
 // Force-link the umbrella `redisearch_rs` crate so the `QueryError_*` (and other)
-// Rust FFI symbols that `libredisearch_all.a` calls back into are retained in the
+// Rust FFI symbols that `libredisearch_c_bundle.a` calls back into are retained in the
 // lib unit-test binary, which links the C archive via the `unittest` feature.
 #[cfg(test)]
 extern crate redisearch_rs;

@@ -111,7 +111,7 @@
 mod suffix;
 
 // Force-link the umbrella `redisearch_rs` crate so its `#[used]` symbol table keeps the
-// Rust FFI functions that the linked C code (`libredisearch_all`) calls back into, and
+// Rust FFI functions that the linked C code (`libredisearch_c_bundle`) calls back into, and
 // stub any remaining Redis module C symbols the tests pull in. Without the `extern crate`
 // reference the umbrella rlib is dropped as unused and those symbols go undefined at link
 // time. Mirrors `numeric_range_tree`/`query_eval`/`top_k`.
