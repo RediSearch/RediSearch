@@ -37,8 +37,12 @@ workspace_hack.workspace = true
 [dev-dependencies]
 dict.workspace = true
 ffi.workspace = true
+# `unittest` activates `FieldSpecBuilder` for constructing test specs.
+field_spec = { workspace = true, features = ["unittest"] }
 index_result.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
+# `test-utils` activates the numeric tree builders used to populate test specs.
+numeric_range_tree = { workspace = true, features = ["test-utils"] }
 rqe_core = { workspace = true }
 # Self-dependency activates the `unittest` feature so build.rs links the C library.
 fork_gc = { path = ".", features = ["unittest"] }
