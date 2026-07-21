@@ -916,23 +916,26 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
 
   switch (subevent) {
   case REDISMODULE_SUBEVENT_PERSISTENCE_RDB_START:
+    vecsimdisk_sst_consistency_lock_held = false;
+    g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
+    RedisModule_Log(ctx, "notice", "Backgrond RDB persistence started");
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
+    vecsimdisk_sst_consistency_lock_held = false;
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence started");
+      RedisModule_Log(ctx, "notice", "Foreground RDB persistence started");
       DocIdMeta_SetForgetDocIdMetadata(true);
     } else {
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
       // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
       // so open the consistency window here instead (flushing via PreCheckpoint).
-      RedisModule_Log(ctx, "notice", "Hot-restart save started (SST + RAM-only RDB)");
+      RedisModule_Log(ctx, "notice", "Hot restart save started (SST + RAM-only RDB)");
       // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
       g_hotRestartSave = true;
       DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
@@ -943,9 +946,9 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions via PostFork on success.
       DiskConsistencyWindow_End(SearchDisk_PostFork);
-      RedisModule_Log(ctx, "notice", "Hot-restart save ended");
+      RedisModule_Log(ctx, "notice", g_hotRestartSave ? "Hot restart save ended": "RDB persistence ended");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence ended");
+      RedisModule_Log(ctx, "notice", "RDB Persistence ended");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
@@ -958,9 +961,9 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // later ordinary shutdown must still delete the on-disk indexes rather
       // than treat this as a successful hot restart (see ShutdownDiskClose).
       g_hotRestartSave = false;
-      RedisModule_Log(ctx, "warning", "Hot-restart save failed");
+      RedisModule_Log(ctx, "warning", "Hot restart save failed");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "Persistence ended");
+      RedisModule_Log(ctx, "notice", "RDB Persistence failed");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
