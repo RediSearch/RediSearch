@@ -3756,7 +3756,6 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rqe_core",
- "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",
