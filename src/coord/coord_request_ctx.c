@@ -82,7 +82,7 @@ void CoordRequestCtx_SetRequest(CoordRequestCtx *ctx, void *req) {
   if (ctx->type == COMMAND_HYBRID) {
     HybridRequest *hreq = (HybridRequest *)req;
     hreq->useReplyCallback = ctx->useReplyCallback;
-    hreq->syncCtx.requiresAggregateResultsSync =
+    hreq->brc->requiresAggregateResultsSync =
         (ctx->timeoutPolicy == TimeoutPolicy_ReturnStrict);
     HybridRequest_SetExecutionStage(hreq, stage);
   } else if (ctx->type == COMMAND_AGGREGATE) {
