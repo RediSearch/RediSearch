@@ -62,6 +62,10 @@ impl DocValidity for DocTableValidity {
         // SAFETY: `doc_table` is valid for the oracle's lifetime per `new`.
         unsafe { DocTable_Exists(self.doc_table.as_ptr(), doc_id) }
     }
+
+    fn may_filter(&self) -> bool {
+        true
+    }
 }
 
 /// Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
