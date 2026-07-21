@@ -202,7 +202,7 @@ impl<DT: DictType> Dict<DT> {
     /// The key is only borrowed for the duration of this call; `RS_dictAddRaw`
     /// copies it via `keyDup` if a new entry is allocated.
     pub fn try_insert(&mut self, key: DT::K<'_>, val: DT::InsertV) -> Result<(), DT::InsertV> {
-        // SAFETY: self points to a valid dict; key is valid for the lookup;
+        // SAFETY: self points to a valid dict; key is valid for the duration of the lookup;
         // RS_dictAddRaw copies the key via keyDup if it allocates a new entry.
         // Passing null for the `existing` out-param: the C function checks for
         // null before writing, and we only need the return value here.
@@ -228,7 +228,7 @@ impl<DT: DictType> Dict<DT> {
     ///
     /// The key is only borrowed for the duration of this call.
     pub fn fetch_mut(&mut self, key: DT::K<'_>) -> Option<DT::MutV<'_>> {
-        // SAFETY: self points to a valid dict; key is valid for the lookup.
+        // SAFETY: self points to a valid dict; key is valid for the duration of the lookup.
         let val_ptr = unsafe { ffi::RS_dictFetchValue(self.as_mut_ptr(), DT::key_into_ptr(key)) };
         if val_ptr.is_null() {
             return None;
@@ -244,7 +244,7 @@ impl<DT: DictType> Dict<DT> {
     /// If the dict's `valDestructor` is set, it is invoked to free the removed value.
     /// The key is only borrowed for the duration of this call.
     pub fn remove(&mut self, key: DT::K<'_>) {
-        // SAFETY: self points to a valid dict; key is valid for the lookup.
+        // SAFETY: self points to a valid dict; key is valid for the duration of the lookup.
         unsafe { ffi::RS_dictDelete(self.as_mut_ptr(), DT::key_into_ptr(key)) };
     }
 

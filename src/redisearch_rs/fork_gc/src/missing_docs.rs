@@ -31,7 +31,7 @@ pub enum HandleOutcome {
 /// Mapped to `FGCError` variants at the FFI layer.
 #[derive(Debug)]
 pub enum HandleError {
-    /// Pipe read or deserialisation failed; child likely crashed.
+    /// Pipe read error or deserialisation failed; child likely crashed.
     ChildError,
     /// The index spec was deleted before the delta could be applied.
     SpecDeleted,
