@@ -41,15 +41,12 @@ typedef struct HybridRequest {
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
 
-    // Synchronization context for timeout/reply callbacks
-    // In Shard level, HybridRequest has two reference counting mechanisms working together:
-    // 1. StrongRef (RefManager.strong_refcount) - for cursor lifetime and cross-thread sharing
-    // 2. syncCtx.refcount - for timeout callback coordination (BlockedQueryNode)
-    // Both are valid: StrongRef_Release calls HybridRequest_DecrRef (via FreeHybridRequest callback),
-    // so the syncCtx.refcount initial value of 1 is implicitly owned by the StrongRef system.
-    // Additional HybridRequest_IncrRef calls (e.g., from BlockHybridQueryClientWithTimeout) safely
-    // add to syncCtx.refcount, and all decrements will happen correctly during cleanup.
-    RequestSyncCtx syncCtx;
+    // Synchronization context for timeout/reply callbacks.
+    // Holds the per-request timeout flag and abort-wake channel.
+    RequestSyncState syncState;
+
+    // Non-owning back-pointer to the heap wrapper that owns this request.
+    BlockedRequestCtx *brc;
 
     // Flag to indicate whether to skip timeout checks using clock checks
     bool skipTimeoutChecks;
@@ -92,15 +89,15 @@ typedef struct HybridRequest {
 
 // Timeout helper functions for HybridRequest (mirrors AREQ pattern)
 static inline bool HybridRequest_TimedOut(HybridRequest *req) {
-  return RequestSyncCtx_GetTimedOut(&req->syncCtx);
+  return RequestSyncState_GetTimedOut(&req->syncState);
 }
 // The pipeline stage the hybrid request had reached, used to attribute a timeout.
 static inline QueryTimeoutStage HybridRequest_ExecutionStage(HybridRequest *req) {
-  return RequestSyncCtx_GetExecutionStage(&req->syncCtx);
+  return RequestSyncState_GetExecutionStage(&req->syncState);
 }
 // Advance the hybrid request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTimeoutStage stage) {
-  RequestSyncCtx_SetExecutionStage(&req->syncCtx, stage);
+  RequestSyncState_SetExecutionStage(&req->syncState, stage);
 }
 // Sets the hybrid request's timedOut flag and propagates it to every subquery
 // AREQ. Propagation flips each subquery's RPNet abort flag so a BG worker
@@ -135,7 +132,7 @@ static inline void HybridRequest_SetSkipTimeoutChecks(HybridRequest *req, bool s
 }
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
-  return req->syncCtx.requiresAggregateResultsSync;
+  return req->brc->requiresAggregateResultsSync;
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req);
@@ -266,15 +263,23 @@ void HybridPipelineParams_Cleanup(HybridPipelineParams *params);
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status);
 
 /**
- * Increment the reference count of the HybridRequest.
+ * Free a HybridRequest and all its associated resources directly.
+ * Called by BlockedRequestCtx_Free when the wrapper's refcount reaches zero.
+ * Do not call directly; use HybridRequest_DecrRef instead.
+ */
+void HybridRequest_Free(HybridRequest *req);
+
+/**
+ * Increment the reference count of the owning BlockedRequestCtx wrapper.
  * @param req the request to increment
  * @return the request (for chaining)
  */
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req);
 
 /**
- * Decrement the reference count of the HybridRequest.
- * If the reference count reaches 0, the request is freed.
+ * Decrement the reference count of the owning BlockedRequestCtx wrapper.
+ * If the reference count reaches 0, BlockedRequestCtx_Free is called which
+ * destroys the wrapper and the owned HybridRequest.
  * @param req the request to decrement
  */
 void HybridRequest_DecrRef(HybridRequest *req);

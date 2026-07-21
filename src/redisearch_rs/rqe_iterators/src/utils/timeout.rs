@@ -137,7 +137,7 @@ impl TimeoutContextBlockedClient {
     ///   iterator holding it) is used. The pointer is stored without a
     ///   lifetime, so the caller is fully responsible for not using the context
     ///   past the [`AREQ`]'s lifetime.
-    /// * The `RequestSyncCtx::timedOut` flag inside the [`AREQ`] must be safe
+    /// * The `RequestSyncState::timedOut` flag inside the [`AREQ`] must be safe
     ///   to read with relaxed semantics from any thread.
     #[inline(always)]
     pub const unsafe fn new(areq: NonNull<AREQ>) -> Self {
