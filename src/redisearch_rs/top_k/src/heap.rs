@@ -175,13 +175,31 @@ impl<'index> TopKHeap<'index> {
         score: f64,
         record: Option<RSIndexResult<'index>>,
     ) -> bool {
-        let entry = HeapEntry {
+        self.push_with_record_lazy(doc_id, score, move || record)
+    }
+
+    /// Like [`push_with_record`](Self::push_with_record), but the record is
+    /// produced by `make_record` only when the element is actually retained.
+    ///
+    /// Use this when building the record is expensive (e.g. a deep copy): the
+    /// closure is not called for an element the heap discards, so a rejected
+    /// candidate costs only the score comparison.
+    pub fn push_with_record_lazy(
+        &mut self,
+        doc_id: DocId,
+        score: f64,
+        make_record: impl FnOnce() -> Option<RSIndexResult<'index>>,
+    ) -> bool {
+        // The record never participates in ordering, so a record-less probe
+        // decides retention; the record is attached only on the accept branches.
+        let mut entry = HeapEntry {
             result: ScoredResult { doc_id, score },
-            record,
+            record: None,
             compare: self.compare,
         };
 
         if !self.is_full() {
+            entry.record = make_record();
             self.inner.push(entry);
             true
         }
@@ -192,6 +210,7 @@ impl<'index> TopKHeap<'index> {
         else if let Some(mut worst) = self.inner.peek_mut()
             && entry < *worst
         {
+            entry.record = make_record();
             *worst = entry;
             true
         } else {
