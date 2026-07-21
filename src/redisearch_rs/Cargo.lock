@@ -1526,6 +1526,7 @@ dependencies = [
  "numeric_range_tree",
  "numeric_score_source",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
