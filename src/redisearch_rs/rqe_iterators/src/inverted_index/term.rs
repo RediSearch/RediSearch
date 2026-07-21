@@ -14,9 +14,9 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    FilterMaskReader, IndexReader, IndexReaderCore, TermReader, doc_ids_only::DocIdsOnly,
-    fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
-    opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
+    FilterMaskReader, IndexReader, IndexReaderCore, PointsToOpaqueIndex, TermReader,
+    doc_ids_only::DocIdsOnly, fields_offsets, fields_only, freqs_fields, freqs_offsets, freqs_only,
+    full, offsets_only, opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
 };
 use query_term::RSQueryTerm;
 use ref_mode::{Active, Ref};
@@ -349,7 +349,7 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     }
 }
 
-impl<'index> TermReader<'index> for TermIndexReader<'index> {
+impl PointsToOpaqueIndex for TermIndexReader<'_> {
     fn points_to_the_same_opaque_index(
         &self,
         opaque: &inverted_index::opaque::InvertedIndex,
@@ -357,6 +357,8 @@ impl<'index> TermReader<'index> for TermIndexReader<'index> {
         term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
     }
 }
+
+impl<'index> TermReader<'index> for TermIndexReader<'index> {}
 
 /// Build a term-query iterator over an in-memory inverted index.
 ///

@@ -8,7 +8,8 @@
 */
 
 use super::{
-    IndexReader, IndexReaderCore, RefreshOutcome, ResumableReader, SuspendableReader, TermReader,
+    IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    SuspendableReader, TermReader,
 };
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
@@ -177,13 +178,20 @@ impl<'index, E: DecodedBy<Decoder = D>, D: Decoder> FilterMaskReader<IndexReader
     }
 }
 
+/// Forwards the opaque-index check to the inner reader. Covers both the
+/// [`Active`](ref_mode::Active) and [`Suspended`](ref_mode::Suspended) inner
+/// reader forms.
+impl<IR: PointsToOpaqueIndex> PointsToOpaqueIndex for FilterMaskReader<IR> {
+    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
+        self.inner.points_to_the_same_opaque_index(opaque)
+    }
+}
+
 /// Automatically implemented if the IndexReaderCore uses a TermDecoder.
+/// The [`PointsToOpaqueIndex`] supertrait is satisfied via the impl above.
 impl<'index, E: DecodedBy<Decoder = D> + OpaqueEncoding + 'index, D: Decoder + TermDecoder>
     TermReader<'index> for FilterMaskReader<IndexReaderCore<'index, E>>
 where
     E::Storage: HasInnerIndex<E>,
 {
-    fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool {
-        self.inner.points_to_the_same_opaque_index(opaque)
-    }
 }
