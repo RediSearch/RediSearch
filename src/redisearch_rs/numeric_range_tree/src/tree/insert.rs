@@ -238,7 +238,7 @@ impl NumericRangeTree {
                 if card >= Self::get_split_cardinality(depth)
                     || (num_entries > Self::MAXIMUM_RANGE_SIZE && card > 1)
                 {
-                    Self::split_node(nodes, node_idx, &mut rv, compress_floats);
+                    Self::split_node(nodes, node_idx, &mut rv, compress_floats, empty_leaves);
 
                     // Check if we're too high up to retain this node's range
                     if nodes[node_idx].max_depth() > max_depth_range as u32 {
@@ -279,6 +279,7 @@ impl NumericRangeTree {
         node_idx: NodeIndex,
         rv: &mut AddResult,
         compress_floats: bool,
+        empty_leaves: &mut usize,
     ) {
         let parent_range = nodes[node_idx]
             .take_range()
@@ -330,6 +331,23 @@ impl NumericRangeTree {
             rv.num_records_delta += 1;
         }
         drop(result);
+
+        // A split can leave a child leaf empty: when float compression collapses
+        // every stored value to the same f32, the median equals the minimum, the
+        // split point becomes `next_up(min)`, and all entries land on one side.
+        // Such an empty leaf must be reflected in `empty_leaves`, otherwise a
+        // later add routed to it would decrement the counter below zero. The
+        // parent had >= 1 entry (we split only after adding), so at most one of
+        // the two new children can be empty.
+        let newly_empty = [left_idx, right_idx]
+            .into_iter()
+            .filter(|&i| nodes[i].range().is_some_and(|r| r.num_docs() == 0))
+            .count();
+        debug_assert!(
+            newly_empty <= 1,
+            "a non-empty parent must yield at least one non-empty child"
+        );
+        *empty_leaves = empty_leaves.checked_add(newly_empty).expect("Overflow!");
 
         // Replace the old leaf with a new internal node.
         nodes[node_idx] = NumericRangeNode::internal_indexed(
