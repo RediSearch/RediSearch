@@ -14,9 +14,37 @@ pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, 
 
 use crate::{RQEIteratorError, utils::duration_from_redis_timespec};
 
+/// Abstraction over the different ways a query iterator can detect that the
+/// surrounding query has run out of time.
+///
+/// Three implementations exist:
+/// * [`NoTimeoutChecker`] — zero-sized no-op used when the query has no deadline.
+/// * [`DeadlineTimeoutChecker`] — Clock Based Timeout: amortized clock check
+///   used when no Blocked Client Timeout is in play.
+/// * [`TimeoutContextBlockedClient`] — Blocked Client Timeout: reads the
+///   AREQ atomic flag (set by the Blocked Client Timeout main-thread
+///   callback) via the [`AREQ_CheckTimedOut`] C symbol.
+///
+/// Iterators are generic over this trait so the dispatch is monomorphized
+/// in the hot path.
 pub trait TimeoutContext {
+    /// Report whether the query has timed out.
+    ///
+    /// Returns [`RQEIteratorError::TimedOut`] when the deadline has been
+    /// reached (or, for externally-signalled variants, when the signal has
+    /// flipped). Otherwise returns `Ok(())`.
+    ///
+    /// Implementations are allowed (and encouraged) to amortize the actual
+    /// check across many calls.
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError>;
 
+    /// Hook invoked by callers after a unit of useful work has been
+    /// completed, so amortized implementations can reset their internal
+    /// counter without losing accuracy.
+    ///
+    /// The default implementation is a no-op, which is the right behavior
+    /// for variants that do not maintain any internal counter (such as
+    /// [`NoTimeoutChecker`] and [`TimeoutContextBlockedClient`]).
     fn reset_counter(&mut self);
 }
 
