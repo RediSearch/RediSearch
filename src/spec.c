@@ -1422,6 +1422,14 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fieldPath = NULL;
     }
 
+    // An empty field name is unqueryable and, once persisted, crashes fork-GC when
+    // its entries are collected (the GC pipe serializes the name as a zero-length
+    // buffer that the parent decodes as NULL) - see MOD-17034 / MOD-16960.
+    if (namelen == 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot be empty");
+      goto reset;
+    }
+
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Duplicate field in schema", " - %s", fieldName);
       goto reset;

@@ -2279,6 +2279,22 @@ def testDuplicateSpec(env):
         env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
 
+def testEmptyFieldNameRejected(env):
+    # An empty field name is unqueryable and, once persisted, crashes fork-GC when its
+    # entries are collected (the GC pipe serializes the name as a zero-length buffer that
+    # the parent decodes as NULL). It must be rejected at schema parse time.
+    # MOD-17034 / MOD-16960.
+    for field_type in ('TAG', 'TEXT', 'NUMERIC'):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', '', field_type) \
+            .error().contains('Field name cannot be empty')
+    # empty name supplied via an explicit AS alias
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'myfield', 'AS', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+    # empty name added via FT.ALTER
+    env.cmd('FT.CREATE', 'idx_alter', 'SCHEMA', 't', 'TAG')
+    env.expect('FT.ALTER', 'idx_alter', 'SCHEMA', 'ADD', '', 'TAG') \
+        .error().contains('Field name cannot be empty')
+
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
     # order for the indexer to give it a sort vector
