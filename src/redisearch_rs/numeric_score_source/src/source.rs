@@ -70,7 +70,7 @@ impl DocValidity for AllValid {
 /// boundary. Callers (chiefly tests) override it to force multi-batch behavior.
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
-const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
+pub(crate) const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
 
 /// Maximum number of expand-and-retry iterations before the next retry reads
 /// every remaining document.
@@ -547,7 +547,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 /// child's selectivity (`estimate`/`num_docs`).
 ///
 /// Returns `0` when `num_docs` or `estimate` is `0`, guarding the division.
-fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
+pub(crate) fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
     if num_docs == 0 || estimate == 0 {
         return 0;
     }

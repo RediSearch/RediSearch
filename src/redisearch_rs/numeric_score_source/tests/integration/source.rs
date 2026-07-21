@@ -21,13 +21,14 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_score_source::{
-    DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+    AllValid, DocValidity, NewNumericTopK, NumericScoreSource, new_numeric_top_k,
+    new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
 use rqe_iterators::{
-    ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
+    ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeout, TimeoutContext, TimeoutContextClock},
 };
@@ -575,15 +576,60 @@ impl TimeoutContext for TimeoutOnce {
     }
 }
 
-/// Collect an unfiltered top-k iterator to exhaustion into `(doc_id, score)`.
-fn drain_top_k<'a, V: DocValidity + 'a, E: ExpirationChecker + 'a, T: TimeoutContext + 'a>(
-    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T>,
+/// Collect a top-k iterator to exhaustion into `(doc_id, score)`.
+fn drain_top_k<
+    'a,
+    V: DocValidity + 'a,
+    E: ExpirationChecker + 'a,
+    T: TimeoutContext + 'a,
+    I: rqe_iterators::RQEIterator<'a> + 'a,
+>(
+    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T, I>,
 ) -> Vec<(DocId, f64)> {
     let mut got = Vec::new();
     while let Some(result) = it.read().unwrap() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     got
+}
+
+#[test]
+fn factory_unfiltered_dispatches_and_drains() {
+    // A `None` child routes through the unfiltered reduction; the factory-built
+    // source yields the top k by value, best-first.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        3,
+        5,
+        AllValid,
+        NoOpChecker,
+        NoTimeout,
+        None,
+    );
+    let NewNumericTopK::Unfiltered(mut it) = built else {
+        panic!("expected unfiltered reduction for a None child");
+    };
+    assert_eq!(drain_top_k(&mut it), vec![(1, 5.0), (3, 4.0), (5, 3.0)]);
+}
+
+#[test]
+fn factory_zero_k_reduces_to_empty() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0)]);
+    let built = new_numeric_top_k(
+        &tree,
+        full_range(),
+        false,
+        0,
+        2,
+        AllValid,
+        NoOpChecker,
+        NoTimeout,
+        None,
+    );
+    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
 }
 
 #[test]

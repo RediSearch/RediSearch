@@ -26,10 +26,12 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub mod range_iterator;
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
+pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
 pub use source::{AllValid, DocValidity, NumericScoreSource};
 
@@ -38,6 +40,7 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 use redis_reply::MapBuilder;
 use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIterator,
+    c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeout, TimeoutContext},
 };
@@ -46,9 +49,15 @@ use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
 /// Construct one with [`new_numeric_top_k_unfiltered`] or
-/// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker, T = NoTimeout> =
-    TopKIterator<'index, NumericScoreSource<'index, V, E, T>>;
+/// [`new_numeric_top_k_filtered`]. The child parameter `I` defaults to
+/// [`CRQEIterator`] so the production FFI path and tests share one iterator type.
+pub type NumericTopKIterator<
+    'index,
+    V = AllValid,
+    E = NoOpChecker,
+    T = NoTimeout,
+    I = CRQEIterator,
+> = TopKIterator<'index, NumericScoreSource<'index, V, E, T>, I>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -81,25 +90,23 @@ pub fn new_numeric_top_k_unfiltered<
 /// Construct a filtered [`NumericTopKIterator`] with a filter child.
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
-/// child filter, and the heap keeps the top `k` by numeric value.
+/// child filter, and the heap keeps the top `k` by numeric value. The child's
+/// concrete type `C` is preserved (rather than boxed) so the production FFI path
+/// yields a single [`NumericTopKIterator`] monomorphization; tests may pass any
+/// [`RQEIterator`].
 pub fn new_numeric_top_k_filtered<
     'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
+    C: RQEIterator<'index> + 'index,
 >(
     source: NumericScoreSource<'index, V, E, T>,
-    child: impl RQEIterator<'index> + 'index,
+    child: C,
     k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E, T> {
+) -> NumericTopKIterator<'index, V, E, T, C> {
     let cmp = cmp_for(source.ascending());
-    TopKIterator::new_with_mode(
-        source,
-        Some(Box::new(child) as Box<dyn RQEIterator<'index> + 'index>),
-        k,
-        cmp,
-        TopKMode::Batches,
-    )
+    TopKIterator::new_with_mode(source, Some(child), k, cmp, TopKMode::Batches)
 }
 
 impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
