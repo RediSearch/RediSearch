@@ -2324,6 +2324,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "timeout",
  "tracing",
  "trie_rs",
  "ttl_table",

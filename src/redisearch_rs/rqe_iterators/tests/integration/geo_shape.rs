@@ -14,7 +14,7 @@ use rqe_iterators::{
     ExpirationChecker, IteratorType, MemTracker, NoOpChecker, NoTracker, RQEIterator,
     RQEIteratorError, RQEValidateStatus, SkipToOutcome,
     geo_shape::GeoShape,
-    utils::{NoTimeout, TimeoutContextClock},
+    utils::{NoTimeoutChecker, DeadlineTimeoutChecker},
 };
 use rstest_reuse::apply;
 
@@ -22,8 +22,8 @@ use crate::id_cases;
 
 /// Builds a `GeoShape` iterator with no timeout, no expiration, and no memory
 /// tracking — the simplest configuration, used by the sorted-id-list tests.
-fn plain(ids: Vec<u64>) -> GeoShape<'static, NoTimeout, NoOpChecker, NoTracker> {
-    GeoShape::new(ids, NoTimeout, NoOpChecker, NoTracker)
+fn plain(ids: Vec<u64>) -> GeoShape<'static, NoTimeoutChecker, NoOpChecker, NoTracker> {
+    GeoShape::new(ids, NoTimeoutChecker, NoOpChecker, NoTracker)
 }
 
 /// A safe [`MemTracker`] backed by a shared cell, letting a test observe the
@@ -286,7 +286,7 @@ fn expired_documents_are_skipped() {
         has_expiration: true,
         expired: vec![2, 4],
     };
-    let mut it = GeoShape::new(vec![1, 2, 3, 4, 5], NoTimeout, checker, NoTracker);
+    let mut it = GeoShape::new(vec![1, 2, 3, 4, 5], NoTimeoutChecker, checker, NoTracker);
 
     // 2 and 4 are filtered out.
     for expected in [1u64, 3, 5] {
@@ -302,12 +302,12 @@ fn expired_documents_are_skipped() {
 fn with_expired(
     ids: Vec<u64>,
     expired: Vec<u64>,
-) -> GeoShape<'static, NoTimeout, MockExpiry, NoTracker> {
+) -> GeoShape<'static, NoTimeoutChecker, MockExpiry, NoTracker> {
     let checker = MockExpiry {
         has_expiration: true,
         expired,
     };
-    GeoShape::new(ids, NoTimeout, checker, NoTracker)
+    GeoShape::new(ids, NoTimeoutChecker, checker, NoTracker)
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn revalidate_is_a_noop_and_preserves_position() {
 fn timeout_aborts_read() {
     // A deadline already in the past with a granularity of 1 makes the very
     // first probe report a timeout.
-    let timeout = TimeoutContextClock::new(Duration::from_nanos(1), 1);
+    let timeout = DeadlineTimeoutChecker::new(Duration::from_nanos(1), 1);
     let mut it = GeoShape::new(vec![1, 2, 3], timeout, NoOpChecker, NoTracker);
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
@@ -427,7 +427,7 @@ fn memory_tracking_adds_and_subtracts() {
     let tracker = CellTracker::default();
 
     {
-        let it = GeoShape::new(vec![3u64, 1, 2], NoTimeout, NoOpChecker, tracker.clone());
+        let it = GeoShape::new(vec![3u64, 1, 2], NoTimeoutChecker, NoOpChecker, tracker.clone());
 
         // The tracker reflects exactly what the iterator reports.
         assert_eq!(tracker.get(), it.mem_usage());

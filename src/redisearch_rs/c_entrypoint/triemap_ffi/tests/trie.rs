@@ -8,7 +8,7 @@
 */
 use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use std::ffi::{c_char, c_int, c_void};
+use std::{ffi::{c_char, c_int, c_void}, time::{Duration, Instant}};
 use triemap_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
@@ -299,16 +299,28 @@ fn test_trie_iter_wildcard() {
 #[test]
 #[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
 fn test_trie_iter_timeout() {
+    // Prefix mode with an empty pattern matches every entry in the map.
+    run_iter_timeout_test(b"", tm_iter_mode::TM_PREFIX_MODE);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Miri does not support the system monotonic clock")]
+fn test_trie_wildcard_iter_timeout() {
+    // `*` matches every entry in the map, exercising the wildcard iterator's
+    // own timeout enforcement (a distinct code path from prefix mode).
+    run_iter_timeout_test(b"*", tm_iter_mode::TM_WILDCARD_MODE);
+}
+
+/// Assert that an iterator opened with the given `pattern`/`mode` honors a
+/// deadline set via [`TrieMapIterator_SetTimeout`]: it keeps yielding before
+/// the deadline and stops yielding once the deadline has passed.
+///
+/// The `pattern` must match at least two entries in [`with_trie_map`].
+fn run_iter_timeout_test(pattern: &[u8], mode: tm_iter_mode) {
     with_trie_map(|t| {
-        let pattern = b"";
         // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
         let it = unsafe {
-            TrieMap_IterateWithFilter(
-                t,
-                pattern.as_ptr().cast(),
-                pattern.len() as tm_len_t,
-                tm_iter_mode::TM_PREFIX_MODE,
-            )
+            TrieMap_IterateWithFilter(t, pattern.as_ptr().cast(), pattern.len() as tm_len_t, mode)
         };
 
         let mut char: *mut c_char = std::ptr::null_mut();

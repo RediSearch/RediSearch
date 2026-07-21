@@ -13,11 +13,11 @@ use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_core::DocId;
-use rqe_iterators::{NoOpChecker, NoTracker, RQEIterator, geo_shape::GeoShape, utils::NoTimeout};
+use rqe_iterators::{NoOpChecker, NoTracker, RQEIterator, geo_shape::GeoShape, utils::NoTimeoutChecker};
 
 /// The Rust [`GeoShape`] configured the way the sorted-id-list benchmark needs:
 /// no timeout, no field-expiration, no memory tracking.
-type RustGeoShape = GeoShape<'static, NoTimeout, NoOpChecker, NoTracker>;
+type RustGeoShape = GeoShape<'static, NoTimeoutChecker, NoOpChecker, NoTracker>;
 
 #[derive(Default)]
 pub struct Bencher;
@@ -56,7 +56,7 @@ impl Bencher {
 
     /// Build a Rust [`GeoShape`] over `ids` (no timeout/expiration/tracking).
     fn rust_iter(ids: Vec<DocId>) -> RustGeoShape {
-        GeoShape::new(ids, NoTimeout, NoOpChecker, NoTracker)
+        GeoShape::new(ids, NoTimeoutChecker, NoOpChecker, NoTracker)
     }
 
     pub fn bench(&self, c: &mut Criterion) {

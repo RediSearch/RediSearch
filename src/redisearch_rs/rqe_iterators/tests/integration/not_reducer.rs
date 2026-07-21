@@ -13,7 +13,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, SkipToOutcome, Wildcard,
     not_reducer::{NewNotIterator, new_not_iterator},
-    utils::NoTimeout,
+    utils::NoTimeoutChecker,
 };
 use rqe_iterators_test_utils::MockContext;
 
@@ -25,13 +25,13 @@ fn call_new_not_iterator<'a, I>(
     child: I,
     max_doc_id: DocId,
     ctx: &'a MockContext,
-) -> NewNotIterator<'a, I, NoTimeout>
+) -> NewNotIterator<'a, I, NoTimeoutChecker>
 where
     I: RQEIterator<'a> + 'a,
 {
     // SAFETY: `MockContext` guarantees valid FFI structures for the lifetime
-    // of the context. `NoTimeout` disables timeout checks at zero runtime cost.
-    unsafe { new_not_iterator(child, max_doc_id, 1.0, NoTimeout, ctx.qctx()) }
+    // of the context. `NoTimeoutChecker` disables timeout checks at zero runtime cost.
+    unsafe { new_not_iterator(child, max_doc_id, 1.0, NoTimeoutChecker, ctx.qctx()) }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ fn weight_is_propagated() {
     let weight = 0.42;
 
     // SAFETY: MockContext guarantees valid FFI structures.
-    let result = unsafe { new_not_iterator(child, 5, weight, NoTimeout, ctx.qctx()) };
+    let result = unsafe { new_not_iterator(child, 5, weight, NoTimeoutChecker, ctx.qctx()) };
 
     let NewNotIterator::Not(mut it) = result else {
         panic!("Expected Not variant");

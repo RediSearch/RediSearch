@@ -180,7 +180,7 @@ fn profile_wrapping_empty_after_reads() {
 fn not_with_child() {
     let mut replier = init();
     let child = rqe_iterators::Empty;
-    let iter = rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeout);
+    let iter = rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeoutChecker);
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
 }
@@ -195,7 +195,7 @@ fn not_optimized_with_child() {
         child,
         100,
         1.0,
-        rqe_iterators::utils::NoTimeout,
+        rqe_iterators::utils::NoTimeoutChecker,
     );
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
