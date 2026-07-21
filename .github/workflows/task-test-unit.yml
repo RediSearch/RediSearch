@@ -294,6 +294,33 @@ jobs:
             bin/**/redisearch.so.debug
           if-no-files-found: ignore
 
+      - name: Collect failed-test-only logs
+        # Focused bundle for the PR triage workflow (it downloads
+        # "Failed Test Logs *"). The C/C++ CTest summary logs (rstest*.log) are
+        # only meaningful when the C/C++ unit tests failed; a Rust-only failure
+        # leaves them reporting success, so gate strictly on a C/C++ failure
+        # (a Rust failure is surfaced from the job log by triage instead).
+        if: ${{ steps.c_unit_tests.outcome == 'failure' }}
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+          find tests -path '*/logs/rstest*.log' -type f 2>/dev/null | while read -r log; do
+            mkdir -p "$DEST/$(dirname "$log")"
+            cp "$log" "$DEST/$log"
+          done
+          echo "Failed-test logs bundled: $(find "$DEST" -type f | wc -l)"
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        # Guard kept in lockstep with "Collect failed-test-only logs" above.
+        if: ${{ steps.c_unit_tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
+          if-no-files-found: ignore
+
       - name: Fail flow if tests failed
         if: |
           failure() || (

@@ -263,22 +263,14 @@ jobs:
           echo "Module binaries:"
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
 
-      - name: Compute shard test list
-        # Test sharding: enumerate the suite with LIST=1 (RLTest --collect-only
-        # emits one "<file>:<test>" spec per line), round-robin those specs
-        # across shards, and hand the subset to RLTest via TESTFILE (-f).
-        # RLTest's --tests-file matches on these specs, NOT bare filenames, so we
-        # must shard the enumerated ids — the same form the flaky-test TESTFILE
-        # is built from. Skipped when shard-total == 1 (TESTFILE unset -> RLTest
-        # discovers everything).
-        if: ${{ inputs.shard-total > 1 }}
+      # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
+      # spec per line). Needed to shard and as the input to flaky filtering.
+      # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a
+      # fork PR with a single shard skips it and lets RLTest discover the suite.
+      - name: Enumerate tests
+        id: enumerate
+        if: ${{ inputs.shard-total > 1 || env.IS_FORK_PR != 'true' }}
         env:
-          # COV is inherited (1 in coverage builds) so build.sh resolves the
-          # same bin/ variant as the downloaded artifact (linux-x64-debug-cov).
-          # Coverage *capture* is skipped during enumeration because LIST=1 runs
-          # --collect-only with no tests — see run_python_tests in build.sh.
-          SHARD_INDEX: ${{ inputs.shard-index }}
-          SHARD_TOTAL: ${{ inputs.shard-total }}
           SAN: ${{ inputs.san }}
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
@@ -293,7 +285,6 @@ jobs:
           CLEAR_LOGS: 0
         run: |
           set -euo pipefail
-          SHARD_FILE="$RUNNER_TEMP/shard-tests.txt"
           LIST_RAW="$RUNNER_TEMP/all-tests.raw"
           ALL_SPECS="$RUNNER_TEMP/all-specs.txt"
           # `make pytest` output is noisy; keep only lines shaped like an RLTest
@@ -312,13 +303,61 @@ jobs:
             | LC_ALL=C sort > "$ALL_SPECS" || true
           total=$(wc -l < "$ALL_SPECS")
           [ "$total" -gt 0 ] || { echo "No test specs enumerated from LIST=1 output:"; tail -50 "$LIST_RAW"; exit 1; }
-          awk -v n="$SHARD_TOTAL" -v k="$SHARD_INDEX" '(NR-1) % n == (k-1)' "$ALL_SPECS" > "$SHARD_FILE"
-          count=$(wc -l < "$SHARD_FILE")
-          echo "Shard $SHARD_INDEX/$SHARD_TOTAL selected $count of $total test(s):"
-          cat "$SHARD_FILE"
-          [ "$count" -gt 0 ] || { echo "Empty shard — check shard-index/shard-total"; exit 1; }
-          # TESTFILE is read by runtests.sh and passed to RLTest as `-f`.
-          echo "TESTFILE=$SHARD_FILE" >> "$GITHUB_ENV"
+          echo "Enumerated $total test spec(s)."
+          echo "specs=$ALL_SPECS" >> "$GITHUB_OUTPUT"
+
+      # Drop known-flaky tests (active marks in the flaky DB) for internal PRs so
+      # they don't fail otherwise-good PRs. continue-on-error + an empty result
+      # means "run everything" if the DB is unreachable. Forks lack the secret
+      # and skip this (they run the full enumerated/discovered suite).
+      - name: Filter out flaky tests
+        id: flaky
+        if: ${{ env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs }}
+        continue-on-error: true
+        # Pinned to the full commit SHA that the `v1` tag points to (external
+        # actions must be pinned to a commit hash, not a moving tag).
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          tests: ${{ steps.enumerate.outputs.specs }}
+          output: ${{ runner.temp }}/run-specs.txt
+          ci-common-ref: 47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+
+      # Pick the run list (flaky-filtered if available, else the full
+      # enumeration) and, when sharded, hand this job its round-robin slice via
+      # TESTFILE (read by runtests.sh, passed to RLTest as -f). Leaving TESTFILE
+      # unset makes RLTest discover the full suite (unsharded fork fallback).
+      - name: Select test list
+        if: ${{ inputs.shard-total > 1 || (env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs) }}
+        env:
+          SHARD_INDEX: ${{ inputs.shard-index }}
+          SHARD_TOTAL: ${{ inputs.shard-total }}
+          FILTERED: ${{ steps.flaky.outputs.testfile }}
+          ENUMERATED: ${{ steps.enumerate.outputs.specs }}
+        run: |
+          set -euo pipefail
+          SOURCE=""
+          if [ -n "$FILTERED" ] && [ -s "$FILTERED" ]; then
+            SOURCE="$FILTERED"; echo "Using flaky-filtered test list."
+          elif [ -n "$ENUMERATED" ] && [ -s "$ENUMERATED" ]; then
+            SOURCE="$ENUMERATED"; echo "Using full enumerated test list (no flaky filtering)."
+          fi
+          if [ -z "$SOURCE" ]; then
+            echo "No explicit test list; RLTest will discover the full suite."
+            exit 0
+          fi
+          if [ "$SHARD_TOTAL" -gt 1 ]; then
+            SHARD_FILE="$RUNNER_TEMP/shard-tests.txt"
+            awk -v n="$SHARD_TOTAL" -v k="$SHARD_INDEX" '(NR-1) % n == (k-1)' "$SOURCE" > "$SHARD_FILE"
+            count=$(wc -l < "$SHARD_FILE")
+            echo "Shard $SHARD_INDEX/$SHARD_TOTAL selected $count of $(wc -l < "$SOURCE") test(s):"
+            cat "$SHARD_FILE"
+            [ "$count" -gt 0 ] || { echo "Empty shard — check shard-index/shard-total"; exit 1; }
+            # TESTFILE is read by runtests.sh and passed to RLTest as `-f`.
+            echo "TESTFILE=$SHARD_FILE" >> "$GITHUB_ENV"
+          else
+            echo "TESTFILE=$SOURCE" >> "$GITHUB_ENV"
+          fi
 
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -330,6 +369,9 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 1
+          # RLTest writes failed test ids here (relative -> runtests.sh resolves
+          # under $ROOT); consumed by the flaky-record + focused-log steps below.
+          FAILEDFILE: .failed_standalone.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           # rejson.so was prebuilt by the build job and restored from the artifact.
@@ -351,6 +393,9 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
+          # RLTest writes failed test ids here (relative -> runtests.sh resolves
+          # under $ROOT); consumed by the flaky-record + focused-log steps below.
+          FAILEDFILE: .failed_coordinator.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           # rejson.so was prebuilt by the build job and restored from the artifact.
@@ -360,6 +405,20 @@ jobs:
           TEST_CONFIG: ${{ inputs.test-config }}
           SKIP_BUILD: 1
         run: make pytest $TEST_CONFIG
+
+      # Record this run's failures to the flaky DB (internal PRs only) so flaky
+      # marks stay current. always() so failures are recorded even when the test
+      # step failed; continue-on-error so a DB outage never fails the job.
+      - name: Record failures to flaky DB
+        if: ${{ always() && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        # Pinned to the full commit SHA that the `v1` tag points to (external
+        # actions must be pinned to a commit hash, not a moving tag).
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+          job-name: ${{ inputs.name }} ${{ inputs.test-mode }}
 
       - name: Check test logs folder size
         if: always()
@@ -394,6 +453,56 @@ jobs:
           name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
             tests/**/logs/*.log*
+          if-no-files-found: ignore
+
+      - name: Collect failed-test-only logs
+        # Focused bundle with only the logs of tests that actually failed, for
+        # the PR triage workflow (it downloads "Failed Test Logs *"). RLTest
+        # names log files per test class/function — `<uuid>.<role>-<file>_<class-
+        # or-func>-<env>.log` — so key the glob on `<file>_<class-or-func>` and
+        # drop any `.method` suffix from the failed id.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        env:
+          FAILEDFILE: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+          [ -f "$FAILEDFILE" ] || { echo "No $FAILEDFILE; nothing to bundle."; exit 0; }
+          while IFS= read -r test_id; do
+            [ -z "$test_id" ] && continue
+            file_part="${test_id%%:*}"
+            test_part="${test_id#*:}"
+            file_no_py="${file_part%.py}"
+            class_part="${test_part%%.*}"
+            pattern="*-${file_no_py}_${class_part}-*.log*"
+            find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | while read -r log; do
+              mkdir -p "$DEST/$(dirname "$log")"
+              cp "$log" "$DEST/$log"
+            done
+          done < "$FAILEDFILE"
+          # Stash the failed-test list under a non-hidden name (upload-artifact
+          # drops dot-prefixed files); triage treats failed-tests-*.txt as the
+          # authoritative failure list.
+          cp "$FAILEDFILE" "$DEST/failed-tests-${{ inputs.test-mode }}.txt" 2>/dev/null || true
+          echo "Failed-test logs bundled: $(find "$DEST" -type f | wc -l)"
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        # Guard kept in lockstep with "Collect failed-test-only logs" above.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v4
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
           if-no-files-found: ignore
 
       - name: Fail flow if tests failed
