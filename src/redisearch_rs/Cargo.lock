@@ -1209,6 +1209,7 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis-module",
  "redis_reply",

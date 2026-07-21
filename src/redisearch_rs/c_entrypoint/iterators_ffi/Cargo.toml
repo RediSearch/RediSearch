@@ -1,9 +1,9 @@
 [package]
-name = "iterators_ffi"
-version.workspace = true
 edition.workspace = true
 license-file.workspace = true
+name = "iterators_ffi"
 publish.workspace = true
+version.workspace = true
 
 [lints]
 workspace = true
@@ -27,10 +27,11 @@ global_config.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
-inverted_index_ffi = { path = "../inverted_index_ffi" }
+inverted_index_ffi = {path = "../inverted_index_ffi"}
 libc.workspace = true
 numeric_range_tree.workspace = true
-numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
+numeric_range_tree_ffi = {path = "../numeric_range_tree_ffi"}
+numeric_score_source.workspace = true
 query_types.workspace = true
 redis-module.workspace = true
 redis_reply.workspace = true
@@ -42,4 +43,3 @@ top_k.workspace = true
 trie_rs.workspace = true
 vector_score_source.workspace = true
 workspace_hack.workspace = true
-

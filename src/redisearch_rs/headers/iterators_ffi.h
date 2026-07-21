@@ -546,6 +546,36 @@ QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double w
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
+ * Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator (`k == 0`, or a child that can
+ * never match).
+ *
+ * Pass `child = NULL` for a plain `SORTBY numeric` range scan; pass a valid
+ * owning child iterator for a filtered query, whose selectivity sizes the
+ * initial value-window and drives the expand-and-retry path.
+ *
+ * `filter` is read once to copy the numeric range parameters; it is not
+ * retained after this call.
+ *
+ * # Safety
+ *
+ * 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
+ *    returned iterator.
+ * 2. `filter` is non-null and [valid] for a [`NumericFilter`] for the duration
+ *    of this call.
+ * 3. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 4. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Create an optional iterator over `child`, applying shortcircuit reductions where possible.
  *
  * - If `child` is null or an empty iterator, a wildcard iterator is returned instead (all results will be virtual hits).
@@ -681,6 +711,18 @@ QueryIterator *NewWildcardIterator(const QueryEvalCtx *q, double weight);
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
  */
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
+
+/**
+ * Return the filter child iterator, or `NULL` for a plain range scan.
+ *
+ * The returned pointer is non-owning; its lifetime is that of `it`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`NumericTopKFfi`] that was
+ *    created by [`NewNumericTopKIterator`].
+ */
+QueryIterator *NumericTopK_GetChild(const QueryIterator *it);
 
 /**
  * `PrintProfile` vtable entry for Optimus (optimizer) iterators.
