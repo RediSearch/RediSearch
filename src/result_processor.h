@@ -28,6 +28,7 @@
 #include "rmutil/rm_assert.h"
 
 typedef struct RLookupKey RLookupKey;
+typedef struct RedisModule_Reply RedisModule_Reply;
 
 #ifdef __cplusplus
 extern "C" {
@@ -205,8 +206,9 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-struct RequestSyncCtx;
+struct BlockedRequestCtx;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
@@ -214,7 +216,7 @@ void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 /* Link the request sync context into every RP_SAFE_LOADER in the pipeline so
  * they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
  * aggregate.h). No-op for pipelines without safe loaders. */
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct RequestSyncCtx *sync);
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(RSLanguage language, const FieldList *fields,

@@ -40,9 +40,7 @@ impl CodepointDecoder {
 
     /// `true` when the decoder sits on a codepoint boundary (no bytes pending).
     pub(crate) fn at_boundary(&self) -> bool {
-        // A fresh parser is the unique no-pending-bytes state (ground state,
-        // empty accumulator); Parser exposes no query API, but derives PartialEq.
-        self.parser == Parser::new()
+        self.parser.at_codepoint_boundary()
     }
 
     /// Feed one byte. Returns `Ok(Some(c))` when it completes a codepoint,

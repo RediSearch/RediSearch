@@ -75,8 +75,8 @@ impl ScoreSource for TimingOutSource {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+fn asc(a: &f64, b: &f64) -> Ordering {
+    a.total_cmp(&b)
 }
 
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
@@ -268,6 +268,49 @@ fn batches_multiple_batches() {
     assert_eq!(doc_ids, vec![3, 4, 1]);
 }
 
+/// Build a no-child Batches iterator, exercising the heap-driven top-k path a
+/// numeric `SORTBY` with no query filter uses.
+fn batches_no_child(
+    batches: Vec<Vec<(DocId, f64)>>,
+    k: usize,
+) -> TopKIterator<'static, MockScoreSource, Box<dyn RQEIterator<'static>>> {
+    let source = MockScoreSource::new(batches, vec![], |_, _| BatchStrategy::Continue);
+    TopKIterator::new_with_mode(
+        source,
+        None,
+        NonZeroUsize::new(k).unwrap(),
+        asc,
+        TopKMode::Batches,
+    )
+}
+
+#[test]
+fn batches_no_child_keeps_top_k() {
+    // The heap must retain the three lowest by score and yield them best-first,
+    // not stream all five in doc-id order.
+    let mut it = batches_no_child(
+        vec![vec![(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]],
+        3,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 4, 5]);
+}
+
+#[test]
+fn batches_no_child_fewer_than_k_yields_all() {
+    let mut it = batches_no_child(vec![vec![(1, 3.0), (2, 1.0)]], 5);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 1]);
+}
+
+#[test]
+fn batches_no_child_spans_multiple_batches() {
+    // Top-k selection must consider every batch, not just the first.
+    let mut it = batches_no_child(vec![vec![(1, 9.0), (2, 1.0)], vec![(3, 2.0), (4, 8.0)]], 2);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 3]);
+}
+
 #[test]
 fn batches_expired_doc_shrinks_results_without_refill() {
     // Doc 1 expires after collection. It still fills the heap to k=2 during
@@ -334,7 +377,8 @@ fn yield_timeout_polled_while_skipping_expired() {
         BatchStrategy::Stop
     })
     .with_expired([1, 2])
-    .with_timeout_after(1);
+    // 1 for the batch-boundary poll in collection, then the yield-time poll trips.
+    .with_timeout_after(2);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2, 3]),
@@ -365,7 +409,9 @@ fn yield_timeout_polled_before_yielding_valid() {
     let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
         BatchStrategy::Stop
     })
-    .with_timeout_after(2);
+    // 1 for the batch-boundary poll in collection, then the first yield passes and
+    // the second trips.
+    .with_timeout_after(3);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2, 3]),
@@ -553,20 +599,23 @@ fn strategy_switch_to_adhoc() {
 }
 
 #[test]
-fn strategy_switch_to_batches_rewinds() {
-    // Call 0 → SwitchToBatches (rewinds source+child, restarts loop).
-    // Call 1 → Stop (to exit on the second pass).
+fn strategy_expand_window_preserves_heap() {
+    // Two disjoint windows; the match from the first window (doc 1) must survive
+    // into the result after the second window is collected. A cleared heap would
+    // drop it and yield only [2].
+    // Call 0 → ExpandWindow (advance to the next window, keep the heap).
+    // Call 1 → Stop.
     let call_count = std::cell::Cell::new(0u32);
     let strategy = move |_: usize, _: usize| {
         let n = call_count.get();
         call_count.set(n + 1);
         if n == 0 {
-            BatchStrategy::SwitchToBatches
+            BatchStrategy::ExpandWindow
         } else {
             BatchStrategy::Stop
         }
     };
-    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], strategy);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)], vec![(2, 2.0)]], vec![], strategy);
     let mut it = TopKIterator::new(
         source,
         make_child(vec![1, 2]),

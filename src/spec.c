@@ -2292,7 +2292,7 @@ static dictType invIdxDictType = {
   .valDestructor = InvIndFreeCb,
 };
 
-static dictType missingFieldDictType = {
+dictType missingFieldDictType = {
         .hashFunction = hiddenNameHashFunction,
         .keyDup = hiddenNameKeyDup,
         .valDup = NULL,
@@ -2363,7 +2363,8 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags) {
+static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
+                              bool takeLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2402,11 +2403,12 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
       RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(f->vectorOpts.diskCtx.storage);
 
-      const bool vecSimWithData = f->vectorOpts.vecSimIndex &&
-                               VecSimIndex_IndexSize(f->vectorOpts.vecSimIndex) > 0;
+      const bool vecSimWithData =
+          f->vectorOpts.vecSimIndex &&
+          SearchDisk_VectorIndexHasData(f->vectorOpts.vecSimIndex, takeLocks);
       RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
       if (vecSimWithData) {
-        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb);
+        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb, takeLocks);
         RS_LOG_ASSERT_ALWAYS(ok, "Failed to stream vector index to RDB");
       }
     }
@@ -2959,7 +2961,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3056,6 +3058,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   initializeIndexSpec(sp, specName, flags, numFields_u64);
 
   IndexSpec_MakeKeyless(sp);
+  RedisModule_Log(RSDummyContext, "notice", useSst ? "Loading RDB for IndexSpec with SST flag": "Loading RDB for IndexSpec without SST flag");
   for (int i = 0; i < sp->numFields; i++) {
     FieldSpec *fs = sp->fields + i;
     if (FieldSpec_RdbLoad(rdb, fs, spec_ref, encver, useSst) != REDISMODULE_OK) {
@@ -3159,8 +3162,8 @@ cleanup_no_index:
 // Returns REDISMODULE_OK (including the nothing-to-do case) or REDISMODULE_ERR.
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status) {
   if (isSpecOnDisk(sp) && !useSst && !sp->isDuplicate) {
-    // If the regular RDB method is used, just open an Index without any populated data.
-    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, false, sp);
+    // If the regular RDB method is used, just open an Index without any populated data. (Enforce no populated data, restart may come with dirty disk data)
+    sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type, !useSst, sp);
     if (!sp->diskSpec) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
       return REDISMODULE_ERR;

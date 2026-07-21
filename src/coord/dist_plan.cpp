@@ -413,9 +413,15 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * remoteTotal,
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
-  // Shallow copy: only pointers are copied; the strings stay owned by src->args.
-  // Overwriting a slot below replaces the pointer, it does not free the string.
-  memcpy(remoteObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  // Shallow copy: only pointers are copied; the strings stay owned by src->args
+  // (or are static). Option keywords are normalized so that case-variant
+  // duplicate reducers dedup. User data is never normalized: in the (already
+  // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
+  // `*`, so a bare alphabetic token can only be an option keyword.
+  for (size_t i = 0; i < srcArgc; i++) {
+    const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
+    remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
+  }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
     remoteObjs[1 + limitValIdx + 1] =

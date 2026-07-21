@@ -480,10 +480,16 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb) {
-    RS_ASSERT(disk && vecIndex && rdb);
-    RS_ASSERT(disk->vector.saveVectorIndexToRDB);
-    return disk->vector.saveVectorIndexToRDB(vecIndex, rdb);
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex);
+  RS_ASSERT(disk->vector.vectorIndexHasData);
+  return disk->vector.vectorIndexHasData(vecIndex, takeLocks);
+}
+
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex && rdb);
+  RS_ASSERT(disk->vector.saveVectorIndexToRDB);
+  return disk->vector.saveVectorIndexToRDB(vecIndex, rdb, takeLocks);
 }
 
 void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params) {

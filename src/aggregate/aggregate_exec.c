@@ -415,7 +415,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       // The RETURN_STRICT timeout callback claimed the sync phase first and
       // already owns the reply. The caller must skip stored-result handling and
       // clean up the cursor in runCursor.
-      req->syncCtx.aggregateResultsClaimLost = true;
+      req->brc->aggregateResultsClaimLost = true;
       *rc = RS_RESULT_TIMEDOUT;
       return;
     }
@@ -427,7 +427,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
     }
     // We own the production phase: link the sync context into the safe loaders so
     // they perform the GIL deadlock-avoidance handshake with the timeout callback.
-    RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), &req->syncCtx);
+    RPSafeLoader_SetSyncCtx(AREQ_QueryProcessingCtx(req), req->brc);
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
@@ -784,7 +784,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      if (req->syncCtx.aggregateResultsClaimLost) {
+      if (req->brc->aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
       }
@@ -1004,7 +1004,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &state.results, &r, &rc);
 
     if (req->useReplyCallback) {
-      if (req->syncCtx.aggregateResultsClaimLost) {
+      if (req->brc->aggregateResultsClaimLost) {
         SearchResult_Destroy(&r);
         return;
       }
@@ -1692,7 +1692,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply empty;
   // the worker finishes once we release the GIL. See aggregate.h.
-  if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
+  if (BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(req->brc)) {
     single_shard_common_query_reply_empty(ctx, argv, argc, 0, QUERY_ERROR_CODE_TIMED_OUT);
     return REDISMODULE_OK;
   }
@@ -1859,7 +1859,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // Deadlock avoidance: if the BG worker is parked at the safe-loader GIL gate,
   // Wait would deadlock (it needs the GIL we hold). Preempt it and reply with an
   // exhausted cursor (id 0); the worker finishes once we release the GIL.
-  if (RequestSyncCtx_TimeoutPreemptSafeLoaderGIL(&req->syncCtx)) {
+  if (BlockedRequestCtx_TimeoutPreemptSafeLoaderGIL(req->brc)) {
     return cursor_read_empty_reply_timeout(ctx, 0, IsInternal(req));
   }
 
@@ -1971,7 +1971,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       if (policy == TimeoutPolicy_Fail) {
         blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
       } else {
-        r->syncCtx.requiresAggregateResultsSync = true;
+        r->brc->requiresAggregateResultsSync = true;
         blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;
       }
       blockClientCtx.replyCallback = QueryReplyCallback;
@@ -2081,6 +2081,7 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);
 
   if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
@@ -2119,6 +2120,7 @@ int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, in
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);
   if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
@@ -2204,7 +2206,7 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
   if (req->useReplyCallback) {
-    if (req->syncCtx.aggregateResultsClaimLost) {
+    if (req->brc->aggregateResultsClaimLost) {
       // The strict timeout callback won the sync claim and already replied with
       // cursor 0. Keep cursor ownership consistent with the depleted id already
       // returned to the caller.
@@ -2497,7 +2499,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
       if (cursor->queryTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
         // Shard/standalone RETURN_STRICT cursor reads bypass coordCursorReadReturnStrict,
         // so opt into the same per-read worker/timeout claim handshake here.
-        req->syncCtx.requiresAggregateResultsSync = true;
+        req->brc->requiresAggregateResultsSync = true;
         AREQ_ResetForCursorReadReturnStrict(req);
       }
       // Extra ref owned by the BlockedCursorNode, released in FreeCursorNode.

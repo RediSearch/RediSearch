@@ -45,7 +45,12 @@ pub enum TopKMode {
     /// lost.
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
-    /// with the child filter iterator.
+    /// with the child filter iterator, keeping the top `k` in the heap.
+    ///
+    /// With no child filter every source record is a candidate: the whole
+    /// batch is fed through the heap, which still retains the top `k`. This is
+    /// the mode for a source that has no native top-k and must rely on the heap
+    /// for selection (e.g. a numeric `SORTBY` with no query filter).
     ///
     /// The source's [`ScoreSource::batch_strategy`] may return
     /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
@@ -108,7 +113,7 @@ pub struct TopKIterator<
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
-    compare: fn(f64, f64) -> Ordering,
+    compare: fn(&f64, &f64) -> Ordering,
     phase: Phase,
     /// Heap contents drained into score order for yielding. In filtered modes
     /// each entry carries the child's record captured at match time.
@@ -142,7 +147,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     ///
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
-    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
@@ -151,7 +156,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Create a new [`TopKIterator`] with a filter child.
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
-    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
@@ -160,7 +165,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
+        compare: fn(&f64, &f64) -> Ordering,
         mode: TopKMode,
     ) -> Self {
         Self {
@@ -264,7 +269,15 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap, &mut self.metrics)?;
+            } else {
+                // No filter child: every source batch record is a candidate, so feed
+                // the whole batch through the heap, which retains the top k.
+                while let Some((doc_id, score)) = batch.next() {
+                    self.heap.push(doc_id, score);
+                }
             }
+            // Batch consumption is unpolled; check once at the boundary.
+            self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
                 BatchStrategy::Stop => break,
@@ -272,6 +285,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     if self.mode == TopKMode::ForcedBatches {
                         // Honour the forced-batches contract: never switch
                         // mid-run.
+                        continue;
+                    }
+                    if self.child.is_none() {
+                        // Adhoc-BF requires a child filter iterator:
+                        // ignore the strategy switch.
                         continue;
                     }
                     self.metrics.strategy_switches += 1;
@@ -284,13 +302,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.collect_adhoc()?;
                     return Ok(());
                 }
-                BatchStrategy::SwitchToBatches => {
+                BatchStrategy::ExpandWindow => {
                     self.metrics.strategy_switches += 1;
-                    // Clear the heap: the source restarts with new parameters
-                    // (e.g. expanded numeric range) and will re-emit previously
-                    // collected docs. Keeping stale entries would cause duplicates.
-                    *self.heap = TopKHeap::new(self.k, self.compare);
-                    self.source.rewind();
+                    // The source already re-resolved itself to the next disjoint
+                    // window, so the heap stays valid and keeps accumulating.
+                    // Only the child is rewound for re-intersection.
                     if let Some(child) = &mut self.child {
                         child.rewind();
                     }
@@ -428,8 +444,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // Poll once per step, before yielding or skipping an entry.
             self.source.check_timeout()?;
 
-            // Filtered mode: yield the stored child record so BM25 inputs survive.
-            if self.child.is_some() {
+            // Filtered mode: yield the stored child record so BM25 inputs survive,
+            // unless the source builds its own result (e.g. numeric `SORTBY`).
+            if self.child.is_some() && self.source.yields_child_record() {
                 let Some(mut record) = record else {
                     // A filtered-mode entry must always carry its captured record;
                     // a missing one would indicate a collection-side bug. Treat as
@@ -446,8 +463,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 return Ok(self.current.as_mut());
             }
 
-            // Unfiltered (no child): build a fresh result from the source.
-            // Unfiltered fallback (no child): build a fresh result from the source.
+            // No child record to yield: build a fresh result from the source.
             let result = self.source.build_result(doc_id, score);
             if self.source.is_expired(&result) {
                 continue;
@@ -520,6 +536,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         *self.heap = TopKHeap::new(self.k, self.compare);
         self.results.clear();
         *self.current = None;
+        self.metrics = TopKMetrics::default();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();

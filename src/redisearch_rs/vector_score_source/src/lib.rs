@@ -15,7 +15,7 @@
 //! [`top_k::ScoreSource`] that drives [`TopKIterator`] against a VecSim index.
 
 // Force-link the umbrella `redisearch_rs` crate so the `QueryError_*` (and other)
-// Rust FFI symbols that `libredisearch_all.a` calls back into are retained in the
+// Rust FFI symbols that `libredisearch_c_bundle.a` calls back into are retained in the
 // lib unit-test binary, which links the C archive via the `unittest` feature.
 #[cfg(test)]
 extern crate redisearch_rs;
@@ -61,8 +61,8 @@ pub type VectorTopKIterator<'index, E = FieldExpirationChecker, I = CRQEIterator
     TopKIterator<'index, VectorScoreSource<'index, E>, I>;
 
 /// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
-fn asc_cmp(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
+    f64::total_cmp
 }
 
 /// Map a [`TopKMode`] and its mid-run switch count to the [`VecSearchMode`]
@@ -87,7 +87,7 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
     source: VectorScoreSource<'index, E>,
     k: NonZeroUsize,
 ) -> VectorTopKIterator<'index, E> {
-    TopKIterator::new_with_mode(source, None, k, asc_cmp, TopKMode::Unfiltered)
+    TopKIterator::new_with_mode(source, None, k, asc(), TopKMode::Unfiltered)
 }
 
 /// Construct a hybrid [`TopKIterator`] with a filter child, preserving the
@@ -135,7 +135,7 @@ where
             TopKMode::Batches
         }
     };
-    TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+    TopKIterator::new_with_mode(source, Some(child), k, asc(), mode)
 }
 
 impl<E: ExpirationChecker> TopKSourceProfile for VectorScoreSource<'_, E> {

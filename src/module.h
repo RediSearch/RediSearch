@@ -126,7 +126,7 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
-  // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncCtx).
+  // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncState).
   RS_Atomic(int) execPhase;
 
   struct searchReducerCtx *rctx;

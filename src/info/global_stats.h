@@ -54,7 +54,7 @@ typedef struct {
 } FieldsGlobalStats;
 
 // The pipeline stage a timeout occurred in, used to break down the timeout metric.
-// Doubles as the execution-phase marker on RequestSyncCtx (QUEUE -> PIPELINE -> REPLY).
+// Doubles as the execution-phase marker on RequestSyncState (QUEUE -> PIPELINE -> REPLY).
 typedef enum {
   QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
   QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
