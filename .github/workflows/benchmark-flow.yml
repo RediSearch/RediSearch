@@ -47,6 +47,10 @@ on:
         type: string
         default: ""
         description: "Branch to use as the comparison baseline. Empty falls back to the PR base branch."
+      redis_ref:
+        type: string
+        default: ""
+        description: "Optional redis/redis git ref (sha/branch/tag). When set, redis-server is built from this ref on the runner and passed to `redisbench-admin run-remote --redis-server-binary`, which copies it to the remote DB hosts instead of using their preinstalled redis. Empty keeps the tool's default."
 
 jobs:
   benchmark-steps:
@@ -137,6 +141,24 @@ jobs:
           BINROOT: ${{ format('{0}/bin/linux-{1}-release', github.workspace, inputs.arch == 'aarch64' && 'aarch64' || 'x64') }}
         run: ./tests/deps/setup_rejson.sh
 
+      # When redis_ref is set, build redis at that ref on this runner (same
+      # arch/OS as the flow-build-benchmark-binary runner that built
+      # redisearch.so, so ABI assumptions are identical) and let
+      # redisbench-admin copy it to the remote DB hosts instead of using their
+      # preinstalled redis-server. Useful whenever the module requires a redis
+      # newer than the DB hosts' default. The action exports the REDIS_SERVER
+      # env var pointing at the built binary.
+      - name: Build custom redis-server from redis/redis@${{ inputs.redis_ref }}
+        if: steps.benchmark-filter.outputs.skip != 'true' && inputs.redis_ref != ''
+        uses: ./.github/actions/build-redis
+        with:
+          ref: ${{ inputs.redis_ref }}
+          # The DB hosts may not ship the runner's libssl, and benchmarks don't
+          # use TLS: build without it so the copied binary needs no extra
+          # shared libraries on the remote side.
+          build_tls: 'false'
+          cache_platform_id: ${{ inputs.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         if: steps.benchmark-filter.outputs.skip != 'true'
         timeout-minutes: 360 # timeout for the step
@@ -172,6 +194,11 @@ jobs:
           ALLOWED_ENVS: ${{ inputs.allowed_envs }}
           ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
           ARCH: ${{ inputs.arch }}
+          # Path of the redis-server built by the build-redis step above (which
+          # exports REDIS_SERVER). Empty when redis_ref is empty, so the
+          # --redis-server-binary flag below is omitted and the DB hosts'
+          # preinstalled redis is used.
+          CUSTOM_REDIS_SERVER: ${{ inputs.redis_ref != '' && env.REDIS_SERVER || '' }}
           GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_ORG_NAME: ${{ github.repository_owner }}
@@ -193,6 +220,7 @@ jobs:
               --github_org "$GITHUB_ORG_NAME" \
               --module_path "../../$REJSON_MODULE_PATH" \
               --required-module ReJSON \
+              ${CUSTOM_REDIS_SERVER:+--redis-server-binary "$CUSTOM_REDIS_SERVER"} \
               --github_sha "$GITHUB_SHA_RESOLVED" \
               --github_branch "$GITHUB_BRANCH_NAME" \
               --architecture "$ARCH" \

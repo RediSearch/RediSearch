@@ -417,6 +417,12 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+
+  // Pipeline done without timing out; advance the marker so a timeout from here on
+  // is attributed to the REPLY stage.
+  if (*rc != RS_RESULT_TIMEDOUT) {
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
+  }
 }
 
 
@@ -525,6 +531,16 @@ typedef struct {
   long resultsLen;          // Expected results length for assertion (RESP2 only)
   bool cursor_done;         // Whether the cursor is done
 } ChunkSerializeState;
+
+/* Record this request's blocked-client timeout into the per-stage breakdown, at
+ * the stage its execution-phase marker had reached when the deadline fired. Must be
+ * called exactly once per blocked-client timeout callback, right after
+ * AREQ_SetTimedOut (which freezes the marker). The breakdown counts timeout
+ * callback invocations and is independent of the aggregate error/warning counters
+ * (which count user-visible timeout replies, including non-blocked-client ones). */
+static inline void recordAREQTimeoutStage(AREQ *req, bool isError) {
+  QueryTimeoutStageStats_Record(AREQ_ExecutionStage(req), isError, !IsInternal(req));
+}
 
 /**
  * Handles error/timeout checking and sends error reply if needed.
@@ -1258,6 +1274,9 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     return;
   }
 
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE.
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
+
   if (IsProfile(req)) {
     req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
   }
@@ -1594,6 +1613,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   AREQ *req = brc->query.areq;
   // Signal timeout to background thread (will notice and skip storing results)
   AREQ_SetTimedOut(req);
+  recordAREQTimeoutStage(req, /*isError=*/true);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -1645,6 +1665,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
+  recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
@@ -1793,6 +1814,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   AREQ *req = brc->query.areq;
   // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
+  recordAREQTimeoutStage(req, /*isError=*/true);
 
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -1813,6 +1835,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
 
   AREQ *req = brc->query.areq;
   AREQ_SetTimedOut(req);
+  recordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // The worker has not entered the stored-results phase yet. Reply in the
@@ -2296,6 +2319,9 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   // reply and park/free the cursor before the timeout callback replies.
   AREQ *req = cr_ctx->cursor->execState;
   RS_ASSERT(req);
+  // Picked up from the job queue: a timeout from here on is attributed to PIPELINE
+  // (no-op if already timed out while queued, via the SetExecutionStage freeze).
+  AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   // A paused cursor must have released the spec lock at the end of the
   // previous read cycle.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
@@ -2401,6 +2427,10 @@ int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
 
   if (takenCursor) {
+    // Picked up by a coord thread: advance the marker so a later timeout is
+    // attributed to PIPELINE. The taken AREQ's marker was reset to QUEUE on
+    // the main thread at dispatch (CursorCommand).
+    AREQ_SetExecutionStage(takenReq, QUERY_TIMEOUT_STAGE_PIPELINE);
     // Coord blocking path. The per-read RETURN_STRICT reset already ran on the
     // main thread (BeginCycle).
     if (AREQ_RequiresThreadsSyncResults(takenReq) &&
@@ -2433,6 +2463,11 @@ int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     // the blocked-client timer with reply/timeout callbacks.
     RS_ASSERT(cursor->execState != NULL);
     AREQ *req = cursor->execState;
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so reset
+    // it to QUEUE for the queued re-read; cursorRead_ctx advances it back to
+    // PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its cursor, so
+    // the freeze cannot swallow this store on a live cursor.)
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;

@@ -112,6 +112,13 @@ pub trait DocumentFormat {
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
 
+    /// Like [`open`](Self::open), but over an already-open handle the caller owns.
+    fn borrow<'key>(
+        &'key self,
+        open_key: &'key ffi::RedisModuleKey,
+        key_name: &'key RedisString,
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError>;
+
     /// Bulk-load all fields at once (HGETALL / JSON root scan).
     ///
     /// This is an alternative to `open` + per-field `load_field`, used when
@@ -176,6 +183,7 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
             &self.dmd.key_name(Some(self.ctx)),
             keys,
             self.force_load,
+            None,
         )
     }
 
@@ -200,12 +208,15 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
 /// Mirrors the C `loadIndividualKeys` pattern: open the key handle once
 /// (lazily, on first field that actually needs loading) and reuse it
 /// across all field loads. The key is closed when dropped at function end.
+///
+/// `open_key`, when `Some`, is reused instead of opening `key_name` by name.
 pub(crate) fn load_specific_keys<'a, F, I>(
     format: &F,
     dst_row: &mut RLookupRow,
     key_name: &RedisString,
     keys_to_load: I,
     force_load: bool,
+    open_key: Option<&ffi::RedisModuleKey>,
 ) -> Result<(), LoadFieldError>
 where
     F: DocumentFormat,
@@ -222,7 +233,11 @@ where
         let d = match &doc {
             Some(d) => d,
             None => {
-                doc = Some(format.open(key_name)?);
+                let loader = match open_key {
+                    Some(open_key) => format.borrow(open_key, key_name)?,
+                    None => format.open(key_name)?,
+                };
+                doc = Some(loader);
                 doc.as_ref().unwrap()
             }
         };

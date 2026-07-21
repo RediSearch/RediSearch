@@ -17,7 +17,7 @@ use std::{
 };
 
 use inverted_index::NumericFilter;
-use query_node_type::QueryNodeType;
+use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::DocId;
 
 /// Owns a heap-allocated [`ffi::RSQueryNode`].
@@ -113,7 +113,7 @@ impl MockQueryNode {
         self.node
     }
 
-    pub fn opts_mut(&mut self) -> &mut ffi::QueryNodeOptions {
+    pub fn opts_mut(&mut self) -> &mut QueryNodeOptions {
         // SAFETY: `self.node` is a valid, exclusively-owned allocation.
         unsafe { &mut (*self.node).opts }
     }
@@ -138,6 +138,21 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `geomq` field of the geometry-node union variant.
+    ///
+    /// The caller must ensure the node is of Geometry type, so the `gmn` union
+    /// variant is active; otherwise this writes through the wrong variant. The
+    /// caller must also keep `geomq` (and the [`ffi::FieldSpec`] it points at)
+    /// valid for as long as the node is used.
+    pub fn set_geometry(&mut self, geomq: *mut ffi::GeometryQuery) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Geometry so the `gmn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryGeometryNode>()).geomq = geomq;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
@@ -150,26 +165,6 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the fields of the lex-range-node union variant.
-    pub fn set_lex_range(
-        &mut self,
-        begin: *mut c_char,
-        include_begin: bool,
-        end: *mut c_char,
-        include_end: bool,
-    ) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is LexRange so the `lxrng` variant is active.
-        unsafe {
-            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            let lx = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
-            lx.begin = begin;
-            lx.includeBegin = include_begin;
-            lx.end = end;
-            lx.includeEnd = include_end;
-        }
-    }
-
     /// Set the `exact` field of the phrase-node union variant.
     pub fn set_phrase_exact(&mut self, exact: i32) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
@@ -177,6 +172,24 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryPhraseNode>()).exact = exact;
+        }
+    }
+
+    /// Set the `str`/`len` fields of the token-node union variant
+    /// ([`ffi::RSToken`]).
+    ///
+    /// The caller must keep `str_` valid for `len` bytes for as long as the
+    /// node is used (e.g. by owning the backing buffer alongside the node).
+    /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
+    pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
+        // active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let tok = &mut *union_ptr.cast::<ffi::RSToken>();
+            tok.str_ = str_;
+            tok.len = len;
         }
     }
 

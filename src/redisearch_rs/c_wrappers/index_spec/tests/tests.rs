@@ -54,13 +54,13 @@ fn field_specs() {
 fn rule() {
     let mut index_spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
     let mut schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
-    schema_rule.type_ = ffi::DocumentType::Json;
+    schema_rule.type_ = document::DocumentType::Json;
     index_spec.rule = ptr::from_mut(&mut schema_rule);
     let sut = unsafe { IndexSpec::from_raw(ptr::from_ref(&index_spec)) };
 
     let rule = sut.rule();
 
-    assert_eq!(rule.type_(), ffi::DocumentType::Json);
+    assert_eq!(rule.type_(), document::DocumentType::Json);
 }
 
 fn field_spec(field_name: &CStr, field_path: &CStr, index: u16) -> ffi::FieldSpec {

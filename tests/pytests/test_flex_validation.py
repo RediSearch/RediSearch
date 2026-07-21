@@ -682,7 +682,6 @@ def test_disk_vector_range_query_concurrent_writes(env: Env):
     # A small set of in-radius docs (few enough that HNSW reliably recalls them all).
     base_docs = {f'base:{i}' for i in range(5)}
     in_radius = create_np_array_typed([1.0, 1.0], 'FLOAT32').tobytes()
-    far_away = create_np_array_typed([1000.0, 1000.0], 'FLOAT32').tobytes()
     for doc_id in base_docs:
         env.cmd('HSET', doc_id, 'v', in_radius)
     waitForIndex(env, 'idx')
@@ -692,12 +691,15 @@ def test_disk_vector_range_query_concurrent_writes(env: Env):
     stop = threading.Event()
 
     def writer():
-        # Stream out-of-radius inserts on a dedicated connection so the writer never
-        # shares a socket with the querying thread.
+        # Dedicated connection (never shares a socket with the querier). Out-of-radius
+        # vectors are distinct: a large corpus of identical vectors forms a dense HNSW
+        # component the greedy search can't cross out of, so range/KNN recall of the
+        # in-radius cluster can drop to zero (approximate-search artifact). See MOD-16860.
         try:
             wconn = env.getConnection()
             i = 0
             while not stop.is_set():
+                far_away = create_np_array_typed([1000.0 + i, 1000.0], 'FLOAT32').tobytes()
                 wconn.execute_command('HSET', f'extra:{i}', 'v', far_away)
                 i += 1
         except Exception as e:  # noqa: BLE001 - surface to the asserting thread

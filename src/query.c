@@ -60,11 +60,6 @@ static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
   }
 }
 
-static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
-  if (lx->begin) rm_free(lx->begin);
-  if (lx->end) rm_free(lx->end);
-}
-
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
   if (vn->vq) {
     VectorQuery_Free(vn->vq);
@@ -111,9 +106,6 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_FUZZY:
       QueryTokenNode_Free(&n->fz.tok);
-      break;
-    case QN_LEXRANGE:
-      QueryLexRangeNode_Free(&n->lxrng);
       break;
     case QN_VECTOR:
       QueryVectorNode_Free(&n->vn);
@@ -521,65 +513,6 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
-/**
- * @brief Check if a scorer uses GetSlop (term proximity) for scoring
- *
- * Scorers that use GetSlop need offset data to calculate term proximity.
- * Default to true for unknown/custom scorers for safety.
- */
-static bool scorerNeedsOffsets(const char *scorerName) {
-  if (!scorerName) {
-    scorerName = RSGlobalConfig.defaultScorer;
-  }
-  // Scorers that do NOT need offsets (don't use GetSlop)
-  if (!strcmp(scorerName, BM25_STD_SCORER_NAME) ||
-      !strcmp(scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) ||
-      !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME) ||
-      !strcmp(scorerName, DISMAX_SCORER_NAME) ||
-      !strcmp(scorerName, DOCSCORE_SCORER) ||
-      !strcmp(scorerName, HAMMINGDISTANCE_SCORER)) {
-    return false;
-  }
-  // TFIDF, TFIDF.DOCNORM, BM25 (legacy), and custom scorers need offsets
-  return true;
-}
-
-/**
- * @brief Check if a query needs offset data
- *
- * Offsets are needed if:
- * 1. The query has phrase/slop constraints (maxSlop >= 0 or inOrder)
- * 2. The scorer uses GetSlop for proximity-based scoring
- */
-static bool queryNeedsOffsets(const char *scorerName, const QueryNodeOptions *opts) {
-  // Check if query has phrase/slop constraints that require offsets for filtering
-  if (opts && (opts->maxSlop >= 0 || opts->inOrder)) {
-    return true;
-  }
-  // Check if scorer uses GetSlop for proximity-based scoring
-  return scorerNeedsOffsets(scorerName);
-}
-
-QueryIterator *Query_EvalTokenNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_TOKEN, "query node type should be token")
-
-  if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie should be initialized");
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill(qn->tn.str, qn->tn.len, &buf, &rlen);
-    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, &qn->opts);
-    return SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &qn->tn, q->tokenId++, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    return Redis_OpenReader(q->sctx, &qn->tn, q->tokenId++, q->docTable, EFFECTIVE_FIELDMASK(q, qn), qn->opts.weight);
-  }
-}
-
 static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, QueryEvalCtx *q,
   QueryNodeOptions *opts, QueryIterator ***its, size_t *itsSz, size_t *itsCap) {
   // Create a token for the reader
@@ -822,19 +755,6 @@ static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
   }
 }
 
-// Callback for tag lex range queries - handles both disk and memory modes
-static void tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
-  TrieCallbackCtx *ctx = p;
-  QueryEvalCtx *q = ctx->q;
-
-  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->tagIdx, q->sctx, r, n, invidx,
-                                                           ctx->weight, ctx->opts->fieldIndex,
-                                                           q->status);
-  if (ir) {
-    rangeItersAddIterator(ctx, ir);
-  }
-}
-
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
   TrieCallbackCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
@@ -895,37 +815,6 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
   return REDISEARCH_OK;
 }
 
-static QueryIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
-  RS_LOG_ASSERT(lx->type == QN_LEXRANGE, "query node type should be lexrange");
-
-  Trie *t = q->sctx->spec->terms;
-  TrieCallbackCtx ctx = {.q = q, .opts = &lx->opts};
-
-  if (!t) {
-    return NULL;
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  rune *begin = NULL, *end = NULL;
-  size_t nbegin, nend;
-  if (lx->lxrng.begin) {
-    begin = strToLowerRunes(lx->lxrng.begin, strlen(lx->lxrng.begin), &nbegin);
-  }
-  if (lx->lxrng.end) {
-    end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
-  }
-
-  Trie_IterateRange(t, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
-                    end ? nend : -1, lx->lxrng.includeEnd, runeIterCb, &ctx);
-  rm_free(begin);
-  rm_free(end);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
-}
-
 static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
 
@@ -948,29 +837,6 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
 #endif
   return AREQ_TimedOut(areq);
 }
-
-static QueryIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
-  RS_LOG_ASSERT(node->type == QN_GEOMETRY, "query node type should be geometry");
-
-  const FieldSpec *fs = node->gmn.geomq->fs;
-
-  // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
-  // we return results as if the index was empty, instead of raising an error.
-  const GeometryIndex *index = OpenGeometryIndex((FieldSpec *)fs, CREATE_INDEX);
-  const GeometryApi *api = GeometryApi_Get(index);
-  const GeometryQuery *gq = node->gmn.geomq;
-  RedisModuleString *errMsg;
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  QueryIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
-  if (ret == NULL) {
-    QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_BAD_VAL, "Error querying geoshape index", ": %s",
-                           RedisModule_StringPtrLen(errMsg, NULL));
-    RedisModule_FreeString(NULL, errMsg);
-  }
-  return ret;
-}
-
 
 static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
@@ -1086,32 +952,6 @@ void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
     }
   }
   *len = length;
-}
-
-static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                                double weight, bool caseSensitive) {
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight, .tagIdx = idx};
-
-  if(qn->lxrng.begin) {
-    size_t beginLen = strlen(qn->lxrng.begin);
-    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
-  }
-  if(qn->lxrng.end) {
-    size_t endLen = strlen(qn->lxrng.end);
-    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
-  int nbegin = begin ? strlen(begin) : -1, nend = end ? strlen(end) : -1;
-
-  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
-                              qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
@@ -1318,8 +1158,6 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       return Query_EvalTagWildcardNode(q, idx, n, effective_weight, fs->index,
                                        caseSensitive);
 
-    case QN_LEXRANGE:
-      return Query_EvalTagLexRangeNode(q, idx, n, effective_weight, caseSensitive);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
@@ -1337,7 +1175,7 @@ static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
 
-    default: // LCOV_EXCL_START — only TOKEN, PREFIX, WILDCARD_QUERY, LEXRANGE, PHRASE reach tag eval
+    default: // LCOV_EXCL_START — only TOKEN, PREFIX, WILDCARD_QUERY, PHRASE reach tag eval
       RS_ABORT("Invalid tag query node type");
       return NULL;
   } // LCOV_EXCL_STOP
@@ -1386,24 +1224,20 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_UNION:
     case QN_NUMERIC:
     case QN_GEO:
+    case QN_TOKEN:
+    case QN_GEOMETRY:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n);
-    case QN_TOKEN:
-      return Query_EvalTokenNode(q, n);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
     case QN_PREFIX:
       return Query_EvalPrefixNode(q, n);
-    case QN_LEXRANGE:
-      return Query_EvalLexRangeNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
-    case QN_GEOMETRY:
-      return Query_EvalGeometryNode(q, n);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1516,7 +1350,6 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_PHRASE:
     case QN_NOT:
     case QN_PREFIX:
-    case QN_LEXRANGE:
     case QN_FUZZY:
     case QN_OPTIONAL:
     case QN_IDS:
@@ -1652,8 +1485,6 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
           } else if (child->type == QN_WILDCARD_QUERY) {
             res = validateQueryNotDisk("TAG wildcard", status);
-          } else if (child->type == QN_LEXRANGE) {
-            res = validateQueryNotDisk("TAG lexrange", status);
           }
           if (res == REDISMODULE_ERR) {
             return res;
@@ -1688,7 +1519,6 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
-    case QN_LEXRANGE:
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -1746,7 +1576,7 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
     for (size_t ii = 0; ii < nchildren; ++ii) {
       QueryNode *child = children[ii];
       if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
-          child->type == QN_PREFIX || child->type == QN_LEXRANGE ||
+          child->type == QN_PREFIX ||
           child->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
         for(size_t jj = 0; jj < QueryNode_NumParams(child); ++jj) {
@@ -1854,10 +1684,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                                         qs->pfx.prefix ? "*" : "");
       break;
 
-    case QN_LEXRANGE:
-      s = sdscatprintf(s, "LEXRANGE{%s...%s}", qs->lxrng.begin ? qs->lxrng.begin : "",
-                       qs->lxrng.end ? qs->lxrng.end : "");
-      break;
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");

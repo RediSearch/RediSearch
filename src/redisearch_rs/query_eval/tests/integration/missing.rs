@@ -20,7 +20,7 @@
 
 use ffi::IndexFlags_Index_StoreFreqs;
 use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 

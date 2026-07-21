@@ -37,4 +37,15 @@ fi
 source install_rust.sh
 source install_python.sh
 
+# Python test deps (pip-capable venv + RLTest, via uv) live in test_deps/,
+# which CI runs as a separate step; run it here too so a plain
+# `make bootstrap` also covers the pytest flow (tests/deps/setup_rejson.sh
+# builds RedisJSON through readies, which needs a python3 with pip — the
+# venv provides one). Runs from the repo root, where the uv project lives.
+if [[ "${SKIP_PYTHON_TEST_DEPS:-0}" != 1 ]]; then
+    (cd "$(dirname "${BASH_SOURCE[0]}")/.." && \
+        SKIP_VENV_PROFILE_ACTIVATION=1 \
+        bash .install/test_deps/install_python_deps.sh $MODE)
+fi
+
 git config --global --add safe.directory '*'

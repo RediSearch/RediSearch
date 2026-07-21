@@ -933,6 +933,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     AREQ_DecrRef(r);
     return;
   }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -988,6 +990,13 @@ err:
   return;
 }
 
+// Record a timed-out blocked coordinator request into the Redis-INFO per-stage
+// breakdown, at the stage the deadline caught it. Called exactly once per
+// blocked-client timeout callback, after the timed-out flag froze the marker.
+static inline void recordCoordAREQTimeoutStage(AREQ *req, bool isError) {
+  QueryTimeoutStageStats_Record(AREQ_ExecutionStage(req), isError, COORD_ERR_WARN);
+}
+
 // Timeout callback for Coordinator AREQ execution
 // Called on the main thread when the blocking client times out (FAIL policy only).
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1004,6 +1013,9 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   // Signal timeout to the background thread
   AREQ_SetTimedOut(brc->query.areq);
+
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  recordCoordAREQTimeoutStage(brc->query.areq, /*isError=*/true);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1043,6 +1055,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // Signal timeout to the background thread
   AREQ_SetTimedOut(req);
+
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  recordCoordAREQTimeoutStage(req, /*isError=*/false);
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
@@ -1135,6 +1150,10 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   AREQ *req = brc->query.areq;
   AREQ_SetTimedOut(req);
 
+  // Record the per-stage breakdown at the stage the deadline caught the request
+  // (QUEUE while BG has not dequeued the read yet).
+  recordCoordAREQTimeoutStage(req, /*isError=*/false);
+
   if (BlockedRequestCtx_TryOwnStrictRead(brc, BRC_READ_OWNER_TIMEOUT)) {
     // The BG worker has not dequeued the read job yet. Waiting here would
     // block the main thread on BG progress (deadlock if the pool is
@@ -1190,6 +1209,8 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     AREQ_DecrRef(r);
     return;
   }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  AREQ_SetExecutionStage(r, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 

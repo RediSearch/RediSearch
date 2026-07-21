@@ -24,19 +24,13 @@
 #include "slot_ranges.h"
 #include "profile/profile.h"
 #include "rs_wall_clock.h"
+#include "info/global_stats.h" // QueryTimeoutStage (execution-phase marker + timeout breakdown)
 
 #include "rmutil/rm_assert.h"
+#include "util/rs_atomic.h"
 
 #ifdef __cplusplus
-#include <atomic>
-#define RS_Atomic(T) std::atomic<T>
-#define RS_AtomicBoolLoadRelaxed(p)     (((std::atomic<bool> *)(p))->load(std::memory_order_relaxed))
-#define RS_AtomicBoolStoreRelaxed(p, v) (((std::atomic<bool> *)(p))->store((v), std::memory_order_relaxed))
 extern "C" {
-#else
-#define RS_Atomic(T) _Atomic(T)
-#define RS_AtomicBoolLoadRelaxed(p)     __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
-#define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #define DEFAULT_LIMIT 10
@@ -207,6 +201,12 @@ typedef struct RequestSyncState {
   // Timeout signaling flag set by the timeout callback on the main thread.
   RS_Atomic(bool) timedOut;
 
+  // Execution-phase marker (QueryTimeoutStage values), advanced monotonically by
+  // the executing thread (QUEUE -> PIPELINE -> REPLY) and frozen once `timedOut` is
+  // set. The main-thread timeout callbacks only read it to attribute a timeout to
+  // the pipeline stage it occurred in.
+  RS_Atomic(int) execPhase;
+
   /* Abort-wake registration (single-slot). BG reader registers its blocking MR
    * channel; timeout callback broadcasts on it after flipping `timedOut`.
    * `abortWakeLock` serializes register/unregister/wake. */
@@ -217,6 +217,7 @@ typedef struct RequestSyncState {
 // Initialize a RequestSyncState with default values
 static inline void RequestSyncState_Init(RequestSyncState *st) {
   st->timedOut = false;
+  st->execPhase = QUERY_TIMEOUT_STAGE_QUEUE;
   st->abortWakeChannel = NULL;
   pthread_mutex_init(&st->abortWakeLock, NULL);
 }
@@ -229,6 +230,20 @@ static inline void RequestSyncState_SetTimedOut(RequestSyncState *st) {
 }
 static inline void RequestSyncState_ClearTimedOut(RequestSyncState *st) {
   RS_AtomicBoolStoreRelaxed(&st->timedOut, false);
+}
+
+// Read the current execution phase as a QueryTimeoutStage. Used to attribute a
+// timeout to the stage the request had reached when the deadline fired.
+static inline QueryTimeoutStage RequestSyncState_GetExecutionStage(RequestSyncState *st) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&st->execPhase);
+}
+// Advance the execution phase (executing thread). Frozen once a timeout is signalled,
+// so the stage a main-thread callback reads cannot change underneath it.
+static inline void RequestSyncState_SetExecutionStage(RequestSyncState *st, QueryTimeoutStage stage) {
+  if (RequestSyncState_GetTimedOut(st)) {
+    return;
+  }
+  RS_AtomicIntStoreRelaxed(&st->execPhase, (int)stage);
 }
 
 // Release resources owned by a RequestSyncState. Must be called exactly once
@@ -698,6 +713,14 @@ static inline bool AREQ_TimedOut(AREQ *req) {
 static inline void AREQ_SetTimedOut(AREQ *req) {
   RequestSyncState_SetTimedOut(&req->syncState);
 }
+// The pipeline stage the request had reached, used to attribute a timeout.
+static inline QueryTimeoutStage AREQ_ExecutionStage(AREQ *req) {
+  return RequestSyncState_GetExecutionStage(&req->syncState);
+}
+// Advance the request's execution-phase marker (QUEUE -> PIPELINE -> REPLY).
+static inline void AREQ_SetExecutionStage(AREQ *req, QueryTimeoutStage stage) {
+  RequestSyncState_SetExecutionStage(&req->syncState, stage);
+}
 #ifdef ENABLE_ASSERT
 // SyncPointStopFn predicate adapter for AREQ_TimedOut. Pass the AREQ as `arg`
 // to SyncPoint_WaitUntil to release the wait when the request is timed out.
@@ -821,8 +844,6 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status);
 void AREQ_ReplyWithStoredResults(RedisModuleCtx *ctx, AREQ *req);
 
 #define AREQ_RP(req) AREQ_QueryProcessingCtx(req)->endProc
-
-#undef RS_Atomic
 
 #ifdef __cplusplus
 }

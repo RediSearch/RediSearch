@@ -41,7 +41,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// sparse (few documents relative to `maxDocId`), the optimized variant is
 /// significantly faster.
 #[repr(C)]
-pub struct RawOptionalOptimized<Rf: Ref, W, I> {
+pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
     /// Wildcard iterator over `spec.existingDocs` — the authoritative source of doc IDs.
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
@@ -49,7 +49,7 @@ pub struct RawOptionalOptimized<Rf: Ref, W, I> {
     /// when it is aborted during [`RQEIterator::revalidate`].
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
-    virt: RawIndexResult<Rf>,
+    virt: RawIndexResult<'query, Rf>,
     /// Inclusive upper bound (matches C `maxDocId`).
     max_doc_id: DocId,
     /// Weight applied to real results from `child`.
@@ -65,7 +65,7 @@ pub struct RawOptionalOptimized<Rf: Ref, W, I> {
 
 /// Alias for an [`Active`] [`RawOptionalOptimized`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<Active<'index>, W, I>;
+pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<'index, Active<'index>, W, I>;
 
 impl<'index, W, I> OptionalOptimized<'index, W, I>
 where
@@ -342,8 +342,8 @@ where
         self.at_eof
     }
 
-    fn type_(&self) -> ffi::IteratorType {
-        ffi::IteratorType::OptionalOptimized
+    fn type_(&self) -> crate::IteratorType {
+        crate::IteratorType::OptionalOptimized
     }
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {

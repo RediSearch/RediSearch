@@ -39,7 +39,7 @@ use rqe_core::DocId;
 ///   validation entirely.
 /// - `in_order`: When `true`, terms must appear in the same order as the child iterators.
 #[repr(C)]
-pub struct RawIntersection<Rf: Ref, I> {
+pub struct RawIntersection<'query, Rf: Ref, I> {
     /// Child iterators, sorted by estimated count (smallest first) unless `in_order` is set.
     children: Vec<I>,
     /// Last doc_id successfully found in ALL children (returned by [`last_doc_id()`](Self::last_doc_id)).
@@ -52,12 +52,12 @@ pub struct RawIntersection<Rf: Ref, I> {
     /// When `true`, terms must appear in the same order as the child iterators.
     in_order: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 }
 
 /// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type Intersection<'index, I> = RawIntersection<Active<'index>, I>;
+pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {

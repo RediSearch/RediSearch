@@ -14,7 +14,7 @@ use std::{
     slice,
 };
 
-use ffi::DocumentType;
+use document::DocumentType;
 
 /// A safe wrapper around an `ffi::SchemaRule`.
 #[repr(transparent)]
