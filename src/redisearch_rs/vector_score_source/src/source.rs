@@ -482,6 +482,11 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        // `u32::MAX` is the sentinel for "timeout checks disabled": the deadline
+        // is never consulted, so reporting "not timed out" is unconditional.
+        if self.timeout_ctx.counter == u32::MAX {
+            return Ok(());
+        }
         // SAFETY: `as_mut()` gives a valid, exclusive borrow for the call; the
         // source is single-threaded so no other access to the aliased raw
         // pointer in `query_params.timeoutCtx` is live during the call. The
