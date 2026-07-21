@@ -9,14 +9,11 @@
 
 //! FFI functions for garbage collection on numeric inverted indexes.
 
-use ffi::{DocTable_Exists, RedisSearchCtx};
 use inverted_index::GcScanDelta;
 use numeric_range_tree::{
-    CompactIfSparseResult, IndexedReversePreOrderDfsIterator, NodeGcDelta, NodeIndex,
-    NumericRangeTree, SingleNodeGcResult,
+    CompactIfSparseResult, NodeGcDelta, NodeIndex, NumericRangeTree, SingleNodeGcResult,
 };
-use rqe_core::DocId;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Conditionally trim empty leaves and compact the node slab.
 ///
@@ -39,178 +36,6 @@ pub unsafe extern "C" fn NumericRangeTree_CompactIfSparse(
     let tree = unsafe { &mut *t };
 
     tree.compact_if_sparse()
-}
-
-// ============================================================================
-// NumericGcScanner — streaming, one-node-at-a-time GC scanner
-// ============================================================================
-
-/// A single node's GC scan result, returned by [`NumericGcScanner_Next`].
-///
-/// The `data` pointer points into the scanner's internal buffer and is valid
-/// until the next call to [`NumericGcScanner_Next`] or [`NumericGcScanner_Free`].
-#[cheadergen::config(export)]
-#[repr(C)]
-pub struct NumericGcNodeEntry {
-    /// The node's slab position.
-    /// The first half of a [`NodeIndex`].
-    pub node_position: u32,
-    /// The node's slab generation.
-    /// The second half of a [`NodeIndex`].
-    pub node_generation: u32,
-    /// Pointer to the serialized entry data (msgpack delta + HLL registers).
-    pub data: *const u8,
-    /// Length of the serialized entry data in bytes.
-    pub data_len: usize,
-}
-
-/// Opaque streaming scanner that yields one node's GC delta at a time.
-///
-/// Created by [`NumericGcScanner_New`], advanced by [`NumericGcScanner_Next`],
-/// and freed by [`NumericGcScanner_Free`].
-///
-/// Each call to `Next` scans the next node in DFS order via
-/// [`NumericRangeNode::scan_gc`][numeric_range_tree::NumericRangeNode::scan_gc]
-/// and serializes the delta + HLL registers into an internal buffer.
-/// The caller can then write the entry data to the pipe immediately,
-/// avoiding buffering all deltas in memory.
-pub struct NumericGcScanner<'tree> {
-    iter: IndexedReversePreOrderDfsIterator<'tree>,
-    doc_exists: Box<dyn Fn(DocId) -> bool>,
-    /// Reusable buffer for serializing the current entry.
-    buffer: Vec<u8>,
-}
-
-/// Create a new [`NumericGcScanner`] for streaming GC scans.
-///
-/// The scanner traverses the tree in pre-order DFS, scanning one node at a
-/// time. Call [`NumericGcScanner_Next`] to advance.
-///
-/// # Safety
-///
-/// - `sctx` must point to a valid [`RedisSearchCtx`] and cannot be NULL.
-/// - `tree` must point to a valid [`NumericRangeTree`] and cannot be NULL.
-/// - Both `sctx` and `tree` must remain valid for the lifetime of the scanner.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericGcScanner_New<'tree>(
-    sctx: *mut RedisSearchCtx,
-    tree: *mut NumericRangeTree,
-) -> *mut NumericGcScanner<'tree> {
-    debug_assert!(!tree.is_null(), "tree cannot be NULL");
-    debug_assert!(!sctx.is_null(), "sctx cannot be NULL");
-
-    // SAFETY: Caller ensures pointers are valid
-    let sctx_ref = unsafe { &*sctx };
-    debug_assert!(!sctx_ref.spec.is_null(), "sctx.spec cannot be NULL");
-
-    // SAFETY: spec is valid from sctx
-    let spec = unsafe { &*sctx_ref.spec };
-
-    // SAFETY: tree is a valid pointer; caller guarantees it outlives the scanner
-    let tree_ref = unsafe { &*tree };
-
-    let doc_exists: Box<dyn Fn(DocId) -> bool> = Box::new(move |id| {
-        // SAFETY: doc_table is valid from spec for the lifetime of the scanner
-        unsafe { DocTable_Exists(&spec.docs, id) }
-    });
-
-    let scanner = Box::new(NumericGcScanner {
-        iter: tree_ref.indexed_iter(),
-        doc_exists,
-        buffer: Vec::new(),
-    });
-    Box::into_raw(scanner)
-}
-
-/// Advance the scanner to the next node with GC work.
-///
-/// Scans nodes in DFS order, skipping those without GC work. When a node
-/// with work is found, its delta and HLL registers are serialized into the
-/// scanner's internal buffer.
-///
-/// Returns `true` if an entry was produced (and `*entry` is populated),
-/// `false` when all nodes have been visited.
-///
-/// The `entry.data` pointer is valid until the next call to `Next` or `Free`.
-///
-/// # Wire format for `entry.data`
-///
-/// ```text
-/// [delta_msgpack][64-byte hll_with][64-byte hll_without]
-/// ```
-///
-/// # Safety
-///
-/// - `scanner` must be a valid pointer returned by [`NumericGcScanner_New`].
-/// - `entry` must be a valid pointer to a [`NumericGcNodeEntry`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericGcScanner_Next(
-    scanner: *mut NumericGcScanner,
-    entry: *mut NumericGcNodeEntry,
-) -> bool {
-    debug_assert!(!scanner.is_null(), "scanner cannot be NULL");
-    debug_assert!(!entry.is_null(), "entry cannot be NULL");
-
-    // SAFETY: Caller ensures pointers are valid
-    let scanner = unsafe { &mut *scanner };
-
-    for (node_idx, node) in scanner.iter.by_ref() {
-        let Some(delta) = node.scan_gc(&*scanner.doc_exists) else {
-            continue;
-        };
-
-        // Serialize into the reusable buffer.
-        scanner.buffer.clear();
-
-        if let Err(e) = delta
-            .delta
-            .serialize(&mut rmp_serde::Serializer::new(&mut scanner.buffer))
-        {
-            tracing::warn!(
-                node_position = node_idx.key().position(),
-                node_generation = node_idx.key().generation(),
-                error_msg = %e,
-                "Failed to serialize a GcScanDelta instance"
-            );
-            continue;
-        }
-
-        scanner
-            .buffer
-            .extend_from_slice(&delta.registers_with_last_block);
-        scanner
-            .buffer
-            .extend_from_slice(&delta.registers_without_last_block);
-
-        // SAFETY: Caller ensures `entry` is valid
-        let entry = unsafe { &mut *entry };
-        let key = node_idx.key();
-        entry.node_position = key.position();
-        entry.node_generation = key.generation();
-        entry.data = scanner.buffer.as_ptr();
-        entry.data_len = scanner.buffer.len();
-
-        return true;
-    }
-
-    false
-}
-
-/// Free a [`NumericGcScanner`].
-///
-/// # Safety
-///
-/// - `scanner` must be a valid pointer returned by [`NumericGcScanner_New`],
-///   or NULL (in which case this is a no-op).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericGcScanner_Free(scanner: *mut NumericGcScanner) {
-    if scanner.is_null() {
-        return;
-    }
-    // SAFETY: Caller ensures pointer was returned by NumericGcScanner_New.
-    unsafe {
-        let _ = Box::from_raw(scanner);
-    }
 }
 
 // ============================================================================
@@ -251,7 +76,8 @@ pub struct ApplyGcEntryResult {
 
 /// Parse a serialized GC entry and apply it to the specified node.
 ///
-/// The entry data must have the wire format produced by [`NumericGcScanner_Next`]:
+/// The entry data must have the wire format produced by the numeric child
+/// collector (`fork_gc::numeric::collect_numeric`):
 /// ```text
 /// [delta_msgpack][64-byte hll_with][64-byte hll_without]
 /// ```

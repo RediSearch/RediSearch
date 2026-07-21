@@ -15,44 +15,6 @@
 #include "obfuscation/hidden.h"
 #include "iterators_ffi.h"
 
-void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
-  arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
-
-  for (int i = 0; i < array_len(numericFields); ++i) {
-    NumericRangeTree *rt = openNumericOrGeoIndex(sctx->spec, numericFields[i], DONT_CREATE_INDEX);
-
-    // No entries were added to the numeric field, hence the tree was not initialized
-    if (!rt) {
-      continue;
-    }
-
-    // Send the field header (field_name + unique_id).
-    const char *fieldName = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL);
-    FGC_sendBuffer(gc, fieldName, strlen(fieldName));
-    uint64_t uniqueId = NumericRangeTree_GetUniqueId(rt);
-    FGC_sendFixed(gc, &uniqueId, sizeof uniqueId);
-
-    // Stream one node at a time to avoid buffering all deltas in memory.
-    NumericGcScanner *scanner = NumericGcScanner_New(sctx, rt);
-    NumericGcNodeEntry entry;
-    while (NumericGcScanner_Next(scanner, &entry)) {
-      // Send: node_len + node_position + node_generation + entry_data.
-      size_t nodeLen = sizeof(entry.node_position) + sizeof(entry.node_generation) + entry.data_len;
-      FGC_SEND_VAR(gc, nodeLen);
-      FGC_SEND_VAR(gc, entry.node_position);
-      FGC_SEND_VAR(gc, entry.node_generation);
-      FGC_sendFixed(gc, entry.data, entry.data_len);
-    }
-    NumericGcScanner_Free(scanner);
-
-    FGC_sendTerminator(gc);
-  }
-
-  array_free(numericFields);
-  // we are done with numeric fields
-  FGC_sendTerminator(gc);
-}
-
 FGCError FGC_parentHandleNumeric(ForkGC *gc) {
   size_t fieldNameLen;
   char *fieldName = NULL;
