@@ -109,9 +109,7 @@ class RediSearchEnterpriseStandaloneEnv(Env):
         except Exception:
             return
         if self.isCluster():
-            raise RuntimeError(
-                "RediSearchEnterpriseStandaloneEnv is standalone-only; "
-                "do not use with a cluster env")
+            raise RuntimeError("RediSearchEnterpriseStandaloneEnv is standalone-only; do not use with a cluster env")
         conn = self.getConnection()
         port = conn.connection_pool.connection_kwargs.get('port')
         try:
@@ -505,8 +503,7 @@ def strip_enterprise_profile_keys(obj):
     if not RS_TEST_ENTERPRISE or CLUSTER:
         return obj
     if isinstance(obj, dict):
-        return {k: strip_enterprise_profile_keys(v)
-                for k, v in obj.items() if k != 'Shard ID'}
+        return {k: strip_enterprise_profile_keys(v) for k, v in obj.items() if k != 'Shard ID'}
     if isinstance(obj, list):
         return [strip_enterprise_profile_keys(v) for v in obj]
     return obj
@@ -531,9 +528,7 @@ if RS_TEST_ENTERPRISE:
         # Rewrite _FT._RESTOREIFNX -> FT._RESTOREIFNX
         if args and str(args[0]).upper() == '_FT._RESTOREIFNX':
             args = ('FT._RESTOREIFNX',) + tuple(args[1:])
-        if (len(args) >= 2
-                and str(args[0]).upper() == 'FT.CONFIG'
-                and str(args[1]).upper() in ('SET', 'GET')):
+        if len(args) >= 2 and str(args[0]).upper() == 'FT.CONFIG' and str(args[1]).upper() in ('SET', 'GET'):
             args = ('_FT.CONFIG',) + tuple(args[1:])
         # FT.PROFILE: strip Shard ID from raw RESP2 shard lists so index [3] stays = Iterators profile value
         if args and str(args[0]).upper() == 'FT.PROFILE':
@@ -543,10 +538,7 @@ if RS_TEST_ENTERPRISE:
         # Enterprise background-saves can fire automatically; OSS tests that call
         # SAVE directly would race and get 'Background save already in progress'.
         if args and str(args[0]).upper() == 'SAVE':
-            waitForRdbSaveToFinish(
-                lambda: _orig_execute_command(self, 'INFO', 'persistence'),
-                stop_on_error=True,
-            )
+            waitForRdbSaveToFinish(lambda: _orig_execute_command(self, 'INFO', 'persistence'), stop_on_error=True)
             # Now issue SAVE and retry once if still racing
             for _attempt in range(3):
                 try:
@@ -746,8 +738,7 @@ def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
             or gc_no_fork or no_json or enterprise)
 
 
-def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
-                            no_json, enterprise):
+def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch, no_json, enterprise):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
     Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
@@ -789,8 +780,7 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
 
 def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=False):
     static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json,
-                         enterprise=enterprise)
+                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
                           gc_no_fork=gc_no_fork)

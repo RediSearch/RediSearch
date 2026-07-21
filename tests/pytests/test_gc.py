@@ -647,8 +647,7 @@ def test_gc_oom_replica_relaxed():
     # around briefly, which makes RedisModule_Fork fail with EEXIST; wait for
     # it to clear before invoking GC. On OSS this is a no-op poll (no autosave
     # races the fork).
-    waitForRdbSaveToFinish(lambda: slave.execute_command('INFO', 'Persistence'),
-                            attempts=100, sleep_interval=0.1)
+    waitForRdbSaveToFinish(lambda: slave.execute_command('INFO', 'Persistence'), attempts=100, sleep_interval=0.1)
 
     bytes_collected = 0
     # A new autosave can start in the gap between the wait above and

@@ -180,8 +180,7 @@ def test_svs_vamana_info():
             actual_info = index_info(env, 'idx')['attributes']
             env.assertTrue(actual_info in (expected_info, optimized_info), message='field name: attributes')
         else:
-            assertInfoField(env, 'idx', 'attributes',
-                            expected_info)
+            assertInfoField(env, 'idx', 'attributes', expected_info)
         env.expect('FT.DROPINDEX', 'idx').ok()
 
 def test_vamana_debug_info_vs_info():
