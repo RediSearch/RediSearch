@@ -23,12 +23,15 @@ use numeric_range_tree::test_utils::build_tree;
 use numeric_score_source::{
     DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
+use redis_mock::reply::{ReplyValue, capture_replies};
+use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
 use rqe_iterators::{
     ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeout, TimeoutContext, TimeoutContextClock},
 };
-use top_k::{ScoreBatch, ScoreSource};
+use top_k::{ScoreBatch, ScoreSource, TopKMode, TopKSourceProfile};
 
 /// A validity oracle backed by an explicit set of deleted doc ids, standing in
 /// for a doc table with entries flagged deleted but not yet reclaimed by GC.
@@ -623,4 +626,144 @@ fn rewind_after_persistent_timeout_times_out_again() {
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
     it.rewind();
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+/// Look up a string-keyed entry in a captured map reply.
+fn map_get<'a>(reply: &'a ReplyValue, key: &str) -> Option<&'a ReplyValue> {
+    let ReplyValue::Map(entries) = reply else {
+        return None;
+    };
+    entries.iter().find_map(|(k, v)| match k {
+        ReplyValue::SimpleString(s) | ReplyValue::StringBuffer(s) if s == key => Some(v),
+        _ => None,
+    })
+}
+
+/// Render a source's [`TopKSourceProfile`] entry and return the captured reply.
+fn render_profile<S: TopKSourceProfile>(
+    source: &S,
+    mode: TopKMode,
+    switches: usize,
+    child: Option<&dyn ProfilePrint>,
+) -> ReplyValue {
+    redis_mock::init_redis_module_mock();
+    // SAFETY: the mock replaces every `RedisModule_Reply*` pointer with an
+    // implementation that records replies without dereferencing the ctx.
+    let mut replier = unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) };
+    let mut replies = capture_replies(|| {
+        let mut ctx = ProfilePrintCtx::new(false, false);
+        let mut map = replier.map();
+        source.print_profile(mode, switches, &mut map, &mut ctx, child);
+    });
+    assert_eq!(replies.len(), 1, "expected a single map reply");
+    replies.pop().unwrap()
+}
+
+#[test]
+fn metrics_count_batches_without_switches() {
+    // Multi-leaf tree read one range per batch; `k` above the doc count keeps the
+    // heap from filling, so no early `Stop` truncates the batch count.
+    let tree = build_tree(20, false, 0);
+    assert!(tree.num_leaves() > 1, "fixture must split into many ranges");
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+
+    let metrics = it.metrics();
+    assert!(
+        metrics.num_batches > 1,
+        "multiple range batches materialized"
+    );
+    assert_eq!(
+        metrics.strategy_switches, 0,
+        "the unfiltered path never expands windows"
+    );
+    assert_eq!(
+        it.source().num_batches(),
+        metrics.num_batches,
+        "source and iterator batch counts agree"
+    );
+}
+
+#[test]
+fn metrics_count_window_expansions() {
+    // The child matches only the lowest-valued doc, sitting in the last range, so
+    // the source must expand its window past the tiny initial one to reach it.
+    let tree = build_tree(20, false, 0);
+    let mut filter = full_range();
+    filter.limit = 1;
+    let source = NumericScoreSource::filtered(&tree, filter, false, 1, 20, 1);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(vec![1u64]),
+        NonZeroUsize::new(1).unwrap(),
+    );
+    drain_top_k(&mut it);
+
+    let metrics = it.metrics();
+    assert!(
+        metrics.strategy_switches >= 1,
+        "a window expansion is recorded as a strategy switch"
+    );
+    assert!(metrics.num_batches >= 1);
+}
+
+#[test]
+fn metrics_reset_on_rewind() {
+    let tree = build_tree(20, false, 0);
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+    assert!(it.metrics().num_batches > 0);
+
+    it.rewind();
+    // A re-run's profile must reflect only the new collection, so every counter
+    // restarts from zero.
+    assert_eq!(it.metrics().num_batches, 0);
+    assert_eq!(it.metrics().strategy_switches, 0);
+    assert_eq!(it.source().num_batches(), 0);
+}
+
+#[test]
+fn profile_reports_optimizer_type_and_counters() {
+    let tree = build_tree(20, false, 0);
+    let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+    let batches = it.metrics().num_batches;
+    let switches = it.metrics().strategy_switches;
+
+    let reply = render_profile(it.source(), it.mode(), switches, None);
+
+    assert_eq!(
+        map_get(&reply, "Type"),
+        Some(&ReplyValue::SimpleString("OPTIMIZER".into()))
+    );
+    assert_eq!(
+        map_get(&reply, "Batches number"),
+        Some(&ReplyValue::LongLong(batches as i64))
+    );
+    assert_eq!(
+        map_get(&reply, "Window expansions"),
+        Some(&ReplyValue::LongLong(switches as i64))
+    );
+    // The Rust source has no `QOptimizer` type, so it emits no `Optimizer mode`
+    // (unlike the C optimizer reader), and no child subtree without a child.
+    assert_eq!(map_get(&reply, "Optimizer mode"), None);
+    assert_eq!(map_get(&reply, "Child iterator"), None);
+}
+
+#[test]
+fn profile_renders_child_subtree() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
+
+    let child = IdList::<true>::new(vec![1u64, 2, 3]);
+    let reply = render_profile(&source, TopKMode::Batches, 0, Some(&child));
+
+    let child_reply = map_get(&reply, "Child iterator").expect("child subtree rendered");
+    assert!(
+        matches!(child_reply, ReplyValue::Map(_)),
+        "child iterator profile is a nested map"
+    );
 }
