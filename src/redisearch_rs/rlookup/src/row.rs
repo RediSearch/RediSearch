@@ -409,8 +409,8 @@ pub mod opaque {
 mod tests {
     use std::ptr;
 
+    use document::DocumentType;
     use enumflags2::make_bitflags;
-    use ffi::DocumentType;
 
     use super::*;
 

@@ -73,6 +73,69 @@ fn id_list_is_not_produced_until_first_read() {
     assert_eq!(calls.get(), 1);
 }
 
+/// Suspend/resume round-trips for the lazy ID list. These exercise the
+/// `RQEIteratorBoxed`/`RQESuspendedIterator` impls (whose suspended form erases
+/// the retained producer's lifetime to `'static` and restores it on resume) via
+/// the dyn path used by the production FFI wrapper.
+mod id_list_suspend_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn survives_suspend_resume_after_production() {
+        let mock_ctx = MockContext::new(0, 0);
+        let calls = Rc::new(Cell::new(0));
+        let mut it = IdListLazy::<true>::new(
+            producer(vec![1, 4, 9], None, false, calls.clone()),
+            100,
+            index_result::RSIndexResult::build_virt().build(),
+        );
+        // Produce and consume the first result.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        assert_eq!(calls.get(), 1);
+
+        // Suspend + resume across a (mock) lock release/reacquire cycle.
+        let mut it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+
+        // The retained producer is not re-run; the remaining data survives at the
+        // preserved position.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 4);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 9);
+        assert!(matches!(it.read(), Ok(None)));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn suspend_resume_before_production_keeps_deferral() {
+        let mock_ctx = MockContext::new(0, 0);
+        let calls = Rc::new(Cell::new(0));
+        let it = IdListLazy::<true>::new(
+            producer(vec![7, 8], None, false, calls.clone()),
+            5,
+            index_result::RSIndexResult::build_virt().build(),
+        );
+
+        // Suspend/resume before any read leaves production deferred.
+        let mut it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+        assert_eq!(calls.get(), 0);
+
+        // The producer still runs on the first read after resume.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 7);
+        assert_eq!(calls.get(), 1);
+    }
+}
+
 #[test]
 fn metric_produces_ids_and_metrics_on_first_read() {
     let calls = Rc::new(Cell::new(0));
@@ -144,5 +207,73 @@ fn skip_to_triggers_production() {
     match outcome {
         SkipToOutcome::Found(res) => assert_eq!(res.doc_id, 6),
         other => panic!("expected Found(6), got {other:?}"),
+    }
+}
+
+/// Suspend/resume round-trips for the lazy iterators. These exercise the
+/// `RQEIteratorBoxed`/`RQESuspendedIterator` impls (whose suspended forms erase
+/// the retained producer's lifetime to `'static` and restore it on resume) via
+/// the dyn path used by the production FFI wrapper.
+mod suspend_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn lazy_metric_survives_suspend_resume_after_production() {
+        let mock_ctx = MockContext::new(0, 0);
+        let calls = Rc::new(Cell::new(0));
+        let mut it = MetricLazySortedById::new(
+            producer(
+                vec![2, 5, 8],
+                Some(vec![0.2, 0.5, 0.8]),
+                false,
+                calls.clone(),
+            ),
+            42,
+            MetricType::VectorDistance,
+        );
+        // Produce and consume the first result.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+        assert_eq!(calls.get(), 1);
+
+        // Suspend + resume across a (mock) lock release/reacquire cycle.
+        let mut it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+
+        // The retained producer is not re-run; the remaining data survives at the
+        // preserved position.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 5);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 8);
+        assert!(matches!(it.read(), Ok(None)));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn lazy_metric_suspend_resume_before_production_keeps_deferral() {
+        let mock_ctx = MockContext::new(0, 0);
+        let calls = Rc::new(Cell::new(0));
+        let it = MetricLazySortedById::new(
+            producer(vec![1, 2], Some(vec![0.1, 0.2]), false, calls.clone()),
+            9,
+            MetricType::VectorDistance,
+        );
+
+        // Suspend/resume before any read leaves production deferred.
+        let mut it = revalidate_via_resume(
+            TypeErasedRQEIterator::new(Box::new(it)),
+            &mock_ctx.spec_read(),
+        )
+        .expect("resume should not fail")
+        .expect_ok();
+        assert_eq!(calls.get(), 0);
+
+        // The producer still runs on the first read after resume.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        assert_eq!(calls.get(), 1);
     }
 }

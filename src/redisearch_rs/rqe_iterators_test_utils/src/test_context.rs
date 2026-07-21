@@ -127,6 +127,9 @@ enum TestContextInner {
         tag_index: ptr::NonNull<ffi::TagIndex>,
         inverted_index: ptr::NonNull<ffi::InvertedIndex>,
     },
+    Geometry {
+        field_spec: ptr::NonNull<ffi::FieldSpec>,
+    },
 }
 
 /// Create a spec and search context from the given schema and index name.
@@ -278,7 +281,7 @@ impl TestContext {
                 0,
                 std::ptr::null(),
                 0,
-                ffi::DocumentType::Hash,
+                document::DocumentType::Hash,
             )
         };
         assert!(!dmd.is_null(), "DocTable_Put returned null");
@@ -417,6 +420,42 @@ impl TestContext {
                 field_spec: fs,
                 numeric_range_tree: NonNull::from_mut(numeric_range_tree),
             },
+        }
+    }
+
+    /// Create a new [`TestContext`] with an empty GEOSHAPE (flat) field.
+    ///
+    /// The underlying R-tree index is created lazily on first query, so no
+    /// document setup is needed to exercise query evaluation: a valid query
+    /// against the empty index yields an empty iterator, while a malformed
+    /// geometry string surfaces a query error.
+    pub fn geometry() -> Self {
+        // Serialize TestContext creation to avoid concurrent access to C global state
+        let _lock = CONTEXT_MUTEX.lock().unwrap();
+
+        let ctx = ModuleCtx::new();
+        let index_name = unique_index_name("geometry_idx");
+        let (spec, sctx) = create_spec_sctx(&ctx, "SCHEMA geom GEOSHAPE FLAT", &index_name);
+
+        let field_name = CString::new("geom").unwrap();
+        // SAFETY: `spec` is a valid, non-null `IndexSpec` just returned by
+        // `create_spec_sctx`, and `field_name` is a valid NUL-terminated string
+        // whose byte length matches the pointer passed alongside it.
+        let fs = unsafe {
+            ffi::IndexSpec_GetFieldWithLength(
+                spec,
+                field_name.as_ptr(),
+                field_name.as_bytes().len(),
+            )
+        };
+        let field_spec = ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
+
+        Self {
+            _ctx: ctx,
+            sctx,
+            spec,
+            qctx: OnceCell::new(),
+            inner: TestContextInner::Geometry { field_spec },
         }
     }
 
@@ -767,7 +806,8 @@ impl TestContext {
             TestContextInner::Numeric { field_spec, .. }
             | TestContextInner::Term { field_spec, .. }
             | TestContextInner::Missing { field_spec, .. }
-            | TestContextInner::Tag { field_spec, .. } => unsafe { field_spec.as_ref() },
+            | TestContextInner::Tag { field_spec, .. }
+            | TestContextInner::Geometry { field_spec, .. } => unsafe { field_spec.as_ref() },
             TestContextInner::Wildcard { .. } => panic!("Wildcard context has no field spec"),
         }
     }

@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "trie/trie_node.h"
+#include "trie/trie_node_internal.h"  // whitebox: subtreeMaxScore invariant checks
 #include "trie/trie.h"
 #include "redismock/redismock.h"
 
@@ -391,6 +392,170 @@ TEST_F(TrieTest, testScoreOrder) {
   TrieIterator_Free(iter);
 
   TrieType_Free(t);
+}
+
+// Fetch a node by its UTF-8 key through the public wrapper, so the test reads
+// subtreeMaxScore without reaching into the opaque Trie struct for its root.
+static TrieNode *getNode(Trie *t, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *n = Trie_GetNode(t, runes, len, true, NULL);
+  runeBufFree(&buf);
+  return n;
+}
+
+// Regression test for the subtreeMaxScore staleness bug. subtreeMaxScore is the
+// branch-and-bound upper bound Trie_CollectFuzzy (FT.SUGGET) prunes on, so it
+// must always cover a node's own score and every descendant's. The buggy code
+// folded only the score *delta* into the bound on two insert paths, leaving it
+// under-estimated and causing valid suggestions to be silently pruned.
+TEST_F(TrieTest, testSubtreeMaxScoreCoversIncrAndSplit) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+
+  // ADD_INCR path: "beer"/"beet" share the internal node "bee". INCR "beer" by 3
+  // (5 -> 8); the buggy code folded only the delta (3), leaving the bounds at 5.
+  Trie_InsertStringBuffer(t, "beer", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beet", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "beer", 4, 3.0, 1, NULL, 1);
+
+  // Split-exact path: "zoom" is one compressed node; inserting its proper prefix
+  // "zoo" splits it and makes "zoo" terminal with score 9. The buggy code never
+  // folded that score into the split node's bound, leaving it at "zoom"'s 5.
+  Trie_InsertStringBuffer(t, "zoom", 4, 5.0, 0, NULL, 1);
+  Trie_InsertStringBuffer(t, "zoo", 3, 9.0, 0, NULL, 1);
+
+  EXPECT_FLOAT_EQ(getNode(t, "beer")->score, 8.0f);      // INCR applied the delta
+  EXPECT_GE(getNode(t, "beer")->subtreeMaxScore, 8.0f);  // bound covers the total
+  EXPECT_GE(getNode(t, "bee")->subtreeMaxScore, 8.0f);   // ancestor covers descendant
+  EXPECT_GE(getNode(t, "zoo")->subtreeMaxScore, 9.0f);   // split node folded its score
+
+  TrieType_Free(t);
+}
+
+// Add a UTF-8 key directly to a raw root node, bypassing the Trie wrapper so
+// the test owns the root pointer and can walk the structure afterwards.
+static void addRaw(TrieNode **root, const char *s, float score, TrieAddOp op) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode_Add(root, runes, len, NULL, score, op, NULL, 1);
+  runeBufFree(&buf);
+}
+
+// Recursively assert that every node keeps its children ordered by descending
+// subtreeMaxScore — the order the score-mode iterator relies on to visit
+// high-scoring branches first.
+static void assertChildrenScoreOrdered(const TrieNode *n) {
+  TrieNode **children = TrieNode_Children(n);
+  for (t_len i = 0; i < TrieNode_NumChildren(n); i++) {
+    if (i + 1 < TrieNode_NumChildren(n)) {
+      EXPECT_GE(children[i]->subtreeMaxScore, children[i + 1]->subtreeMaxScore)
+          << "children out of descending subtreeMaxScore order";
+    }
+    assertChildrenScoreOrdered(children[i]);
+  }
+}
+
+// The insert path restores child order with a single-element rotation instead of
+// a full sort. Storm a small trie with rank-crossing INCRs, then verify both the
+// order invariant and (via exact lookups) that the rotation kept the parallel
+// child-key array consistent with the children.
+TEST_F(TrieTest, testScoreOrderMaintainedAfterIncrStorm) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  const char *keys[] = {"alpha", "alps", "beer", "beet", "bee", "gamma", "gap", "delta"};
+  const size_t numKeys = sizeof(keys) / sizeof(keys[0]);
+  float expected[numKeys];
+
+  for (size_t i = 0; i < numKeys; i++) {
+    addRaw(&root, keys[i], 1.0f, ADD_REPLACE);
+    expected[i] = 1.0f;
+  }
+
+  // Uneven, shifting deltas so sibling ranks keep crossing at every level and
+  // the rotation has to move children by more than one slot.
+  for (int round = 0; round < 20; round++) {
+    for (size_t i = 0; i < numKeys; i++) {
+      float delta = (float)((i + round) % 4 + 1);
+      addRaw(&root, keys[i], delta, ADD_INCR);
+      expected[i] += delta;
+    }
+    assertChildrenScoreOrdered(root);
+  }
+
+  for (size_t i = 0; i < numKeys; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, expected[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
+}
+
+// Assert the first rune of each child of root, in child-array order.
+static void assertChildOrder(TrieNode *root, const char *firstRunes) {
+  size_t expected = strlen(firstRunes);
+  ASSERT_EQ(TrieNode_NumChildren(root), expected);
+  TrieNode **children = TrieNode_Children(root);
+  for (size_t i = 0; i < expected; i++) {
+    EXPECT_EQ(children[i]->str[0], (rune)firstRunes[i]) << "child " << i;
+  }
+}
+
+// Whitebox tests for __trieNode_rotateChildIntoPlace: raise one child's bound,
+// rotate, check order, tie stability, and key-cache consistency.
+TEST_F(TrieTest, testRotateChildIntoPlace) {
+  rune emptyRoot[1] = {0};
+  TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+
+  // descending scores append in order: children are [delta, charlie, bravo, alpha]
+  addRaw(&root, "delta", 9.0f, ADD_REPLACE);
+  addRaw(&root, "charlie", 7.0f, ADD_REPLACE);
+  addRaw(&root, "bravo", 5.0f, ADD_REPLACE);
+  addRaw(&root, "alpha", 3.0f, ADD_REPLACE);
+  assertChildOrder(root, "dcba");
+  TrieNode **children = TrieNode_Children(root);
+
+  // no-move: bravo's bound rises but stays below its left neighbor
+  children[2]->subtreeMaxScore = 6.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // tie stability: bound rises to exactly charlie's; no move
+  children[2]->subtreeMaxScore = 7.0f;
+  __trieNode_rotateChildIntoPlace(root, 2);
+  assertChildOrder(root, "dcba");
+
+  // multi-slot move: alpha's bound rises past bravo and charlie but not delta
+  children[3]->subtreeMaxScore = 8.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "dacb");
+
+  // move to front: bravo's bound rises past everything
+  children[3]->subtreeMaxScore = 10.0f;
+  __trieNode_rotateChildIntoPlace(root, 3);
+  assertChildOrder(root, "bdac");
+
+  // key cache stayed in sync: every key still reachable by exact lookup
+  const char *keys[] = {"alpha", "bravo", "charlie", "delta"};
+  const float scores[] = {3.0f, 5.0f, 7.0f, 9.0f};
+  for (size_t i = 0; i < 4; i++) {
+    runeBuf buf;
+    size_t len = strlen(keys[i]);
+    rune *runes = runeBufFill(keys[i], len, &buf, &len);
+    TrieNode *node = TrieNode_Get(root, runes, len, true, NULL);
+    runeBufFree(&buf);
+    ASSERT_NE(node, nullptr) << keys[i];
+    EXPECT_FLOAT_EQ(node->score, scores[i]) << keys[i];
+  }
+
+  TrieNode_Free(root, NULL);
 }
 
 /* leave for future benchmarks if needed

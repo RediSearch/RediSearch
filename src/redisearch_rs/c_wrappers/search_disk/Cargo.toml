@@ -19,6 +19,7 @@ build_utils.workspace = true
 [dependencies]
 ffi.workspace = true
 inverted_index.workspace = true
+query_term.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true

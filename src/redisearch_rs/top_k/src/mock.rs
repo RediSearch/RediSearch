@@ -12,13 +12,16 @@
 //!
 //! Gated behind the `test-utils` feature.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
 
-use crate::traits::{BatchStrategy, ScoreBatch, ScoreSource};
+use crate::{
+    ScoredResult,
+    traits::{BatchStrategy, ScoreBatch, ScoreSource},
+};
 
 /// A [`ScoreBatch`] backed by a pre-sorted `Vec<(DocId, f64)>`.
 ///
@@ -81,6 +84,17 @@ pub struct MockScoreSource {
     scores: HashMap<DocId, f64>,
     batch_strategy: Box<dyn FnMut(usize, usize) -> BatchStrategy>,
     num_estimated: usize,
+    /// Exact scores applied by [`ScoreSource::rerank`]. `None` disables
+    /// reranking (the default); `Some` map rescores any retained doc it
+    /// contains and leaves the rest untouched.
+    rerank_scores: Option<HashMap<DocId, f64>>,
+    /// Doc ids reported expired by [`ScoreSource::is_expired`]. Empty by default.
+    expired: HashSet<DocId>,
+    /// Number of [`ScoreSource::check_timeout`] calls after which it starts
+    /// reporting a fired deadline. `None` (default) never times out.
+    timeout_after_n_checks: Option<usize>,
+    /// Count of [`ScoreSource::check_timeout`] calls so far.
+    n_timeout_checks: usize,
 }
 
 impl MockScoreSource {
@@ -105,12 +119,38 @@ impl MockScoreSource {
             scores: scores.into_iter().collect(),
             batch_strategy: Box::new(batch_strategy),
             num_estimated,
+            rerank_scores: None,
+            expired: HashSet::new(),
+            timeout_after_n_checks: None,
+            n_timeout_checks: 0,
         }
     }
 
     /// Override the `num_estimated` value.
     pub fn with_num_estimated(mut self, n: usize) -> Self {
         self.num_estimated = n;
+        self
+    }
+
+    /// Enable reranking with the given exact scores. After an adhoc scan, each
+    /// retained doc present in `scores` is rescored to that value; docs absent
+    /// from the map keep their adhoc score, mirroring the disk path's handling
+    /// of labels with no exact distance.
+    pub fn with_rerank(mut self, scores: Vec<(DocId, f64)>) -> Self {
+        self.rerank_scores = Some(scores.into_iter().collect());
+        self
+    }
+
+    /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
+    pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
+        self.expired = docs.into_iter().collect();
+        self
+    }
+
+    /// Make [`ScoreSource::check_timeout`] report a fired deadline from its
+    /// `n`-th call onward (1-based).
+    pub fn with_timeout_after(mut self, n: usize) -> Self {
+        self.timeout_after_n_checks = Some(n);
         self
     }
 }
@@ -134,6 +174,10 @@ impl ScoreSource for MockScoreSource {
         self.scores.get(&doc_id).copied()
     }
 
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.expired.contains(&result.doc_id)
+    }
+
     fn num_estimated(&self) -> usize {
         self.num_estimated
     }
@@ -151,6 +195,32 @@ impl ScoreSource for MockScoreSource {
 
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         (self.batch_strategy)(heap_count, k)
+    }
+
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        self.n_timeout_checks += 1;
+        if self
+            .timeout_after_n_checks
+            .is_some_and(|n| self.n_timeout_checks >= n)
+        {
+            return Err(RQEIteratorError::TimedOut);
+        }
+        Ok(())
+    }
+
+    fn should_rerank(&self) -> bool {
+        self.rerank_scores.is_some()
+    }
+
+    fn rerank(&mut self, results: &mut [ScoredResult]) {
+        let Some(scores) = &self.rerank_scores else {
+            return;
+        };
+        for result in results.iter_mut() {
+            if let Some(&exact) = scores.get(&result.doc_id) {
+                result.score = exact;
+            }
+        }
     }
 
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {

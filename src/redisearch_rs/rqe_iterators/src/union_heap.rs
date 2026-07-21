@@ -38,7 +38,7 @@ use index_spec::IndexSpecReadGuard;
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 #[repr(C)]
-pub struct RawUnionHeap<Rf: Ref, I, const QUICK_EXIT: bool> {
+pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     children: Vec<I>,
     num_estimated: usize,
     /// Number of children that have not yet reached EOF.
@@ -49,14 +49,15 @@ pub struct RawUnionHeap<Rf: Ref, I, const QUICK_EXIT: bool> {
     num_active: usize,
     is_eof: bool,
     /// Reused across calls to avoid allocations.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
     /// Min-heap of `(doc_id, child_index)`.
     heap: DocIdMinHeap,
 }
 
 /// Alias for an [`Active`] [`RawUnionHeap`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type UnionHeap<'index, I, const QUICK_EXIT: bool> = RawUnionHeap<Active<'index>, I, QUICK_EXIT>;
+pub type UnionHeap<'index, I, const QUICK_EXIT: bool> =
+    RawUnionHeap<'index, Active<'index>, I, QUICK_EXIT>;
 
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where

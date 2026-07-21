@@ -32,6 +32,7 @@
 
 mod term_refs;
 
+use itertools::Itertools;
 use std::{
     fmt::{self, Debug},
     sync::Arc,
@@ -46,6 +47,15 @@ use trie_rs::str_trie_map::StrTrieMap;
 /// scans a whole subtree instead of a single exact entry, so they
 /// must out-length an exact token by this many codepoints to win.
 const STARRED_ANCHOR_PENALTY: i32 = ffi::SUFFIX_STARRED_ANCHOR_PENALTY as i32;
+
+/// Poll the caller's stop predicate once per this many candidates examined
+/// during a wildcard scan, amortizing the cost of the check over a run of
+/// work. Scans shorter than one window never poll and always complete.
+pub const TIMEOUT_COUNTER_LIMIT: u32 = ffi::TIMEOUT_COUNTER_LIMIT;
+const _: () = assert!(
+    TIMEOUT_COUNTER_LIMIT > 0,
+    "the poll window divides the candidate count"
+);
 
 /// Longest addable term, in bytes, after lowercasing. The underlying
 /// trie stores node labels with `u16` lengths, so a longer key cannot
@@ -190,7 +200,17 @@ impl TermSuffixIndex {
     /// match `entré`. This is not an approximation introduced here — it is the
     /// engine's pre-existing `?` behavior, which we deliberately reuse rather
     /// than diverge from with a second, codepoint-aware matcher.
-    pub fn iter_wildcard(&self, pattern: &str) -> Option<impl Iterator<Item = Arc<str>>> {
+    ///
+    /// `should_stop` is polled once per [`TIMEOUT_COUNTER_LIMIT`] candidates
+    /// examined; when it returns `true` the scan is abandoned early, yielding
+    /// the matches found so far rather than the full set. This lets a caller
+    /// bound the scan by a deadline without consulting the clock on every
+    /// candidate. Pass `|| false` to always scan to completion.
+    pub fn iter_wildcard(
+        &self,
+        pattern: &str,
+        mut should_stop: impl FnMut() -> bool,
+    ) -> Option<impl Iterator<Item = Arc<str>>> {
         let lowered = unicode_tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
@@ -206,13 +226,18 @@ impl TermSuffixIndex {
         };
 
         let wildcard = WildcardPattern::parse(lowered.as_bytes());
-        let matches: Vec<Arc<str>> = subtree
+        let limit = TIMEOUT_COUNTER_LIMIT as usize;
+        let matches = subtree
             .into_iter()
             .flatten()
             .chain(exact)
-            .flat_map(|data| data.terms().cloned())
+            .flat_map(|data| data.terms())
+            .enumerate()
+            .take_while(|&(i, _)| !((i + 1).is_multiple_of(limit) && should_stop()))
+            .map(|(_, term)| term)
             .filter(|term| wildcard.matches(term.as_bytes()) == MatchOutcome::Match)
-            .collect();
+            .cloned()
+            .collect_vec();
         Some(matches.into_iter())
     }
 

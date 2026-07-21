@@ -18,7 +18,7 @@ use lending_iterator::LendingIterator;
 use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 use value::SharedValue;
 
 const JSON_ROOT: &CStr = c"$";
@@ -72,6 +72,26 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         let value = self.open_key(key_name).ok_or(LoadFieldError::KeyNotFound)?;
+
+        Ok(JsonFieldLoader {
+            ctx: self.ctx,
+            value,
+            key_name,
+            api_version: self.api_version,
+        })
+    }
+
+    fn borrow<'key>(
+        &'key self,
+        open_key: &'key ffi::RedisModuleKey,
+        key_name: &'key RedisString,
+    ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
+        // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`.
+        let value = unsafe {
+            self.japi
+                .open_from_handle(ptr::from_ref(open_key).cast_mut().cast())
+        }
+        .ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {
             ctx: self.ctx,

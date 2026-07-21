@@ -7,14 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Query node types, flags, and QAST validation flags.
+//! Query-domain types and names: node types, per-node flags, QAST validation
+//! flags, and the scorer/expander name modules.
 //!
 //! # Why is this a separate crate?
 //!
 //! `QueryNodeType`, `QueryNodeFlags`, and `QASTValidationFlags` are the source
 //! of truth for query node type discriminants, per-node flags, and AST-level
 //! validation flags, shared between Rust and C. cheadergen generates the C
-//! header (`query_node_type.h`) from this crate, and the C headers
+//! header (`query_types.h`) from this crate, and the C headers
 //! `query_node.h` and `query.h` include it.
 //!
 //! If these types lived inside a larger crate, its generated header would need
@@ -23,9 +24,14 @@
 //! creating a circular include.
 //!
 //! By placing the enums in their own crate with their own header, we break
-//! the cycle: `query_node.h` includes `query_node_type.h` (tiny, no other
+//! the cycle: `query_node.h` includes `query_types.h` (tiny, no other
 //! includes), and other generated headers can include `query_node.h` without
-//! circularity.
+//! circularity. The [`scorers`] and [`expanders`] name modules live here too:
+//! they are query-language vocabulary reachable from every crate that needs
+//! them, and their constants ride the same `query_types.h`.
+
+pub mod expanders;
+pub mod scorers;
 
 use std::ffi::c_char;
 
@@ -54,12 +60,11 @@ pub enum QueryNodeType {
     Wildcard = 11,
     Tag = 12,
     Fuzzy = 13,
-    LexRange = 14,
-    Vector = 15,
-    WildcardQuery = 16,
-    Null = 17,
-    Missing = 18,
-    Max = 19,
+    Vector = 14,
+    WildcardQuery = 15,
+    Null = 16,
+    Missing = 17,
+    Max = 18,
 }
 
 impl QueryNodeType {
@@ -79,7 +84,6 @@ impl QueryNodeType {
             Self::Wildcard => "WILDCARD",
             Self::Tag => "TAG",
             Self::Fuzzy => "FUZZY",
-            Self::LexRange => "LEXRANGE",
             Self::Vector => "VECTOR",
             Self::WildcardQuery => "WILDCARD_QUERY",
             Self::Null => "NULL",
@@ -113,12 +117,11 @@ impl TryFrom<u32> for QueryNodeType {
             11 => Ok(Self::Wildcard),
             12 => Ok(Self::Tag),
             13 => Ok(Self::Fuzzy),
-            14 => Ok(Self::LexRange),
-            15 => Ok(Self::Vector),
-            16 => Ok(Self::WildcardQuery),
-            17 => Ok(Self::Null),
-            18 => Ok(Self::Missing),
-            19 => Ok(Self::Max),
+            14 => Ok(Self::Vector),
+            15 => Ok(Self::WildcardQuery),
+            16 => Ok(Self::Null),
+            17 => Ok(Self::Missing),
+            18 => Ok(Self::Max),
             other => Err(other),
         }
     }

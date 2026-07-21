@@ -42,9 +42,9 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 const MULTI: u32 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST;
 const PRE_MULTI: u32 = MULTI - 1;
 
-/// Construct a `RedisString` from a `CStr` the caller keeps alive. The mock
-/// `RedisModule_CreateString` stores the pointer rather than copying, so the
-/// bytes must outlive the returned `RedisString`.
+/// Construct a `RedisString` from a `CStr`. The mock
+/// `RedisModule_CreateString` copies its input, so the source bytes need not
+/// outlive the returned `RedisString`.
 fn make_redis_string(bytes: &CStr) -> RedisString {
     unsafe { RedisString::from_raw_parts(None, bytes.as_ptr(), bytes.to_bytes().len()) }
 }
@@ -310,4 +310,40 @@ proptest! {
         assert_eq!(expanded.len(), 1);
         assert_expanded_matches(&expanded[0], &value);
     }
+}
+
+/// The borrowed-handle path (`DocumentFormat::borrow`, used when a pinned key is
+/// delivered to an AsyncScan callback and is not addressable by name) must load a
+/// field identically to opening the key by name.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn borrow_loads_field_like_open() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!({ "name": "alice" })), |japi, ctx| {
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        let key_name = make_redis_string(c"doc:1");
+
+        let load = |via_borrow: bool| {
+            let mut rlookup = RLookup::new();
+            let key = rlookup
+                .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+                .unwrap();
+            let mut row = RLookupRow::new();
+            let loader = if via_borrow {
+                // The mock models the pinned handle by the context pointer.
+                // Safety: the mock resolves the handle to the document root.
+                let open_key = unsafe { ctx.cast::<ffi::RedisModuleKey>().as_ref() };
+                format.borrow(open_key, &key_name).unwrap()
+            } else {
+                format.open(&key_name).unwrap()
+            };
+            loader.load_field(key, &mut row).unwrap();
+            row.get(key).cloned()
+        };
+
+        let opened = load(false).expect("open should load the field");
+        let borrowed = load(true).expect("borrow should load the field");
+        assert_eq!(opened.as_str_bytes(), borrowed.as_str_bytes());
+        assert_eq!(borrowed.as_str_bytes(), Some(&b"alice"[..]));
+    });
 }

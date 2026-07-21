@@ -599,6 +599,17 @@ bool SearchDisk_IsEnabled();
  */
 bool SearchDisk_IsEnabledForValidation();
 
+/**
+ * @brief Report whether disk vector indexes are currently throttling writers.
+ *
+ * A disk tiered vector index raises the Redis client-postpone throttle when its flat buffer
+ * fills, but that only gates client commands. The async reindex scan bypasses command
+ * dispatch, so it consults this between batches to apply the same back-pressure to itself.
+ *
+ * @return true if one or more indexes are currently throttling.
+ */
+bool SearchDisk_IsVectorWriteThrottling(void);
+
 // Vector API wrappers
 
 /**
