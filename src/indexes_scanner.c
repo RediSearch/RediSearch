@@ -12,6 +12,7 @@
 // the debug-scanner variant, and the background-indexing memory-limit helpers.
 
 #include <assert.h>
+#include <math.h>
 
 #include "indexes_scanner.h"
 
@@ -78,8 +79,12 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
       // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
       // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and
       // hide the incomplete build. The scanner is still alive here, so this reads
-      // its live scannedKeys/DbSize fraction.
-      sp->scan_failed_OOM_percent = IndexesScanner_IndexedPercent(ctx, scanner, sp);
+      // its live scannedKeys/DbSize fraction. Cap strictly below 1.0: an OOM-aborted
+      // build is by definition incomplete, but duplicate SCAN deliveries can push
+      // scannedKeys to (or past) DbSize, which IndexesScanner_IndexedPercent clamps to
+      // a complete-looking 1.0 — that must never be reported for a failed build.
+      double pct = IndexesScanner_IndexedPercent(ctx, scanner, sp);
+      sp->scan_failed_OOM_percent = pct < 1.0 ? pct : nextafter(1.0, 0.0);
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
     }
     StrongRef_Release(curr_run_ref);
