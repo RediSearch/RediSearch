@@ -15,6 +15,7 @@ pub mod intersection;
 pub mod inverted_index;
 pub mod metric;
 pub mod not;
+pub mod numeric_top_k;
 pub mod optional;
 pub mod profile;
 mod profile_print;

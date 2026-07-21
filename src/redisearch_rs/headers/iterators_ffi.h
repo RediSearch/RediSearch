@@ -542,6 +542,36 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
 /**
+ * Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator (`k == 0`, or a child that can
+ * never match).
+ *
+ * Pass `child = NULL` for a plain `SORTBY numeric` range scan; pass a valid
+ * owning child iterator for a filtered query, whose selectivity sizes the
+ * initial value-window and drives the expand-and-retry path.
+ *
+ * `filter` is read once to copy the numeric range parameters; it is not
+ * retained after this call.
+ *
+ * # Safety
+ *
+ * 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
+ *    returned iterator.
+ * 2. `filter` is non-null and [valid] for a [`NumericFilter`] for the duration
+ *    of this call.
+ * 3. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 4. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
  *
  * # Safety
@@ -713,6 +743,18 @@ RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
+
+/**
+ * Return the filter child iterator, or `NULL` for a plain range scan.
+ *
+ * The returned pointer is non-owning; its lifetime is that of `it`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`NumericTopKFfi`] that was
+ *    created by [`NewNumericTopKIterator`].
+ */
+QueryIterator *NumericTopK_GetChild(const QueryIterator *it);
 
 /**
  * Set the [`RLookupKeyHandle`] back-reference on this iterator.
