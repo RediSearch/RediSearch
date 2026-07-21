@@ -10,7 +10,7 @@
 //! A fixed-capacity heap that retains the top-k scored documents.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, TryReserveError};
 use std::num::NonZeroUsize;
 
 use index_result::RSIndexResult;
@@ -116,7 +116,7 @@ impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
 /// `compare = |a, b| b.partial_cmp(&a).unwrap_or(Ordering::Equal)`
 pub struct TopKHeap<'index, O: ScoreOrdering = Ascending> {
     inner: BinaryHeap<HeapEntry<'index, O>>,
-    capacity: usize,
+    capacity: NonZeroUsize,
     order: O,
 }
 
@@ -124,12 +124,33 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using `order` to determine which score is better.
     pub fn new(capacity: NonZeroUsize, order: O) -> Self {
-        let capacity = capacity.into();
         Self {
-            inner: BinaryHeap::with_capacity(capacity),
+            inner: BinaryHeap::with_capacity(capacity.get()),
             capacity,
             order,
         }
+    }
+
+    /// Like [`new`](Self::new), but returns an error instead of panicking
+    /// when the storage for `capacity` elements cannot be reserved.
+    pub fn try_new(capacity: NonZeroUsize, order: O) -> Result<Self, TryReserveError> {
+        let mut inner = BinaryHeap::new();
+        inner.try_reserve_exact(capacity.get())?;
+        Ok(Self {
+            inner,
+            capacity,
+            order,
+        })
+    }
+
+    /// Returns the maximum number of elements the heap retains.
+    pub const fn capacity(&self) -> NonZeroUsize {
+        self.capacity
+    }
+
+    /// Returns the ordering that ranks the heap's scores.
+    pub const fn order(&self) -> O {
+        self.order
     }
 
     /// Returns the number of elements currently in the heap.
@@ -144,7 +165,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
 
     /// Returns `true` if the heap has reached its capacity.
     pub fn is_full(&self) -> bool {
-        self.inner.len() >= self.capacity
+        self.inner.len() >= self.capacity.get()
     }
 
     /// Returns the worst element currently retained (the one that would be evicted next),
@@ -266,7 +287,36 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 order,
             })
             .collect();
-        debug_assert!(self.inner.len() <= self.capacity);
+        debug_assert!(self.inner.len() <= self.capacity.get());
+    }
+
+    /// Recomputes the scores of all retained elements through `rescore` and
+    /// restores heap order, reusing the heap's storage.
+    ///
+    /// `rescore` sees the elements in unspecified order and may overwrite
+    /// their scores freely; doc ids it changes are ignored.
+    pub fn rescore(&mut self, rescore: impl FnOnce(&mut [ScoredResult])) {
+        let mut entries = std::mem::take(&mut self.inner).into_vec();
+        let mut scored: Vec<ScoredResult> = entries.iter().map(|e| e.result).collect();
+        rescore(&mut scored);
+        // `rescore` only rewrites scores in place (doc ids stay put), so the
+        // scored slice stays index-aligned with `entries` and each stored
+        // record can be re-paired with its updated score below.
+        for (entry, scored) in entries.iter_mut().zip(scored) {
+            entry.result.score = scored.score;
+        }
+        // Restore heap order under the (possibly) new scores, carrying each
+        // entry's captured record along. The count never exceeded k, so
+        // every entry is retained and a bulk rebuild needs no eviction.
+        self.inner = BinaryHeap::from(entries);
+    }
+
+    /// Removes all elements, keeping the storage for [`capacity`](Self::capacity)
+    /// elements or reserving it again if [`drain_sorted`](Self::drain_sorted)
+    /// took it.
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.inner.reserve_exact(self.capacity.get());
     }
 
     /// Drains all elements in unspecified order, leaving the heap empty but reusable.
@@ -281,11 +331,12 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
 
     /// Drains all elements and returns them sorted best-first.
     ///
-    /// Consumes the heap.
-    pub fn drain_sorted(self) -> Vec<HeapResult<'index>> {
+    /// The returned vector takes over the heap's storage, so the heap is left
+    /// empty without storage until [`clear`](Self::clear) reserves it again.
+    pub fn drain_sorted(&mut self) -> Vec<HeapResult<'index>> {
         // BinaryHeap::into_sorted_vec() returns elements in ascending Ord order.
         // In our Ord impl "better" == "Less", so ascending == best-first already.
-        self.inner
+        std::mem::take(&mut self.inner)
             .into_sorted_vec()
             .into_iter()
             .map(HeapResult::from)
@@ -582,6 +633,48 @@ mod tests {
 
         assert!(inserted);
         assert_eq!(heap.len(), 2);
+    }
+
+    #[test]
+    fn rescore_reorders_by_new_scores_and_keeps_doc_ids() {
+        let mut heap = TopKHeap::new(non_zero_capacity(3), Ascending);
+        heap.push(1, 1.0);
+        heap.push(2, 2.0);
+        heap.push(3, 3.0);
+
+        heap.rescore(|scored| {
+            for r in scored {
+                r.score = 10.0 - r.score;
+                r.doc_id += 100;
+            }
+        });
+
+        let sorted: Vec<(DocId, f64)> = heap
+            .drain_sorted()
+            .iter()
+            .map(|r| (r.scored.doc_id, r.scored.score))
+            .collect();
+        assert_eq!(sorted, vec![(3, 7.0), (2, 8.0), (1, 9.0)]);
+    }
+
+    #[test]
+    fn drain_sorted_then_clear_reuses_heap() {
+        let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
+        heap.push(1, 2.0);
+        heap.push(2, 1.0);
+        assert_eq!(heap.drain_sorted().len(), 2);
+        assert!(heap.is_empty());
+
+        heap.clear();
+        heap.push(3, 4.0);
+        heap.push(4, 3.0);
+        heap.push(5, 5.0);
+        let ids: Vec<DocId> = heap
+            .drain_sorted()
+            .iter()
+            .map(|r| r.scored.doc_id)
+            .collect();
+        assert_eq!(ids, vec![4, 3]);
     }
 
     #[test]
