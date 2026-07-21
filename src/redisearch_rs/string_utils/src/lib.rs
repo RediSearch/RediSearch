@@ -14,6 +14,8 @@
 
 use std::borrow::Cow;
 
+pub mod runes;
+
 /// Convert a UTF-8 string to lowercase per-character, without
 /// context-dependent casing rules.
 ///
@@ -52,36 +54,6 @@ pub fn unicode_tolower_capped(s: &str, max: usize) -> Option<String> {
         out.push(c);
     }
     Some(out)
-}
-
-/// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
-pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
-
-/// Error returned when the lowercased rune sequence exceeds
-/// [`MAX_RUNE_STR_LEN`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("lowercased rune length {len} exceeds maximum {MAX_RUNE_STR_LEN}")]
-pub struct RuneStrTooLong {
-    pub len: usize,
-}
-
-/// Convert a UTF-8 string to a lowercase array of runes ([`u16`]) for trie
-/// lookups.
-///
-/// Each Unicode codepoint is lowercased and then truncated to [`u16`].
-///
-/// Returns [`Err(`[`RuneStrTooLong`]`)`] if the resulting rune count exceeds
-/// [`MAX_RUNE_STR_LEN`].
-pub fn str_to_lower_runes(s: &str) -> Result<Vec<u16>, RuneStrTooLong> {
-    let runes: Vec<u16> = s
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| c as u16)
-        .collect();
-    if runes.len() > MAX_RUNE_STR_LEN {
-        return Err(RuneStrTooLong { len: runes.len() });
-    }
-    Ok(runes)
 }
 
 /// Equivalent to C `isspace()` in the POSIX/C locale.
