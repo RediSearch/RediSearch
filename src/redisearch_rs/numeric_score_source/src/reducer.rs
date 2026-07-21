@@ -10,7 +10,7 @@
 //! Construction dispatch for numeric top-k, keeping this decision logic out of
 //! the FFI boundary.
 
-use std::{collections::TryReserveError, num::NonZeroUsize};
+use std::{collections::TryReserveError, num::NonZeroUsize, ptr::NonNull};
 
 use inverted_index::NumericFilter;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
@@ -67,9 +67,14 @@ impl std::fmt::Debug for HeapReserveError {
 ///
 /// Returns [`HeapReserveError`] when the heap for `k` results cannot be
 /// reserved; C's `NewOptimizerIterator` likewise rejects such a `LIMIT`.
+///
+/// # Safety
+///
+/// `tree` upholds the safety requirements of
+/// [`NumericRangeIterator::from_raw`](crate::NumericRangeIterator::from_raw).
 #[expect(clippy::too_many_arguments, reason = "one parameter per query input")]
-pub fn new_numeric_top_k<'index, V, E, T>(
-    tree: &'index NumericRangeTree,
+pub unsafe fn new_numeric_top_k<'index, V, E, T>(
+    tree: NonNull<NumericRangeTree>,
     filter: NumericFilter,
     ascending: bool,
     k: usize,
@@ -95,7 +100,8 @@ where
     match reduce_child(child) {
         ChildReduction::Empty => Ok(NewNumericTopK::ReducedEmpty),
         ChildReduction::Unfiltered => {
-            let source = NumericScoreSource::unfiltered(tree, filter, ascending)
+            // SAFETY: guaranteed by the caller.
+            let source = unsafe { NumericScoreSource::unfiltered_raw(tree, filter, ascending) }
                 .with_validity(validity)
                 .with_expiration(expiration)
                 .with_timeout(timeout);
@@ -112,15 +118,18 @@ where
                 offset: 0,
                 limit: estimate_limit(num_docs, child_estimate, k.get()),
             };
-            let source = NumericScoreSource::filtered(
-                tree,
-                filter,
-                window,
-                ascending,
-                DEFAULT_RANGE_BATCH_SIZE,
-                num_docs,
-                child_estimate,
-            )
+            // SAFETY: guaranteed by the caller.
+            let source = unsafe {
+                NumericScoreSource::filtered_raw(
+                    tree,
+                    filter,
+                    window,
+                    ascending,
+                    DEFAULT_RANGE_BATCH_SIZE,
+                    num_docs,
+                    child_estimate,
+                )
+            }
             .with_validity(validity)
             .with_expiration(expiration)
             .with_timeout(timeout);
