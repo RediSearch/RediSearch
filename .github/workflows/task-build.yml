@@ -203,112 +203,32 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Print CPU information
-        env:
-          RUNNER_ARCH: ${{ runner.arch }}
-        run: |
-          echo "=== CPU Information ==="
-          if command -v lscpu >/dev/null 2>&1; then
-            echo "--- lscpu output ---"
-            lscpu
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            echo "--- macOS CPU info ---"
-            echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
-            echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
-            echo "Thread count: $(sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "N/A")"
-            echo "CPU vendor: $(sysctl -n machdep.cpu.vendor 2>/dev/null || echo "N/A")"
-            echo "CPU features: $(sysctl -n machdep.cpu.features 2>/dev/null || echo "N/A")"
-          else
-            echo "--- Fallback CPU info ---"
-            cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
-          fi
-          echo "Runner OS: $RUNNER_OS"
-          echo "Runner Architecture: $RUNNER_ARCH"
-          echo "========================"
-      - name: Setup sccache
-        if: ${{ env.IS_FORK_PR != 'true' }}
-        uses: ./.github/actions/setup-sccache
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
-          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
-          s3-region: ${{ vars.SCCACHE_S3_REGION }}
-          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
-      - name: Setup
-        if: inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: ./install_script.sh $INSTALL_MODE
-          working_directory: .install
-
-      # `make build TESTS=1 ARCHIVE_RUST_TESTS=1` runs `cargo nextest archive`,
-      # which needs cargo-nextest (and cargo-llvm-cov for the coverage archive).
-      # install_rust_deps.sh provides them via cargo-binstall.
-      - name: Setup Rust test dependencies
-        if: inputs.image-built != 'true'
-        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
-        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
-        # that force ~18 min source compilations on macOS Intel runners.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        run: .install/test_deps/install_rust_deps.sh "$INSTALL_MODE"
-
-      # RedisJSON's readies-based Makefile (built below) needs a python3
-      # interpreter, which only exists inside the uv venv this script creates.
-      # Use the same setup the flow-test jobs use so the env is identical.
-      - name: Setup Python test dependencies
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
-
-      # Cache Rust packages
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v2-rust"
-          key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
-          # The cargo workspaces and target directory configuration.
-          # These entries are separated by newlines and have the form
-          # `$workspace -> $target`. The `$target` part is treated as a directory
-          # relative to the `$workspace` and defaults to "target" if not explicitly given.
-          # default: ". -> target"
-          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
-          # Save cache even when the job fails, so subsequent runs can reuse
-          # compiled artifacts. Without this, cache is never populated on
-          # platforms with high failure rates (e.g. macOS x86_64).
-          cache-on-failure: true
-      - name: Install LLVM for sanitizer
-        if: inputs.san == 'address' && inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: ./install_llvm.sh $INSTALL_MODE
-          working_directory: .install
-      - name: Configure LLVM for sanitizer
-        if: inputs.san == 'address'
-        run: |
-          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-          if [[ -z "$CLANG_BIN" ]]; then
-            echo "Failed to locate clang after sanitizer setup"
-            exit 1
-          fi
-          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-          echo "Using LLVM version: $CLANG_VERSION"
-          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
-          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
-      - name: Build Redis (cached)
-        uses: ./.github/actions/build-redis
-        with:
-          ref: ${{ inputs.redis-ref }}
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
+          is-fork-pr: ${{ env.IS_FORK_PR }}
           san: ${{ inputs.san }}
+          print-cpu-info: 'true'
+          setup-sccache: 'true'
+          sccache-aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          sccache-s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          sccache-s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          sccache-s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
+          install-script: 'true'
+          rust-cache: 'true'
+          rust-cache-key: ${{ inputs.platform }}-${{ inputs.architecture }}-${{ inputs.san }}-${{ inputs.coverage && 'cov' || '' }}
+          # task-build produces the nextest archive (ARCHIVE_RUST_TESTS=1), which
+          # needs cargo-nextest / cargo-llvm-cov from install_rust_deps.sh.
+          rust-test-deps: 'true'
+          github-token: ${{ github.token }}
+          python-test-deps: 'true'
+          sanitizer-setup: 'true'
+          build-redis: 'true'
+          redis-ref: ${{ inputs.redis-ref }}
           coverage: ${{ inputs.coverage }}
-          cache_platform_id: ${{ inputs.container || inputs.env }}
+          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
 
       - name: Build (incl. Rust nextest archive)
         # `make build TESTS=1` builds redisearch.so + C test binaries; with

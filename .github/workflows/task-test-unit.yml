@@ -184,45 +184,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Setup
-        if: inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          command: ./install_script.sh $INSTALL_MODE
-          working_directory: .install
-      - name: Setup Rust test dependencies
-        if: inputs.image-built != 'true'
-        # GITHUB_TOKEN lets cargo-binstall use authenticated GitHub API calls
-        # (5000 req/hr vs 60/hr unauthenticated), avoiding 403 rate-limit errors
-        # that force ~18 min source compilations on macOS Intel runners.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        run: .install/test_deps/install_rust_deps.sh "$INSTALL_MODE"
-      - name: Install LLVM for sanitizer
-        if: inputs.san == 'address' && inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: ./install_llvm.sh $INSTALL_MODE
-          working_directory: .install
-      - name: Configure LLVM for sanitizer
-        if: inputs.san == 'address'
-        run: |
-          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-          if [[ -z "$CLANG_BIN" ]]; then
-            echo "Failed to locate clang after sanitizer setup"
-            exit 1
-          fi
-          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-          echo "Using LLVM version: $CLANG_VERSION"
-          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
-          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
+          san: ${{ inputs.san }}
+          install-script: 'true'
+          rust-test-deps: 'true'
+          github-token: ${{ github.token }}
+          sanitizer-setup: 'true'
 
       - name: Download build artifact
         uses: actions/download-artifact@v4

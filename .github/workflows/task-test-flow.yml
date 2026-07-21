@@ -212,47 +212,21 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
-      - name: Setup
-        if: inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          command: ./install_script.sh $INSTALL_MODE
-          working_directory: .install
-
-      - name: Setup Python test dependencies
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
-      - name: Install LLVM for sanitizer
-        if: inputs.san == 'address' && inputs.image-built != 'true'
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: ./install_llvm.sh $INSTALL_MODE
-          working_directory: .install
-      - name: Configure LLVM for sanitizer
-        if: inputs.san == 'address'
-        run: |
-          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-          if [[ -z "$CLANG_BIN" ]]; then
-            echo "Failed to locate clang after sanitizer setup"
-            exit 1
-          fi
-          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-          echo "Using LLVM version: $CLANG_VERSION"
-          echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
-      - name: Build Redis (cached)
-        uses: ./.github/actions/build-redis
-        with:
-          ref: ${{ inputs.redis-ref }}
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
           san: ${{ inputs.san }}
+          install-script: 'true'
+          python-test-deps: 'true'
+          sanitizer-setup: 'true'
+          # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
+          llvm-full-config: 'false'
+          build-redis: 'true'
+          redis-ref: ${{ inputs.redis-ref }}
           coverage: ${{ inputs.coverage }}
-          cache_platform_id: ${{ inputs.container || inputs.env }}
+          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
 
       - name: Set Artifact Names
         id: artifact-names

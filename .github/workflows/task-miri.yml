@@ -151,41 +151,25 @@ jobs:
 
       # MIRI runs `make rust-tests` which goes through build.sh's full flow,
       # including the C build that produces libredisearch_all.a. Sccache keeps
-      # the C compile fast across runs.
-      - name: Setup sccache
-        if: ${{ env.IS_FORK_PR != 'true' }}
-        uses: ./.github/actions/setup-sccache
+      # the C compile fast across runs, and cargo-nextest (rust-test-deps) is
+      # needed for `cargo miri nextest run`.
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
-          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
-          s3-region: ${{ vars.SCCACHE_S3_REGION }}
-          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
-
-      - name: Setup
-        if: needs.build-image.outputs.succeeded != 'true'
-        env:
-          INSTALL_MODE: ${{ needs.get-config.outputs.install_mode }}
-        uses: ./.github/actions/retry-command
-        with:
-          command: ./install_script.sh $INSTALL_MODE
-          working_directory: .install
-
-      # MIRI needs cargo-nextest (cargo miri nextest run) — install_rust_deps.sh
-      # provides the cargo-binstall'd binary.
-      - name: Setup Rust test dependencies
-        if: needs.build-image.outputs.succeeded != 'true'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          INSTALL_MODE: ${{ needs.get-config.outputs.install_mode }}
-        run: .install/test_deps/install_rust_deps.sh "$INSTALL_MODE"
-
-      # Swatinem rust-cache so repeated MIRI runs reuse compiled MIR.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "v2-rust-miri"
-          key: ${{ inputs.platform }}-${{ inputs.architecture }}
-          workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
-          cache-on-failure: true
+          install-mode: ${{ needs.get-config.outputs.install_mode }}
+          image-built: ${{ needs.build-image.outputs.succeeded == 'true' && 'true' || 'false' }}
+          is-fork-pr: ${{ env.IS_FORK_PR }}
+          setup-sccache: 'true'
+          sccache-aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          sccache-s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
+          sccache-s3-region: ${{ vars.SCCACHE_S3_REGION }}
+          sccache-s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
+          install-script: 'true'
+          rust-cache: 'true'
+          rust-cache-prefix-key: 'v2-rust-miri'
+          rust-cache-key: ${{ inputs.platform }}-${{ inputs.architecture }}
+          rust-test-deps: 'true'
+          github-token: ${{ github.token }}
 
       - name: Set log artifact name
         # Artifact names can't contain : / etc. (platform is e.g. "ubuntu:latest")
