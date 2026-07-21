@@ -14,9 +14,12 @@
 //! branches on the returned [`StateClass`]; see that enum's doc for the
 //! four cases.
 
+use std::time::Instant;
+
 use super::{Automaton, StateClass};
-use crate::trie_map::node::Node;
+use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
 use lending_iterator::prelude::*;
+use timeout::TimeoutCheckResult;
 
 /// Iterator that traverses a trie under the control of a streaming
 /// [`Automaton`].
@@ -33,6 +36,8 @@ pub struct AutomatonIter<'tm, Data, A: Automaton> {
     /// driver truncates and re-extends this in place as it descends and
     /// backtracks, instead of allocating a fresh `Vec` per yield.
     key: Vec<u8>,
+    /// The timeout state
+    timeout: IteratorTimeoutState,
 }
 
 /// One pending visit on the traversal stack.
@@ -70,6 +75,7 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
             stack: Vec::new(),
             automaton,
             key: Vec::new(),
+            timeout: IteratorTimeoutState::no_timeout(),
         }
     }
 
@@ -92,6 +98,7 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
             stack: Vec::new(),
             automaton,
             key: key_prefix,
+            timeout: IteratorTimeoutState::no_timeout(),
         };
         if let Some(node) = start_node {
             // Sequence the calls: `step_all` takes `&mut automaton`, so we
@@ -116,9 +123,17 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
         iter
     }
 
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.timeout = timeout.into()
+    }
+
     /// Advance to the next matching entry, returning a reference to its data.
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         loop {
+            if matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
+                return None;
+            }
+
             match self.stack.pop()? {
                 Frame::Visit {
                     node,

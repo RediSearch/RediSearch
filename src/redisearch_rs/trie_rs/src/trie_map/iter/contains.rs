@@ -7,8 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::trie_map::node::Node;
+use std::time::Instant;
+
+use crate::{
+    iter::timeout::{IteratorTimeoutState},
+    trie_map::node::Node,
+};
 use memchr::memmem::Finder;
+use timeout::TimeoutCheckResult;
 
 /// Iterates over all the entries in a [`TrieMap`](crate::TrieMap) that contain the target fragment,
 /// in lexicographical order.
@@ -22,6 +28,8 @@ pub struct ContainsIter<'tm, 't, Data> {
     key: Vec<u8>,
     /// The target fragment we are looking for.
     finder: Finder<'t>,
+    /// The timeout
+    timeout: IteratorTimeoutState,
 }
 
 struct StackItem<'tm, Data> {
@@ -49,6 +57,7 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
                 .collect(),
             key: vec![],
             finder,
+            timeout: IteratorTimeoutState::no_timeout(),
         }
     }
 
@@ -58,7 +67,12 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
             stack: vec![],
             key: vec![],
             finder: Finder::new(b""),
+            timeout: IteratorTimeoutState::no_timeout(),
         }
+    }
+
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.timeout = timeout.into()
     }
 }
 
@@ -73,6 +87,10 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
     /// key to the one matching that node's entry
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         loop {
+            if matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
+                return None;
+            }
+
             let StackItem {
                 node,
                 was_visited,

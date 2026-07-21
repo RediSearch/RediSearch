@@ -3206,6 +3206,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "timeout",
  "trie_rs",
  "utf8parse",
  "workspace_hack",

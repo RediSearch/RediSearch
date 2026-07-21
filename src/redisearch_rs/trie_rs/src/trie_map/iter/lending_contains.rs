@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use super::ContainsIter;
 use lending_iterator::prelude::*;
 
@@ -19,6 +21,12 @@ pub struct ContainsLendingIter<'tm, 't, Data>(ContainsIter<'tm, 't, Data>);
 impl<'tm, 't, Data> From<ContainsIter<'tm, 't, Data>> for ContainsLendingIter<'tm, 't, Data> {
     fn from(iter: ContainsIter<'tm, 't, Data>) -> Self {
         ContainsLendingIter(iter)
+    }
+}
+
+impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout)
     }
 }
 

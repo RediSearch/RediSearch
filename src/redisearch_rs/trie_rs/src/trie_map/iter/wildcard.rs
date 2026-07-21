@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use crate::trie_map::node::Node;
 
 use super::{
@@ -16,10 +18,8 @@ use super::{
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 
 /// Per-key filter-based wildcard iterator. Public-named because it
-/// appears as the inner value of
-/// [`WildcardIter::Filter`](super::automaton::WildcardIter::Filter),
-/// but it can only be obtained through that dispatcher — the direct
-/// constructor on [`TrieMap`](crate::TrieMap) is crate-private.
+/// is wrapped into a [`WildcardIter`](super::automaton::WildcardIter)
+/// (via its `From` impl) by the wildcard dispatcher.
 pub struct WildcardFilterIter<'tm, 'p, Data>(Iter<'tm, Data, WildcardFilter<'p>>);
 
 impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
@@ -42,6 +42,10 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         }
         .traversal_filter(WildcardFilter(pattern));
         Self(iter)
+    }
+
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout);
     }
 
     /// Advance to the next matching entry; returns a reference to its data.
