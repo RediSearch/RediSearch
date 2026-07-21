@@ -62,20 +62,26 @@ pub const extern "C" fn QueryError_Strerror(maybe_code: u8) -> *const c_char {
 
 /// Returns a [`QueryErrorCode`] given an error message.
 ///
-/// This only supports the query error codes [`QueryErrorCode::TimedOut`] and
-/// [`QueryErrorCode::OutOfMemory`]. If another message is provided,
-/// [`QueryErrorCode::Generic`] is returned.
+/// This only supports the query error codes [`QueryErrorCode::TimedOut`],
+/// [`QueryErrorCode::OutOfMemory`], and [`QueryErrorCode::UnavailableSlots`].
+/// If another message is provided, [`QueryErrorCode::Generic`] is returned.
+///
+/// If the message is a null pointer, [`QueryErrorCode::Generic`] is returned.
 ///
 /// # Safety
 ///
 /// - `message` must be a valid C string or a NULL pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryError_GetCodeFromMessage(message: *const c_char) -> QueryErrorCode {
+    if message.is_null() {
+        return QueryErrorCode::Generic;
+    }
+
     const TIMED_OUT_ERROR_CSTR: &CStr = QueryErrorCode::TimedOut.to_c_str();
     const OUT_OF_MEMORY_ERROR_CSTR: &CStr = QueryErrorCode::OutOfMemory.to_c_str();
     const UNAVAILABLE_SLOTS_ERROR_CSTR: &CStr = QueryErrorCode::UnavailableSlots.to_c_str();
 
-    // Safety: see safety requirement above.
+    // Safety: see safety requirement above and the handling of null pointer at the start.
     let message = unsafe { CStr::from_ptr(message) };
 
     if message == TIMED_OUT_ERROR_CSTR {
@@ -384,6 +390,8 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 /// [`QueryWarningCode::OutOfMemoryShard`] and [`QueryWarningCode::OutOfMemoryCoord`]. If another message is provided,
 /// [`QueryWarningCode::Ok`] is returned.
 ///
+/// If the message is a null pointer, returns [`QueryWarningCode::Ok`].
+///
 /// # Safety
 ///
 /// - `message` must be a valid C string or a NULL pointer.
@@ -391,13 +399,17 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
 pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     message: *const c_char,
 ) -> QueryWarningCode {
+    if message.is_null() {
+        return QueryWarningCode::Ok;
+    }
+
     const TIMED_OUT_WARNING_CSTR: &CStr = QueryWarningCode::TimedOut.to_c_str();
     const REACHED_MAX_PREFIX_EXPANSIONS_WARNING_CSTR: &CStr =
         QueryWarningCode::ReachedMaxPrefixExpansions.to_c_str();
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
 
-    // Safety: see safety requirement above.
+    // Safety: see safety requirement above and the handling of null pointer at the start.
     let message = unsafe { CStr::from_ptr(message) };
 
     if message == TIMED_OUT_WARNING_CSTR {
