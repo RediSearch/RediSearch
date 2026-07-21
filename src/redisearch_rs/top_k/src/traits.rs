@@ -193,6 +193,13 @@ pub trait ScoreSource {
     /// Rewind the source to its initial state so batch iteration can restart.
     fn rewind(&mut self);
 
+    /// Re-admit the source after the lock is re-acquired. Returns `false` if
+    /// the index it reads changed under it while the lock was released, so its
+    /// cursor cannot be resumed and revalidation must abort.
+    fn revalidate(&mut self) -> bool {
+        true
+    }
+
     /// Build the [`RSIndexResult`] that the [`TopKIterator`] will yield for a
     /// given `(doc_id, score)` pair.
     ///

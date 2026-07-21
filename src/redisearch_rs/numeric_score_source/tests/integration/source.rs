@@ -14,7 +14,7 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
-use std::{iter, num::NonZeroUsize};
+use std::{iter, num::NonZeroUsize, ptr::NonNull};
 
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
@@ -29,7 +29,8 @@ use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
 use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
-    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError, Wildcard,
+    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError,
+    RQEValidateStatus, Wildcard,
     c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
@@ -803,17 +804,20 @@ where
     E: ExpirationChecker + 't,
     T: TimeoutContext + 't,
 {
-    new_numeric_top_k(
-        tree,
-        full_range(),
-        false,
-        k,
-        num_docs,
-        validity,
-        expiration,
-        timeout,
-        child,
-    )
+    // SAFETY: the shared borrow keeps `tree` valid and unmutated for `'t`.
+    unsafe {
+        new_numeric_top_k(
+            NonNull::from(tree),
+            full_range(),
+            false,
+            k,
+            num_docs,
+            validity,
+            expiration,
+            timeout,
+            child,
+        )
+    }
     .expect("k fits the heap")
 }
 
@@ -887,17 +891,20 @@ fn factory_rejects_k_too_large_for_the_heap() {
     ])));
     for child in [None, child] {
         let had_child = child.is_some();
-        let built = new_numeric_top_k(
-            &tree,
-            full_range(),
-            false,
-            usize::MAX,
-            3,
-            AllValid,
-            NoOpChecker,
-            NoTimeoutChecker,
-            child,
-        );
+        // SAFETY: the shared borrow keeps `tree` valid and unmutated for the call.
+        let built = unsafe {
+            new_numeric_top_k(
+                NonNull::from(&tree),
+                full_range(),
+                false,
+                usize::MAX,
+                3,
+                AllValid,
+                NoOpChecker,
+                NoTimeoutChecker,
+                child,
+            )
+        };
         let Err(err) = built else {
             panic!("expected a heap reservation error");
         };
@@ -1128,4 +1135,57 @@ fn profile_renders_child_subtree() {
         matches!(child_reply, ReplyValue::Map(_)),
         "child iterator profile is a nested map"
     );
+}
+
+#[test]
+fn revalidate_aborts_once_the_tree_changes() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let tree = NonNull::from(Box::leak(Box::new(tree_from(&[(1, 1.0), (2, 2.0)]))));
+    // SAFETY: `tree` is freed only after `it` is dropped, and mutated only
+    // between revalidations.
+    let source = unsafe { NumericScoreSource::unfiltered_raw(tree, full_range(), true) };
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(2).unwrap());
+    let spec = mock_ctx.spec_read();
+    assert_eq!(it.revalidate(&spec).unwrap(), RQEValidateStatus::Ok);
+
+    // SAFETY: stands in for GC restructuring the tree while the query is suspended.
+    unsafe { (*tree.as_ptr()).increment_revision() };
+    assert_eq!(it.revalidate(&spec).unwrap(), RQEValidateStatus::Aborted);
+
+    drop(it);
+    // SAFETY: `tree` came from `Box::leak` and nothing borrows it any more.
+    drop(unsafe { Box::from_raw(tree.as_ptr()) });
+}
+
+#[test]
+fn revalidate_picks_up_docs_that_turned_multivalued_while_suspended() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let tree = NonNull::from(Box::leak(Box::new(tree_from(&[(1, 1.0), (2, 2.0)]))));
+    // SAFETY: `tree` is freed only after `it` is dropped, and mutated only
+    // between revalidations.
+    let source = unsafe { NumericScoreSource::unfiltered_raw(tree, full_range(), true) };
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    // SAFETY: stands in for indexing a multivalue document while the query is
+    // suspended, before its first read.
+    let revision = unsafe {
+        let tree = &mut *tree.as_ptr();
+        let revision = tree.revision_id();
+        tree.add(3, 3.0, false, true, 0);
+        tree.add(3, 0.5, false, true, 0);
+        assert!(tree.has_multivalued_docs());
+        revision
+    };
+    // SAFETY: the mutation above has finished.
+    assert_eq!(unsafe { tree.as_ref() }.revision_id(), revision);
+    assert_eq!(
+        it.revalidate(&mock_ctx.spec_read()).unwrap(),
+        RQEValidateStatus::Ok
+    );
+
+    assert_eq!(drain_top_k(&mut it), vec![(3, 0.5), (1, 1.0), (2, 2.0)]);
+
+    drop(it);
+    // SAFETY: `tree` came from `Box::leak` and nothing borrows it any more.
+    drop(unsafe { Box::from_raw(tree.as_ptr()) });
 }
