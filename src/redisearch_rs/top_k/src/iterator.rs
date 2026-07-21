@@ -465,17 +465,18 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // survive; when trimming it holds only the child's yielded metrics.
             if self.child.is_some() {
                 if self.can_trim_deep_results {
-                    // Build a metric-only result, then fold in the child's
-                    // yielded metrics (explicit output/sort fields) captured at
-                    // match time.
-                    let mut result = self.source.build_result(doc_id, score);
+                    // Carry the child's captured metrics and attach our score
+                    // last, so a lookup key shared with the child (e.g. nested
+                    // KNN reusing an `AS` alias) keeps the outer vector score.
+                    let mut result = match record {
+                        Some(record) => record,
+                        None => self.source.build_result(doc_id, score),
+                    };
                     if self.source.is_expired(&result) {
                         continue;
                     }
                     self.last_doc_id = doc_id;
-                    if let Some(mut record) = record {
-                        result.metrics_mut().concat(record.metrics_mut());
-                    }
+                    self.source.attach_score_metric(&mut result, score);
                     *self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
