@@ -11,6 +11,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 
+# Defined by the parent verify_build_deps.sh when sourced; redefined here so
+# this script also works standalone. Emits "ok|missing <name>" records for the
+# monorepo check-deps union only when DEPS_REPORT_FILE is set.
+type _emit >/dev/null 2>&1 || _emit() { [ -n "${DEPS_REPORT_FILE:-}" ] || return 0; echo "$1 $2" >> "$DEPS_REPORT_FILE"; }
+
 should_check_cheadergen() {
   case "${REDISEARCH_GENERATE_HEADERS:-1}" in
     0|OFF|off|false|FALSE|False|NO|no)
@@ -51,7 +56,7 @@ check_command() {
 
   if ! command -v "$cmd" &>/dev/null; then
     echo -e "${RED}✗${NC}"
-    missing_deps=true
+    missing_deps=true; dep_ok=0
   else
     echo -e "${GREEN}✓${NC}"
   fi
@@ -66,11 +71,11 @@ check_clang() {
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
-            missing_deps=true
+            missing_deps=true; dep_ok=0
         fi
     else
         echo -e "${RED}✗${NC}"
-        missing_deps=true
+        missing_deps=true; dep_ok=0
     fi
 }
 
@@ -80,7 +85,7 @@ check_cheadergen() {
 
   if ! command -v "$cmd" &>/dev/null; then
     echo -e "${RED}✗${NC}"
-    missing_deps=true
+    missing_deps=true; dep_ok=0
     return
   fi
 
@@ -90,7 +95,7 @@ check_cheadergen() {
     echo -e "${GREEN}✓${NC}"
   else
     echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
-    missing_deps=true
+    missing_deps=true; dep_ok=0
   fi
 }
 
@@ -105,7 +110,9 @@ missing_deps=false
 for i in "${!mac_os_deps[@]}"; do
   dep="${mac_os_deps[$i]}"
   check_function="${mac_os_deps_types[$i]}"
+  dep_ok=1   # reset per dep; a check sets it 0 on failure (see missing_deps)
   $check_function "$dep"
+  [ "$dep_ok" = 1 ] && _emit ok "$dep" || _emit missing "$dep"
 done
 
 # ============================================

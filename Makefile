@@ -225,8 +225,12 @@ help:
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
 bootstrap:
+ifeq ($(CHECK_DEPS),1)
+	@$(ROOT)/.install/verify_build_deps.sh || true
+else
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
+endif
 
 fetch:
 	@echo "Fetching dependencies..."

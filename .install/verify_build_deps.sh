@@ -12,6 +12,12 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 source "$SCRIPT_DIR/version_compare.sh"
 
+# Integration hook for the monorepo `make bootstrap check-deps` union: when the
+# outer bootstrap sets DEPS_REPORT_FILE, record each dependency's result as a
+# machine-readable "ok|missing <name>" line (a below/above-version dep counts
+# as missing). Purely additive — no effect on standalone `make verify-deps`.
+_emit() { [ -n "${DEPS_REPORT_FILE:-}" ] || return 0; echo "$1 $2" >> "$DEPS_REPORT_FILE"; }
+
 should_check_cheadergen() {
   case "${REDISEARCH_GENERATE_HEADERS:-1}" in
     0|OFF|off|false|FALSE|False|NO|no)
@@ -274,6 +280,7 @@ missing_deps=false
 # Check each dependency
 for dep in "${!dependencies[@]}"; do
   printf "%-20s" "$dep"
+  dep_ok=1   # reset per dep; a failure branch below sets it 0 (see missing_deps)
 
   verify_method=${dependencies[$dep]}
 
@@ -282,7 +289,7 @@ for dep in "${!dependencies[@]}"; do
     # missing dep
     if ! check_command "$dep"; then
       echo -e "${RED}✗${NC}"
-      missing_deps=true
+      missing_deps=true; dep_ok=0
     else
       # dep exist, check if version verification is needed
       if [[ -n "${version_checks[$dep]}" ]]; then
@@ -295,10 +302,10 @@ for dep in "${!dependencies[@]}"; do
         result=$?
         if [ "$result" -eq 1 ]; then # below min version
           echo -e "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}"
-          missing_deps=true
+          missing_deps=true; dep_ok=0
         elif [ "$result" -eq 2 ]; then # exceeded max version
           echo -e "${YELLOW}✗ (need version < $max_version, found version $actual_version)${NC}"
-          missing_deps=true
+          missing_deps=true; dep_ok=0
         else
           echo -e "${GREEN}✓${NC}"
         fi
@@ -316,25 +323,26 @@ for dep in "${!dependencies[@]}"; do
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
-      missing_deps=true
+      missing_deps=true; dep_ok=0
     fi
   elif [[ "$verify_method" == "cheadergen" ]]; then
     if ! check_command "$dep"; then
       echo -e "${RED}✗${NC}"
-      missing_deps=true
+      missing_deps=true; dep_ok=0
     else
       actual_version=$(get_cheadergen_version)
       if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
         echo -e "${GREEN}✓${NC}"
       else
         echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
-        missing_deps=true
+        missing_deps=true; dep_ok=0
       fi
     fi
   else # no method is defined for this dependency
     echo -e "${YELLOW} (no method defined)${NC}"
-    missing_deps=true
+    missing_deps=true; dep_ok=0
   fi
+  [ "$dep_ok" = 1 ] && _emit ok "$dep" || _emit missing "$dep"
 done
 
 # ============================================
