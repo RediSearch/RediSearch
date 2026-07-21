@@ -607,6 +607,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         *self.heap = TopKHeap::new(self.k, self.order);
         self.results.clear();
         *self.current = None;
+        self.metrics = TopKMetrics::default();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
