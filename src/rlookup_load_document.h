@@ -16,6 +16,12 @@ extern "C" {
 #endif
 
 typedef struct {
+  const RLookupKey *key;
+  uint64_t loadTimeNs;
+  uint64_t loadCount;
+} RLookupLoadFieldProfile;
+
+typedef struct {
   struct RedisSearchCtx *sctx;
 
   /** Needed for the key name, and perhaps the sortable */
@@ -55,6 +61,9 @@ typedef struct {
    * Force string return; don't coerce to native type
    */
   bool forceString;
+
+  RLookupLoadFieldProfile *profileFields;
+  size_t profileFieldsCount;
 
   struct QueryError *status;
 } RLookupLoadOptions;

@@ -14,6 +14,7 @@
 #include "doc_types.h"
 #include "value_ffi.h"
 #include "util/arr.h"
+#include "rs_wall_clock.h"
 
 typedef enum {
   RLOOKUP_C_STR = 0,
@@ -193,7 +194,20 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
-      if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
+      RLookupLoadFieldProfile *profile = NULL;
+      if (options->profileFields && ii < options->profileFieldsCount) {
+        profile = &options->profileFields[ii];
+      }
+      rs_wall_clock start;
+      if (profile) {
+        rs_wall_clock_init(&start);
+      }
+      int loadRc = getKey(kk, dst, options, &key);
+      if (profile) {
+        profile->loadTimeNs += rs_wall_clock_elapsed_ns(&start);
+        profile->loadCount++;
+      }
+      if (loadRc != REDISMODULE_OK) {
         goto done;
       }
     }

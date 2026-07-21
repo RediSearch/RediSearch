@@ -28,6 +28,7 @@
 #include "rmutil/rm_assert.h"
 
 typedef struct RLookupKey RLookupKey;
+typedef struct RedisModule_Reply RedisModule_Reply;
 
 #ifdef __cplusplus
 extern "C" {
@@ -207,6 +208,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
 struct AREQ;
 struct RequestSyncCtx;
 ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad, uint32_t *outStateflags);
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base);
 
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);

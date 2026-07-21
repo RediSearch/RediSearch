@@ -948,6 +948,29 @@ def sum_rp_times(env, shard):
       total += float(rp_dict.get('Time', 0))
   return total
 
+@skip(cluster=True)
+def testProfileLoaderFieldTimes():
+  env = Env(protocol=3)
+  conn = getConnectionByEnv(env)
+
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'true')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC').ok()
+
+  for i in range(3):
+    conn.execute_command('HSET', f'doc{i}', 't', 'hello', 'n', i)
+
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                'LOAD', '2', '@t', '@n')
+  _, shards = extract_profile_coordinator_and_shards(env, res)
+  loader = next(rp for rp in shards[0]['Result processors profile'] if rp['Type'] == 'Loader')
+
+  env.assertContains('Field loads profile', loader)
+  fields = {field['Field']: field for field in loader['Field loads profile']}
+  env.assertEqual(set(fields.keys()), {'t', 'n'})
+  for field in fields.values():
+    env.assertEqual(field['Results processed'], 3)
+    env.assertGreaterEqual(float(field['Time']), 0)
+
 def ProfileTotalTimeConsistency(env, num_docs):
   """Tests that Total profile time >= sum of Result Processor times.
 

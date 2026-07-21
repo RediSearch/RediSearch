@@ -36,6 +36,7 @@
 #include "search_result.h"
 #include "search_result_ffi.h"
 #include "redisearch.h"
+#include "reply.h"
 #include "asm_state_machine.h"
 #include "index_result_async_read.h"
 
@@ -1015,6 +1016,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
   rm_free(lc->loadopts.keys);
+  rm_free(lc->loadopts.profileFields);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1022,7 +1024,9 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    bool withProfile) {
   self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
   self->loadopts.forceLoad = forceLoad;
   self->loadopts.status = &self->status;
@@ -1032,6 +1036,13 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
     memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
     self->loadopts.nkeys = nkeys;
+    if (withProfile) {
+      self->loadopts.profileFields = rm_calloc(nkeys, sizeof(*self->loadopts.profileFields));
+      self->loadopts.profileFieldsCount = nkeys;
+      for (size_t ii = 0; ii < nkeys; ++ii) {
+        self->loadopts.profileFields[ii].key = keys[ii];
+      }
+    }
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1041,10 +1052,12 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                          const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                          bool withProfile) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -1343,10 +1356,12 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                         const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                         bool withProfile) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -1408,13 +1423,53 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
     }
   }
   *outStateflags |= QEXEC_S_HAS_LOAD;
+  const bool withProfile = reqflags & QEXEC_F_PROFILE;
   if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   }
+}
+
+static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
+  switch (base->type) {
+    case RP_LOADER:
+      return (const RPLoader *)base;
+    case RP_SAFE_LOADER:
+      return &((const RPSafeLoader *)base)->base_loader;
+    default:
+      RS_ABORT("RPLoader profile requested for non-loader RP");
+  }
+}
+
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
+  const RPLoader *loader = RPLoader_GetProfileSource(base);
+  const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
+  if (!fields || loader->loadopts.profileFieldsCount == 0) {
+    return;
+  }
+
+  RedisModule_ReplyKV_Array(reply, "Field loads profile");
+  for (size_t ii = 0; ii < loader->loadopts.profileFieldsCount; ++ii) {
+    const RLookupLoadFieldProfile *field = &fields[ii];
+    const char *fieldName = RLookupKey_GetPath(field->key);
+    if (!fieldName) {
+      fieldName = RLookupKey_GetName(field->key);
+    }
+    if (!fieldName) {
+      fieldName = "";
+    }
+
+    RedisModule_Reply_Map(reply);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, strlen(fieldName));
+    RedisModule_ReplyKV_Double(reply, "Time",
+                               rs_wall_clock_convert_ns_to_ms_d(field->loadTimeNs));
+    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->loadCount);
+    RedisModule_Reply_MapEnd(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 // Consumes the input loader and returns a new safe loader that wraps it.

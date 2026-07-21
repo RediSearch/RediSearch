@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "result_processor.h"
 #include "types_ffi.h"
 #include "iterators/iterator_api.h"
 #include "iterators_ffi.h"
@@ -34,7 +35,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     switch (rp->type) {
       case RP_INDEX:
       case RP_METRICS:
-      case RP_LOADER:
       case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
@@ -52,6 +52,13 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileType(RPTypeToString(rp->type));
         break;
 
+      case RP_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        if (printProfileClock) {
+          RPLoader_ReplyProfileFields(reply, rp);
+        }
+        break;
+
       case RP_PROJECTOR:
       case RP_FILTER:
         RPEvaluator_Reply(reply, "Type", rp);
@@ -60,6 +67,9 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
+        if (printProfileClock) {
+          RPLoader_ReplyProfileFields(reply, rp);
+        }
         break;
 
       default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above

@@ -488,6 +488,8 @@ fn load_specific_keys<'a>(
         cachedOnly: false,
         dmd: ptr::null(),
         forceString: false,
+        profileFields: ptr::null_mut(),
+        profileFieldsCount: 0,
     };
 
     // Safety: All pointers passed to this function are non-null and properly aligned since we created them above in this function.
