@@ -159,6 +159,9 @@ pub struct NumericScoreSource<
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
+    /// Number of value-ordered range batches materialized so far, surfaced as
+    /// the `Batches number` profile metric. Reset on rewind.
+    num_batches: usize,
     /// Document-level validity oracle: drops records for doc ids it reports
     /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
     /// [`AllValid`] keeps every record.
@@ -260,6 +263,7 @@ impl<'index> NumericScoreSource<'index> {
             child_estimate,
             heap_old_size: 0,
             num_iterations: 0,
+            num_batches: 0,
             validity: AllValid,
             expiration: NoOpChecker,
             timeout: NoTimeoutChecker,
@@ -296,6 +300,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
         }
     }
 
@@ -325,6 +330,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
         }
     }
 
@@ -352,12 +358,19 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
             last_limit_estimate: self.last_limit_estimate,
             heap_old_size: self.heap_old_size,
             num_iterations: self.num_iterations,
+            num_batches: self.num_batches,
         }
     }
 
     /// Sort direction the source reads in, for the heap comparator.
     pub fn ascending(&self) -> bool {
         self.ascending
+    }
+
+    /// Number of value-ordered range batches materialized so far, for the
+    /// `Batches number` profile metric.
+    pub fn num_batches(&self) -> usize {
+        self.num_batches
     }
 
     /// Hit ratio of the window just consumed: results collected from it over the
@@ -432,6 +445,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         else {
             return Ok(None);
         };
+        self.num_batches += 1;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document-level validity (deletion, whole-doc expiry)
         // and field-level TTL, the two the range tree only sheds at GC time. Each
@@ -474,6 +488,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.window = self.initial_window;
         self.last_limit_estimate = self.initial_window.limit;
         self.num_iterations = 0;
+        self.num_batches = 0;
         self.heap_old_size = 0;
         self.ranges.forget_emitted();
         self.ranges.refind(&self.filter, self.window);
