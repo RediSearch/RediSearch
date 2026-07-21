@@ -11,6 +11,10 @@
 #include "iterators/optimizer_reader.h"
 #include "ext/default.h"
 #include "iterators_ffi.h"
+#include "numeric_filter.h"
+#include "redis_index.h"
+
+#include <math.h>
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -225,6 +229,44 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
+// Build a Rust numeric top-k iterator for the sort field, a drop-in for the C
+// OptimizerIterator. Opens the field's numeric range tree and hands the residual
+// query (`root`) to the Rust reducer as the filter child. Returns NULL on an
+// allocation-size overflow (oversized OFFSET/LIMIT), so callers surface
+// QUERY_ERROR_CODE_LIMIT exactly as with the C optimizer.
+static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterator *root) {
+  size_t resArr_alloc_size;
+  if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) return NULL;
+  if (__builtin_mul_overflow(resArr_alloc_size, sizeof(RSIndexResult), &resArr_alloc_size)) return NULL;
+
+  IndexSpec *spec = qOpt->sctx->spec;
+  const FieldSpec *field =
+      IndexSpec_GetFieldWithLength(spec, qOpt->fieldName, strlen(qOpt->fieldName));
+  NumericRangeTree *tree = openNumericOrGeoIndex(spec, (FieldSpec *)field, DONT_CREATE_INDEX);
+  if (!tree) {
+    // No numeric index for the field: nothing to scan. `NewNumericTopKIterator`
+    // has not adopted `root` yet, so free it here, as the C optimizer does.
+    root->Free(root);
+    return NewEmptyIterator();
+  }
+
+  // Mirror the optimizer: with no explicit numeric range, scan the whole field.
+  NumericFilter *nf = qOpt->nf;
+  bool ownNf = false;
+  if (!nf) {
+    nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field, NULL);
+    ownNf = true;
+  }
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
+                                  .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  QueryIterator *it = NewNumericTopKIterator(tree, nf, qOpt->asc, qOpt->limit, spec->docs.size,
+                                             root, qOpt->sctx, &filterCtx);
+  // The Rust source copies the filter by value, so a synthesized one can be
+  // released immediately.
+  if (ownNf) NumericFilter_Free(nf);
+  return it;
+}
+
 int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
@@ -248,7 +290,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        req->rootiter = newNumericTopKFromOptimizer(opt, root);
         if (!req->rootiter) {
           req->rootiter = root;
           QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
@@ -260,7 +302,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        req->rootiter = newNumericTopKFromOptimizer(opt, root);
         if (!req->rootiter) {
           req->rootiter = root;
           QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
@@ -282,7 +324,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
-      req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+      req->rootiter = newNumericTopKFromOptimizer(opt, root);
       if (!req->rootiter) {
         req->rootiter = root;
         QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
