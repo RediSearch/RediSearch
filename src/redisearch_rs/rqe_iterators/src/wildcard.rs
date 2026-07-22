@@ -19,6 +19,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
+use crate::inverted_index::core::ResumeStatus;
 use crate::{
     Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
@@ -296,6 +297,96 @@ impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
         match self {
             Self::DocIdsOnly(it) => it.print_profile(map, ctx),
             Self::RawDocIdsOnly(it) => it.print_profile(map, ctx),
+        }
+    }
+}
+
+/// [`Suspended`]-mode counterpart of [`OptimizedWildcard`] used as its
+/// `RQEIteratorBoxed::Suspended` type. Each variant holds the `Suspended`
+/// form of the corresponding inverted-index wildcard reader, retaining the
+/// `'query` lifetime so query-attached borrows stay valid across the
+/// suspend/resume cycle.
+///
+/// `#[repr(C, u8)]` matches [`OptimizedWildcard`]'s layout.
+#[repr(C, u8)]
+pub enum OptimizedWildcardSuspended<'query> {
+    /// Suspended counterpart of [`OptimizedWildcard::DocIdsOnly`].
+    DocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, DocIdsOnly>),
+    /// Suspended counterpart of [`OptimizedWildcard::RawDocIdsOnly`].
+    RawDocIdsOnly(crate::inverted_index::RawWildcard<'query, Suspended, RawDocIdsOnly>),
+}
+
+impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
+    type Suspended = OptimizedWildcardSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: both enums are `#[repr(C, u8)]`; corresponding variants
+        // hold `RawWildcard<'index, Active<'index>, E>` / `RawWildcard<'index,
+        // Suspended, E>`, which are layout-compatible by the [`RQEIteratorBoxed`]
+        // contract on `inverted_index::Wildcard`. Box::from_raw reuses the
+        // heap allocation.
+        unsafe { Box::from_raw(raw as *mut OptimizedWildcardSuspended<'index>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query> {
+    type Resumed<'a>
+        = OptimizedWildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: per-variant identity check + the shared in-place resume
+        // transition on the inner inverted-index wildcard, still on the
+        // suspended form. Preserves the heap allocation across the cycle so
+        // external borrows into the iterator's interior (FFI wrapper's
+        // `header.current`) stay valid.
+        let status = match &mut *self {
+            OptimizedWildcardSuspended::DocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    return Ok(ResumeOutcome::Aborted);
+                }
+                w.it.resume_in_place(spec)?
+            }
+            OptimizedWildcardSuspended::RawDocIdsOnly(w) => {
+                if w.should_abort(spec) {
+                    return Ok(ResumeOutcome::Aborted);
+                }
+                w.it.resume_in_place(spec)?
+            }
+        };
+
+        // Step 2: whole-box cast to the active form.
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`.
+        let active = unsafe { Box::from_raw(raw as *mut OptimizedWildcard<'a>) };
+
+        Ok(match status {
+            ResumeStatus::Unchanged => ResumeOutcome::Ok(active),
+            ResumeStatus::Moved => ResumeOutcome::Moved(active),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => RQESuspendedIterator::last_doc_id(it),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            OptimizedWildcardSuspended::DocIdsOnly(it) => RQESuspendedIterator::num_estimated(it),
+            OptimizedWildcardSuspended::RawDocIdsOnly(it) => {
+                RQESuspendedIterator::num_estimated(it)
+            }
         }
     }
 }
