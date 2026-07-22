@@ -414,13 +414,13 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
   // Shallow copy: only pointers are copied; the strings stay owned by src->args
-  // (or are static). Option keywords are canonicalized to their lowercase
-  // spelling so `addRemote`'s byte-wise dedup and the lowercased generated
-  // alias agree on case-variant keywords (e.g. `FIELDS` vs `fields`); values
-  // are forwarded verbatim.
+  // (or are static). Option keywords are normalized to their lowercase spelling
+  // so `addRemote`'s byte-wise dedup and the lowercased generated alias agree
+  // on case-variant keywords (e.g. `FIELDS` vs `fields`); values are forwarded
+  // verbatim.
   for (size_t i = 0; i < srcArgc; i++) {
-    const char *canon = CollectArgs_CanonicalKeyword(srcObjs[i]);
-    remoteObjs[1 + i] = canon ? canon : srcObjs[i];
+    const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
+    remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
   }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);

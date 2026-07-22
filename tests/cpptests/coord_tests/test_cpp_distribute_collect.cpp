@@ -182,9 +182,9 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_NoLimit) {
 TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   AGGPlan *plan = nullptr;
   // The user omits the per-key direction (`SORTBY 1 @price`, not
-  // `SORTBY 2 @price ASC`). SORTBY is forwarded as-is (keywords canonicalized
-  // to lowercase on the remote side only), so the omitted direction stays
-  // omitted on both sides.
+  // `SORTBY 2 @price ASC`). SORTBY is forwarded as-is (keywords normalized to
+  // lowercase on the remote side only), so the omitted direction stays omitted
+  // on both sides.
   AREQ *r = compileAndDistribute(
       {"FIELDS", "1", "@name", "SORTBY", "1", "@price"}, &plan);
   ASSERT_NE(r, nullptr);

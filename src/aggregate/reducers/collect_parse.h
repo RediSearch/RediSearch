@@ -62,10 +62,10 @@ bool CollectArgs_Parse(const ReducerOptions *options, CollectArgs *out);
 void CollectArgs_Free(CollectArgs *args);
 
 /**
- * If `tok` is a COLLECT option keyword, return its canonical (lowercase,
+ * If `tok` is a COLLECT option keyword, return its normalized (lowercase,
  * static) spelling; otherwise NULL.
  */
-const char *CollectArgs_CanonicalKeyword(const char *tok);
+const char *CollectArgs_NormalizedKeyword(const char *tok);
 
 #ifdef __cplusplus
 }

@@ -25,6 +25,11 @@
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
+// COLLECT option keywords, in their normalized (lowercase) spelling.
+#define COLLECT_NUM_KEYWORDS 6
+static const char *const COLLECT_KEYWORDS[COLLECT_NUM_KEYWORDS] = {
+    "fields", "sortby", "asc", "desc", "limit", "distinct"};
+
 typedef struct {
   CollectArgs *args;
   const ReducerOptions *options;
@@ -286,12 +291,10 @@ void CollectArgs_Free(CollectArgs *args) {
   args->sort_names = NULL;
 }
 
-const char *CollectArgs_CanonicalKeyword(const char *tok) {
-  static const char *const keywords[] = {"fields", "sortby", "asc", "desc", "limit", "distinct"};
-  static const size_t nkeywords = sizeof(keywords) / sizeof(keywords[0]);
-  for (size_t i = 0; i < nkeywords; i++) {
-    if (!strcasecmp(tok, keywords[i])) {
-      return keywords[i];
+const char *CollectArgs_NormalizedKeyword(const char *tok) {
+  for (size_t i = 0; i < COLLECT_NUM_KEYWORDS; i++) {
+    if (!strcasecmp(tok, COLLECT_KEYWORDS[i])) {
+      return COLLECT_KEYWORDS[i];
     }
   }
   return NULL;
