@@ -464,8 +464,8 @@ requires-dist = [{ name = "pip" }]
 
 [[package]]
 name = "rltest"
-version = "99.99.99"
-source = { git = "https://github.com/RedisLabsModules/RLTest.git?rev=3506d5965876b5ff892d482373272d10c5908aa3#3506d5965876b5ff892d482373272d10c5908aa3" }
+version = "0.7.28"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distro" },
     { name = "progressbar2" },
@@ -473,6 +473,10 @@ dependencies = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "redis" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/43/fe35d62b1b754ad3b9a0204699a7607c6a39e27fd174040cae3bca461a1f/rltest-0.7.28.tar.gz", hash = "sha256:60b160ca2a4a4f9e0e04bb11942c4a71bd03ed4966938f9c78834738f3e4e716", size = 45396, upload-time = "2026-07-22T14:06:35.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a9/e6/7aa270d9746bf56a743ce0ee7cc9aab3952176a58dfcc0e161bb9f48c131/rltest-0.7.28-py3-none-any.whl", hash = "sha256:b313dc1e80e4aa4180482fe82a94d4c88626545c2b9ed795ca6184c8429587eb", size = 50844, upload-time = "2026-07-22T14:06:35.815Z" },
 ]
 
 [[package]]
@@ -504,7 +508,7 @@ requires-dist = [
     { name = "orderly-set", specifier = "<=5.4.1" },
     { name = "packaging", specifier = "<=24.2" },
     { name = "redis", specifier = ">=5.2.1,<7.0.0" },
-    { name = "rltest", git = "https://github.com/RedisLabsModules/RLTest.git?rev=3506d5965876b5ff892d482373272d10c5908aa3" },
+    { name = "rltest", specifier = ">=0.7.28,<0.8.0" },
     { name = "scipy", specifier = "<=1.15.2" },
 ]
 
