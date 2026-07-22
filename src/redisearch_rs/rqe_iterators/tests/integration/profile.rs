@@ -221,3 +221,67 @@ fn counters_default_is_zero() {
     let counters = ProfileCounters::default();
     assert_eq!(counters.num_reading_operations(), 0);
 }
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators::TypeErasedRQEIterator;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn profile_revalidate() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Wildcard::new(10, 1.0);
+        let mut profile = Box::new(Profile::new(child));
+
+        let _ = profile.read(); // doc 1
+        let _ = profile.read(); // doc 2
+
+        // Resume (Wildcard returns OK)
+        let mut profile =
+            revalidate_via_resume(TypeErasedRQEIterator::new(profile), &mock_ctx.spec_read())
+                .expect("resume failed")
+                .expect_ok();
+
+        // Verify delegation still works
+        assert_eq!(profile.last_doc_id(), 2);
+        assert_eq!(profile.current().unwrap().doc_id, 2);
+    }
+
+    /// The FFI wrapper caches a raw pointer into the iterator (`header.current`),
+    /// so a suspend→resume cycle must reuse the same heap allocation rather than
+    /// reallocate. Exercise the concrete (non-type-erased) path and assert the
+    /// box address survives both transitions.
+    #[test]
+    fn profile_resume_preserves_box_address() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Wildcard::new(10, 1.0);
+        let mut profile = Box::new(Profile::new(child));
+
+        let _ = profile.read(); // doc 1
+        let _ = profile.read(); // doc 2
+
+        let addr_before = &*profile as *const _ as usize;
+
+        let suspended = profile.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation"
+        );
+
+        let active = match suspended
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Aborted => panic!("wildcard child should not abort"),
+        };
+
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the same allocation (FFI caches a pointer into it)"
+        );
+        assert_eq!(active.last_doc_id(), 2);
+    }
+}
