@@ -23,7 +23,7 @@ use top_k::{
     mock::MockScoreSource,
 };
 
-fn asc(a: f64, b: f64) -> Ordering {
+fn asc(a: &f64, b: &f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 
@@ -69,6 +69,12 @@ impl ScoreSource for CallCountingScoreSource {
         Self: 'r,
     {
         RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
     }
 
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {

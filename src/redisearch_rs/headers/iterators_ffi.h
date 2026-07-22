@@ -12,6 +12,7 @@
 #include "iterators/iterator_api.h"
 #include "tag_index.h"
 #include "query.h"
+#include "VecSim/vec_sim.h"
 #include "field.h"
 #include "query_types.h"
 #include "rqe_core.h"
@@ -413,6 +414,39 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
 /**
+ * Construct a vector top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator.
+ *
+ * Pass `child = NULL` for a pure KNN query; pass a valid owning child iterator
+ * for a hybrid (filtered) query.
+ *
+ * The `query_params` pointer is read once to copy the parameters into the
+ * iterator; it is not retained after this call.
+ *
+ * `can_trim_deep_results` applies only to filtered queries: when `true`, the
+ * pipeline needs no rich results, so each match yields a metric-only result
+ * carrying just the vector score instead of a deep copy of the child's scoring
+ * subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+ *
+ * # Safety
+ *
+ * 1. `index` is non-null and [valid], and outlives the returned iterator.
+ * 2. `query_vector` is [valid] for `vector_byte_len` bytes, and
+ *    `vector_byte_len` equals the index's expected query-vector size.
+ * 3. `query_params` is non-null and [valid] for a [`VecSimQueryParams`].
+ * 4. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, timespec timeout, bool skip_timeout_checks, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+
+/**
  * Creates a new union iterator, applying reduction rules and choosing between
  * flat and heap variants based on the number of children.
  *
@@ -506,6 +540,36 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
  *    holds under the spec lock).
  */
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
+
+/**
+ * Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
+ *
+ * This call can reduce to an `Empty` iterator (`k == 0`, or a child that can
+ * never match).
+ *
+ * Pass `child = NULL` for a plain `SORTBY numeric` range scan; pass a valid
+ * owning child iterator for a filtered query, whose selectivity sizes the
+ * initial value-window and drives the expand-and-retry path.
+ *
+ * `filter` is read once to copy the numeric range parameters; it is not
+ * retained after this call.
+ *
+ * # Safety
+ *
+ * 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
+ *    returned iterator.
+ * 2. `filter` is non-null and [valid] for a [`NumericFilter`] for the duration
+ *    of this call.
+ * 3. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
+ *    callback populated.
+ * 4. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
+ *    `spec`, both outliving the returned iterator.
+ * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
+ *    duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, bool ascending, size_t k, size_t num_docs, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
@@ -631,6 +695,19 @@ QueryIterator *NewInvIndIterator_WildcardQuery(const InvertedIndex *idx, const R
 RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 
 /**
+ * Return a mutable reference to the `RLookupKey *` stored inside this iterator.
+ *
+ * The key is initially `NULL`; the metrics-loader result processor writes
+ * through this pointer to set the iterator's score-output key.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+RLookupKey * *VectorTopK_GetOwnKeyRef(QueryIterator *it);
+
+/**
  * Creates a new tag inverted index iterator.
  *
  * # Parameters
@@ -668,6 +745,31 @@ RLookupKey * *GetMetricOwnKeyRef(QueryIterator *header);
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
 /**
+ * Return the filter child iterator, or `NULL` for a plain range scan.
+ *
+ * The returned pointer is non-owning; its lifetime is that of `it`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`NumericTopKFfi`] that was
+ *    created by [`NewNumericTopKIterator`].
+ */
+QueryIterator *NumericTopK_GetChild(const QueryIterator *it);
+
+/**
+ * Set the [`RLookupKeyHandle`] back-reference on this iterator.
+ *
+ * The handle is used to invalidate the key pointer when the iterator is freed.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ * 2. `handle` is either null or a valid pointer to a [`RLookupKeyHandle`].
+ */
+void VectorTopK_SetKeyHandle(QueryIterator *it, RLookupKeyHandle *handle);
+
+/**
  * Creates a NOT iterator, choosing between non-optimized and optimized based
  * on the query evaluation context.
  *
@@ -701,6 +803,78 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  *    valid for the lifetime of the returned iterator.
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, timespec timeout, AREQ *bc_timeout_areq, QueryEvalCtx *q);
+
+/**
+ * Return a C string describing the search mode that was used (or is being used) for this query.
+ *
+ * - [`Unfiltered`](TopKMode::Unfiltered) → `VECSIM_STANDARD_KNN`
+ * - [`Batches`](TopKMode::Batches) → `VECSIM_HYBRID_BATCHES`
+ * - [`AdhocBF`](TopKMode::AdhocBF) → `VECSIM_HYBRID_ADHOC_BF` or
+ *   `VECSIM_HYBRID_BATCHES_TO_ADHOC_BF` (when the mode was switched mid-execution)
+ *
+ * The returned pointer is a static, null-terminated C string. It is valid for
+ * the lifetime of the program and must not be freed by the caller.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+const char *VectorTopK_GetSearchModeString(const QueryIterator *it);
+
+/**
+ * Return `true` if the iterator is, or has ever been, in batches mode.
+ *
+ * This includes queries that started as batches before switching to ad-hoc BF.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+bool VectorTopK_IsBatchMode(const QueryIterator *it);
+
+/**
+ * Return the number of batch iterations performed so far (Batches mode only).
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetNumIterations(const QueryIterator *it);
+
+/**
+ * Return the largest batch size used during Batches mode.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetMaxBatchSize(const QueryIterator *it);
+
+/**
+ * Return the zero-based batch index at which the maximum batch size occurred.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+size_t VectorTopK_GetMaxBatchIteration(const QueryIterator *it);
+
+/**
+ * Return the filter child iterator, or `NULL` for a pure KNN query.
+ *
+ * The returned pointer is non-owning; its lifetime is that of `it`.
+ *
+ * # Safety
+ *
+ * 1. `it` must be a valid, non-null pointer to a [`VectorTopKIterator`] that was
+ *    created by [`NewVectorTopKIterator`].
+ */
+QueryIterator *VectorTopK_GetChild(const QueryIterator *it);
 
 #ifdef __cplusplus
 }  // extern "C"

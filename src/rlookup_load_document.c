@@ -14,6 +14,7 @@
 #include "doc_types.h"
 #include "value_ffi.h"
 #include "util/arr.h"
+#include "rs_wall_clock.h"
 
 typedef enum {
   RLOOKUP_C_STR = 0,
@@ -49,25 +50,30 @@ static inline bool isValueAvailable(const RLookupKey *kk, const RLookupRow *dst,
     ));
 }
 
+typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
+                          void **keyobj, size_t keyIndex);
+
 static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
-                        RedisModuleKey **keyobj) {
+                        void **keyobj, size_t keyIndex) {
+  REDISMODULE_NOT_USED(keyIndex);
   if (isValueAvailable(kk, dst, options)) {
     return REDISMODULE_OK;
   }
 
+  RedisModuleKey **hashKey = (RedisModuleKey **)keyobj;
   const char *keyPtr = options->dmd ? options->dmd->keyPtr : options->keyPtr;
   // In this case, the flag must be obtained via HGET
-  if (!*keyobj) {
+  if (!*hashKey) {
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    *hashKey = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
-    if (!*keyobj) {
+    if (!*hashKey) {
       QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
-    if (RedisModule_KeyType(*keyobj) != REDISMODULE_KEYTYPE_HASH) {
+    if (RedisModule_KeyType(*hashKey) != REDISMODULE_KEYTYPE_HASH) {
       QueryError_SetCode(options->status, QUERY_ERROR_CODE_REDIS_KEY_TYPE);
       return REDISMODULE_ERR;
     }
@@ -77,7 +83,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  RedisModule_HashGet(*keyobj, REDISMODULE_HASH_CFIELDS, RLookupKey_GetPath(kk), &val, NULL);
+  RedisModule_HashGet(*hashKey, REDISMODULE_HASH_CFIELDS, RLookupKey_GetPath(kk), &val, NULL);
 
   if (val != NULL) {
     // `val` was created by `RedisModule_HashGet` and is owned by us.
@@ -86,7 +92,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     rsv = hvalToValue(val, (RLookupKey_GetFlags(kk) & RLOOKUP_F_NUMERIC) ? RLOOKUP_C_DBL : RLOOKUP_C_STR);
     RedisModule_FreeString(RSDummyContext, val);
   } else if (!strcmp(RLookupKey_GetPath(kk), UNDERSCORE_KEY)) {
-    const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*keyobj);
+    const RedisModuleString *keyName = RedisModule_GetKeyNameFromModuleKey(*hashKey);
     rsv = hvalToValue(keyName, RLOOKUP_C_STR);
   } else {
     return REDISMODULE_OK;
@@ -99,7 +105,8 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
 
 static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
-                        RedisJSON *keyobj) {
+                        void **keyobj, size_t keyIndex) {
+  REDISMODULE_NOT_USED(keyIndex);
   if (!japi) {
     QueryError_SetCode(options->status, QUERY_ERROR_CODE_UNSUPP_TYPE);
     RedisModule_Log(RSDummyContext, "warning", "cannot operate on a JSON index as RedisJSON is not loaded");
@@ -114,13 +121,14 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleCtx *ctx = options->sctx->redisCtx;
   const bool keyPtrFromDMD = options->dmd != NULL;
   char *keyPtr = keyPtrFromDMD ? options->dmd->keyPtr : (char *)options->keyPtr;
-  if (!*keyobj) {
+  RedisJSON *jsonKey = (RedisJSON *)keyobj;
+  if (!*jsonKey) {
 
     RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, keyPtrFromDMD ? sdslen(keyPtr) : strlen(keyPtr));
-    *keyobj = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
+    *jsonKey = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
 
-    if (!*keyobj) {
+    if (!*jsonKey) {
       QueryError_SetCode(options->status, QUERY_ERROR_CODE_NO_DOC);
       return REDISMODULE_ERR;
     }
@@ -130,7 +138,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   RedisModuleString *val = NULL;
   RSValue *rsv = NULL;
 
-  JSONResultsIterator jsonIter = (*RLookupKey_GetPath(kk) == '$') ? japi->get(*keyobj, RLookupKey_GetPath(kk)) : NULL;
+  JSONResultsIterator jsonIter = (*RLookupKey_GetPath(kk) == '$') ? japi->get(*jsonKey, RLookupKey_GetPath(kk)) : NULL;
 
   if (!jsonIter) {
     // The field does not exist and and it isn't `__key`
@@ -152,8 +160,31 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
   return REDISMODULE_OK;
 }
 
-typedef int (*GetKeyFunc)(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
-                          void **keyobj);
+static int getKeyProfiled(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOptions *options,
+                          void **keyobj, size_t keyIndex, GetKeyFunc getKey) {
+  RS_LOG_ASSERT(options->profileFields, "profileFields must be set for profiled loads");
+  RS_LOG_ASSERT(keyIndex < options->nkeys, "profile field index must match explicit LOAD keys");
+
+  RLookupLoadFieldProfile *profile = &options->profileFields[keyIndex];
+  rs_wall_clock start;
+  rs_wall_clock_init(&start);
+  int rc = getKey(kk, dst, options, keyobj, keyIndex);
+  profile->loadTimeNs += rs_wall_clock_elapsed_ns(&start);
+  profile->loadCount++;
+  return rc;
+}
+
+static int getKeyCommonHashProfiled(const RLookupKey *kk, RLookupRow *dst,
+                                    RLookupLoadOptions *options, void **keyobj,
+                                    size_t keyIndex) {
+  return getKeyProfiled(kk, dst, options, keyobj, keyIndex, getKeyCommonHash);
+}
+
+static int getKeyCommonJSONProfiled(const RLookupKey *kk, RLookupRow *dst,
+                                    RLookupLoadOptions *options, void **keyobj,
+                                    size_t keyIndex) {
+  return getKeyProfiled(kk, dst, options, keyobj, keyIndex, getKeyCommonJSON);
+}
 
 
 int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options) {
@@ -183,8 +214,13 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
       key = options->openKey;
     }
   }
-  GetKeyFunc getKey = (type == DocumentType_Hash) ? (GetKeyFunc)getKeyCommonHash :
-                                                    (GetKeyFunc)getKeyCommonJSON;
+  const bool profileExplicitKeys = options->profileFields && options->nkeys;
+  GetKeyFunc getKey;
+  if (type == DocumentType_Hash) {
+    getKey = profileExplicitKeys ? getKeyCommonHashProfiled : getKeyCommonHash;
+  } else {
+    getKey = profileExplicitKeys ? getKeyCommonJSONProfiled : getKeyCommonJSON;
+  }
   int rc = REDISMODULE_ERR;
   // On error we silently skip the rest
   // On success we continue
@@ -193,7 +229,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   if (options->nkeys) {
     for (size_t ii = 0; ii < options->nkeys; ++ii) {
       const RLookupKey *kk = options->keys[ii];
-      if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
+      if (getKey(kk, dst, options, &key, ii) != REDISMODULE_OK) {
         goto done;
       }
     }
@@ -211,7 +247,7 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
           continue;
         }
       }
-      if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
+      if (getKey(kk, dst, options, &key, 0) != REDISMODULE_OK) {
         goto done;
       }
     }
