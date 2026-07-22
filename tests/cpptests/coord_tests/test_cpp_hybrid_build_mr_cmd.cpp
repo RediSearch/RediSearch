@@ -286,7 +286,7 @@ protected:
         EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetDisplayableError(&status, false);
         if (rc != REDISMODULE_OK) {
             if (hybridParams.scoringCtx) HybridScoringContext_Free(hybridParams.scoringCtx);
-            HybridRequest_DecrRef(hreq);
+            HybridRequest_Free(hreq);
             return out;
         }
 
@@ -294,6 +294,7 @@ protected:
                                    hybridParams.aggregationParams.common.scoreAlias};
 
         MRCommand xcmd;
+        extern size_t NumShards;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
                                      &cp, &xcmd, nullptr, testIndexSpec, nullptr, NumShards);
 
@@ -320,7 +321,7 @@ protected:
 
         MRCommand_Free(&xcmd);
         HybridScoringContext_Free(hybridParams.scoringCtx);
-        HybridRequest_DecrRef(hreq);
+        HybridRequest_Free(hreq);
         return out;
     }
 
