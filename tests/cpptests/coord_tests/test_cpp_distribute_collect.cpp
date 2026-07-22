@@ -193,12 +193,10 @@ TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   ASSERT_NE(pair.remote, nullptr);
   ASSERT_NE(pair.local, nullptr);
 
-  EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"FIELDS", "1", "@name",
-                                      "SORTBY", "1", "@price"}));
-  EXPECT_EQ(argsAsStrings(pair.local),
-            (std::vector<std::string>{"FIELDS", "1", "@name",
-                                      "SORTBY", "1", "@price"}));
+  std::vector<std::string> expected = {"FIELDS", "1", "@name",
+                                       "SORTBY", "1", "@price"};
+  EXPECT_EQ(argsAsStrings(pair.remote), expected);
+  EXPECT_EQ(argsAsStrings(pair.local), expected);
 
   AREQ_DecrRef(r);
 }
@@ -280,12 +278,10 @@ TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
   ASSERT_NE(pair.remote, nullptr);
   ASSERT_NE(pair.local, nullptr);
 
-  EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"FIELDS", "*",
-                                      "SORTBY", "2", "@price", "ASC"}));
-  EXPECT_EQ(argsAsStrings(pair.local),
-            (std::vector<std::string>{"FIELDS", "*",
-                                      "SORTBY", "2", "@price", "ASC"}));
+  std::vector<std::string> expected = {"FIELDS", "*",
+                                       "SORTBY", "2", "@price", "ASC"};
+  EXPECT_EQ(argsAsStrings(pair.remote), expected);
+  EXPECT_EQ(argsAsStrings(pair.local), expected);
 
   AREQ_DecrRef(r);
 }
