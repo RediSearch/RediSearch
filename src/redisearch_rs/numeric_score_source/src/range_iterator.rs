@@ -85,13 +85,18 @@ impl<'index> NumericRangeIterator<'index> {
 }
 
 /// Read each range's records that satisfy `filter` into a single
-/// `(doc_id, score)` vector sorted strictly ascending by doc id.
+/// `(doc_id, score)` vector, one strictly-increasing entry per doc id.
 ///
 /// A range read through [`FilterNumericReader`] yields only records whose value
 /// lies in the filter's window, since the tree's buckets are coarser than the
 /// window. Ranges overlap in doc-id space, so reading them back-to-back yields
-/// interleaved ids; the sort restores the strictly-increasing order that
+/// interleaved ids; the sort restores the increasing order that
 /// [`NumericScoreBatch`] requires for its `skip_to` `partition_point`.
+///
+/// A multivalue field indexes one entry per value, so a doc id can occur several
+/// times with different scores. Such runs are coalesced to a single entry
+/// carrying the doc's best score for the sort direction — the value that decides
+/// its rank in a top-k over this batch's ranges.
 fn merge_ranges(ranges: &[&NumericRange], filter: NumericFilter) -> NumericScoreBatch {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
@@ -105,27 +110,58 @@ fn merge_ranges(ranges: &[&NumericRange], filter: NumericFilter) -> NumericScore
         }
     }
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
+    coalesce_by_doc_id(&mut items, filter.ascending);
     NumericScoreBatch::new(items)
+}
+
+/// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
+/// keeping the best score for the sort direction: the smallest when `ascending`,
+/// the largest otherwise.
+fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>, ascending: bool) {
+    items.dedup_by(|dropped, kept| {
+        if dropped.0 != kept.0 {
+            return false;
+        }
+        // `dedup_by` retains `kept`, so fold the better score into it.
+        let dropped_is_better = if ascending {
+            dropped.1 < kept.1
+        } else {
+            dropped.1 > kept.1
+        };
+        if dropped_is_better {
+            kept.1 = dropped.1;
+        }
+        true
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
+    use rqe_core::DocId;
     use top_k::ScoreBatch;
 
     use super::NumericRangeIterator;
 
     /// Drain every window into the list of scores it yields.
     fn drain_scores(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<f64> {
+        drain_pairs(tree, filter)
+            .into_iter()
+            .map(|(_id, score)| score)
+            .collect()
+    }
+
+    /// Drain every window into the `(doc_id, score)` pairs it yields.
+    fn drain_pairs(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<(DocId, f64)> {
         let mut it = NumericRangeIterator::new(tree, filter);
-        let mut scores = Vec::new();
+        let mut pairs = Vec::new();
         while let Some(mut batch) = it.next_n(8) {
-            while let Some((_doc_id, score)) = batch.next() {
-                scores.push(score);
+            while let Some(pair) = batch.next() {
+                pairs.push(pair);
             }
         }
-        scores
+        pairs
     }
 
     #[test]
@@ -167,5 +203,40 @@ mod tests {
 
         assert!(scores.iter().all(|&s| s > 10.0 && s < 20.0));
         assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
+    }
+
+    #[test]
+    fn multivalue_doc_is_coalesced_to_its_best_ascending_value() {
+        // `is_multivalued` lets a doc id repeat with several values, as a
+        // multivalue field does.
+        let mut tree = NumericRangeTree::new(false);
+        tree.add(1, 90.0, true, 0);
+        tree.add(1, 5.0, true, 0);
+        tree.add(2, 40.0, false, 0);
+
+        let pairs = drain_pairs(&tree, &NumericFilter::default());
+
+        let ids: Vec<DocId> = pairs.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, [1, 2], "each doc id appears exactly once");
+        assert_eq!(pairs[0].1, 5.0, "ascending keeps the doc's smallest value");
+    }
+
+    #[test]
+    fn multivalue_doc_is_coalesced_to_its_best_descending_value() {
+        let mut tree = NumericRangeTree::new(false);
+        tree.add(1, 90.0, true, 0);
+        tree.add(1, 5.0, true, 0);
+
+        let filter = NumericFilter {
+            ascending: false,
+            ..NumericFilter::default()
+        };
+        let pairs = drain_pairs(&tree, &filter);
+
+        assert_eq!(
+            pairs,
+            [(1, 90.0)],
+            "descending keeps the doc's largest value"
+        );
     }
 }
