@@ -9,17 +9,15 @@
 
 use std::ffi::CStr;
 use std::io::{Cursor, Read};
-use std::mem::{self, ManuallyDrop, size_of};
+use std::mem::{self, ManuallyDrop};
 use std::ptr::NonNull;
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::Frame;
-use fork_gc::numeric::collect_numeric;
+use fork_gc::numeric::{NumericNodeDelta, collect_numeric};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::GcScanDelta;
+use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{build_single_leaf_tree, build_tree_at_split_edge};
-use numeric_range_tree::{Hll, NumericRangeTree};
-use serde::Deserialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -81,64 +79,17 @@ impl TestSpec {
     }
 }
 
-/// A single decoded numeric node entry from the wire.
-struct NodeEntry {
-    _position: u32,
-    _generation: u32,
-    _delta: GcScanDelta,
-}
-
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
     name: Vec<u8>,
     unique_id: u64,
-    entries: Vec<NodeEntry>,
+    entries: Vec<NumericNodeDelta>,
 }
 
 fn read_arr<const N: usize>(reader: &mut impl Read) -> [u8; N] {
     let mut buf = [0u8; N];
     reader.read_exact(&mut buf).unwrap();
     buf
-}
-
-/// Decode one node entry given its already-read `node_len` prefix.
-///
-/// Splits the trailing HLL register bytes off the payload and confirms the
-/// msgpack delta is consumed *exactly* up to that boundary — i.e. `node_len`,
-/// the delta, and the two register arrays are all in agreement.
-fn read_entry(cursor: &mut Cursor<&Vec<u8>>, node_len: usize) -> NodeEntry {
-    let position = u32::from_ne_bytes(read_arr(cursor));
-    let generation = u32::from_ne_bytes(read_arr(cursor));
-
-    let payload_len = node_len - 2 * size_of::<u32>();
-    let mut payload = vec![0u8; payload_len];
-    cursor.read_exact(&mut payload).unwrap();
-
-    let register_bytes = Hll::size() * 2;
-    assert!(
-        payload_len >= register_bytes,
-        "payload too short to contain the HLL registers"
-    );
-    let (msgpack, registers) = payload.split_at(payload_len - register_bytes);
-    assert_eq!(registers.len(), register_bytes);
-
-    // Deserialize the delta from a cursor and assert it stops exactly where the
-    // register tail begins. This is the same split the C parent performs, so it
-    // guards against `node_len` drifting out of sync with the written bytes.
-    let mut delta_cursor = Cursor::new(msgpack);
-    let delta =
-        GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(&mut delta_cursor)).unwrap();
-    assert_eq!(
-        delta_cursor.position(),
-        msgpack.len() as u64,
-        "delta encoding and HLL registers are misaligned"
-    );
-
-    NodeEntry {
-        _position: position,
-        _generation: generation,
-        _delta: delta,
-    }
 }
 
 /// Read one field's header and node stream, or `None` at the global terminator.
@@ -148,13 +99,10 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
         Frame::Data(name) => {
             let unique_id = u64::from_ne_bytes(read_arr(cursor));
             let mut entries = Vec::new();
-            loop {
-                let node_len = usize::from_ne_bytes(read_arr(cursor));
-                // The per-field node stream is terminated by a `usize::MAX` prefix.
-                if node_len == usize::MAX {
-                    break;
-                }
-                entries.push(read_entry(cursor, node_len));
+            // `decode` deserializes each node and yields `None` at the per-field
+            // node-stream terminator.
+            while let Some(node) = NumericNodeDelta::decode(cursor).unwrap() {
+                entries.push(node);
             }
             Some(DecodedField {
                 name: name.into_inner().into_vec(),
