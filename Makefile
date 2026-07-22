@@ -152,6 +152,8 @@ Setup:
   make bootstrap     Install build- and test-time system dependencies.
                      Auto-prefixes `sudo` when not root.
     SUDO=cmd           Override the privilege-escalation command (default: auto)
+    CHECK_DEPS=1       Only report which dependencies are missing; install nothing
+                       (set DEPS_REPORT_FILE=<path> for machine-readable output)
   make fetch         Download and prepare dependent modules
 
 Build:
@@ -225,8 +227,12 @@ help:
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
 bootstrap:
+ifeq ($(CHECK_DEPS),1)
+	@CHECK_DEPS=1 $(ROOT)/.install/verify_build_deps.sh
+else
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
+endif
 
 fetch:
 	@echo "Fetching dependencies..."
