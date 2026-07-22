@@ -16,6 +16,7 @@
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
+#include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators_ffi.h"

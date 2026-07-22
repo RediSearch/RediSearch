@@ -91,6 +91,9 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             self.japi
                 .open_from_handle(ptr::from_ref(open_key).cast_mut().cast())
         }
+        // Seeding the JSON root from the borrowed handle can fail; fall back to
+        // opening the document by name, mirroring C `getKeyCommonJSON`.
+        .or_else(|| self.open_key(key_name))
         .ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {

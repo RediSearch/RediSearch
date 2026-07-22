@@ -431,8 +431,11 @@ impl<'a> RLookup<'a> {
         key_name: &CStr,
         open_key: Option<&ffi::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
-        let keys = create_keys_from_spec(index_spec);
-        let keys_to_load = keys.into_iter().map(|k| self.keys.push(k));
+        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
+        // for every key.
+        let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
+            .map(|k| self.keys.push(k))
+            .collect();
 
         let key_name =
             RedisString::create_from_slice(search_ctx.redisCtx.cast(), key_name.to_bytes());
@@ -475,15 +478,15 @@ impl<'a> RLookup<'a> {
     }
 }
 
-fn create_keys_from_spec<'a>(index_spec: &'a IndexSpec) -> Vec<RLookupKey<'a>> {
-    // TODO: Consider returning `impl Iterator` in order to avoid the `collect()` allocation below, refer to Jira ticket MOD-13907.
+fn create_keys_from_spec<'a>(
+    index_spec: &'a IndexSpec,
+) -> impl ExactSizeIterator<Item = RLookupKey<'a>> {
     let rule = index_spec.rule();
     let field_specs = index_spec.field_specs();
     rule.filter_fields_index()
         .iter()
         .zip(rule.filter_fields())
         .map(|(&index, filter_field)| create_key_from_data(index, filter_field, field_specs))
-        .collect::<Vec<_>>()
 }
 
 fn create_key_from_data<'a>(
@@ -1299,19 +1302,22 @@ mod tests {
         let index_spec = unsafe { IndexSpec::from_raw(&raw const index_spec) };
 
         // Act
-        let actual = super::create_keys_from_spec(index_spec);
+        let mut actual = super::create_keys_from_spec(index_spec);
 
         // Assert
         assert_eq!(actual.len(), 3);
 
-        assert_eq!(actual[0].name(), c"ff0");
-        assert_eq!(actual[0].path(), &Some(c"ff0".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"ff0");
+        assert_eq!(key.path(), &Some(c"ff0".into()));
 
-        assert_eq!(actual[1].name(), c"fn0");
-        assert_eq!(actual[1].path(), &Some(c"fp0".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn0");
+        assert_eq!(key.path(), &Some(c"fp0".into()));
 
-        assert_eq!(actual[2].name(), c"fn1");
-        assert_eq!(actual[2].path(), &Some(c"fp1".into()));
+        let key = actual.next().unwrap();
+        assert_eq!(key.name(), c"fn1");
+        assert_eq!(key.path(), &Some(c"fp1".into()));
 
         // Clean up
         unsafe { ffi::array_free(schema_rule.filter_fields.cast()) };
