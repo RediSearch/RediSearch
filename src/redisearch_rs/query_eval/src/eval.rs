@@ -283,51 +283,38 @@ fn eval_wildcard<'index>(
 
 /// `QN_IDS` — filter by explicit document key names.
 ///
-/// Resolves each key to a document ID, sorts, deduplicates, and creates a
-/// sorted [`IdListSorted`] iterator.
+/// The key -> docId mapping now lives on the Redis key as key-metadata
+/// (`DocIdMeta`) in both memory and disk mode, and resolving it opens the key
+/// (which requires the GIL). To keep that off the — possibly background —
+/// query-execution thread, INKEYS keys are resolved to `doc_ids` on the main
+/// thread during query construction (see `applyGlobalFilters` in
+/// `aggregate_request.c`). This function therefore only consumes the
+/// pre-resolved `doc_ids`, sorts, deduplicates, and builds a sorted
+/// [`IdListSorted`] iterator.
 ///
-/// * `keys` — SDS key strings from the query node.  When `doc_ids` is
-///   `None`, each key is looked up in the [`DocTable`](ffi::DocTable) to
-///   obtain its document ID.
-/// * `doc_ids` — when present (search-on-disk mode), contains pre-resolved
-///   document IDs positionally matching `keys`, bypassing the `DocTable`
-///   lookup.
+/// * `keys` — SDS key strings from the query node, kept only for the
+///   length invariant against `doc_ids`.
+/// * `doc_ids` — pre-resolved document IDs positionally matching `keys`; a
+///   value of `0` denotes an unresolved (not indexed) key and is filtered out.
+///   `None` means no ids were resolved and yields an empty filter.
 fn eval_ids<'index>(
     ctx: &'index mut QueryEvalContext,
     keys: &[ffi::sds],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
-    // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
-    // they must be accompanied by a non-null `spec.diskSpec`. Guard the
-    // invariant.
-    debug_assert!(
-        doc_ids.is_none() || !ctx.spec().diskSpec.is_null(),
-        "pre-resolved doc_ids requires search-on-disk to be enabled"
-    );
-
-    // When pre-resolved, `doc_ids` is consumed directly and must line up
-    // positionally with `keys` (they describe the same id-filter node).
+    let _ = ctx;
+    // `doc_ids`, when present, must line up positionally with `keys` (they
+    // describe the same id-filter node).
     debug_assert!(
         doc_ids.is_none_or(|d| d.len() == keys.len()),
         "doc_ids and keys must have the same length"
     );
 
     let mut ids: Vec<DocId> = match doc_ids {
-        // Search-on-disk: ids are already resolved, just drop the misses.
+        // Ids are resolved on the main thread during query construction; drop
+        // the misses (unresolved keys encoded as 0).
         Some(resolved) => resolved.iter().copied().filter(|&did| did != 0).collect(),
-        // In-memory: resolve each key to a doc id through the `DocTable`.
-        None => keys
-            .iter()
-            .filter_map(|&key| {
-                // SAFETY: `key` is a valid SDS string (guaranteed by
-                // `QueryNodeRef`); `sdslen_rust` reads its header.
-                let key_len = unsafe { ffi::sdslen_rust(key) };
-                // SAFETY: `doc_table()` returns a valid `DocTable` reference
-                // (`QueryEvalContext` invariant).
-                let did = unsafe { ffi::DocTable_GetId(ctx.doc_table(), key, key_len) };
-                (did != 0).then_some(did)
-            })
-            .collect(),
+        None => Vec::new(),
     };
 
     if !ids.is_empty() {

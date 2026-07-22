@@ -128,7 +128,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
-            "DocTable_GetId",
             "DocTable_Put",
         ],
         types: &[],

@@ -1425,22 +1425,24 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->inkeys) {
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // For SearchDisk, resolve docIds from keys on the main thread
-    if (SearchDisk_IsEnabled()) {
-      filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
-      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-        uint64_t docId = 0;
-        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
-        // changing the search options to also use RedisModuleString* to avoid this extra conversion
-        RedisModuleString* keyName = RedisModule_CreateString(
-            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
-        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
-          filterOpts.docIds[ii] = docId;
-        } else {
-          filterOpts.docIds[ii] = 0;  // Mark as not found
-        }
-        RedisModule_FreeString(sctx->redisCtx, keyName);
+    // Resolve INKEYS key names -> docIds here, on the main thread. The key->docId
+    // mapping lives on the Redis key as key-metadata (DocIdMeta) in both memory
+    // and disk mode, and DocIdMeta_Get opens the key, which requires the GIL — so
+    // it must not run on a background query-execution thread. Pre-resolving here
+    // means the query evaluator only ever consumes docIds.
+    filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      uint64_t docId = 0;
+      // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
+      // changing the search options to also use RedisModuleString* to avoid this extra conversion
+      RedisModuleString* keyName = RedisModule_CreateString(
+          sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
+      if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        filterOpts.docIds[ii] = docId;
+      } else {
+        filterOpts.docIds[ii] = 0;  // Mark as not found
       }
+      RedisModule_FreeString(sctx->redisCtx, keyName);
     }
 
     QAST_SetGlobalFilters(ast, &filterOpts);

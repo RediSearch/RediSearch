@@ -28,6 +28,12 @@ protected:
   }
 
   void SetUp() override {
+    // The DocIdMeta RDB save/load callbacks are a disk-mode feature and are only
+    // registered when disk mode is (really or simulated) enabled. Simulate it so
+    // DocIdMeta_Init registers rdb_save/rdb_load for these tests.
+    prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
+    RSGlobalConfig.simulateInFlex = true;
+
     // Get context - MyEnvironment already initialized redismock
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
@@ -75,6 +81,8 @@ protected:
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
     }
+
+    RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
   }
 
   // Helper: creates a spec in specDict_g with the given name and specId.
@@ -173,6 +181,7 @@ protected:
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
   std::vector<RefManager*> createdSpecs;
+  bool prevSimulateInFlex = false;
 
   // Helper constants for spec IDs and names
   static constexpr uint64_t SPEC1_ID = 1;

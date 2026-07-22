@@ -1020,7 +1020,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
-  dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
+  dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, sctx->redisCtx, key);
   if (!dmd) {
     // We don't know the document...
     QueryError_SetError(status, QUERY_ERROR_CODE_NO_DOC, "");
@@ -1074,7 +1074,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
-  t_docId docId = DocTable_GetIdR(&sctx->spec->docs, doc->docKey);
+  t_docId docId = IndexSpec_GetDocIdByKeyR(sctx->spec, sctx->redisCtx, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
   }

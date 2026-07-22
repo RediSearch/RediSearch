@@ -573,6 +573,17 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
+// Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
+// replacement for the former in-memory DocTable key trie). Returns 0 if the key
+// is not indexed by the spec. Valid in both memory and disk mode.
+t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key);
+
+// Borrow the in-memory DMD for a key (memory mode only), resolving key -> docId
+// via DocIdMeta. Returns NULL if the key is not indexed. Caller must DMD_Return
+// the result. Disk mode fetches DMDs from disk instead.
+const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
+                                                    RedisModuleString *key);
+
 // (Re)index a single document into the spec.
 //
 // `openKey` is an optional already-open handle for `key`. Pass it when the

@@ -1725,13 +1725,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          t_docId did = 0;
-          if (qs->fn.docIds) {
-            RS_ASSERT(SearchDisk_IsEnabled());
-            did = qs->fn.docIds[i];
-          } else {
-            did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
-          }
+          // INKEYS keys are resolved to docIds on the main thread during query
+          // construction (in both memory and disk mode), so the node always
+          // carries pre-resolved docIds here.
+          t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
           }

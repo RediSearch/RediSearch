@@ -899,15 +899,8 @@ end:
 }
 
 static t_docId getDocIdFromKey(RedisModuleCtx *ctx, const IndexSpec *spec, RedisModuleString *key) {
-  if (!SearchDisk_IsEnabled()) {
-    return DocTable_GetIdR(&spec->docs, key);
-  } else {
-    uint64_t metaDocId;
-    if (DocIdMeta_Get(ctx, key, spec->specId, &metaDocId) == REDISMODULE_OK) {
-      return metaDocId;
-    }
-    return 0;
-  }
+  // key -> docId now lives in the DocIdMeta key metadata in both modes.
+  return IndexSpec_GetDocIdByKeyR(spec, ctx, key);
 }
 
 DEBUG_COMMAND(IdToDocId) {
@@ -1563,7 +1556,7 @@ DEBUG_COMMAND(DocInfo) {
       }
     }
   } else {
-    dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, argv[3]);
+    dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, ctx, argv[3]);
   }
   if (!dmd) {
     SearchCtx_Free(sctx);

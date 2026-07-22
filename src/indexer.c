@@ -196,7 +196,7 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  *
  * These two index types live in memory in both memory mode and disk mode (the
  * inverted-index / tag / doc-table cleanup is handled by `SearchDisk_PutDocument`
- * in disk mode and by `DocTable_PopR` in memory mode — neither covers VecSim or
+ * in disk mode and by `DocTable_DeleteById` in memory mode — neither covers VecSim or
  * Geometry, hence this dedicated step). Memory mode calls this inline from
  * `makeDocumentId` before the new DMD is allocated; disk mode calls it from
  * `applyDocTable` after the disk batch commits.
@@ -246,20 +246,45 @@ static void addNewDocStats(IndexSpec *spec, uint32_t newDocLen) {
   spec->stats.scoring.totalDocsLen += newDocLen;
 }
 
-/** Assigns a document ID to a single document. Handles only RAM index */
-static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx *aCtx, IndexSpec *spec,
+static int actxDocIdMetaGet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t *docId);
+static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_t docId);
+
+/** Assigns a document ID to a single document. Handles only the RAM index.
+ *  The key -> docId mapping is stored on the Redis key via DocIdMeta (unified
+ *  with disk mode); the in-memory DocTable only maps docId -> DMD. */
+static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
                                           int replace, bool *updated) {
+  IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
-  if (replace) {
-    RSDocumentMetadata *dmd = DocTable_PopR(table, doc->docKey);
-    if (dmd) {
-      // Drop the old doc's stats + auxiliary in-memory indexes. The new doc's
-      // stats are folded in by the caller via `addNewDocStats`.
-      removeOldDocStats(spec, dmd->docLen);
-      removeReplacedDocVectorAndGeometry(spec, dmd->id);
-      *updated = true;
-      DMD_Return(dmd);
+
+  // Look up any existing key -> docId mapping. This is the memory-mode analogue
+  // of the disk path's oldDocId lookup in doAssignIds.
+  uint64_t oldDocId = 0;
+  actxDocIdMetaGet(aCtx, sctx, &oldDocId);
+
+  if (oldDocId) {
+    if (replace) {
+      // Drop the previous version from the table along with its stats +
+      // auxiliary in-memory indexes. The new doc's stats are folded in by the
+      // caller via `addNewDocStats`; the key -> docId mapping is overwritten by
+      // the actxDocIdMetaSet below.
+      RSDocumentMetadata *old = DocTable_DeleteById(table, (t_docId)oldDocId);
+      if (old) {
+        removeOldDocStats(spec, old->docLen);
+        removeReplacedDocVectorAndGeometry(spec, old->id);
+        *updated = true;
+        DMD_Return(old);
+      }
+    } else {
+      // Already indexed and not a REPLACE: return the existing metadata without
+      // assigning a new id (preserving DocTable_Put's former dedup behavior).
+      // Fall through to create a fresh entry only if the mapping is stale.
+      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, (t_docId)oldDocId);
+      if (existing) {
+        doc->docId = existing->id;
+        return existing;
+      }
     }
   }
 
@@ -269,6 +294,13 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
+    // Publish the key -> docId mapping inline (the disk path defers the
+    // equivalent DocIdMeta_Set to applyDocTable, after the write batch commits).
+    // A failure here means RedisModule_OpenKey/SetKeyMeta itself failed on a
+    // live key we are mid-indexing — effectively unrecoverable — so match the
+    // disk post-commit policy and crash rather than leave a DMD with no mapping.
+    int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
+    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
   }
 
   return dmd;
@@ -366,7 +398,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
     } else {
       RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
       bool updated = false;
-      RSDocumentMetadata *md = makeDocumentId(ctx->redisCtx, cur, spec,
+      RSDocumentMetadata *md = makeDocumentId(ctx, cur,
                                               cur->options & DOCUMENT_ADD_REPLACE, &updated);
       if (!md) {
         cur->stateFlags |= ACTX_F_ERRORED;

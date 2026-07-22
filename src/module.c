@@ -249,10 +249,9 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
-  const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
   for (size_t i = 2; i < argc; i++) {
-    if (DocTable_GetIdR(dt, argv[i]) == 0) {
+    if (IndexSpec_GetDocIdByKeyR(sctx->spec, ctx, argv[i]) == 0) {
       // Document does not exist in index; even though it exists in keyspace
       RedisModule_ReplyWithNull(ctx);
       continue;
@@ -292,7 +291,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
-  if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
+  if (IndexSpec_GetDocIdByKeyR(sctx->spec, ctx, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
@@ -4917,9 +4916,12 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  if (SearchDisk_IsEnabled()) {
-    DocIdMeta_Init(ctx);
-  }
+  // The key→docId mapping is stored on the Redis key as key-metadata in both
+  // memory and disk mode, so the DocIdMeta class is registered unconditionally.
+  // DocIdMeta_Init only registers the RDB save/load callbacks in disk mode
+  // (see the comment there). Registration must happen during OnLoad, which this
+  // is, so it is valid for a runtime `MODULE LOAD` of a memory-mode index too.
+  DocIdMeta_Init(ctx);
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
