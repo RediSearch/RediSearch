@@ -28,6 +28,7 @@ rqe_core.workspace = true
 hyperloglog.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
+ref_mode.workspace = true
 redis_reply.workspace = true
 generational_slab.workspace = true
 tracing.workspace = true

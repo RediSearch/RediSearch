@@ -8,13 +8,17 @@
 */
 
 #include "doc_id_meta.h"
-#include "spec.h"
-#include "indexes.h"
-#include "util/arr/arr.h"
-#include "util/dict.h"
-#include "rdb.h"
+
 #include <stdbool.h>
 #include <assert.h>
+#include <stddef.h>
+
+#include "spec.h"
+#include "indexes.h"
+#include "rdb.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 #define DOCID_META_INVALID 0
 #define DOCID_META_CLASS_NAME "D-ID"

@@ -26,7 +26,8 @@ use crate::empty::NewEmptyIterator;
 /// `its` must have been allocated with `rm_malloc` / `RedisModule_Alloc`.
 unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
     // SAFETY: Redis allocator must be initialized before this is called.
-    let free_fn = unsafe { ffi::RedisModule_Free.expect("Redis allocator not initialized") };
+    let free_fn =
+        unsafe { redis_module::RedisModule_Free.expect("Redis allocator not initialized") };
     // SAFETY: `its` was allocated via the Redis allocator; the caller guarantees this.
     unsafe { free_fn(its.cast::<std::ffi::c_void>()) };
 }
@@ -92,8 +93,7 @@ pub unsafe extern "C" fn NewIntersectionIterator(
     } else {
         Some(max_slop as u32)
     };
-    // SAFETY: `ffi::RSGlobalConfig` is the global config instance, read-only here.
-    let prioritize_union_children = unsafe { ffi::RSGlobalConfig.prioritizeIntersectUnionChildren };
+    let prioritize_union_children = global_config::prioritize_intersect_union_children();
     let wrapper = match new_intersection_iterator(children) {
         NewIntersectionIterator::Empty => NewEmptyIterator(),
         NewIntersectionIterator::Single(child) => child.into_raw().as_ptr(),

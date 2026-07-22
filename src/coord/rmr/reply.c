@@ -9,13 +9,18 @@
 #define __RMR_REPLY_C__
 #include "reply.h"
 
-#include "redismodule.h"
-#include "hiredis/hiredis.h"
-#include "fast_float/fast_float_strtod.h"
-
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <strings.h>
+
+#include "redismodule.h"
+#include "hiredis/hiredis.h"
+#include "fast_float/fast_float_strtod.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 
 int MRReply_StringEquals(MRReply *r, const char *s, int caseSensitive) {

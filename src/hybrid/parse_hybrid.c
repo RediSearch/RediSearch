@@ -8,11 +8,10 @@
 */
 
 #include "parse_hybrid.h"
-#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
-#include <ctype.h>
+#include <stdint.h>
 
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
@@ -23,21 +22,41 @@
 #include "rmalloc.h"
 #include "config.h"
 #include "shard_window_ratio.h"
-
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
-#include "util/references.h"
-#include "util/workers.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_search_result.h"
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
-#include "rs_wall_clock.h"
+#include "VecSim/query_results.h"
+#include "VecSim/vec_sim_common.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_scoring.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "util/arr/arr.h"
+
+// Record the sub-request's query argument by its index within the held argv.
+// Every parse cursor here walks the container's holds, and each sub's holds
+// mirror them index-for-index (all hold the same command argv, in order), so
+// a cursor-derived offset addresses the same token in the sub's own holds.
+// `queryOffset` is in root-cursor coordinates: for a slice cursor, the
+// caller adds the slice's base (the root offset recorded before AC_GetSlice).
+static void setSubQueryArg(AREQ *sub, uint32_t queryOffset) {
+  RS_ASSERT(queryOffset < sub->base.args.argc);
+  sub->base.args.queryOffset = queryOffset;
+}
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
@@ -77,7 +96,8 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  sreq->query = AC_GetStringNC(ac, NULL);
+  setSubQueryArg(sreq, (uint32_t)ac->offset);
+  AC_Advance(ac);
   RSSearchOptions *searchOpts = &sreq->searchopts;
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
@@ -313,6 +333,9 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   //                                                 ^
 
   ArgsCursor argCursor= {0};
+  // The slice's base in root-cursor coordinates (AC_GetSlice anchors the
+  // slice at the parent's current offset, then advances the parent).
+  const uint32_t sliceBase = (uint32_t)ac->offset;
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
@@ -322,12 +345,14 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
     return REDISMODULE_ERR;
   }
 
-  // Parse filter-expression (required, positional) - store in vreq->query directly
-  vreq->query = AC_GetStringNC(&argCursor, NULL);
-  if (!vreq->query) {
+  // Parse filter-expression (required, positional): becomes the sub-request's
+  // query argument.
+  if (AC_IsAtEnd(&argCursor)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
   }
+  setSubQueryArg(vreq, sliceBase + (uint32_t)argCursor.offset);
+  AC_Advance(&argCursor);
 
   // Use ArgParser for optional POLICY and BATCH_SIZE
   ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
@@ -477,11 +502,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
       // it's a string, not a number, preserving some degree of backward compatibility
-      vreq->query = AC_GetStringNC(ac, NULL);
-      if (!vreq->query) {
+      if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
         goto error;
       }
+      setSubQueryArg(vreq, (uint32_t)ac->offset);
+      AC_Advance(ac);
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
     }
@@ -507,12 +533,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // Set implicit "*" filter if no explicit filter was provided.
+  // No explicit FILTER: the sub-request has no query argument, and AREQ_Query
+  // defaults to matching everything ("*").
   // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
   // so the vector node becomes the root directly (no PHRASE/intersection needed).
   // This preserves BY_SCORE ordering from the iterator.
-  if (!vreq->query) {
-    vreq->query = "*";
+  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {
@@ -787,7 +813,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   ApplyProfileFlags(mergeReqflags, profileOptions);
-  *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
@@ -813,9 +838,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  // Prefixes for the index
-  arrayof(sds) prefixes = array_new(sds, 0);
-
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
@@ -824,7 +846,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const char *vectorScoreFieldAlias = NULL;
   PLN_VectorNormalizerStep *vnStep = NULL;
   PLN_ArrangeStep *arrangeStep = NULL;
-  size_t prefixCount = 0;
   AggregationPipelineParams params;
   HybridParseContext hybridParseCtx;
 
@@ -851,15 +872,19 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
-      .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
       .keySpaceVersion = &keySpaceVersion,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
-  // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
+
+  // Record whether TIMEOUT was explicitly given, and capture the client's value
+  // BEFORE the foreground-timeout cap below, so the coordinator can forward the
+  // exact client timeout to shards without re-scanning argv.
+  parsedCmdCtx->timeoutSpecified = (hybridParseCtx.specifiedArgs & SPECIFIED_ARG_TIMEOUT) != 0;
+  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->reqConfig->queryTimeoutMS;
 
   // Cap the effective query timeout to search-_max-foreground-timeout-limit
   // when the limit is active. The hybrid request shares a single reqConfig
@@ -951,13 +976,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  prefixCount = array_len(*hybridParseCtx.prefixes);
-  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
+  if (hybridParseCtx.nprefixes &&
+      !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, hybridParseCtx.prefixes, hybridParseCtx.nprefixes)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -997,8 +1020,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
   if (requestSlotRanges) {
     rm_free((void *)requestSlotRanges);
   }

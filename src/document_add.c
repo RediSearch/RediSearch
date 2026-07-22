@@ -6,14 +6,24 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <string.h>
+
 #include "document.h"
 #include "indexes.h"
-#include "err.h"
-#include "util/logging.h"
 #include "module.h"
-#include "rmutil/rm_assert.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "query_error_ffi.h"
+#include "aggregate/reducer.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "redismodule.h"
+#include "rmutil/args.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/references.h"
+#include "util/strconv.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);

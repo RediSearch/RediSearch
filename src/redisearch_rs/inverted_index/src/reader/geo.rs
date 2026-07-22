@@ -124,7 +124,6 @@ unsafe impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
 /// proof there).
 unsafe impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;

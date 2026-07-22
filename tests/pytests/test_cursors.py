@@ -240,6 +240,17 @@ def testLeaked(env):
     res, cursor = env.cmd('FT.AGGREGATE idx * WITHCURSOR COUNT 1')
     env.assertNotEqual(cursor, 0, message=f"result = {res}")
 
+def testCursorDelFromLua(env):
+    # FT.CURSOR DEL never blocks (a cursor-list operation; a coordinator
+    # cursor's shard cleanup is posted to the IO runtime asynchronously), so it
+    # is served from script (deny-blocking) contexts on any topology.
+    loadDocs(env, count=10)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0, message=f"result = {res}")
+    env.expect('EVAL', "return redis.call('FT.CURSOR', 'DEL', ARGV[1], ARGV[2])",
+               0, 'idx', cursor).ok()
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('Cursor not found')
+
 def testNumericCursor(env):
     conn = getConnectionByEnv(env)
     idx = 'foo'
@@ -330,6 +341,160 @@ def testExceedCursorCapacity(env):
 def testExceedCursorCapacityBG():
     env = Env(moduleArgs='WORKERS 1')
     exceedCursorCapacity(env)
+
+# A shard cursor is depleted in its first reply unless that shard holds more than
+# one chunk of matching documents: the fan-out command carries WITHCURSOR without
+# the client's COUNT, so the shard uses `search-cursor-read-size` (default 1000).
+SHARD_CURSOR_CHUNK = 1000
+
+# Small enough to reach quickly, and the tests below never rely on the default.
+COORD_CURSOR_LIMIT = 4
+
+# Matches exactly one document in `seedCoordCursorIndex`.
+SINGLE_DOC_QUERY = '@t:[1 1]'
+
+def setIndexCursorLimit(env, limit):
+    """Set INDEX_CURSOR_LIMIT and return the previous value, so callers restore
+    what the environment actually had rather than assuming the default.
+    `index_capacity` from `getCursorStats` cannot be used for this in cluster
+    mode: FT.INFO sums it across shards."""
+    previous = env.cmd(config_cmd(), 'GET', 'INDEX_CURSOR_LIMIT')[0][1]
+    env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', limit).ok()
+    return previous
+
+def seedCoordCursorIndex(env):
+    """Create `idx` holding more than one shard-cursor chunk per shard, so a `*`
+    fan-out leaves live shard cursors behind, plus exactly one document matching
+    SINGLE_DOC_QUERY so a query can instead deplete every shard cursor in its
+    first reply. The two query shapes are what let the tests below separate the
+    coordinator cap from the shard cap."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    # x2 so that uneven slot distribution still leaves every shard above a chunk.
+    n_docs = (SHARD_CURSOR_CHUNK + 1) * env.shardsCount * 2
+    with conn.pipeline(transaction=False) as p:
+        p.execute_command('HSET', 'doc1', 't', 1)
+        for i in range(2, n_docs):
+            p.execute_command('HSET', f'doc{i}', 't', 2)
+        p.execute()
+    waitForIndex(env, 'idx')
+    # Assert the seeding premise instead of letting the teardown assertions pass
+    # vacuously if some shard ended up under a chunk.
+    env.assertGreater(min(env.getConnection(i).execute_command('DBSIZE')
+                          for i in range(env.shardsCount)),
+                      SHARD_CURSOR_CHUNK,
+                      message='a shard holds less than one chunk, so its cursor would deplete')
+
+def fillCoordCursorsToCapacity(env, limit, *extra_args):
+    """Leave `limit` idle coordinator cursors behind and return their ids. The
+    chunks are never read to depletion, so every cursor stays idle and counted.
+
+    Every query matches a single document, so each shard cursor is depleted in
+    its first reply and the shard budget is left untouched. That is what makes
+    the rejection the caller asserts attributable to the coordinator cap: the
+    shard cap shares both the config value and the error message, so a test that
+    let shard cursors accumulate could not tell the two apart."""
+    cursors = []
+    for _ in range(limit):
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1,
+                            *extra_args)
+        env.assertNotEqual(cursor, 0, message='cursor was depleted, nothing left to count')
+        cursors.append(cursor)
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], 0,
+                    message='shard cursors are alive, so a rejection below could be the shard cap')
+    return cursors
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacity(env):
+    """MOD-17479: coordinator cursors are capped by INDEX_CURSOR_LIMIT.
+
+    The coordinator used to reserve its cursor with a NULL spec ref, so the cap
+    and the counter in `Cursors_Reserve` were both skipped and the coordinator
+    cursor list had no ceiling at all. This is the cluster-mode counterpart of
+    `testExceedCursorCapacity`, which has been shard-only since the cap existed.
+    """
+    seedCoordCursorIndex(env)
+    previous = setIndexCursorLimit(env, COORD_CURSOR_LIMIT)
+    try:
+        cursors = fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT)
+        # Matches one document, so this query's own shard cursors deplete too and
+        # only the coordinator counter can be at its ceiling.
+        env.expect('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1) \
+            .error().contains('INDEX_CURSOR_LIMIT')
+        env.assertEqual(getCursorStats(env, 'idx')['index_total_internal'], COORD_CURSOR_LIMIT)
+
+        # Releasing a coordinator cursor must give the budget back. Filling alone
+        # cannot catch a release that decrements the wrong counter: the coordinator
+        # counter would stay full -- rejecting coordinator cursors forever once the
+        # index first reaches capacity -- while the shard counter, a size_t, would
+        # underflow. FT.CURSOR DEL frees the coordinator cursor on the main thread,
+        # so both counters are settled by the time the reply lands.
+        env.expect('FT.CURSOR', 'DEL', 'idx', cursors[0]).ok()
+        stats = getCursorStats(env, 'idx')
+        env.assertEqual(stats['index_total_internal'], COORD_CURSOR_LIMIT - 1)
+        env.assertEqual(stats['index_total'], 0, message='release decremented the shard counter')
+        # And the freed slot is actually reusable, not merely accounted for.
+        _, reused = env.cmd('FT.AGGREGATE', 'idx', SINGLE_DOC_QUERY, 'WITHCURSOR', 'COUNT', 1)
+        env.assertNotEqual(reused, 0)
+        env.assertEqual(getCursorStats(env, 'idx')['index_total_internal'], COORD_CURSOR_LIMIT)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', previous).ok()
+
+@skip(cluster=False)
+def testExceedCoordCursorCapacityWithCount(env):
+    """The deferred WITHCOUNT path reserves the coordinator cursor only after the
+    shard fan-out has already opened shard cursors, so a rejection there must
+    tear those down (`rpnetFree` -> `MRIterator_Release` dispatches
+    `FT.CURSOR DEL`).
+
+    The fillers match one document while the rejected query matches the whole
+    index, so the shard budget is provably free when the coordinator cap fires
+    and yet the rejected query still has live shard cursors to release."""
+    seedCoordCursorIndex(env)
+    previous = setIndexCursorLimit(env, COORD_CURSOR_LIMIT)
+    try:
+        fillCoordCursorsToCapacity(env, COORD_CURSOR_LIMIT, 'WITHCOUNT')
+
+        env.expect('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, 'WITHCOUNT') \
+            .error().contains('INDEX_CURSOR_LIMIT')
+
+        # FT.CURSOR DEL is dispatched asynchronously, so poll rather than sample.
+        with TimeLimit(5, 'shard cursors were not released after the coordinator bail'):
+            while getCursorStats(env, 'idx')['index_total'] > 0:
+                sleep(0.01)
+
+        # Positive control: the same query, once the cap admits it, does leave
+        # shard cursors open. Without this, the clean state asserted above could
+        # just mean the fan-out never opened a cursor to leak.
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', COORD_CURSOR_LIMIT + 1).ok()
+        _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', 1, 'WITHCOUNT')
+        env.assertNotEqual(cursor, 0)
+        env.assertGreater(getCursorStats(env, 'idx')['index_total'], 0)
+    finally:
+        env.expect(config_cmd(), 'SET', 'INDEX_CURSOR_LIMIT', previous).ok()
+
+@skip(cluster=False)
+def testCoordCursorReadAfterIndexRecreated(env):
+    """A coordinator cursor now holds a weak spec ref, so an idle one whose spec
+    was dropped must report the dropped-index error instead of reaching a
+    dangling spec.
+
+    The index has to be recreated under the same name to reach that check:
+    FT.CURSOR resolves argv[2] first (VERIFY_ACL in `CursorCommand`), so after a
+    plain FT.DROPINDEX the READ fails with SEARCH_INDEX_NOT_FOUND before the
+    cursor is ever taken -- that case is `testIndexDropWhileIdle`."""
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'n', 1)
+
+    _, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
+    env.assertNotEqual(cursor, 0)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    # Same name, new spec: the name resolves, but the idle cursor's weak ref
+    # still points at the dropped spec.
+    env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
+    env.expect('FT.CURSOR', 'READ', 'idx', cursor).error().contains('SEARCH_INDEX_DROPPED_BG')
 
 @skip(cluster=False)
 def testCursorOnCoordinatorBG():
@@ -813,3 +978,69 @@ def test_cursor_gc_edge_cases(env: Env):
     # Test with only external cursors
     env.expect(debug_cmd(), 'DELETE_LOCAL_CURSORS').ok()
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0)
+
+
+@skip(cluster=False)
+def test_cursor_gc_reschedules_sweep_on_main_thread():
+    """
+    `FT.CURSOR GC` can re-arm the cursor idle-sweep timer, so that re-arming
+    must happen on the main thread.
+
+    `Cursors_CollectIdle` re-arms the timer, and re-arming calls
+    `RedisModule_StopTimer` / `RedisModule_CreateTimer`, which mutate the
+    server's event-loop timer state. That is main-thread-only work: a caller
+    that may run elsewhere has to post `Cursors_RequestRescheduleSweep` instead
+    of re-arming inline.
+
+    This test drives the user-facing `FT.CURSOR GC` on a multi-shard cluster,
+    the configuration in which the coordinator may serve that command from a
+    worker pool rather than on the main thread. Whether it actually does so is
+    an implementation detail that differs between branches; what must hold
+    everywhere is that the timer is only ever re-armed from the main thread. In
+    `ENABLE_ASSERT` builds the assertion in `Cursors_RescheduleSweepLocked`
+    makes a violation a hard failure here instead of a silent data race.
+
+    `test_cursor_gc_edge_cases` above only drives the shard-local
+    `_FT.CURSOR GC`, which runs on the main thread, so it does not exercise
+    this path.
+    """
+    env = Env(shardsCount=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(100 * env.shardsCount):
+            con.execute_command('HSET', f'doc{i}', 't', 'hello')
+
+    # Phase 1 — drive the GC path while a cursor is definitely idle, so the sweep
+    # timer is armed and every GC below has a reason to re-arm it. MAXIDLE is far
+    # longer than the whole test, so the cursor cannot expire mid-loop on any
+    # host: nothing here depends on how fast the loop runs.
+    _, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1',
+                     'MAXIDLE', '60000')
+    # Fail here rather than timing out below if the cursor was never created.
+    env.assertNotEqual(0, cid)
+    with TimeLimit(10, "cursors were not created"):
+        while getCursorStats(env)['global_total'] < 1:
+            sleep(0.01)
+
+    for _ in range(30):
+        env.cmd('FT.CURSOR', 'GC', 'idx', '0')
+
+    # Holds on every host, fast or slow: MAXIDLE is 60s, so the cursor is still
+    # registered and the GC calls above provably ran against an armed timer.
+    env.assertNotEqual(0, getCursorStats(env)['global_total'])
+
+    # Phase 2 — the sweep timer must still fire after all that re-arming. Release
+    # the long-lived cursor, then let a short-MAXIDLE one expire on its own with
+    # no further traffic. Both waits below only require "eventually, within a
+    # generous bound", so a slow host is slower but never wrong.
+    env.cmd('FT.CURSOR', 'DEL', 'idx', cid)
+    with TimeLimit(10, "FT.CURSOR DEL did not release the cursor"):
+        while getCursorStats(env)['global_total']:
+            sleep(0.05)
+
+    _, cid2 = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1',
+                      'MAXIDLE', '200')
+    env.assertNotEqual(0, cid2)
+    with TimeLimit(10, "idle cursor was not reaped at MAXIDLE after cluster FT.CURSOR GC"):
+        while getCursorStats(env)['global_total']:
+            sleep(0.05)

@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use trie_rs::automaton::levenshtein_nfa::MAX_NFA_DIST;
 use trie_rs::str_trie_map::StrTrieMap;
-use trie_rs::str_trie_map::automaton::levenshtein_nfa::MAX_NFA_DIST;
 
 fn collect(trie: &StrTrieMap<i32>, needle: &str, max_dist: u32) -> Vec<String> {
     trie.fuzzy_iter(needle, max_dist).map(|(k, _)| k).collect()

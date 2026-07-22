@@ -24,23 +24,23 @@ use value::SharedValue;
 const JSON_ROOT: &CStr = c"$";
 
 pub struct JsonDocumentFormat<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
-    api_version: u32,
+    api_version: u8,
 }
 
 pub struct JsonFieldLoader<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
-    api_version: u32,
+    api_version: u8,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
     pub const fn new(
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
-        api_version: u32,
+        api_version: u8,
     ) -> Self {
         Self {
             ctx,
@@ -83,7 +83,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 
     fn borrow<'key>(
         &'key self,
-        open_key: &'key ffi::RedisModuleKey,
+        open_key: &'key redis_module::RedisModuleKey,
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`.
@@ -91,6 +91,9 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             self.japi
                 .open_from_handle(ptr::from_ref(open_key).cast_mut().cast())
         }
+        // If we fail to open the JSON root from the borrowed handle: fall back to
+        // open the document by name.
+        .or_else(|| self.open_key(key_name))
         .ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {
@@ -176,11 +179,11 @@ impl FieldLoader for JsonFieldLoader<'_> {
 ///
 /// Multi-value is supported with `apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST`.
 fn json_iter_to_value(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, SerializeError> {
-    if api_version < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
+    if u32::from(api_version) < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
         // Preserve single value behavior for backward compatibility
         let Some(json) = iter.next() else {
             return Ok(None);
@@ -227,7 +230,7 @@ fn json_iter_to_value(
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
 fn json_iter_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     iter: redis_json_api::ResultsIter<'_>,
 ) -> SharedValue {
     debug_assert!(!iter.is_empty(), "should be checked by caller");
@@ -240,7 +243,7 @@ fn json_iter_to_value_expanded(
 }
 
 fn json_val_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     json: JsonValueRef,
 ) -> SharedValue {
     match json.get_type() {
@@ -273,7 +276,10 @@ fn json_val_to_value_expanded(
     }
 }
 
-fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) -> SharedValue {
+fn json_val_to_value(
+    ctx: NonNull<redis_module::RedisModuleCtx>,
+    json: JsonValueRef<'_>,
+) -> SharedValue {
     // Currently `getJSON` cannot fail here also the other japi APIs below
     match json.get_type() {
         JsonType::String => {

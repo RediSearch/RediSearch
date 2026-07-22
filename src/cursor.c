@@ -7,12 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "module.h"
-#include "resp3.h"
+
 #include <time.h>
-#include <assert.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "info/info_redis/threads/main_thread.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -26,6 +33,13 @@ static void Cursors_RequestRescheduleSweep(CursorList *cl);
 // coord cursors will have odd ids and regular cursors will have even ids
 CursorList g_CursorsList;
 CursorList g_CursorsListCoord;
+
+// Picks the cursor counter belonging to the given cursor list. Callers must hold
+// that list's lock: the counter it returns is guarded by that lock alone, which
+// is why the two lists cannot share one counter.
+static inline size_t *activeCursorsRef(IndexSpec *spec, bool is_coord) {
+  return is_coord ? &spec->activeCoordCursors : &spec->activeCursors;
+}
 
 static uint64_t curTimeNs() {
   struct timespec tv;
@@ -55,7 +69,7 @@ void CursorList_Init(CursorList *cl, bool is_coord) {
 }
 
 static void Cursor_RemoveFromIdle(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   Array *idle = &cl->idle;
   Cursor **ll = ARRAY_GETARRAY_AS(idle, Cursor **);
   size_t n = ARRAY_GETSIZE_AS(idle, Cursor *);
@@ -75,7 +89,7 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
 static void Cursor_FreeInternal(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
 
   /* Decrement the used count */
@@ -83,13 +97,9 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->hybrid_ref.rm) {
-    // The AREQ will be free by the hybrid request free function.
-    StrongRef_Release(cur->hybrid_ref);
-    cur->execState = NULL;
-  } else if (cur->execState) {
-    AREQ_DecrRef(cur->execState);
-    cur->execState = NULL;
+  if (cur->query) {
+    QueryRequest_DecrRef(cur->query);
+    cur->query = NULL;
   }
   // if There's a spec associated with the cursor
   if(cur->spec_ref.rm) {
@@ -97,7 +107,9 @@ static void Cursor_FreeInternal(Cursor *cur) {
     IndexSpec *spec = StrongRef_Get(spec_ref);
     // the spec may have been dropped, so we need to make sure it is still valid.
     if(spec) {
-      spec->activeCursors--;
+      // Select on the cursor's own list, not on whichever list a caller happens
+      // to hold: the `getCursorList` call above is the list we are locked on.
+      (*activeCursorsRef(spec, CURSOR_IS_COORD(cur->id)))--;
       StrongRef_Release(spec_ref);
     }
     WeakRef_Release(cur->spec_ref);
@@ -224,6 +236,24 @@ static void Cursors_RescheduleSweepLocked(CursorList *cl) {
     return;
   }
 
+  // `RedisModule_StopTimer` / `RedisModule_CreateTimer` below mutate the
+  // server's event-loop timer state, so they must only be reached from the main
+  // thread. Any caller that can run elsewhere must post
+  // `Cursors_RequestRescheduleSweep` instead of re-arming inline. Which callers
+  // those are depends on how each command is dispatched: `Cursor_Pause` runs on
+  // a worker whenever `FT.CURSOR READ` is handed to the workers pool, and
+  // `Cursors_CollectIdle` does whenever a cluster serves `FT.CURSOR GC` off the
+  // main thread. This assertion is the enforcement, so the rule holds without
+  // having to re-derive the dispatch path of every caller.
+  //
+  // `MainThread_GetBlockedQueries` is a proxy for "am I the thread that ran
+  // `RediSearch_InitModuleInternal`": the TLS slot is populated there and is
+  // NULL on every other thread. It is therefore only a valid main-thread test
+  // after module init, which is guaranteed for any cursor operation.
+  RS_LOG_ASSERT(MainThread_GetBlockedQueries() != NULL,
+                "Cursors_RescheduleSweepLocked must run on the main thread; "
+                "use Cursors_RequestRescheduleSweep from worker threads");
+
   if (cl->idleSweepTimerId != IDLE_SWEEP_TIMER_NONE) {
     RedisModule_StopTimer(RSDummyContext, cl->idleSweepTimerId, NULL);
     cl->idleSweepTimerId = IDLE_SWEEP_TIMER_NONE;
@@ -316,8 +346,9 @@ static uint64_t CursorList_GenerateId(CursorList *curlist) {
 }
 
 static void cursorMarkASMInaccuracyCb(CursorList *cl, Cursor *cur, void *arg) {
-  if (cur->execState) {
-    cur->execState->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
+  AREQ *req = Cursor_AREQ(cur);
+  if (req) {
+    req->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
   }
 }
 
@@ -336,6 +367,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
                         QueryError *status) {
   Cursor *cur = NULL;
   IndexSpec *spec = NULL;
+  size_t *activeCursors = NULL;
   int dummy = 0;
   khiter_t iter = 0;
 
@@ -345,11 +377,13 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   // If the cursor should be associated with a spec,
   // we assume that global_spec_ref points to a valid spec, else the function returns NULL.
   spec = StrongRef_Get(global_spec_ref);
-  // If we are in a coordinator ctx, the spec is NULL
-  if (spec && spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+  if (spec) {
+    activeCursors = activeCursorsRef(spec, cl->is_coord);
+  }
+  if (activeCursors && *activeCursors >= RSGlobalConfig.indexCursorLimit) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
+    if (*activeCursors >= RSGlobalConfig.indexCursorLimit) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
@@ -359,12 +393,11 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
   cur->id = CursorList_GenerateId(cl);
   cur->pos = -1;
   cur->timeoutIntervalMs = interval;
-  cur->is_coord = cl->is_coord;
   if(spec) {
     // Get a a weak reference to the spec out of the strong ref, and save it in the
     // cursor's struct.
     cur->spec_ref = StrongRef_Demote(global_spec_ref);
-    spec->activeCursors++;
+    (*activeCursors)++;
   }
 
   iter = kh_put(cursors, cl->lookup, cur->id, &dummy);
@@ -376,7 +409,7 @@ done:
 }
 
 int Cursor_Pause(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
 
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -432,26 +465,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   return cur;
 }
 
-CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
-  CursorTimeoutInfo info = {.queryTimeoutMS = 0,
-                            .queryTimeoutPolicy = TimeoutPolicy_Return,
-                            .found = false};
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    const Cursor *cur = kh_value(cl->lookup, iter);
-    info.queryTimeoutMS = cur->queryTimeoutMS;
-    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
-    info.found = true;
-#ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
-#endif
-  }
-  CursorList_Unlock(cl);
-  return info;
-}
-
 int Cursors_Purge(CursorList *cl, uint64_t cid) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
@@ -479,7 +492,7 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
 }
 
 int Cursor_Free(Cursor *cur) {
-  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList *cl = getCursorList(CURSOR_IS_COORD(cur->id));
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
   Cursor_FreeInternal(cur);
@@ -498,6 +511,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *
     RedisModule_ReplyKV_LongLong(reply, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
     RedisModule_ReplyKV_LongLong(reply, "index_capacity", RSGlobalConfig.indexCursorLimit);
     RedisModule_ReplyKV_LongLong(reply, "index_total", spec->activeCursors);
+    RedisModule_ReplyKV_LongLong(reply, "index_total_internal", spec->activeCoordCursors);
 
   RedisModule_Reply_MapEnd(reply);
 
@@ -532,6 +546,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
   RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", spec->activeCursors);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_total_internal", spec->activeCoordCursors);
   RedisModule_InfoEndDictField(ctx);
 
   // Unlock both locks

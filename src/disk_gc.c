@@ -7,16 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "disk_gc.h"
-#include "config.h"
-#include "spec.h"
-#include "search_disk.h"
-#include "module.h"
-#include "redismodule.h"
-#include "rmalloc.h"
-#include "info/global_stats.h"
+
 #include <stdatomic.h>
 #include <pthread.h>
 #include <time.h>
+#include <stdbool.h>
+
+#include "config.h"
+#include "spec.h"
+#include "search_disk.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "info/global_stats.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
 
 // Explicit handshake between disk GC runs (background GC thread pool) and disk-index
 // teardown (main thread, on shutdown), implemented as a readers-writer lock so it does
@@ -55,7 +61,9 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
 }
 
-static bool periodicCb(void *privdata, bool force) {
+// `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
+// to wait for and no way to fail to start.
+static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
@@ -77,7 +85,7 @@ static bool periodicCb(void *privdata, bool force) {
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
   if (!g_diskGcDisabled && sp->diskSpec &&
-      (force || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);

@@ -7,7 +7,7 @@
 #include "config.h"
 #include "defines.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -29,8 +29,7 @@ const char* nu_utf16he_read(const char *utf16, uint32_t *unicode) {
 			*unicode = ((c & 0x03FF) << 10 | (*(uint16_t *)(utf16 + 2) & 0x03FF)) + 0x10000;
 		}
 		return utf16 + 4;
-	}
-	else if (unicode != 0) {
+	} else if (unicode != 0) {
 		*unicode = c;
 	}
 
@@ -95,7 +94,7 @@ char* nu_utf16he_write(uint32_t unicode, char *utf16);
 
 #endif /* NU_WITH_UTF16HE_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

@@ -7,23 +7,33 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "redis_index.h"
+
+#include <stdio.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <string.h>
+#include <time.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
-#include "inverted_index.h"
-#include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
-#include "query_term_ffi.h"
 #include "search_disk.h"
 #include "query_error_ffi.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/logging.h"
 #include "util/misc.h"
-#include "tag_index.h"
 #include "rmalloc.h"
-#include "debug_commands.h"
-#include <stdio.h>
+#include "field.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "rmutil/rm_assert.h"
+#include "types_ffi.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/timeout.h"
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   if (RS_IsMock) return;
@@ -173,9 +183,25 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
+void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
+  // Marker only - the outer scope already holds the rwlock.
+  ctx->lock_state = SPEC_LOCK_READ_BORROWED;
+}
+
+void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *ctx) {
+  // A lock this context actually owns must go through RedisSearchCtx_UnlockSpec.
+  RS_ASSERT(ctx->lock_state == SPEC_LOCK_READ_BORROWED || ctx->lock_state == SPEC_LOCK_UNSET);
+  ctx->lock_state = SPEC_LOCK_UNSET;
+}
+
 void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   RS_ASSERT(sctx);
   if (sctx->lock_state == SPEC_LOCK_UNSET) {
+    return;
+  }
+  if (sctx->lock_state == SPEC_LOCK_READ_BORROWED) {
+    // Not ours to release. The marker is cleared by RedisSearchCtx_ClearBorrowedSpecReadLock.
     return;
   }
   if (sctx->lock_state == SPEC_LOCK_READ) {
@@ -192,10 +218,6 @@ void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
-  if (sctx->key_) {
-    RedisModule_CloseKey(sctx->key_);
-    sctx->key_ = NULL;
-  }
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down
   // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
@@ -252,19 +274,6 @@ InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *t
   }
 
   return idx;
-}
-
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
-
-  InvertedIndex *idx = Redis_OpenReaderIndex(ctx, tok, fieldMask);
-  if (!idx) {
-    return NULL;
-  }
-
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
-  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
 }
 
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {

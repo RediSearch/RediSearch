@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "concurrent_ctx.h"
+
 #include "thpool/thpool.h"
-#include <util/arr.h>
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include "info/info_redis/block_client.h"
+#include "rmalloc.h"
+#include "util/arr/arr.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 
@@ -84,9 +87,7 @@ static void threadHandleCommand(void *p) {
 
   ctx->handler(ctx->ctx, ctx->argv, ctx->argc, ctx);
 
-  if (!(ctx->options & CMDCTX_KEEP_RCTX)) {
-    RedisModule_FreeThreadSafeContext(ctx->ctx);
-  }
+  RedisModule_FreeThreadSafeContext(ctx->ctx);
 
   if (!(ctx->options & CMDCTX_KEEP_BC)) {
     RedisModule_BlockedClientMeasureTimeEnd(ctx->bc);
@@ -96,10 +97,6 @@ static void threadHandleCommand(void *p) {
 
   rm_free(ctx->argv);
   rm_free(p);
-}
-
-void ConcurrentCmdCtx_KeepRedisCtx(ConcurrentCmdCtx *cctx) {
-  cctx->options |= CMDCTX_KEEP_RCTX;
 }
 
 void ConcurrentCmdCtx_KeepBlockedClient(ConcurrentCmdCtx *cctx) {
@@ -141,10 +138,16 @@ int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler han
   RS_ASSERT(handlerCtx->bcCtx.timeoutMS == 0 ||
             (handlerCtx->bcCtx.timeout_callback != NULL && handlerCtx->bcCtx.reply_callback != NULL));
 
-  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback, handlerCtx->bcCtx.timeout_callback, handlerCtx->bcCtx.free_privdata, handlerCtx->bcCtx.timeoutMS);
+  cmdCtx->bc = RedisModule_BlockClient(ctx, handlerCtx->bcCtx.reply_callback,
+                                       handlerCtx->bcCtx.timeout_callback,
+                                       handlerCtx->bcCtx.request ? QueryRequest_OnFree : NULL,
+                                       handlerCtx->bcCtx.timeoutMS);
 
-  if (handlerCtx->bcCtx.privdata) {
-    RedisModule_BlockClientSetPrivateData(cmdCtx->bc, handlerCtx->bcCtx.privdata);
+  if (handlerCtx->bcCtx.request) {
+    // Safe against the just-armed timer: the timeout callback runs on this
+    // same thread.
+    QueryRequest_BeginCycle(handlerCtx->bcCtx.request, cmdCtx->bc,
+                            handlerCtx->bcCtx.reply_callback);
   }
 
   cmdCtx->argc = argc;

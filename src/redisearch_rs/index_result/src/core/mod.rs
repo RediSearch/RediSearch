@@ -34,6 +34,7 @@ pub struct RawIndexResultBuilder<'query, R: Ref> {
     freq: u32,
     data: RawResultData<'query, R>,
     weight: f64,
+    has_field_expiration: bool,
 }
 
 /// Specialized builder for creating [`RawIndexResult`] instances of the
@@ -48,6 +49,7 @@ pub struct RawTermResultBuilder<'query, R: Ref> {
     freq: u32,
     weight: f64,
     record: TermBuilderRecord<'query, R>,
+    has_field_expiration: bool,
 }
 
 /// Internal enum holding the term record data for the builder.
@@ -91,6 +93,12 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
         self
     }
 
+    /// Set [`RawIndexResult::has_field_expiration`] for this record
+    pub const fn has_field_expiration(mut self, has_field_expiration: bool) -> Self {
+        self.has_field_expiration = has_field_expiration;
+        self
+    }
+
     /// Create a builder for a virtual index result
     const fn virt() -> Self {
         Self {
@@ -99,6 +107,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Virtual,
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -110,6 +119,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 1,
             data: RawResultData::Numeric(num),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -121,6 +131,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Metric(num),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -132,6 +143,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Intersection(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -143,6 +155,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::Union(RawAggregateResult::borrowed_with_capacity(cap)),
             weight: 0.0,
+            has_field_expiration: false,
         }
     }
 
@@ -154,6 +167,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             freq: 0,
             data: RawResultData::HybridMetric(RawAggregateResult::owned_with_capacity(2)),
             weight: 1.0,
+            has_field_expiration: false,
         }
     }
 
@@ -168,6 +182,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             data: self.data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 }
@@ -184,6 +199,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
                 term: None,
                 offsets: RawOffsetSlice::empty(),
             },
+            has_field_expiration: false,
         }
     }
 
@@ -208,6 +224,12 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
     /// Set the frequency of this record
     pub const fn frequency(mut self, frequency: u32) -> Self {
         self.freq = frequency;
+        self
+    }
+
+    /// Set [`RawIndexResult::has_field_expiration`] for this record
+    pub const fn has_field_expiration(mut self, has_field_expiration: bool) -> Self {
+        self.has_field_expiration = has_field_expiration;
         self
     }
 
@@ -278,6 +300,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 }
@@ -316,6 +339,10 @@ pub struct RawIndexResult<'query, R: Ref> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+
+    /// Whether expiration-aware iterators must verify field-level expiration
+    /// (HFE) for this result.
+    pub has_field_expiration: bool,
 }
 
 /// The [`Active`] instantiation of [`RawIndexResult`].
@@ -380,6 +407,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data,
             metrics,
             weight,
+            has_field_expiration,
         } = self;
         let Self {
             doc_id: o_doc_id,
@@ -389,6 +417,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data: o_data,
             metrics: o_metrics,
             weight: o_weight,
+            has_field_expiration: o_has_field_expiration,
         } = other;
         doc_id == o_doc_id
             && dmd == o_dmd
@@ -397,6 +426,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             && data == o_data
             && metrics == o_metrics
             && weight == o_weight
+            && has_field_expiration == o_has_field_expiration
     }
 }
 
@@ -477,27 +507,25 @@ impl<'query> RawIndexResult<'query, Suspended> {
     /// guarantee that all of the following hold for the entire chosen lifetime
     /// `'a`:
     ///
-    /// 1. The document metadata pointer ([`Self::dmd`]) is valid for reads (or
-    ///    null).
-    /// 2. Every index-backed slice pointer is valid for reads of its **entire
+    /// 1. Every index-backed slice pointer is valid for reads of its **entire
     ///    stored length**, with provenance covering the whole region — namely a
     ///    term record's offset slice ([`RawOffsetSlice`]), whose `*const u8`
     ///    must cover all `len` bytes.
-    /// 3. No concurrent writer aliases any pointer covered by (1) or (2).
-    /// 4. Every aggregate child pointer is itself valid for reads for `'a`: the
+    /// 2. No concurrent writer aliases any pointer covered by (1).
+    /// 3. Every aggregate child pointer is itself valid for reads for `'a`: the
     ///    [`SharedPtr`](ref_mode::SharedPtr)/`Box` entry for each child of a
     ///    union / intersection / hybrid-metric result. The `SharedPtr` children
     ///    are index-mode and were weakened to raw pointers on suspension, so a
     ///    safe `RawAggregateResult::get` dereferences them; the caller must
     ///    ensure the child allocation was neither moved nor freed while
     ///    suspended before it is reached.
-    /// 5. Conditions (1)–(4) hold recursively for every such child result.
+    /// 4. Conditions (1)–(3) hold recursively for every such child result.
     ///
     /// Typically the caller upholds these by holding the inverted-index read
     /// lock for the whole of `'a`, so that neither GC nor a writer can free or
     /// relocate a backing block; this method makes no specific lock assumption.
     ///
-    /// Note that (2) is strictly stronger than per-pointee validity: a pointer
+    /// Note that (1) is strictly stronger than per-pointee validity: a pointer
     /// valid for a single `u8` does *not* satisfy it. If a GC cycle has freed
     /// or relocated the backing block, the slice tail may be stale, and a safe
     /// call such as `RSOffsetSlice::as_bytes` (or anything built on it) would
@@ -509,6 +537,14 @@ impl<'query> RawIndexResult<'query, Suspended> {
     /// obligation. They live under `'query`, were never weakened by
     /// suspension, and the `'query: 'a` bound guarantees they remain valid for
     /// all of `'a` independently of any lock.
+    ///
+    /// The document-metadata pointer ([`Self::dmd`]) is likewise **not** a
+    /// precondition of this call. It is a lifetime-erased `*const` that this
+    /// promotion carries through unchanged — it is never narrowed to a reference,
+    /// and no safe method on the resulting [`Active`] value dereferences it. Its
+    /// validity is the responsibility of whoever dereferences it, at the point of
+    /// use (C under the inverted-index read lock, or explicit `unsafe` Rust), not
+    /// of `into_active`.
     pub const unsafe fn into_active<'a>(self) -> RawIndexResult<'a, Active<'a>>
     where
         'query: 'a,
@@ -877,14 +913,14 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// Is this result some copy type
     pub const fn is_copy(&self) -> bool {
         match self.data {
-            RawResultData::Union(RawAggregateResult::Owned { .. })
-            | RawResultData::Intersection(RawAggregateResult::Owned { .. })
-            | RawResultData::HybridMetric(RawAggregateResult::Owned { .. })
+            RawResultData::Union(RawAggregateResult::Owned(_))
+            | RawResultData::Intersection(RawAggregateResult::Owned(_))
+            | RawResultData::HybridMetric(RawAggregateResult::Owned(_))
             | RawResultData::Term(RawTermRecord::Owned { .. })
             | RawResultData::Term(RawTermRecord::FullyOwned { .. }) => true,
-            RawResultData::Union(RawAggregateResult::Borrowed { .. })
-            | RawResultData::Intersection(RawAggregateResult::Borrowed { .. })
-            | RawResultData::HybridMetric(RawAggregateResult::Borrowed { .. })
+            RawResultData::Union(RawAggregateResult::Borrowed(_))
+            | RawResultData::Intersection(RawAggregateResult::Borrowed(_))
+            | RawResultData::HybridMetric(RawAggregateResult::Borrowed(_))
             | RawResultData::Term(RawTermRecord::Borrowed { .. })
             | RawResultData::Virtual
             | RawResultData::Numeric(_)
@@ -936,6 +972,12 @@ impl<'a> RSIndexResult<'a> {
     /// The caller must drain the child's metrics via `std::mem::take(&mut child.metrics)`
     /// before calling this method, and pass them as `child_metrics`.
     ///
+    /// # Panics
+    ///
+    /// If this is an aggregate result that *owns* its children, which cannot take a
+    /// borrowed one. Use [`Self::push_boxed`] for those, or ask
+    /// [`Self::is_copy`] which kind this is.
+    ///
     /// # Safety
     ///
     /// The given `child` has to stay valid for the lifetime of this index result. Else reading
@@ -962,7 +1004,9 @@ impl<'a> RSIndexResult<'a> {
         }
 
         if let Some(agg) = self.as_aggregate_mut() {
-            agg.push_borrowed(child);
+            agg.as_borrowed_mut()
+                .expect("Cannot push a borrowed child to an owned aggregate result")
+                .push_borrowed(child);
         }
     }
 
@@ -992,6 +1036,7 @@ impl<'a> RSIndexResult<'a> {
             data: self.data.to_owned(),
             metrics: self.metrics.clone(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 
@@ -1004,6 +1049,12 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
+    ///
+    /// # Panics
+    ///
+    /// If this is an aggregate result that *borrows* its children, which cannot take
+    /// ownership of one. Use [`Self::push_borrowed`] for those, or ask
+    /// [`Self::is_copy`] which kind this is.
     pub fn push_boxed(&mut self, mut child: Box<RSIndexResult<'a>>) {
         if !self.is_aggregate() {
             return;
@@ -1019,17 +1070,28 @@ impl<'a> RSIndexResult<'a> {
         }
 
         if let Some(agg) = self.as_aggregate_mut() {
-            agg.push_boxed(child);
+            agg.as_owned_mut()
+                .expect("Cannot push an owned child to a borrowed aggregate result")
+                .push_boxed(child);
         }
     }
 
     /// Get a mutable reference to the child at the given index, if it is an aggregate record.
     /// `None` is returned if this is not an aggregate record or if the index is out-of-bounds.
+    ///
+    /// # Panics
+    ///
+    /// If this is an aggregate record that *borrows* its children: those are shared
+    /// with whoever owns them, so only an
+    /// [`Owned`](RawAggregateResult::Owned) aggregate can hand out a `&mut` to one.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Self> {
         match &mut self.data {
             RawResultData::Union(agg)
             | RawResultData::Intersection(agg)
-            | RawResultData::HybridMetric(agg) => agg.get_mut(index),
+            | RawResultData::HybridMetric(agg) => agg
+                .as_owned_mut()
+                .expect("Cannot get a mutable reference to a borrowed aggregate result")
+                .get_mut(index),
             RawResultData::Term(_)
             | RawResultData::Virtual
             | RawResultData::Numeric(_)

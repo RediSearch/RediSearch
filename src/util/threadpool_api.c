@@ -8,8 +8,12 @@
 */
 
 #include "threadpool_api.h"
+
 #include "rmalloc.h"
 #include "spec.h"
+#include "redismodule.h"
+#include "thpool/thpool.h"
+#include "util/references.h"
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;

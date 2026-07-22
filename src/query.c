@@ -10,43 +10,62 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/param.h>
+#include <assert.h>
+#include <ctype.h>
+#include <limits.h>
+#include <strings.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
 
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"
-#include "iterators/iterator_api.h"
 #include "query_error_ffi.h"
 #include "redis_index.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
-#include "tokenize.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
-#include "util/logging.h"
 #include "extension.h"
-#include "ext/default.h"
 #include "hiredis/sds.h"
 #include "tag_index.h"
-#include "err.h"
-#include "concurrent_ctx.h"
 #include "numeric_filter.h"
 #include "util/strconv.h"
-#include "util/arr.h"
 #include "rmutil/rm_assert.h"
-#include "module.h"
 #include "query_internal.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
-#include "wildcard.h"
-#include "geometry/geometry_api.h"
 #include "iterators/hybrid_reader.h"
-#include "debug_commands.h"
-#include "iterators/optimizer_reader.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
 #include "idf_ffi.h"
-#include "doc_id_meta.h"
+#include "VecSim/query_results.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/reducer.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "obfuscation/hidden.h"
+#include "param.h"
+#include "query_flags.h"
+#include "query_param.h"
+#include "query_parser/tokenizer.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rqe_iterator_type.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "types_ffi.h"
+#include "util/arr/arr.h"
+#include "util/stringify.h"
+#include "vector_index.h"
+#include "wildcard/wildcard.h"
+
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -117,6 +136,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_IDS:
+      // fn.keys is a borrowed window into the request's held argv; not freed here
       if (n->fn.docIds) {
         rm_free(n->fn.docIds);
         n->fn.docIds = NULL;
@@ -266,6 +286,10 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
 }
 
 QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist) {
+  // The distance sizes a stack array in the edit-distance automaton
+  // (`SparseAutomaton_Start`), so an out-of-range one is undefined behaviour
+  // rather than an empty expansion. The grammar only ever spells 1, 2 or 3.
+  RS_ASSERT(maxDist >= 0 && maxDist <= MAX_LEV_DISTANCE);
   QueryNode *ret = NewQueryNode(QN_FUZZY);
   q->numTokens++;
 
@@ -460,9 +484,9 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.keys = options->keys;
+    n->fn.keys = options->keys;  // borrowed from the request's held argv
     n->fn.len = options->nkeys;
-    // Transfer ownership of docIds to the QueryNode (freed in QueryNode_Free)
+    // Transfer ownership of the docIds to the QueryNode (freed in QueryNode_Free)
     n->fn.docIds = options->docIds;
     options->docIds = NULL;
     SetFilterNode(ast, n);
@@ -513,100 +537,6 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
   }
 }
 
-static inline void addTerm(char *str, size_t tok_len, size_t numDocsInTerm, QueryEvalCtx *q,
-  QueryNodeOptions *opts, QueryIterator ***its, size_t *itsSz, size_t *itsCap) {
-  // Create a token for the reader
-  RSToken tok = (RSToken){
-      .expanded = 0,
-      .flags = 0,
-      .len = tok_len,
-      .str = str
-  };
-
-  QueryIterator *ir = NULL;
-
-  if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, opts);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &tok, q->tokenId++, q->opts->fieldmask & opts->fieldMask, 1, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    // Open an index reader
-    ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
-                                        q->opts->fieldmask & opts->fieldMask, 1);
-  }
-
-  if (!ir) {
-    return;
-  }
-
-  (*its)[(*itsSz)++] = ir;
-  if (*itsSz == *itsCap) {
-    *itsCap *= 2;
-    *its = rm_realloc(*its, (*itsCap) * sizeof(*its));
-  }
-}
-
-static QueryIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
-                                           size_t len, int maxDist, TrieMatchMode mode,
-                                           QueryNodeOptions *opts) {
-  TrieIterator *it = Trie_IterateFuzzy(terms, str, len, maxDist, mode);
-  if (!it) return NULL;
-
-  size_t itsSz = 0, itsCap = 8;
-  QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
-
-  rune *rstr = NULL;
-  char *target_str = NULL;
-  size_t tok_len = 0;
-  t_len slen = 0;
-  float score = 0;
-  int dist = 0;
-
-  // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-  int hasNext;
-  size_t numDocsInTerm = 0;
-  while ((hasNext = TrieIterator_Next(it, &rstr, &slen, NULL, &score, &numDocsInTerm, &dist)) &&
-         (itsSz < q->config->maxPrefixExpansions)) {
-    target_str = runesToStr(rstr, slen, &tok_len);
-    addTerm(target_str, tok_len, numDocsInTerm, q, opts, &its, &itsSz, &itsCap);
-    rm_free(target_str);
-  }
-  TrieIterator_Free(it);
-
-  if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-  }
-
-  // Add an iterator over the inverted index of the empty string for fuzzy search
-  if (mode == TRIE_MATCH_EDIT_DISTANCE && q->sctx->apiVersion >= 2 && len <= maxDist) {
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill("", 1, &buf, &rlen);
-    TrieNode *emptyNode = Trie_GetNode(terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInEmpty = emptyNode ? TrieNode_NumDocs(emptyNode) : 0;
-    addTerm("", 0, numDocsInEmpty, q, opts, &its, &itsSz, &itsCap);
-  }
-
-  QueryNodeType type = mode == TRIE_MATCH_PREFIX ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, true, opts->weight, type, str, q->config);
-}
-
-typedef struct {
-  QueryIterator **its;
-  size_t nits;
-  size_t cap;
-  QueryEvalCtx *q;
-  QueryNodeOptions *opts;
-  double weight;
-  // For tag queries: needed to support disk mode via helpers
-  TagIndex *tagIdx;
-} TrieCallbackCtx;
-
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm);
-static int charIterCb(const char *s, size_t n, void *p, void *payload);
-
 static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   if (pfx->prefix && pfx->suffix) {
     return "INFIX";
@@ -615,215 +545,6 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
   } else {
     return "SUFFIX";
   }
-}
-
-#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNE_STR_LEN)
-
-/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
- * of them.
- * Used for Prefix, Contains and suffix nodes.
-*/
-static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
-
-  // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (qn->pfx.tok.len < q->config->minTermPrefix) {
-    return NULL;
-  }
-
-  IndexSpec *spec = q->sctx->spec;
-  Trie *t = spec->terms;
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
-
-  // terms trie always exists when prefix queries reach evaluation
-  RS_ASSERT(t);
-
-  size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
-  if (!str) {
-    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_LIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
-    return NULL;
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  // spec support contains queries
-  if (spec->suffix && qn->pfx.suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = charIterCb,
-        .cbCtx = &ctx,
-
-      };
-      Suffix_IterateContains(&sufCtx);
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-    }
-  } else {
-    Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                         runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
-  }
-
-  rm_free(str);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_PREFIX, qn->pfx.tok.str, q->config);
-}
-
-/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
- * of them.
- * Used for Prefix, Contains and suffix nodes.
-*/
-static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
-
-  IndexSpec *spec = q->sctx->spec;
-  Trie *t = spec->terms;
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
-  RSToken *token = &qn->verb.tok;
-
-  // terms trie and token always exist when wildcard queries reach evaluation
-  RS_ASSERT(t && token->str);
-
-  token->len = Wildcard_RemoveEscape(token->str, token->len);
-  size_t nstr;
-  rune *str = strToLowerRunes(token->str, token->len, &nstr);
-  if (!str) {
-    QueryError_SetError(q->status, QUERY_ERROR_CODE_LIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
-    return NULL;
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  bool fallbackBruteForce = false;
-  // spec support using suffix trie
-  if (spec->suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // TEXT terms are stored lowercased, so recheck against the lowercased
-      // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
-      size_t lcstrlen;
-      char *lcstr = runesToStr(str, nstr, &lcstrlen);
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .cstr = lcstr,
-        .cstrlen = lcstrlen,
-        .type = SUFFIX_TYPE_WILDCARD,
-        .callback = charIterCb, // the difference is weather the function receives char or rune
-        .cbCtx = &ctx,
-        .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
-      };
-      if (Suffix_IterateWildcard(&sufCtx) == 0) {
-        // if suffix trie cannot be used, use brute force
-        fallbackBruteForce = true;
-      }
-      rm_free(lcstr);
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-    }
-  }
-
-  if (!spec->suffix || fallbackBruteForce) {
-    Trie_IterateWildcard(t, str, nstr, runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
-  }
-
-  rm_free(str);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
-}
-
-static void rangeItersAddIterator(TrieCallbackCtx *ctx, QueryIterator *it) {
-  ctx->its[ctx->nits++] = it;
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
-}
-
-static int runeIterCb(const rune *r, size_t n, void *p, void *payload, size_t numDocsInTerm) {
-  TrieCallbackCtx *ctx = p;
-  QueryEvalCtx *q = ctx->q;
-  if (!RS_IsMock && ctx->nits >= q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return REDISEARCH_ERR;
-  }
-  RSToken tok = {0};
-  tok.str = runesToStr(r, n, &tok.len);
-  QueryIterator *ir = NULL;
-  if (q->sctx->spec->diskSpec) {
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &tok, ctx->q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    ir = Redis_OpenReader(q->sctx, &tok, ctx->q->tokenId++, &q->sctx->spec->docs,
-                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
-  }
-  rm_free(tok.str);
-  if (ir) {
-    rangeItersAddIterator(ctx, ir);
-  }
-
-  return REDISEARCH_OK;
-}
-
-static int charIterCb(const char *s, size_t n, void *p, void *payload) {
-  TrieCallbackCtx *ctx = p;
-  QueryEvalCtx *q = ctx->q;
-  if (ctx->nits >= q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return REDISEARCH_ERR;
-  }
-  RSToken tok = {.str = (char *)s, .len = n};
-  QueryIterator *ir = NULL;
-  if (q->sctx->spec->diskSpec) {
-    RS_LOG_ASSERT(q->sctx->spec->terms, "terms trie is NULL");
-    // The iterator comes from the Suffix Trie, but the actual number of documents is stored in the Terms Trie.
-    size_t rlen = 0;
-    runeBuf buf;
-    rune *runes = runeBufFill(tok.str, tok.len, &buf, &rlen);
-    TrieNode *trienode = Trie_GetNode(q->sctx->spec->terms, runes, rlen, true, NULL);
-    runeBufFree(&buf);
-    size_t numDocsInTerm = trienode ? TrieNode_NumDocs(trienode) : 0;
-    double idf = CalculateIDF(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    double bm25_idf = CalculateIDF_BM25(q->sctx->spec->stats.scoring.numDocuments, numDocsInTerm);
-    bool needsOffsets = queryNeedsOffsets(q->opts->scorerName, ctx->opts);
-    ir = SearchDisk_NewTermIterator(q->sctx->spec->diskSpec, q->sctx, &tok, q->tokenId++, q->opts->fieldmask & ctx->opts->fieldMask, 1, idf, bm25_idf, needsOffsets, q->status);
-  } else {
-    ir = Redis_OpenReader(q->sctx, &tok, q->tokenId++, &q->sctx->spec->docs,
-                                        q->opts->fieldmask & ctx->opts->fieldMask, 1);
-  }
-  if (ir) {
-    rangeItersAddIterator(ctx, ir);
-  }
-
-  return REDISEARCH_OK;
-}
-
-static QueryIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_FUZZY, "query node type should be fuzzy");
-
-  Trie *terms = q->sctx->spec->terms;
-
-  if (!terms) return NULL;
-
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist,
-                              TRIE_MATCH_EDIT_DISTANCE, &qn->opts);
 }
 
 // Probe the Blocked Client Timeout flag for a query iterator. Called from
@@ -1064,6 +785,16 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
 
+  // An empty pattern matches exactly the empty tag value (indexed under INDEXEMPTY),
+  // like the empty-string tag query; skip the suffix-trie and brute-force scans
+  if (tok->len == 0) {
+    QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, "", 0, 1, fieldIndex, q->status);
+    if (ret) {
+      its[itsSz++] = ret;
+    }
+    return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
+  }
+
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
@@ -1227,18 +958,15 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_GEO:
     case QN_TOKEN:
     case QN_GEOMETRY:
+    case QN_PREFIX:
+    case QN_WILDCARD_QUERY:
+    case QN_FUZZY:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_PREFIX:
-      return Query_EvalPrefixNode(q, n);
-    case QN_FUZZY:
-      return Query_EvalFuzzyNode(q, n);
     case QN_VECTOR:
       return Query_EvalVectorNode(q, n, evalConfig);
-    case QN_WILDCARD_QUERY:
-      return Query_EvalWildcardQueryNode(q,n);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
       RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
   }
@@ -1731,7 +1459,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
             RS_ASSERT(SearchDisk_IsEnabled());
             did = qs->fn.docIds[i];
           } else {
-            did = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+            did = DocTable_GetIdR(&spec->docs, qs->fn.keys[i]);
           }
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);

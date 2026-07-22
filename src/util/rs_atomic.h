@@ -21,12 +21,22 @@
 #define RS_AtomicIntLoadRelaxed(p) (((std::atomic<int> *)(p))->load(std::memory_order_relaxed))
 #define RS_AtomicIntStoreRelaxed(p, v) \
   (((std::atomic<int> *)(p))->store((v), std::memory_order_relaxed))
+#define RS_AtomicUintLoadRelaxed(p) \
+  (((std::atomic<unsigned> *)(p))->load(std::memory_order_relaxed))
+#define RS_AtomicUintFetchOrRelaxed(p, v) \
+  (((std::atomic<unsigned> *)(p))->fetch_or((v), std::memory_order_relaxed))
+#define RS_AtomicUintFetchAndRelaxed(p, v) \
+  (((std::atomic<unsigned> *)(p))->fetch_and((v), std::memory_order_relaxed))
 #else
 #define RS_Atomic(T) _Atomic(T)
 #define RS_AtomicBoolLoadRelaxed(p) __atomic_load_n((bool *)(p), __ATOMIC_RELAXED)
 #define RS_AtomicBoolStoreRelaxed(p, v) __atomic_store_n((bool *)(p), (v), __ATOMIC_RELAXED)
 #define RS_AtomicIntLoadRelaxed(p) __atomic_load_n((int *)(p), __ATOMIC_RELAXED)
 #define RS_AtomicIntStoreRelaxed(p, v) __atomic_store_n((int *)(p), (v), __ATOMIC_RELAXED)
+#define RS_AtomicUintLoadRelaxed(p) __atomic_load_n((unsigned *)(p), __ATOMIC_RELAXED)
+#define RS_AtomicUintFetchOrRelaxed(p, v) __atomic_fetch_or((unsigned *)(p), (v), __ATOMIC_RELAXED)
+#define RS_AtomicUintFetchAndRelaxed(p, v) \
+  __atomic_fetch_and((unsigned *)(p), (v), __ATOMIC_RELAXED)
 #endif
 
 #endif  // RS_ATOMIC_H__

@@ -7,10 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "geometry_index.h"
+
 #include "geometry/geometry_api.h"
 #include "rmalloc.h"
 #include "field_spec.h"
 #include "redis_index.h"
+#include "rmutil/rm_assert.h"
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {

@@ -7,18 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexer.h"
+
 #include "forward_index.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
-#include "geo_index.h"
 #include "vector_index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
-#include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
@@ -26,16 +25,39 @@
 #include "gc.h"
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
-#include "tag_index.h"
 #include "module.h"
 #include "util/workers.h"
+#include "VecSim/vec_sim.h"
+#include "byte_offsets.h"
+#include "doc_table.h"
+#include "geometry_index.h"
+#include "index_result_rs.h"
+#include "info/index_error.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "stemmer.h"
+#include "synonym_map.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/block_alloc.h"
+#include "util/dict/dict.h"
+#include "util/khtable.h"
+#include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
+#include <stdint.h>
+#include <string.h>
 
-static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
-  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);
+static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry,
+                            bool hasFieldExpiration) {
+  AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry, hasFieldExpiration);
 
   // Update index statistics:
 
@@ -128,6 +150,23 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
+// Build the mask of this document's TEXT fields that carry a field-level
+// expiration, in FIELD_BIT space (the same space as ForwardIndexEntry.fieldMask).
+// Only text fields participate in term field masks — non-text fields have no
+// `ftId` — so a term posting's inline expiration bit is set iff its field mask
+// intersects this mask.
+static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&spec->docs, docId);
+  t_fieldMask mask = 0;
+  for (size_t i = 0; i < fes.len; ++i) {
+    const FieldSpec *fs = &spec->fields[fes.ptr[i].index];
+    if (FieldSpec_IsIndexableText(fs)) {
+      mask |= FIELD_BIT(fs);
+    }
+  }
+  return mask;
+}
+
 /**
  * Memory-mode full-text indexing: in a single pass over the forward index,
  * write each term's posting into the inverted index and apply the matching
@@ -144,6 +183,10 @@ static void applyTextIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
+  // Text fields carrying a field-level expiration for this document; a posting's
+  // inline expiration bit is set when its field mask overlaps this one. Read back
+  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
+  const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
   for (ForwardIndexEntry *entry = ForwardIndexIterator_Next(&it); entry;
@@ -153,7 +196,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      writeIndexEntry(spec, invidx, entry);
+      writeIndexEntry(spec, invidx, entry, (entry->fieldMask & expiringTextFields) != 0);
     }
     if (isNew && strlen(entry->term) != 0) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
@@ -621,6 +664,15 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
       aCtx->spec->stats.invertedSize += index_size;
       dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
+      // Complete any rehashing this insert started, else later reads on different
+      // threads could end up mutating the dict simultaneously, corrupting it.
+      //
+      // Cheap because this dict contains just IndexSpec's INDEXMISSING fields.
+      //
+      // dictRehash migrates a bounded number of buckets per call and returns
+      // non-zero while more remain, so loop until it reports done.
+      while (dictRehash(spec->missingFieldDict, 100)) {
+      }
     }
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;

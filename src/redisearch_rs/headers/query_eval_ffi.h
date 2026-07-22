@@ -22,60 +22,17 @@ typedef struct RSQueryNode RSQueryNode;
 typedef struct AREQ AREQ;
 
 
+typedef struct QueryError QueryError;
+
 /**
  * Various modifiers and options that can apply to the entire query or any
  * sub-query of it.
  */
 typedef struct QueryNodeOptions QueryNodeOptions;
 
-typedef struct QueryError QueryError;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Whether the scorer named `scorer_name` needs term offset data.
- *
- * A null `scorer_name` falls back to the configured default scorer
- * ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
- * otherwise unrecognised name conservatively needs offsets.
- *
- * # Safety
- *
- * `scorer_name` must be null or a valid NUL-terminated C string.
- */
-bool scorerNeedsOffsets(const char *scorer_name);
-
-/**
- * Whether a query node needs term offset data.
- *
- * # Safety
- *
- * `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
- * null or point to a valid [`QueryNodeOptions`].
- */
-bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *opts);
-
-/**
- * Evaluate a single query AST node, producing the corresponding
- * [`QueryIterator`].
- *
- * Returns a null pointer when the node produces no results (e.g. a
- * missing-field node for a field that has no missing values).
- *
- * # Safety
- *
- * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
- *    all the invariants documented on [`QueryEvalContext::new`] and remains
- *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`].
- * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
- *    pointing to a valid [`Config`] that stays valid for the duration of the
- *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
- *    dispatcher.
- */
-QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
 
 /**
  * Build the executable iterator tree for a parsed query AST and return its
@@ -89,7 +46,9 @@ QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConf
  *
  * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
  *    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
- *    must stay valid and exclusively borrowed for the duration of the call.
+ *    must stay valid and exclusively borrowed for the duration of the call. The
+ *    root's subtree must meet the token-buffer requirement of
+ *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
@@ -101,6 +60,54 @@ QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConf
  * the lifetime of the returned iterator.
  */
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, AREQ *areq, QueryError *status);
+
+/**
+ * Evaluate a single query AST node, producing the corresponding
+ * [`QueryIterator`].
+ *
+ * Returns a null pointer when the node produces no results (e.g. a
+ * missing-field node for a field that has no missing values).
+ *
+ * # Safety
+ *
+ * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
+ *    all the invariants documented on [`QueryEvalContext::new`] and remains
+ *    valid for the lifetime of the returned iterator.
+ * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
+ *    rewrites some tokens in place, so every node in the subtree that carries a
+ *    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
+ *    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
+ *    assembled by hand, with a token borrowing a read-only or length-delimited
+ *    string, does not.
+ * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
+ *    pointing to a valid [`Config`] that stays valid for the duration of the
+ *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
+ *    dispatcher.
+ */
+QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
+
+/**
+ * Whether a query node needs term offset data.
+ *
+ * # Safety
+ *
+ * `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
+ * null or point to a valid [`QueryNodeOptions`].
+ */
+bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *opts);
+
+/**
+ * Whether the scorer named `scorer_name` needs term offset data.
+ *
+ * A null `scorer_name` falls back to the configured default scorer
+ * ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
+ * otherwise unrecognised name conservatively needs offsets.
+ *
+ * # Safety
+ *
+ * `scorer_name` must be null or a valid NUL-terminated C string.
+ */
+bool scorerNeedsOffsets(const char *scorer_name);
 
 #ifdef __cplusplus
 }  // extern "C"

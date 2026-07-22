@@ -14,6 +14,7 @@ members = [
     "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "nul_terminated_bytes",
     "numeric_range_tree",
     "thin_vec",
     "qint",
@@ -41,6 +42,7 @@ members = [
     "string_utils",
     "tag_index",
     "term_suffix_index",
+    "timeout",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -51,6 +53,8 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "vector_score_source_bencher",
+    "numeric_score_source",
+    "numeric_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -120,6 +124,7 @@ fnv = { path = "./fnv" }
 fork_gc = { path = "./fork_gc" }
 generational_slab = { path = "./generational_slab" }
 geo = { path = "./geo" }
+global_config = { path = "./c_wrappers/global_config" }
 hidden_string = { path = "./c_wrappers/hidden_string" }
 hyperloglog = { path = "./hyperloglog" }
 idf = { path = "./idf" }
@@ -127,7 +132,9 @@ index_spec = { path = "./c_wrappers/index_spec" }
 index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }
@@ -143,6 +150,7 @@ ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
+rs_token = { path = "./c_wrappers/rs_token" }
 query_types = { path = "./query_types" }
 rqe_core = { path = "./rqe_core" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
@@ -154,8 +162,10 @@ search_result = { path = "./search_result" }
 slots_tracker = { path = "./slots_tracker" }
 sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
+tag_index = { path = "./tag_index" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
+timeout = { path = "timeout" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
@@ -178,7 +188,7 @@ bindgen = { version = "0.72", default-features = false }
 cargo_metadata = "0.19"
 bytecount = "0.6.9"
 cc = "1.2.53"
-cheadergen = { version = "0.3.1" }
+cheadergen = { version = "0.3.2" }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
@@ -207,7 +217,6 @@ rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 smallvec = "1.15.1"
-strsim = "0.11.1"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = "2"
 # need "unstable" for the "default_log_filter" attribute allowing to override the default level (info).
@@ -234,7 +243,13 @@ xxhash-rust = "0.8"
 
 [workspace.dependencies.redis-module]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
-rev = "7fb620f1ef42453dea4e22c9358d0d25d4224710"
+rev = "f4d68b97520aafc9baa2a946d42652415c4df002"
+# `default-features = false` is load-bearing. Members declare a plain
+# `redis-module.workspace = true` and rely on it contributing no features, so that
+# c_entrypoint/redisearch_rs/Cargo.toml is the only hand-written place choosing
+# between `bindgen-static` and `bindgen-runtime`. Enabling the defaults here would
+# turn on `bindgen-runtime` for every member and break the Alpine (musl) build; see
+# the comment on that crate's `redis-module` target blocks.
 default-features = false
 
 [profile.release]
@@ -254,9 +269,9 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Less aggressive link-time optimization, to recover
-#   parallelism in the build.
-lto = "thin"
+# - Skip link-time optimization, to avoid a large compile-time
+#   penalty.
+lto = false
 codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true

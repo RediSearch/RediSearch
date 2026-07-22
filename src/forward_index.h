@@ -95,7 +95,8 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
  * memory growth and the number of new blocks created — callers maintaining per-spec
  * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
  */
-AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent);
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                                      bool hasFieldExpiration);
 
 #ifdef __cplusplus
 }

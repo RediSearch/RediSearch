@@ -59,6 +59,18 @@ module_init_ffi = { path = "../module_init_ffi" }
 search_result_ffi = { path = "../search_result_ffi" }
 query_eval_ffi = { path = "../query_eval_ffi" }
 
+# This is the only hand-written place in the workspace that picks `redis-module`'s
+# libclang linking mode. `ffi/Cargo.toml` does the same for `bindgen`'s own
+# `static`/`runtime` build-dependency feature.
+#
+# Every other member that needs `redis-module` declares a plain
+# `redis-module.workspace = true`, which inherits `default-features = false` from
+# `[workspace.dependencies]` and so contributes no features of its own. Builds that
+# include this crate union its choice directly; a single-crate build that excludes it
+# (say `cargo build -p rdb_io`) gets the choice from `workspace_hack`, which every
+# member depends on. That fallback needs `workspace_hack` kept regenerated (`cargo
+# hakari generate`, gated by CI) and only covers the triples in .config/hakari.toml;
+# on any other triple the build fails outright.
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
 # necessary on Alpine.

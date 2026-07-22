@@ -68,6 +68,27 @@ TEST_F(StopwordsInfoTest, testInfoTerm) {
   StopWordList_Unref(sl);
 }
 
+TEST_F(StopwordsInfoTest, testInfoUnsortedInsert) {
+  // The rendered list is in lexicographic order, not insertion order — the
+  // underlying container is ordered, and clients read this field as a stable
+  // list. Every other stopword test happens to insert in an order that hides
+  // the difference.
+  const char *terms[] = {"zebra", "apple", "mango"};
+  StopWordList *sl = NewStopWordListCStr(terms, 3);
+  ASSERT_TRUE(sl != nullptr);
+
+  dirtyRenderBufferBlocks();
+
+  RedisModuleInfoCtx info;
+  AddStopWordsListToInfo(&info, sl);
+
+  ASSERT_EQ(info.fields.size(), 1);
+  ASSERT_EQ(info.fields[0].first, "stop_words");
+  ASSERT_EQ(info.fields[0].second, "\"apple\",\"mango\",\"zebra\"");
+
+  StopWordList_Unref(sl);
+}
+
 TEST_F(StopwordsInfoTest, testInfoNullList) {
   RedisModuleInfoCtx info;
   AddStopWordsListToInfo(&info, NULL);

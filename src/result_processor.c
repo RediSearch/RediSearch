@@ -6,26 +6,29 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <util/minmax_heap.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "aggregate/aggregate.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
-#include "query.h"
 #include "extension.h"
-#include <util/minmax_heap.h>
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "rs_wall_clock.h"
-#include <stdatomic.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <time.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
@@ -36,15 +39,43 @@
 #include "search_result.h"
 #include "search_result_ffi.h"
 #include "redisearch.h"
+#include "reply.h"
 #include "asm_state_machine.h"
 #include "index_result_async_read.h"
+#include "doc_table.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "index_result_rs.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "score_explain.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "shard_window_ratio.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "spec.h"
+#include "util/dict/dict.h"
+#include "util/dllist.h"
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
 
+// Iterator results buffered ahead of submission. Separate from the read depth so the
+// two can be tuned independently; must be >= MAX_ONGOING_READ_SIZE.
+#define ITERATOR_BUFFER_SIZE MAX_ONGOING_READ_SIZE
+
 // Timeout for async disk poll when iterator is at EOF (in milliseconds)
 // When the iterator is exhausted, we wait for pending async reads to complete
 #define ASYNC_POLL_TIMEOUT_AT_EOF_MS 1000
+
+// Poll timeout when the pipeline is saturated (in milliseconds). Short because it
+// only bounds an idle wait before looping back to re-check the query timeout.
+#define ASYNC_POLL_TIMEOUT_SATURATED_MS 2
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -128,7 +159,7 @@ static int refillBufferUsingIterator(RPQueryIterator *self) {
   }
 
   // Fill buffer up to max capacity
-  while (self->async.iteratorResultCount < self->async.poolSize && !it->atEOF) {
+  while (self->async.iteratorResultCount < self->async.bufferSize && !it->atEOF) {
     if (TimedOut_WithCounter(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return RS_RESULT_TIMEDOUT;
     }
@@ -227,9 +258,19 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   }
 }
 
+typedef enum {
+  REVALIDATE_CONTINUE,         // Proceed with a normal read
+  REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
+  REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+} RevalidateOutcome;
+
 /**
  * Handle initial spec lock and iterator revalidation.
- * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ *
+ * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
+ * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
+ * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
+ * results are partial and must be returned as `RS_RESULT_TIMEDOUT`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -238,33 +279,38 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
-static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
+static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
 
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   QueryIterator *it = self->iterator;
 
+  // Already locked by us, or borrowed from an outer scope that has held the lock
+  // since the iterators were built - nothing to lock or revalidate either way.
   if (sctx->lock_state != SPEC_LOCK_UNSET) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
-  if (rc == VALIDATE_ABORTED) {
+  if (rc == VALIDATE_ABORTED || rc == VALIDATE_TIMEOUT) {
     self->iterator->Free(self->iterator);
     self->iterator = NewEmptyIterator();
+    if (rc == VALIDATE_TIMEOUT) {
+      return REVALIDATE_TIMEDOUT;
+    }
   } else if (rc == VALIDATE_MOVED && !it->atEOF) {
-    return true;  // Caller should validate current
+    return REVALIDATE_VALIDATE_CURRENT;
   }
 
-  return false;
+  return REVALIDATE_CONTINUE;
 }
 
 /* Next implementation for sync disk and regular (in-memory) flow */
@@ -275,7 +321,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
-  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
+  RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
+  if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
+  bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -334,9 +384,14 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
 
-  // Handle spec lock and revalidation
-  // no need store the return value since validate current result is not needed for async disk path
-  handleSpecLockAndRevalidate(self);
+  // Handle spec lock and revalidation.
+  // Neither outcome is reachable today: this processor is only installed for disk specs, and those
+  // return before revalidating at all. A moved iterator would need no special handling here anyway,
+  // but the timeout is answered defensively, so that a disk spec which one day does revalidate
+  // reports the timeout instead of reading past it as end-of-results.
+  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -368,7 +423,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 1b: Submit any buffered results to async pool (keep pipeline full)
-    IndexResultAsyncRead_RefillPool(&self->async);
+    const uint16_t submitted = IndexResultAsyncRead_RefillPool(&self->async);
 
     // Step 2: Try to serve a ready result if we have one
     RSIndexResult *indexResult = IndexResultAsyncRead_PopReadyResult(&self->async);
@@ -388,8 +443,24 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 3: No ready results - poll for more
-    int timeout_ms = it->atEOF ? ASYNC_POLL_TIMEOUT_AT_EOF_MS : 0;
-    const size_t pendingCount = IndexResultAsyncRead_Poll(&self->async, timeout_ms, &sctx->time.current);
+    int index_poll_timeout_ms = 0;
+    if (it->atEOF) {
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_AT_EOF_MS;
+    } else if (submitted == 0 && !DLLIST_IS_EMPTY(&self->async.pendingResults)) {
+      // Pool saturated: nothing left to submit, so a non-blocking poll would spin
+      // until a completion lands instead of making progress.
+      index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
+    }
+    const size_t pendingCount =
+        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->time.current);
+
+    // The loop-head check samples the clock once per TIMEOUT_COUNTER_LIMIT iterations,
+    // which is too coarse once an iteration can sleep. Re-check unthrottled after a
+    // blocking poll.
+    if (index_poll_timeout_ms > 0 &&
+        TimedOut_Unthrottled(&sctx->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    }
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
@@ -427,7 +498,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 #endif
 
   // Initialize async read state
-  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE);
+  IndexResultAsyncRead_Init(&ret->async, MAX_ONGOING_READ_SIZE, ITERATOR_BUFFER_SIZE);
 
   // Determine which Next function to use based on disk configuration
   if (sctx->spec->diskSpec &&
@@ -914,8 +985,14 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 typedef struct {
   ResultProcessor base;
   RLookup *lk;
-  RLookupLoadOptions loadopts;
+  RedisSearchCtx *sctx;
+  const RLookupKey **keys;
+  size_t nkeys;
   bool load_all;
+  bool forceLoad;
+  // Per-key load profiling buffer (nkeys entries), allocated only for
+  // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
+  LoadFieldProfile *profileFields;
   QueryError status;
 } RPLoader;
 
@@ -927,9 +1004,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->loadopts.sctx->spec->diskSpec) {
+  if (self->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
@@ -949,13 +1026,30 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   int ret;
   if (self->load_all) {
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadAllKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .force_string = true,
+          .status = &self->status,
+      };
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadIndividualKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .keys = self->keys,
+          .nkeys = self->nkeys,
+          .force_string = true,
+          .force_load = self->forceLoad,
+          .cached_only = false,
+          .status = &self->status,
+          .profile_fields = self->profileFields,
+      };
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1014,7 +1108,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
-  rm_free(lc->loadopts.keys);
+  rm_free(lc->keys);
+  rm_free(lc->profileFields);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1022,16 +1117,18 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
-  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = forceLoad;
-  self->loadopts.status = &self->status;
-  self->loadopts.sctx = sctx;
-  self->loadopts.dmd = NULL;
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    bool withProfile) {
+  self->sctx = sctx;
+  self->forceLoad = forceLoad;
   if (nkeys) {
-    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-    self->loadopts.nkeys = nkeys;
+    self->keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->keys, keys, sizeof(*keys) * nkeys);
+    self->nkeys = nkeys;
+    if (withProfile) {
+      self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
+    }
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1041,10 +1138,12 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                          const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                          bool withProfile) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -1092,7 +1191,7 @@ typedef struct RPSafeLoader {
   // Request sync context; non-NULL only for RETURN_STRICT requests that use the
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
-  BlockedRequestCtx *brc;
+  QueryRequest *request;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1274,10 +1373,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK, SearchTime_IsTimedOut, &sctx->time);
 #endif
 
-  // Deadlock-avoidance handshake (brc non-NULL only for RETURN_STRICT). Mark
+  // Deadlock-avoidance handshake (request non-NULL only for RETURN_STRICT). Mark
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
-  if (self->brc && !BlockedRequestCtx_SafeLoaderEnterGIL(self->brc)) {
+  if (self->request && !QueryRequest_SafeLoaderEnterGIL(self->request)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -1298,8 +1397,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // closes the race where a timeout landing in the unlock->clear gap sees a
   // stale safeLoadersHoldingGIL count and preempts, dropping already-loaded
   // results. See aggregate.h.
-  if (self->brc) {
-    BlockedRequestCtx_SafeLoaderExitGIL(self->brc);
+  if (self->request) {
+    QueryRequest_SafeLoaderExitGIL(self->request);
   }
 
   // Done loading. Unlock Redis
@@ -1343,10 +1442,12 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                         const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                         bool withProfile) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -1354,7 +1455,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->sctx = sctx;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1408,13 +1509,54 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
     }
   }
   *outStateflags |= QEXEC_S_HAS_LOAD;
+  const bool withProfile = reqflags & QEXEC_F_PROFILE;
   if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   }
+}
+
+static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
+  RS_LOG_ASSERT(base->type == RP_LOADER || base->type == RP_SAFE_LOADER,
+                "RPLoader profile requested for non-loader RP");
+  if (base->type == RP_SAFE_LOADER) {
+    return &((const RPSafeLoader *)base)->base_loader;
+  }
+  return (const RPLoader *)base;
+}
+
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
+  const RPLoader *loader = RPLoader_GetProfileSource(base);
+  if (loader->nkeys == 0) {
+    return;
+  }
+
+  const LoadFieldProfile *fields = loader->profileFields;
+  RS_LOG_ASSERT(fields, "profileFields must exist for explicit LOAD profile");
+
+  RedisModule_ReplyKV_Array(reply, "Field loads profile");
+  for (size_t ii = 0; ii < loader->nkeys; ++ii) {
+    const RLookupKey *key = loader->keys[ii];
+    const LoadFieldProfile *field = &fields[ii];
+    const char *fieldName = RLookupKey_GetPath(key);
+    if (!fieldName) {
+      fieldName = RLookupKey_GetName(key);
+    }
+    if (!fieldName) {
+      fieldName = "";
+    }
+
+    RedisModule_Reply_Map(reply);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, strlen(fieldName));
+    RedisModule_ReplyKV_Double(reply, "Time",
+                               rs_wall_clock_convert_ns_to_ms_d(field->load_time_ns));
+    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->load_count);
+    RedisModule_Reply_MapEnd(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 // Consumes the input loader and returns a new safe loader that wraps it.
@@ -1423,7 +1565,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
-  sl->sctx = loader->loadopts.sctx;
+  sl->sctx = loader->sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state
@@ -1432,7 +1574,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
   sl->curr_result_index = 0;
 
   sl->last_buffered_rc = RS_RESULT_OK;
-  sl->brc = NULL;
+  sl->request = NULL;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1463,14 +1605,19 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
   qctx->endProc = dummyHead.upstream;
 }
 
-// Link the request sync context into every RP_SAFE_LOADER in the pipeline so
-// they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
+// Link the request sync context into every RP_SAFE_LOADER (and disk RP_DISK_ASYNC_LOADER) in the
+// pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
-void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
+//
+// The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
+// `SearchDisk_AsyncLoader_SetSyncCtx` (see aggregate.h).
+void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, QueryRequest *request) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
-      ((RPSafeLoader *)rp)->brc = sync;
+      ((RPSafeLoader *)rp)->request = request;
+    } else if (rp->type == RP_DISK_ASYNC_LOADER) {
+      SearchDisk_AsyncLoader_SetSyncCtx(rp, request);
     }
     rp = rp->upstream;
   }
@@ -1760,34 +1907,41 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *
  *  The RPSafeDepleter result processor offloads the task of consuming all results from
  *  its upstream processor into a background thread, storing them in an internal
- *  array. While the background thread is running, calls to Next() wait on a shared
- *  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
- *  either by its own depleting thread completing or by another RPSafeDepleter's thread
- *  signaling completion. Once depleting is complete for this processor, Next()
- *  yields results one by one from the internal array, and finally returns the last
- *  return code from the upstream.
+ *  array. The launcher resolves every depleter's fate before its first Next()
+ *  call: it schedules the background job (in bulk via RPSafeDepleter_DepleteAll,
+ *  or one at a time via RPSafeDepleter_StartDepletion) or marks the depleter
+ *  timed out (RPSafeDepleter_MarkTimedOut). While the background thread is
+ *  running, calls to Next() wait on a shared condition variable and return
+ *  RS_RESULT_DEPLETING. The thread can be awakened either by its own depleting
+ *  thread completing or by another RPSafeDepleter's thread signaling completion.
+ *  Once depleting is complete for this processor, Next() yields results one by
+ *  one from the internal array, and finally returns the last return code from
+ *  the upstream.
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
+
+#define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
+  "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
+  "Please retry."
+
 typedef struct {
   ResultProcessor base;                // Base result processor struct
-  // We require separate contexts because we have different threads.
-  // Each thread may use the redis context in the search context and in order for things to be thread safe we need a context for each thread
+  // Used only on the depleting thread (the sub-pipeline runs there, and so
+  // does its locking); the Next-calling thread needs no context of its own —
+  // launch, timeout, and lock-handoff decisions belong to the launcher.
   RedisSearchCtx *depletingThreadCtx;  // Upstream Search context - used by the depleting thread
-  RedisSearchCtx *nextThreadCtx;       // Downstream search context - used by the thread calling Next
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
   bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
   size_t cur_idx;                      // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   // True iff a background depletion job has been submitted to the pool and
   // will eventually call SignalDone(). Flips false->true exactly once, in
-  // RPSafeDepleter_StartDepletionThread. Read-only after that until Free().
+  // RPSafeDepleter_StartDepletionThread; MarkTimedOut leaves it false.
+  // Read-only after the launcher's decision until Free().
   //
-  // Drives two decisions:
-  //   - Next_Dispatch: false means "no BG in flight yet, take the lazy-start
-  //     branch"; true means "BG is in flight, take the wait branch".
-  //   - WaitForCompletion: false means "nothing to wait for, return"; true
-  //     means "block on done_depleting".
+  // Drives WaitForCompletion: false means "nothing to wait for, return"; true
+  // means "block on done_depleting".
   bool depletion_scheduled;
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
@@ -1812,6 +1966,10 @@ typedef struct {
   uint32_t num_depleters;  // Number of depleters to sync
   atomic_int num_locked;   // Number of depleters that have locked the index
   atomic_int num_skipped_lock;  // Number of depleters that skipped locking (timeout before start or lock failure)
+  // Lock failures only (a subset of num_skipped_lock). Incremented before
+  // num_skipped_lock, so once the start handshake completes the launcher
+  // observes every failure that occurred.
+  atomic_int num_lock_failed;
   bool index_released;     // Whether or not the index-spec has been released by the pipeline thread yet
   bool take_index_lock;    // Whether or not the depleter should take the index lock
 } DepleterSync;
@@ -1833,6 +1991,7 @@ StrongRef DepleterSync_New(uint32_t num_depleters, bool take_index_lock) {
   sync->take_index_lock = take_index_lock;
   atomic_store(&sync->num_locked, 0);
   atomic_store(&sync->num_skipped_lock, 0);
+  atomic_store(&sync->num_lock_failed, 0);
   return StrongRef_New(sync, DepleterSync_Free);
 }
 
@@ -1889,6 +2048,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
+      QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
+      atomic_fetch_add(&sync->num_lock_failed, 1);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -2013,7 +2175,7 @@ static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
 // Once all depleters have completed this phase, the main thread releases its
 // lock. This ensures all the safe depleters that acquired locks see a
 // consistent index state.
-static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *nextThreadCtx) {
+static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, RedisSearchCtx *lockedCtx) {
   if (sync->take_index_lock && !sync->index_released) {
     // Load the atomic counters
     int num_locked = atomic_load(&sync->num_locked);
@@ -2026,7 +2188,7 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
       // Release the main thread's lock - depleters that acquired locks have
       // their own
       // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
-      RedisSearchCtx_UnlockSpec(nextThreadCtx);
+      RedisSearchCtx_UnlockSpec(lockedCtx);
       // Mark the index as released
       sync->index_released = true;
       return RS_RESULT_OK;
@@ -2066,40 +2228,18 @@ static inline int RPSafeDepleter_WaitForDepletionToComplete(RPSafeDepleter *self
 
 /**
  * Next function for RPSafeDepleter.
- * First call: starts background thread and returns `RS_RESULT_DEPLETING`.
- * Subsequent calls: wait on condition variable for any safe depleter to complete.
+ * Waits on the shared condition variable for any safe depleter to complete.
  * When woken up, checks if this safe depleter is done. If so, switches to yield mode.
  * If not, returns `RS_RESULT_DEPLETING` to allow downstream to check other safe depleters.
- *
- * A dedicated thread-pool `depleterPool` is used, such that there are no
- * contentions with the `_workers_thpool` thread-pool, such as adding a new job
- * to its queue after `WORKERS` has been set to `0`.
  */
 static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
-
-  // Lazy-start branch: no BG depletion in flight yet. Either schedule one,
-  // or — if the query has already timed out — switch to Yield and report
-  // TIMEDOUT without scheduling. We must not flip depletion_scheduled to
-  // true on the timeout path: WaitForCompletion would otherwise block
-  // forever waiting on a signal that no BG worker will ever send.
-  if (!self->depletion_scheduled) {
-    // Respect skipTimeoutChecks flag
-    if (!self->nextThreadCtx->time.skipTimeoutChecks && TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
-      base->Next = RPSafeDepleter_Next_Yield;
-      self->last_rc = RS_RESULT_TIMEDOUT;
-      return base->Next(base, r);
-    }
-
-    RPSafeDepleter_StartDepletionThread(self);
-    return RS_RESULT_DEPLETING;
-  }
+  // The launcher's decision (schedule or mark timed out) precedes any Next
+  // call; waiting on an unscheduled depleter would block forever on a
+  // completion signal no BG worker will ever send.
+  RS_ASSERT(self->depletion_scheduled);
 
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
-  if (RPSafeDepleter_WaitForDepletionToStart(sync, self->nextThreadCtx) == RS_RESULT_DEPLETING) {
-    return RS_RESULT_DEPLETING;
-  }
-
   pthread_mutex_lock(&sync->mutex);
   const int rc = RPSafeDepleter_WaitForDepletionToComplete(self, sync);
   pthread_mutex_unlock(&sync->mutex);
@@ -2113,7 +2253,7 @@ static int RPSafeDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) 
  * Constructs a new RPSafeDepleter processor. Consumes the StrongRef given.
  * The pool argument selects which thread pool depletion jobs are submitted to.
  */
-ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, RedisSearchCtx *nextThreadCtx, redisearch_thpool_t *pool) {
+ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletingThreadCtx, redisearch_thpool_t *pool) {
   RPSafeDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPSafeDepleter_Next_Dispatch;
@@ -2121,7 +2261,6 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->base.type = RP_SAFE_DEPLETER;
   ret->sync_ref = sync_ref;
   ret->depletingThreadCtx = depletingThreadCtx;
-  ret->nextThreadCtx = nextThreadCtx;
   ret->depletionTime = 0;  // Initialize depletion time to 0
   ret->pool = pool;
   // Make sure the sync reference is valid
@@ -2132,20 +2271,17 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
 
 void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter_StartDepletionThread((RPSafeDepleter *)base);
+}
+
+void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   RPSafeDepleter *self = (RPSafeDepleter *)base;
   RS_ASSERT(!self->depletion_scheduled);
-  // If the query already timed out, skip submission. The BG worker would
-  // no-op anyway (its own TimedOut check in RPSafeDepleter_Deplete), but
-  // skipping saves a pool slot and the signal/wait round-trip. Leave
-  // depletion_scheduled=false so:
-  //   - RPSafeDepleter_WaitForCompletion no-ops (no signal in flight)
-  //   - a late Next() call re-enters the lazy branch, re-detects the
-  //     timeout, and switches Next to Yield with RS_RESULT_TIMEDOUT.
-  if (!self->nextThreadCtx->time.skipTimeoutChecks &&
-      TimedOut(&self->nextThreadCtx->time.timeout) == TIMED_OUT) {
-    return;
-  }
-  RPSafeDepleter_StartDepletionThread(self);
+  // depletion_scheduled stays false: WaitForCompletion has no signal to wait
+  // for, and Next yields RS_RESULT_TIMEDOUT immediately.
+  self->last_rc = RS_RESULT_TIMEDOUT;
+  base->Next = RPSafeDepleter_Next_Yield;
 }
 
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
@@ -2166,17 +2302,13 @@ void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   pthread_mutex_unlock(&sync->mutex);
 }
 
-static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {
+static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync) {
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   size_t count = array_len(safeDepleters);
   for (size_t i = 0; i < count; i++) {
     RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
     DepleterSync *depleterSync = (DepleterSync *)StrongRef_Get(safeDepleter->sync_ref);
     if (sync && sync != depleterSync) {
-      return false;
-    }
-    if (searchCtx && searchCtx != safeDepleter->nextThreadCtx) {
       return false;
     }
     // Bulk launch requires all depleters to be in the fresh unscheduled state —
@@ -2185,30 +2317,55 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
       return false;
     }
     sync = depleterSync;
-    searchCtx = safeDepleter->nextThreadCtx;
   }
   if (sync->num_depleters != count) {
     return false;
   }
   *outSync = sync;
-  *outSearchCtx = searchCtx;
   return true;
 }
 
+// Block until every safe depleter in the group has finished depleting (its BG
+// job has run to completion, successfully or not). Safe to call in any state —
+// already-consumed and never-consumed depleters alike — and after it returns,
+// no background thread touches the group's buffers. There is no timeout
+// handling here: each depleter observes its own deadline and stops on its own.
+void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
+  const size_t count = array_len(safeDepleters);
+  if (count == 0) {
+    return;
+  }
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(((RPSafeDepleter *)safeDepleters[0])->sync_ref);
+  pthread_mutex_lock(&sync->mutex);
+  for (size_t i = 0; i < count; i++) {
+    RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
+    // done_depleting is monotonic and set under the mutex, so waiting on the
+    // shared cond until it flips cannot miss the signal.
+    while (!safeDepleter->done_depleting) {
+      pthread_cond_wait(&sync->cond, &sync->mutex);
+    }
+  }
+  pthread_mutex_unlock(&sync->mutex);
+}
+
 /*
-* This function will trigger the depeletion process for the safe depleters group
+* Launch the safe depleters group and resolve the lock handshake, without
+* waiting for depletion to finish:
 * 0. Some sanity checks, will return an error if it detected an invalid state
 * 1. It will start a thread for every safe depleter
 * 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
-* 3. Wait for the depletion to complete in all the safe depleters, there is no timeout handling here - we rely on each safe depleter to handle timeout and stop depleting.
-* 4. The function must return only after all the depletion threads finished running
-* 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
+* 3. If any depleter failed to acquire its lock, drain the group and return
+*    RS_RESULT_ERROR — the failure is fatal and the caller aborts before any
+*    reply, and an error return must not leave background threads writing
+*    into the depleters' buffers while the caller tears the request down.
+* On RS_RESULT_OK, depletion is still in flight; each depleter's Next waits
+* for its own completion, so consumers observe results in completion order.
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
+  RS_ASSERT(lockedCtx != NULL && lockedCtx->lock_state == SPEC_LOCK_READ);
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
-  if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
+  if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
@@ -2225,44 +2382,49 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
     RPSafeDepleter_StartDepletionThread(safeDepleter);
   }
 
-  // Wait for depleting to start with configurable interval and timeout
-  while (RPSafeDepleter_WaitForDepletionToStart(sync, searchCtx) == RS_RESULT_DEPLETING) {
+  // Wait for depleting to start with configurable interval and timeout.
+  // The caller's lock is released inside WaitForDepletionToStart once every
+  // depleter acquired its own lock (or reported that it never will). This
+  // early release prevents deadlock with SafeLoader GIL acquisition.
+  while (RPSafeDepleter_WaitForDepletionToStart(sync, lockedCtx) == RS_RESULT_DEPLETING) {
     usleep(1000);
   }
 
-  for (size_t numDone = 0; numDone < count; ) {
-    pthread_mutex_lock(&sync->mutex);
-    for (size_t i = 0; i < count; i++) {
-      RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
-      // Can't rely on done_depleting since it is set by thread and it doesn't change its own Next function
-      // This way the behaviour is more predictable
-      if (safeDepleter->base.Next == RPSafeDepleter_Next_Yield) {
-        continue;
-      }
-      // Will internally wait on a condition variable until the safe depleter finishes depleting
-      if (RPSafeDepleter_WaitForDepletionToComplete(safeDepleter, sync) == RS_RESULT_OK) {
-        ++numDone;
-      }
-    }
-    pthread_mutex_unlock(&sync->mutex);
-    // Only sleep if we haven't completed all safe depleters
-    if (numDone < count) {
-      usleep(1000);
-    }
+  // num_lock_failed is incremented before the skip counter the handshake
+  // reads, so every failure that occurred is visible by now.
+  if (atomic_load(&sync->num_lock_failed) > 0) {
+    RPSafeDepleter_JoinAll(safeDepleters);
+    QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                        SAFE_DEPLETER_LOCK_FAILURE_MSG);
+    return RS_RESULT_ERROR;
   }
 
-  // Note: The main thread's lock was already released in WaitForDepletionToStart
-  // after all depleters acquired their locks (or when any failed).
-  // This early release prevents deadlock with SafeLoader GIL acquisition.
+  return RS_RESULT_OK;
+}
+
+/*
+* RPSafeDepleter_StartAll, then wait for the depletion to complete in all the
+* safe depleters. The function returns only after all the depletion threads
+* finished running; errors (lock failures) take priority over timeouts in the
+* aggregated return code.
+*/
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
+  int rc = RPSafeDepleter_StartAll(safeDepleters, lockedCtx, status);
+  if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  RPSafeDepleter_JoinAll(safeDepleters);
 
   // Check each depleter's final status for errors or timeouts.
-  // Errors (lock failures) take priority over timeouts.
+  // Errors take priority over timeouts.
+  const size_t count = array_len(safeDepleters);
   bool anyTimedOut = false;
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
     } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
       anyTimedOut = true;
@@ -2431,6 +2593,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
+    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
   }
 

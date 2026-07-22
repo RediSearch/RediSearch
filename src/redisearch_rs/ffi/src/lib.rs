@@ -34,6 +34,8 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
+use redis_module::raw::*;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context

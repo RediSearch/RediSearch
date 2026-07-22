@@ -42,7 +42,7 @@ def runTestWithSeed(env, s=None):
         443 # buffer size after writing 4 bytes 100 times.
         + 8 # thin vector header
         + 32 # size of the inverted index structure on the stack
-        + 48 # block buffer capacity
+        + 56 # index block stack size
     ) / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 

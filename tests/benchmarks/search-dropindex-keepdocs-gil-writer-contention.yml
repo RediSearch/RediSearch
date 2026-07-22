@@ -1,0 +1,53 @@
+version: 0.5
+name: "search-dropindex-keepdocs-gil-writer-contention"
+description: |
+  FT.DROPINDEX KEEPDOCS writer contention benchmark.
+
+  The setup stream creates 10K HASH indexes and loads 500 documents per index.
+  The benchmark stream then repeats:
+  1. Drop one known index with FT._DROPINDEXIFX and _FORCEKEEPDOCS.
+  2. Run 100 short foreground INCR writes.
+
+  This deterministic sequence keeps foreground writers adjacent to background
+  index cleanup and prevents a writer-only tail after all indexes are dropped.
+
+metadata:
+  component: "search"
+  use_case: "FT.DROPINDEX KEEPDOCS background cleanup and main-thread writer contention"
+  index_count: 10000
+  docs_per_index: 500
+  doc_count: 5000000
+  writes_per_drop: 100
+
+timeout_seconds: 3600
+dataset_load_timeout_secs: 7200
+
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "dropindex-keepdocs-gil-10K-indexes-500-docs"
+  - redis-topologies:
+      - oss-standalone
+  - configuration-parameters:
+    - save: '""'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 1
+    - requests: 0
+    - pipeline: 1
+    - reporting-period: 5s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/dropindex-keepdocs-gil-10K-indexes-500-docs/dropindex-keepdocs-gil-10K-indexes-500-docs.redisearch.commands.SETUP.csv"
+  - dataset_load_timeout_secs: 7200
+  - check:
+      keyspacelen: 5000000
+
+clientconfig:
+  - benchmark_type: "mixed"
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 1
+    - requests: 0
+    - pipeline: 1
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/dropindex-keepdocs-gil-10K-indexes-500-docs/dropindex-keepdocs-gil-10K-indexes-500-docs.redisearch.commands.BENCH.csv"

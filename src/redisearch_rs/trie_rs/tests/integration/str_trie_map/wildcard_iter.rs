@@ -11,8 +11,8 @@
 //! cross-checked against a full-scan oracle built from
 //! [`CodepointWildcard::matches`].
 
+use trie_rs::automaton::CodepointWildcard;
 use trie_rs::str_trie_map::StrTrieMap;
-use trie_rs::str_trie_map::automaton::CodepointWildcard;
 
 fn build_trie() -> StrTrieMap<u32> {
     let mut trie = StrTrieMap::new();

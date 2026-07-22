@@ -13,4 +13,4 @@ back up to `tests/benchmarks/` once its ticket is resolved — the file's intern
 
 | Benchmark | Reason | Ticket |
 |-----------|--------|--------|
-| `search-groupby-collect-100K-entity-events-{hash,json}-cached-sortby-fields-{explicit,star-offset500}-k50` | Heavy `FT.AGGREGATE GROUPBY + REDUCE COLLECT` query stalls under 64 concurrent workers — zero completed queries, client fails with `i/o timeout` — despite the 500 ms `ON_TIMEOUT RETURN` server config. Pre-existing and intermittent; not a topology-PR regression. | [MOD-16899](https://redislabs.atlassian.net/browse/MOD-16899) |
+| _(none currently)_ | | |

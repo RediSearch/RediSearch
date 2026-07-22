@@ -9,17 +9,22 @@
 
 //! Supporting types for [`Metric`].
 
+use std::ptr::NonNull;
+
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     id_list::{IdList, RawIdList, SuspendedIdList},
+    interop::RQEIteratorWrapper,
+    metric_lazy::{MetricLazySortedById, MetricLazySortedByScore},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
 };
-use ffi::{RLookupKey, RLookupKeyHandle};
+use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
+use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 
 /// The different types of metrics.
@@ -51,14 +56,14 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     base: RawIdList<'query, Rf, SORTED_BY_ID>,
     metric_data: OwnedSlice<f64>,
     type_: MetricType,
-    own_key: *mut RLookupKey,
+    own_key: *mut RLookupKey<'query>,
     /// # Invariants
     ///
     /// The handle is either:
     ///
     /// - A null pointer, indicating that the iterator is not associated with a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    key_handle: *mut RLookupKeyHandle,
+    key_handle: *mut RLookupKeyHandle<'query>,
 }
 
 // Compile-time proof that the `Metric` and its suspended counterpart are layout-identical.
@@ -107,7 +112,7 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, S
 }
 
 #[inline(always)]
-fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey) {
+fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey<'_>) {
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {
@@ -119,9 +124,12 @@ fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey
     if key.is_null() {
         metrics.push_without_key(val);
     } else {
+        // The metrics vector types the key the way C sees it: the header
+        // `RLookupKey` is exported under, which is this key's first field.
+        //
         // SAFETY: `key` is non-null per the check above, and a valid `RLookupKey`
         // pointer that outlives this result (upheld by callers in `read` and `skip_to`).
-        metrics.push_with_key(unsafe { &*key }, val);
+        metrics.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, val);
     };
 }
 
@@ -175,7 +183,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// - A null pointer, indicating that the metric iterator does not have a key.
     /// - A valid pointer to a [`RLookupKeyHandle`] instance.
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle) {
+    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
         self.key_handle = key_handle;
     }
 
@@ -185,7 +193,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     }
 
     /// Return a mutable reference to the key for this metric iterator.
-    pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey {
+    pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey<'index> {
         &mut self.own_key
     }
 }
@@ -197,10 +205,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.base.at_eof() {
-            return Ok(None);
-        }
-
+        // The read below yields `None` once the base has nothing left, and records
+        // the step past the end as it does so; returning early would skip that
+        // bookkeeping.
         let Some((result, offset)) = self.base.read_and_get_offset()? else {
             return Ok(None);
         };
@@ -438,5 +445,146 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
 
     fn num_estimated(&self) -> usize {
         self._num_estimated()
+    }
+}
+
+/// A metric iterator's own [`RLookupKey`] slot, whatever its sortedness and
+/// laziness.
+///
+/// The four metric flavours are distinct Rust types behind one C-ABI header, so
+/// reaching the slot means dispatching on the header's
+/// [`type_`](QueryIterator::type_).
+///
+/// # Safety
+///
+/// 1. `header` points to a live iterator built by
+///    [`RQEIteratorWrapper::boxed_new`] whose type tag names the type it
+///    actually wraps. Being a *metric* iterator is not required — that is the
+///    run-time check under [Panics](#panics) — but honesty is. The tag is what
+///    the downcast below keys off, and the wrapper copies it from the safe
+///    [`RQEIterator::type_`], so an iterator reporting a flavour it is not
+///    would be downcast to a type it is not, and its `inner` read as that type.
+///    Every iterator in this crate reports honestly.
+/// 2. The caller holds that iterator exclusively for the duration of the call.
+/// 3. `'index` must not outlive the storage the slot's key borrows. A
+///    [`NonNull<QueryIterator>`] carries no lifetime, so — as for
+///    [`std::slice::from_raw_parts`] — there is nothing here to infer one from
+///    and the caller picks it. The choice is not cosmetic: [`RLookupKey`] owns
+///    its name as a `Cow<'index, CStr>` behind the safe [`name`] accessor, so
+///    `'static` over a query-local key hands out a `Cow<'static, CStr>` that
+///    still borrows it, and safe code can then outlive the storage. A caller
+///    with no lifetime to offer — C, across the FFI shim — should discard it by
+///    casting to the erased [`ffi::RLookupKey`] header rather than naming
+///    `'static`.
+///
+/// The returned pointer aliases the iterator's own slot, so it is valid only
+/// for as long as the iterator itself, and writes through it must not be
+/// interleaved with use of the iterator.
+///
+/// [`name`]: RLookupKey::name
+///
+/// # Panics
+///
+/// Panics unless `header` wraps one of [`MetricSortedById`],
+/// [`MetricSortedByScore`], [`MetricLazySortedById`] or
+/// [`MetricLazySortedByScore`] — the four flavours that own a key slot.
+// TODO: this API should use proper Rust types instead of QueryIterator once top-k has been ported
+// to Rust (MOD-17755).
+pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut RLookupKey<'index> {
+    // SAFETY: safe thanks to 1.
+    let iterator_type = unsafe { header.as_ref().type_ };
+    let header = header.as_ptr();
+
+    match iterator_type {
+        IteratorType::MetricSortedById => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
+            wrapper.inner.key_mut_ref()
+        }
+        IteratorType::MetricSortedByScore => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            wrapper.inner.key_mut_ref()
+        }
+        IteratorType::MetricLazySortedById => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
+            };
+            wrapper.inner.key_mut_ref()
+        }
+        IteratorType::MetricLazySortedByScore => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            wrapper.inner.key_mut_ref()
+        }
+        _ => unreachable!(
+            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
+        ),
+    }
+}
+
+/// Give a metric iterator the [`RLookupKeyHandle`] it invalidates when freed,
+/// dispatching on the header exactly as [`own_key_ref`] does.
+///
+/// # Safety
+///
+/// 1. `header` points to a live iterator whose type tag is honest, exactly as
+///    for [`own_key_ref`] — metric-ness is a run-time check here too, not a
+///    pre-condition.
+/// 2. The caller holds that iterator exclusively for the duration of the call.
+/// 3. `handle` is null, or points to a valid [`RLookupKeyHandle`] that outlives
+///    the iterator. The iterator clears the handle's validity flag on its way
+///    out, so freeing the handle first is a use-after-free at a distance: the
+///    write lands whenever the iterator is dropped, not during this call.
+///
+/// # Panics
+///
+/// Panics on any header [`own_key_ref`] would panic on.
+pub unsafe fn set_key_handle(header: NonNull<QueryIterator>, handle: *mut RLookupKeyHandle<'_>) {
+    // SAFETY: safe thanks to 1.
+    let iterator_type = unsafe { header.as_ref().type_ };
+    let header = header.as_ptr();
+
+    match iterator_type {
+        IteratorType::MetricSortedById => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper =
+                unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
+            // SAFETY: safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(handle) };
+        }
+        IteratorType::MetricSortedByScore => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            // SAFETY: safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(handle) };
+        }
+        IteratorType::MetricLazySortedById => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
+            };
+            // SAFETY: safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(handle) };
+        }
+        IteratorType::MetricLazySortedByScore => {
+            // SAFETY: safe thanks to 1 + 2.
+            let wrapper = unsafe {
+                RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
+            };
+            // SAFETY: safe thanks to 3.
+            unsafe { wrapper.inner.set_handle(handle) };
+        }
+        _ => unreachable!(
+            "expected a metric iterator, either sorted by ID or Score (metric value): unexpected type: {iterator_type}"
+        ),
     }
 }

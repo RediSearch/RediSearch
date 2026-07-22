@@ -187,7 +187,7 @@ pub unsafe extern "C" fn parseGeo(
             unsafe {
                 set_parse_error(status, ParseGeoError::InvalidUtf8);
             }
-            return ffi::REDISMODULE_ERR as i32;
+            return redis_module::REDISMODULE_ERR as i32;
         }
     };
 
@@ -201,14 +201,14 @@ pub unsafe extern "C" fn parseGeo(
             unsafe {
                 *lat = coords.lat.into_inner();
             }
-            ffi::REDISMODULE_OK as i32
+            redis_module::REDISMODULE_OK as i32
         }
         Err(err) => {
             // SAFETY: caller guarantees `status` is valid.
             unsafe {
                 set_parse_error(status, err);
             }
-            ffi::REDISMODULE_ERR as i32
+            redis_module::REDISMODULE_ERR as i32
         }
     }
 }

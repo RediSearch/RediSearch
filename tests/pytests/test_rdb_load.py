@@ -2,10 +2,9 @@ import os
 import pytest
 import multiprocessing
 import threading
-import time
 import signal
 import tempfile
-from common import skip, getRDBFile, REDISEARCH_CACHE_DIR, config_cmd, debug_cmd, getConnectionByEnv, waitForIndex
+from common import skip, getRDBFile, REDISEARCH_CACHE_DIR, config_cmd, debug_cmd, getConnectionByEnv, waitForIndex, waitForRdbSaveToFinish
 from RLTest import Env
 
 @skip(cluster=True)
@@ -45,15 +44,23 @@ def test_rdb_load_no_deadlock():
     # Path to the bundled RDB fixture
     filePath = os.path.join(REDISEARCH_CACHE_DIR, rdb_filename)
 
+    # Disable periodic auto-save to prevent Redis 8.x's initial BGSAVE (or any
+    # save-threshold triggered by the CONFIG SET calls above) from overwriting
+    # the RDB symlink via rename() after we create it.  NOSAVE in DEBUG RELOAD
+    # only skips the pre-reload dump; an independent BGSAVE can still win the
+    # race and write an empty DB over our fixture symlink.
+    test_env.cmd('CONFIG', 'SET', 'save', '')
+    # Wait for any already-running BGSAVE to finish before we swap the file so
+    # the BGSAVE child's rename() cannot clobber the symlink.
+    in_progress = waitForRdbSaveToFinish(lambda: test_env.cmd('INFO', 'persistence'))
+    test_env.assertEqual(in_progress, 0, message='BGSAVE still in progress before RDB fixture swap')
+
     # Create symlink to the downloaded RDB file
     try:
         os.unlink(rdbFilePath)
     except OSError:
         pass
     os.symlink(filePath, rdbFilePath)
-
-    # Give the system time to process the symlink
-    time.sleep(1)
 
     def info_command_process(port):
         """Process that continuously sends INFO commands"""

@@ -11,6 +11,7 @@
 
 use std::{ffi::CStr, ptr::NonNull};
 
+use c_trie::TermsTrie;
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
 use rqe_core::DocId;
@@ -54,6 +55,20 @@ impl QueryEvalContext {
     /// 2. All pointer fields within the [`ffi::QueryEvalCtx`] (`sctx`, `opts`,
     ///    `status`, `metricRequestsP`, `docTable`, `config`) and the nested
     ///    `sctx.spec` pointer must themselves be valid, non-null pointers.
+    ///    `sctx` must additionally stay valid, and at a stable address, for the
+    ///    lifetime of every timeout context and iterator derived from this
+    ///    context (e.g. via
+    ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)):
+    ///    a clock-based timeout context reads `sctx.time.timeout` back on every
+    ///    probe rather than capturing it.
+    ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
+    ///    — must be valid and non-null: every path that creates an
+    ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
+    ///    and regardless of whether the schema has any text field, before the
+    ///    spec can answer a query. Loading a legacy spec is the one path that
+    ///    leaves the field null for a while, and it fills it in — or releases
+    ///    the half-built spec — before handing the spec out, so no queryable
+    ///    spec has a null trie.
     ///    The nested `sctx.spec.diskSpec` pointer may be null (in-memory mode);
     ///    when non-null it must point to a valid
     ///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec).
@@ -66,6 +81,13 @@ impl QueryEvalContext {
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
     ///    [`scorer`](QueryEvalContext::scorer)).
+    ///    The head `metricRequestsP` points *at* must be either null — the
+    ///    empty list — or a live `array.h` tracked array of initialised
+    ///    [`MetricRequest`]s, that being the only shape carrying the length
+    ///    header that [`metric_requests`](QueryEvalContext::metric_requests)
+    ///    reads back. A plain allocation holding one [`MetricRequest`] would
+    ///    satisfy every other clause here and still make that safe method read
+    ///    outside it.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -108,6 +130,44 @@ impl QueryEvalContext {
         // SAFETY: invariant (2) of `new` guarantees `sctx.spec` is a valid,
         // non-null pointer.
         unsafe { &*self.sctx().spec }
+    }
+
+    /// The index's primary terms trie, the one every term lookup and pattern
+    /// expansion walks.
+    ///
+    /// The trie is always there, per invariant (2) of [`new`](Self::new), which
+    /// also says why. The assertion below states that here rather than leaving
+    /// each caller to assume it: a spec that broke the invariant would otherwise
+    /// be a null dereference in whichever one ran first, with nothing naming
+    /// what went wrong.
+    ///
+    /// `'index` is chosen by the caller and tied to nothing, because the
+    /// borrow this hands out is not one the type system can see: the trie is
+    /// owned by the spec rather than by the context, so binding it to `&self`
+    /// would say the trie is borrowed *from the context* — and then a caller
+    /// could not hold it while borrowing the context exclusively, which is
+    /// exactly what an expanding node type does across a walk that records
+    /// expansions back into the context. Erasing the lifetime is what buys that,
+    /// and it is why this is `unsafe`: nothing left in the signature stops the
+    /// reference outliving the trie.
+    ///
+    /// # Safety
+    ///
+    /// The returned reference must not outlive the query being evaluated. The
+    /// spec that owns the trie stays alive for the whole query (invariant (2)
+    /// of [`new`](Self::new)), so any `'index` within that span is sound, and
+    /// `'static` — or any lifetime reaching past the query — is not.
+    pub unsafe fn terms_trie<'index>(&self) -> &'index TermsTrie {
+        let terms = self.spec().terms;
+        debug_assert!(
+            !terms.is_null(),
+            "the spec of a query being evaluated must have a terms trie"
+        );
+        // SAFETY: `terms` is the spec's terms `Trie`: non-null, valid, and
+        // neither mutated nor freed for the duration of the query (invariants
+        // (1)/(2) of `new`). The caller's own contract above keeps `'index`
+        // inside that span.
+        unsafe { TermsTrie::from_raw(terms) }
     }
 
     /// The search options controlling field masks, scorer, query flags, etc.
@@ -186,9 +246,42 @@ impl QueryEvalContext {
     /// The C side appends entries via `array_ensure_append_1`. Rust callers
     /// that create vector iterators use this to register score-field metric
     /// requests.
-    pub fn metric_requests_ptr(&self) -> &*mut MetricRequest<'_> {
-        // SAFETY: invariant (2) of `new`.
-        unsafe { &*self.as_ref().metricRequestsP.cast() }
+    ///
+    /// Exclusive because appending reallocates, which invalidates any slice
+    /// [`metric_requests`](Self::metric_requests) handed out: taking the two
+    /// borrows apart is what stops a reader from outliving the array it read.
+    pub const fn metric_requests_ptr(&mut self) -> *mut *mut MetricRequest<'_> {
+        self.as_mut().metricRequestsP.cast()
+    }
+
+    /// The metric requests reserved so far, in the order they were reserved.
+    ///
+    /// The read side of what
+    /// [`metric_requests_ptr`](Self::metric_requests_ptr) is appended through.
+    /// The slice borrows this context for as long as it is held, so no append
+    /// can run while it is alive.
+    pub fn metric_requests(&self) -> &[MetricRequest<'_>] {
+        // SAFETY: invariant (2) of `new`, which also gives the head the
+        // tracked-array shape the length read below depends on.
+        let head = unsafe {
+            *self
+                .as_ref()
+                .metricRequestsP
+                .cast::<*mut MetricRequest<'_>>()
+        };
+        if head.is_null() {
+            // The list is a tracked array, whose empty state is a null head
+            // with no length header behind it to read.
+            return &[];
+        }
+        // SAFETY: a non-null head points just past the length header of a
+        // tracked array, which is what records how many elements follow it.
+        let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
+        // SAFETY: those `len` elements are initialised `MetricRequest`s, and
+        // the array lives as long as the context holding its head — which the
+        // returned slice borrows, so nothing can append to it and move it out
+        // from under the slice.
+        unsafe { std::slice::from_raw_parts(head, len) }
     }
 
     /// Allocate the next token ID and return it (post-increment).
@@ -266,7 +359,7 @@ impl QueryEvalContext {
     ///
     /// When a Blocked Client Timeout request is wired into the context
     /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
-    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
+    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
     /// checks are skipped or no deadline is set) is derived from `sctx.time`.
     ///
     /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
@@ -277,7 +370,10 @@ impl QueryEvalContext {
     /// # Safety
     ///
     /// The returned context, and any iterator built from it, must not be used
-    /// after the `AREQ` behind `bcTimeoutAreq` is freed.
+    /// after the `AREQ` behind `bcTimeoutAreq` is freed — nor after `sctx` is
+    /// freed or moved, since the clock-based variant reads the deadline out of
+    /// it on every probe. No write to `sctx.time.timeout` may overlap a probe;
+    /// see [`TimeoutContextDeadline::new`](rqe_iterators::utils::TimeoutContextDeadline::new).
     ///
     /// A Blocked Client Timeout context holds that `AREQ` as a raw pointer with
     /// no lifetime, so nothing enforces the precondition at compile time:
@@ -288,7 +384,7 @@ impl QueryEvalContext {
     /// caller discharges the precondition simply by not retaining the returned
     /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
     ///
-    /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
+    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         match NonNull::new(self.as_ref().bcTimeoutAreq) {
             Some(areq) => {
@@ -302,8 +398,15 @@ impl QueryEvalContext {
                 AnyTimeoutContext::BlockedClient(timeout)
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeout`) from `sctx.time`.
-            None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
+            // (or `NoTimeoutChecker`) from `sctx.time`.
+            None => {
+                let sctx = NonNull::new(self.sctx_ptr().cast_mut()).expect("sctx must be non-null");
+                // SAFETY: invariant (2) of `new` guarantees `sctx` stays valid for the lifetime of
+                // every timeout context and iterator derived from this one, which is what
+                // `from_sctx` needs to read the deadline back on each probe. Writes to the
+                // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+                unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
+            }
         }
     }
 }

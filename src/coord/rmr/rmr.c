@@ -7,6 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rmr.h"
+
+#include <stdio.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "reply.h"
 #include "reply_macros.h"
 #include "redismodule.h"
@@ -15,30 +27,25 @@
 #include "chan.h"
 #include "rq.h"
 #include "rmutil/rm_assert.h"
-#include "resp3.h"
 #include "coord/config.h"
-#include "rs_wall_clock.h"
-#include "debug_commands.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <time.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sys/param.h>
-#include <stddef.h>
-#include <stdatomic.h>
-#include <stdbool.h>
-
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
-
 #include "coord/hybrid/hybrid_cursor_mappings.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "hiredis/read.h"
+#include "query_error_ffi.h"
+#include "result_processor.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/conn.h"
+#include "rmr/node.h"
+#include "slots_tracker_ffi.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+
+struct timespec;
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount)
@@ -718,7 +725,8 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
       "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx, ctx->cmd.targetShard);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx,
+      ctx->cmd.targetShard ? ctx->cmd.targetShard : "(none)");
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -835,14 +843,19 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
 
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE);
+#endif
+
   StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
   WeakRef_Release(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
-    // Cursor mappings have been freed - cannot proceed with command dispatch.
-    // Release the iterator to decrement its reference count and trigger cleanup.
-    // This handles the case where we abort before sending commands to any shards.
-    MRIterator_Release(it);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED);
+#endif
+    // Complete the provisional callback now that no shard commands will be dispatched.
+    MRIteratorCallback_Done(&it->cbxs[0], 1);
     rm_free(data);
     return;
   }
@@ -1086,6 +1099,16 @@ void MR_Debug_ClearPendingTopo() {
     IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->io_runtimes_pool[i]);
   }
 }
+
+#ifdef ENABLE_ASSERT
+long long MR_Debug_GetPendingRequests() {
+  long long pending = 0;
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    pending += RQ_Debug_GetPending(cluster_g->io_runtimes_pool[i]->queue);
+  }
+  return pending;
+}
+#endif
 
 void MR_FreeCluster() {
   if (!cluster_g) return;

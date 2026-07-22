@@ -7,18 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid_callbacks.h"
-#include "config.h"
-#include "param.h"
-#include "util/arr.h"
-#include "result_processor.h"
+
 #include <string.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <strings.h>
+
+#include "config.h"
+#include "param.h"
+#include "result_processor.h"
 #include "util/misc.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "hiredis/sds.h"
+#include "hybrid/parse/hybrid_optional_args.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "redismodule.h"
+#include "rmutil/args.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {
@@ -468,21 +490,14 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
-// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+// _INDEX_PREFIXES callback
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   ArgsCursor *paramsArgs = (ArgsCursor*)value;
-  QueryError *status = ctx->status;
-  while (!AC_IsAtEnd(paramsArgs)) {
-    const char *prefix;
-    size_t prefixLen;
-    if (AC_GetString(paramsArgs, &prefix, &prefixLen, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for _INDEX_PREFIXES");
-      return;
-    }
-    sds prefixSds = sdsnewlen(prefix, prefixLen);
-    array_ensure_append_1(*ctx->prefixes, prefixSds);
-  }
+  // The slice is a window into the held argv, which outlives the parse — borrow it
+  RS_ASSERT(paramsArgs->type == AC_TYPE_RSTRING);
+  ctx->prefixes = (RedisModuleString **)paramsArgs->objs;
+  ctx->nprefixes = paramsArgs->argc;
 }
 
 // SLOTS_STR callback - implements EXACT original logic from handleCommonArgs

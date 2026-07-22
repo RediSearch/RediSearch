@@ -9,11 +9,9 @@
 
 use crate::{
     TrieMap,
+    automaton::{CodepointWildcard, CodepointWildcardNfa},
     iter::{self, AutomatonIter, filter},
-    str_trie_map::{
-        automaton::{CodepointWildcard, CodepointWildcardNfa},
-        iter::unfiltered::key_to_string,
-    },
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
 /// Iterator over the entries of a

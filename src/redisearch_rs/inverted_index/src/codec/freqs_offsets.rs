@@ -72,12 +72,13 @@ impl Decoder for FreqsOffsets {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut skipped: u16 = 0;
         let (freq, offsets_sz) = loop {
             let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
@@ -87,13 +88,14 @@ impl Decoder for FreqsOffsets {
             if base >= target {
                 break (freq, offsets_sz);
             }
+            skipped += 1;
 
             // Skip offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, 0, freq, offsets_sz, result)?;
-        Ok(true)
+        Ok(Some(skipped))
     }
 }
 

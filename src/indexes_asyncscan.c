@@ -11,6 +11,8 @@
 
 #include <pthread.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #include "redismodule.h"
 #include "spec.h"
@@ -23,6 +25,10 @@
 #include "rmalloc.h"
 #include "rs_wall_clock.h"
 #include "search_disk.h"
+#include "document_rs.h"
+#include "obfuscation/hidden_unicode.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 // Debug context (owned by debug_commands.c); read only for the SET_SIMULATE_ASYNC_OOM hook.
 extern DebugCTX globalDebugCtx;

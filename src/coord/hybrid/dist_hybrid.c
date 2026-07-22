@@ -8,22 +8,30 @@
 */
 
 #include "dist_hybrid.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
-#include "rmr/rmr.h"
 #include "rmutil/util.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
 #include "profile/profile.h"
 #include "dist_profile.h"
-#include "shard_window_ratio.h"
 #include "config.h"
-#include "coord/coord_request_ctx.h"
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
@@ -31,9 +39,45 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "obfuscation/hidden_unicode.h"
+#include "param.h"
+#include "pipeline/pipeline.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "reply.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/reply.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "util/references.h"
+#include "util/timeout.h"
+#include "vector_index.h"
+
+struct ConcurrentCmdCtx;
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
+
+// Scratch buffer for formatting one numeric argument before appending it to an
+// MRCommand. 25 is the exact minimum: the widest output below, plus its NUL.
+//   %.17g  -DBL_MAX   "-1.7976931348623157e+308"  24  RRF CONSTANT, LINEAR ALPHA/BETA
+//   %lld   INT64_MIN  "-9223372036854775808"      20  TIMEOUT
+//   %zu    SIZE_MAX   "18446744073709551615"      20  WINDOW
+//   %lu    ULONG_MAX  "18446744073709551615"      20  PARAMS count
+//   %d     (literal)  "8"                          1  COMBINE argument count
+#define HYBRID_NUM_BUF_SIZE 25
 
 /**
  * Appends all SEARCH-related arguments to MR command.
@@ -234,75 +278,110 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // present) counted inside the block, so shards of any version parse it and never
 // fall back on their own (possibly different) defaults.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
-  if (!cp || !cp->scoringCtx) {
+  RS_ASSERT(cp != NULL);
+  if (!cp->scoringCtx) {
     return;
   }
   const HybridScoringContext *sc = cp->scoringCtx;
   const bool hasAlias = cp->scoreAlias != NULL;
-  char numBuf[32];
+  char numBuf[HYBRID_NUM_BUF_SIZE];
   const size_t numBufSize = sizeof(numBuf);
   int n;
 
-  MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
+  MRCommand_AppendLiteral(xcmd, "COMBINE");
   if (sc->scoringType == HYBRID_SCORING_RRF) {
     // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
     n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
-    MRCommand_Append(xcmd, "RRF", strlen("RRF"));
+    MRCommand_AppendLiteral(xcmd, "RRF");
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
+    MRCommand_AppendLiteral(xcmd, "CONSTANT");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
   } else {
     // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
     n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
-    MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
+    MRCommand_AppendLiteral(xcmd, "LINEAR");
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
+    MRCommand_AppendLiteral(xcmd, "ALPHA");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "BETA", strlen("BETA"));
+    MRCommand_AppendLiteral(xcmd, "BETA");
     n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
     MRCommand_Append(xcmd, numBuf, n);
-    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    MRCommand_AppendLiteral(xcmd, "WINDOW");
     n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
     MRCommand_Append(xcmd, numBuf, n);
   }
   if (hasAlias) {
-    MRCommand_Append(xcmd, "YIELD_SCORE_AS", strlen("YIELD_SCORE_AS"));
+    MRCommand_AppendLiteral(xcmd, "YIELD_SCORE_AS");
     MRCommand_Append(xcmd, cp->scoreAlias, strlen(cp->scoreAlias));
   }
 }
 
-// The function transforms FT.HYBRID index SEARCH query VSIM field vector
-// into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
-// _NUM_SSTRING _INDEX_PREFIXES ...
-// stores the index of the K value argument in the MRCommand (for later
-// modification by the command modifier callback in SHARD_K_RATIO optimization).
+/**
+ * Reconstructs the PARAMS clause from the resolved parameter dictionary rather
+ * than re-scanning argv for the "PARAMS" keyword. The emitted order is the
+ * dict-iteration order, which is not necessarily the client's original argument
+ * order; this is safe because parameters are referenced by name.
+ *
+ * @param xcmd - destination MR command to append arguments to
+ * @param params - resolved parameter dictionary (key: name, value: RedisModuleString)
+ */
+static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
+  if (!params) {
+    return;
+  }
+  unsigned long n = dictSize(params);
+  if (n == 0) {
+    return;
+  }
+  char numBuf[HYBRID_NUM_BUF_SIZE];
+  MRCommand_Append(xcmd, "PARAMS", strlen("PARAMS"));
+  int len = snprintf(numBuf, sizeof(numBuf), "%lu", n * 2);
+  MRCommand_Append(xcmd, numBuf, len);
+
+  dictIterator *it = dictGetIterator(params);
+  const dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    const char *name = dictGetKey(entry);
+    MRCommand_Append(xcmd, name, strlen(name));
+    const RedisModuleString *value = dictGetVal(entry);
+    size_t valueLen;
+    const char *valueData = RedisModule_StringPtrLen(value, &valueLen);
+    MRCommand_Append(xcmd, valueData, valueLen);
+  }
+  dictReleaseIterator(it);
+}
+
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
-                            ProfileOptions profileOptions,
-                            bool sendExplainScore,
-                            const HybridCombineWireParams *combineParams,
-                            MRCommand *xcmd, arrayof(char*) serialized,
-                            IndexSpec *sp, int *outKArgIndex) {
+                                  const HybridShardWireParams *shardWireParams,
+                                  MRCommand *xcmd,
+                                  arrayof(char *) serialized, IndexSpec *sp, int *outKArgIndex) {
+  RS_ASSERT(shardWireParams != NULL);
   RS_ASSERT(outKArgIndex != NULL);
-  int argOffset;
-  const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
+  size_t index_name_len;
+  const char *index_name = RedisModule_StringPtrLen(argv[1], &index_name_len);
 
   int cmdArgCount = 2;
   const char *cmdArgs[5] = {"_FT.HYBRID", index_name};
+  size_t cmdLens[5] = {sizeof("_FT.HYBRID") - 1, index_name_len};
 
-  if (profileOptions != EXEC_NO_FLAGS) {
+  if (shardWireParams->profileOptions != EXEC_NO_FLAGS) {
     cmdArgs[0] = "_FT.PROFILE";
-    cmdArgs[cmdArgCount++] = "HYBRID";
-    if (profileOptions & EXEC_WITH_PROFILE_LIMITED) {
-      cmdArgs[cmdArgCount++] = "LIMITED";
+    cmdLens[0] = sizeof("_FT.PROFILE") - 1;
+    cmdArgs[cmdArgCount] = "HYBRID";
+    cmdLens[cmdArgCount++] = sizeof("HYBRID") - 1;
+    if (shardWireParams->profileOptions & EXEC_WITH_PROFILE_LIMITED) {
+      cmdArgs[cmdArgCount] = "LIMITED";
+      cmdLens[cmdArgCount++] = sizeof("LIMITED") - 1;
     }
-    cmdArgs[cmdArgCount++] = "QUERY";
+    cmdArgs[cmdArgCount] = "QUERY";
+    cmdLens[cmdArgCount++] = sizeof("QUERY") - 1;
   }
-  *xcmd = MR_NewCommandArgv(cmdArgCount, cmdArgs);
+  *xcmd = MR_NewCommandArgvLen(cmdArgCount, cmdArgs, cmdLens);
 
   // Add all SEARCH-related arguments (SEARCH, query, optional SCORER, YIELD_SCORE_AS)
   int searchOffset = RMUtil_ArgIndex("SEARCH", argv, argc);
@@ -324,7 +403,7 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   // each shard falling back on its own (possibly changed) defaults. This also
   // normalizes the positional YIELD_SCORE_AS form and a zero argument count
   // into the counted form that all shard versions accept.
-  MRCommand_appendCombine(xcmd, combineParams);
+  MRCommand_appendCombine(xcmd, &shardWireParams->combine);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -333,58 +412,29 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     }
   }
 
-  // Add PARAMS arguments if present
-  argOffset = RMUtil_ArgIndex("PARAMS", argv + vsimOffset, argc - vsimOffset);
-  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-  if (argOffset != -1) {
-    long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+  // Reconstruct the PARAMS clause from the resolved parameter dictionary.
+  MRCommand_appendParams(xcmd, shardWireParams->params);
 
-    // PARAMS keyword and count - treat as string
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-
-    // append params string including PARAMS keyword and nargs
-    for (int i = 2; i < nargs + 2; ++i) {
-      if (i % 2 == 0) {
-        // Parameter name - treat as string
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      } else {
-        // Parameter value - could be binary, treat as binary
-        size_t valueLen;
-        const char *valueData = RedisModule_StringPtrLen(argv[argOffset + i], &valueLen);
-        MRCommand_Append(xcmd, valueData, valueLen);
-      }
-    }
-  }
-
-  // check for timeout argument and append it to the command.
-  // If TIMEOUT exists, it was already validated at AREQ_Compile.
-  argOffset = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-  }
-
-  // Add DIALECT arguments if present
-  argOffset = RMUtil_ArgIndex("DIALECT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
+  // Forward the client's query timeout when TIMEOUT was set.
+  if (shardWireParams->forwardTimeout) {
+    char numBuf[HYBRID_NUM_BUF_SIZE];
+    MRCommand_Append(xcmd, "TIMEOUT", strlen("TIMEOUT"));
+    int len = snprintf(numBuf, sizeof(numBuf), "%lld", shardWireParams->timeoutMS);
+    MRCommand_Append(xcmd, numBuf, len);
   }
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
-  if (sendExplainScore) {
-    MRCommand_Append(xcmd, "EXPLAINSCORE", strlen("EXPLAINSCORE"));
+  if (shardWireParams->sendExplainScore) {
+    MRCommand_AppendLiteral(xcmd, "EXPLAINSCORE");
   }
 
   // Add WITHCURSOR
-  MRCommand_Append(xcmd, "WITHCURSOR", strlen("WITHCURSOR"));
+  MRCommand_AppendLiteral(xcmd, "WITHCURSOR");
 
-  MRCommand_Append(xcmd, "WITHSCORES", strlen("WITHSCORES"));
+  MRCommand_AppendLiteral(xcmd, "WITHSCORES");
   // Numeric responses are encoded as simple strings.
-  MRCommand_Append(xcmd, "_NUM_SSTRING", strlen("_NUM_SSTRING"));
+  MRCommand_AppendLiteral(xcmd, "_NUM_SSTRING");
 
   // Prepare command for slot info (Cluster mode)
   MRCommand_PrepareForSlotInfo(xcmd, xcmd->num);
@@ -393,11 +443,11 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   MRCommand_PrepareForDispatchTime(xcmd, xcmd->num);
 
   if (sp && sp->rule && sp->rule->prefixes && array_len(sp->rule->prefixes) > 0) {
-    MRCommand_Append(xcmd, "_INDEX_PREFIXES", strlen("_INDEX_PREFIXES"));
+    MRCommand_AppendLiteral(xcmd, "_INDEX_PREFIXES");
     arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
     char *n_prefixes;
-    rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-    MRCommand_Append(xcmd, n_prefixes, strlen(n_prefixes));
+    int n_prefixes_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+    MRCommand_Append(xcmd, n_prefixes, n_prefixes_len);
     rm_free(n_prefixes);
 
     for (uint32_t i = 0; i < array_len(prefixes); i++) {
@@ -631,20 +681,6 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
-// prepareForExecution's parseHybridCommand re-reads RSGlobalConfig on the BG
-// thread, so once the pipelines are built we force every
-// config + pipeline ctx the request consults onto the policy captured at
-// dispatch, and recompute skipTimeoutChecks from it.
-static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
-    hreq->reqConfig.timeoutPolicy = policy;
-    hreq->tailPipeline->qctx.timeoutPolicy = policy;
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      hreq->requests[i]->reqConfig.timeoutPolicy = policy;
-      hreq->requests[i]->pipeline.qctx.timeoutPolicy = policy;
-    }
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -663,21 +699,17 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.reqConfig = &hreq->reqConfig;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-    // RString cursor used only to detect the profile prefix and count tokens
-    // consumed. We don't feed it to parseHybridCommand because AC_GetString on
-    // an RString cursor returns pointers into auto-memory that dies with the
-    // dispatcher ctx.
+    // Only detects the profile prefix; nothing borrows from the job's argv here.
     ArgsCursor profileAc = {0};
     ArgsCursor_InitRString(&profileAc, argv, argc);
     ProfileOptions profileOptions = EXEC_NO_FLAGS;
     int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    // Hreq-owned sds copies of argv[2:] (skips command + index). parseHybridCommand
-    // and the RLookup machinery borrow pointers into this cursor's strings, so they
-    // must outlive the dispatcher ctx.
+    // Parse from the held argv — the parse borrows pointers into these
+    // strings, which must outlive this job's own argv copies.
     ArgsCursor ac = {0};
-    HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
+    HybridRequest_InitArgsCursor(hreq, &ac, argc);
 
     if (profileOptions != EXEC_NO_FLAGS) {
         // Skip the tokens ParseProfile consumed beyond command + index.
@@ -724,14 +756,20 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
-    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
-    // hands scoringCtx ownership to the merger and nulls the local pointer. The
-    // scoring context object itself is kept alive by the merger, so borrowing it
-    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
-    // when building the per-shard command below.
-    HybridCombineWireParams combineParams = {
-        .scoringCtx = hybridParams.scoringCtx,
-        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    // Capture the parsed state forwarded to the shards, used to build the
+    // per-shard command below. This must happen here, before
+    // BuildDistributedPipeline hands scoringCtx ownership to the merger and nulls
+    // the local pointer: `combine` reconstructs an old-shard-compatible COMBINE
+    // clause from it. The scoring context object itself is kept alive by the
+    // merger, so borrowing it here is safe.
+    HybridShardWireParams shardWireParams = {
+        .profileOptions = profileOptions,
+        .sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0,
+        .combine = {.scoringCtx = hybridParams.scoringCtx,
+                    .scoreAlias = hybridParams.aggregationParams.common.scoreAlias},
+        .params = cmd.search->searchopts.params,
+        .forwardTimeout = cmd.timeoutSpecified,
+        .timeoutMS = cmd.clientTimeoutMS,
     };
 
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
@@ -740,11 +778,10 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       return REDISMODULE_ERR;
     }
 
-    // Construct the command string
+    // Construct the command string.
     MRCommand xcmd;
-    bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
-                                 &combineParams, &xcmd, serialized, sp, &hreq->kArgIndex);
+    HybridRequest_buildMRCommand(argv, argc, &shardWireParams, &xcmd, serialized, sp,
+                                 &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
@@ -847,7 +884,8 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
     // DistHybridCleanups can reply with them.
     if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, knnCtx, status,
                                      oomPolicy, timeoutPolicy, &maxPrefixSearch, &maxPrefixVsim,
-                                     &shardTimedOutWarning, deadline, &hreq->syncState)) {
+                                     &shardTimedOutWarning, deadline, &hreq->base.timeout,
+                                     &hreq->base.async)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -860,10 +898,10 @@ static int HybridRequest_prepareCursors(HybridRequest *hreq, QueryError *status)
 
     // Propagate max-prefix-expansion warning to the specific subquery that triggered it.
     if (maxPrefixSearch) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[SEARCH_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[SEARCH_INDEX]->base.reply.err);
     }
     if (maxPrefixVsim) {
-        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->errors[VECTOR_INDEX]);
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&hreq->requests[VECTOR_INDEX]->base.reply.err);
     }
 
     RS_ASSERT(array_len(search->mappings) == array_len(vsim->mappings));
@@ -923,14 +961,25 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
     return rp;
 }
 
-// Schedule each subquery's RPSafeDepleter to the coordinator thread pool.
+// Schedule each subquery's RPSafeDepleter to the coordinator thread pool, or
+// mark them all timed out when the query's clock has already expired — the
+// launcher owns that decision, and a marked depleter yields TIMEDOUT without
+// a job to wait on.
 //
 // NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
+    const RedisSearchCtx *sctx = HREQ_SearchCtx(hreq);
+    const bool timedOut =
+        !sctx->time.skipTimeoutChecks && TimedOut(&sctx->time.timeout) == TIMED_OUT;
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        RPSafeDepleter_StartDepletion(findSafeDepleter(hreq, i));
+        ResultProcessor *depleter = findSafeDepleter(hreq, i);
+        if (timedOut) {
+            RPSafeDepleter_MarkTimedOut(depleter);
+        } else {
+            RPSafeDepleter_StartDepletion(depleter);
+        }
     }
 }
 
@@ -950,14 +999,13 @@ static void waitForDepleters(HybridRequest *hreq) {
 static void HybridDispatchCtx_Tail(void *arg) {
     HybridDispatchCtx *dispatch = (HybridDispatchCtx *)arg;
     HybridRequest *hreq = dispatch->hreq;
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(dispatch->bc);
 
     CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
 
     // If timeout fired between dispatch and tail pickup, the timeout callback
     // already replied — skip the reply path, but still drain depleters before
     // teardown (see waitForDepleters).
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
+    if (HybridRequest_TimedOut(hreq)) {
         waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
@@ -1035,56 +1083,52 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
     struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, StrongRef *strong_ref,
     HybridRequest *hreq, QueryError *status) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
 
     // If timeout already occurred, the timeout callback already replied - don't reply again
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
+    if (HybridRequest_TimedOut(hreq)) {
       if (QueryError_HasError(status)) {
         QueryError_ClearError(status);
       }
       goto cleanup;
     }
 
-    if (!hreq) {
-      CoordRequestCtx_ReplyOrStoreError(reqCtx, ctx, status);
-    } else {
-      HREQ_ReplyOrStoreError(hreq, ctx, status);
-    }
+    HREQ_ReplyOrStoreError(hreq, ctx, status);
 
     cleanup:
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
       IndexSpecRef_Release(*strong_ref);
     }
-    if (hreq) {
-      HybridRequest_DecrRef(hreq);
-    }
+    // Release the execution flow's reference (taken at shell allocation on the
+    // main thread); the cycle's reference is released by QueryRequest_OnFree.
+    HybridRequest_DecrRef(hreq);
 }
 
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    // The hybrid request shell was allocated on the main thread by the
+    // dispatcher and installed as the blocked client's private data.
+    QueryRequest *request =
+        RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
+    // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
+    // thread's command ctx); re-point it at this thread's ctx before any use.
+    hreq->sctx->redisCtx = ctx;
 
-    if(CoordRequestCtx_TimedOut(reqCtx)) {
-      // Query timed out before request creation
+    if (HybridRequest_TimedOut(hreq)) {
+      // Query timed out while this job was queued; the timeout callback
+      // already replied. Release the execution flow's reference.
+      WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+      HybridRequest_DecrRef(hreq);
       return;
     }
-    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
-    // hybrid request does not exist yet, so the coord-level marker carries the stage.
-    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
-
-    // CMD, index, expr, args...
-    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-    if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
-        return;
-    }
 
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(SYNC_POINT_BEFORE_DIST_HYBRID_PROMOTE);
@@ -1094,29 +1138,10 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
-
-    // Lock before creating request to prevent race with timeout callback
-    CoordRequestCtx_LockSetRequest(reqCtx);
-
-    // Check if already timed out
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
-        // Timeout callback will handle reply - just unlock and cleanup
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
-        SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
-        return;
-    }
-
-    // Create and set request atomically while holding lock
-    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-
-    CoordRequestCtx_SetRequest(reqCtx, hreq);
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     // Store coordinator start time for dispatch time tracking
@@ -1127,10 +1152,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
       return;
     }
-
-    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
-    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
-    applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
@@ -1159,60 +1180,44 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                             struct ConcurrentCmdCtx *cmdCtx) {
 
-    CoordRequestCtx *reqCtx = RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    // See RSExecDistHybrid: the shell comes from the main thread.
+    QueryRequest *request =
+        RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
+    HybridRequest *hreq = QueryRequest_GetHybrid(request);
+    hreq->sctx->redisCtx = ctx;
 
-    if(CoordRequestCtx_TimedOut(reqCtx)) {
+    if (HybridRequest_TimedOut(hreq)) {
+      // Timed out while queued; the timeout callback already replied.
+      WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+      HybridRequest_DecrRef(hreq);
       return;
     }
-    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE. The
-    // hybrid request does not exist yet, so the coord-level marker carries the stage.
-    CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
+    // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+    HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_PIPELINE);
 
     QueryError status = QueryError_Default();
 
     // Parse debug params from the end of argv
     HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
     if (QueryError_HasError(&status)) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, hreq, &status);
       return;
     }
     if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
-      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, hreq, &status);
       return;
     }
 
     // Strip debug params from argc for parsing
     int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
 
-    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-    if (!sctx) {
-        QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
-        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, &status);
-        return;
-    }
-
     StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     IndexSpec *sp = StrongRef_Get(strong_ref);
     if (!sp) {
-        SearchCtx_Free(sctx);
         QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
     }
-
-    CoordRequestCtx_LockSetRequest(reqCtx);
-    if (CoordRequestCtx_TimedOut(reqCtx)) {
-        CoordRequestCtx_UnlockSetRequest(reqCtx);
-        SearchCtx_Free(sctx);
-        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, &status);
-        return;
-    }
-
-    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-
-    CoordRequestCtx_SetRequest(reqCtx, hreq);
-    CoordRequestCtx_UnlockSetRequest(reqCtx);
 
     hreq->poolId = ConcurrentCmdCtx_GetPoolId(cmdCtx);
     hreq->profileClocks.coordStartTime = ConcurrentCmdCtx_GetCoordStartTime(cmdCtx);
@@ -1225,10 +1230,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
       return;
     }
-
-    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
-    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
-    applyCoordReqConfigTimeoutPolicy(hreq, CoordRequestCtx_GetTimeoutPolicy(reqCtx));
 
     // The tail (merge) pipeline runs only on the coordinator, so the tail debug
     // timeout takes effect here.
@@ -1255,12 +1256,19 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 // phase) or a subquery's channel (read phase); wake all of them.
 static void wakeHybridAbortChannels(HybridRequest *hreq) {
   if (!hreq) return;
-  RequestSyncState_WakeAbortChannel(&hreq->syncState);
+  QueryRequestAsyncState_WakeAbortChannel(&hreq->base.async);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     if (hreq->requests[i]) {
-      RequestSyncState_WakeAbortChannel(&hreq->requests[i]->syncState);
+      QueryRequestAsyncState_WakeAbortChannel(&hreq->requests[i]->base.async);
     }
   }
+}
+
+// Record a timed-out blocked hybrid request into the Redis-INFO per-stage
+// breakdown, at the stage the deadline caught it. Called exactly once per
+// blocked-client timeout callback, after the timed-out flag froze the marker.
+static inline void recordCoordHybridTimeoutStage(HybridRequest *hreq, bool isError) {
+  QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, COORD_ERR_WARN);
 }
 
 // Timeout callback for Coordinator HybridRequest execution
@@ -1269,28 +1277,20 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!CoordReqCtx) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
-
-  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
-
-  // Lock to coordinate with request creation in background thread
-  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  CoordRequestCtx_SetTimedOut(CoordReqCtx);
+  HybridRequest_SetTimedOut(hreq);
 
-  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  recordCoordHybridTimeoutStage(hreq, /*isError=*/true);
 
   // The BG dispatcher may be parked in the cursor-setup wait; wake it so it
   // exits, even though this callback replies the error itself.
-  // Record the per-stage breakdown at the stage the deadline caught the request.
-  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
-
-  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
   wakeHybridAbortChannels(hreq);
 
   // Reply with timeout error
@@ -1303,31 +1303,22 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 // Timeout callback for Coordinator HybridRequest execution
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!CoordReqCtx) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
-
-  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
-
-  // Lock to coordinate with request creation in background thread
-  CoordRequestCtx_LockSetRequest(CoordReqCtx);
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  CoordRequestCtx_SetTimedOut(CoordReqCtx);
-
-  CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
+  HybridRequest_SetTimedOut(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
-  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
-
-  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
+  recordCoordHybridTimeoutStage(hreq, /*isError=*/false);
 
   wakeHybridAbortChannels(hreq);
 
-  if (!hreq || HybridRequest_TryClaimAggregateResults(hreq)) {
-    // Either the request is NULL or we were able to claim the aggregation results.
+  if (HybridRequest_TryClaimAggregateResults(hreq)) {
+    // We were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase
     // (startPipelineCommon) yet. Reply with empty results. coord_hybrid_query_reply_empty
     // derives isProfile from the command so the profile envelope is preserved for
@@ -1342,13 +1333,13 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   // Losing TryClaim means BG owns the claim; wait for it to finish writing
-  // `storedReplyState` (the abort-channel wakes above let it exit promptly).
+  // `base.reply` (the abort-channel wakes above let it exit promptly).
   HybridRequest_WaitForAggregateResultsComplete(hreq);
 
   // The coordinator hybrid pipeline is not drainable: the tail merger and the
   // per-subquery depleters run on separate coord-pool threads, so a main-thread
   // drain would re-enter live upstream processors. Reply only with whatever the
-  // tail already accumulated into `storedReplyState.results` before the deadline.
+  // tail already accumulated into `base.reply.results` before the deadline.
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
@@ -1358,39 +1349,22 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
 
 // Reply callback for Coordinator HybridRequest execution (FAIL policy).
 // Called on the main thread when the background thread calls UnblockClient.
-// The background thread stored results in hreq->storedReplyState, which we use to build the reply.
+// The background thread stored results in hreq->base.reply, which we use to build the reply.
 // Note: This callback is NOT called if timeout fired first (bc->client becomes NULL).
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
 
-  CoordRequestCtx *CoordReqCtx = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!CoordReqCtx) {
-    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
-    return RedisModule_ReplyWithError(ctx, "Internal error: no request context");
-  }
-
-  RS_ASSERT(CoordReqCtx->type == COMMAND_HYBRID);
-
-  HybridRequest *hreq = (HybridRequest *)CoordRequestCtx_GetRequest(CoordReqCtx);
-  if (!hreq) {
-    // We expect CoordReqCtx to hold the error if hreq is NULL
-    if (QueryError_HasError(&CoordReqCtx->preRequestError)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&CoordReqCtx->preRequestError), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &CoordReqCtx->preRequestError);
-      return REDISMODULE_OK;
-    }
-    // This should not happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no hybrid request and no preRequestError");
-    return RedisModule_ReplyWithError(ctx, "Internal error: no hybrid request and no preRequestError");
-  }
+  QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(request != NULL);
+  HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Check if results were stored (background thread completed successfully)
-  if (!hreq->storedReplyState.hasStoredResults) {
+  if (!hreq->base.reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&hreq->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &hreq->storedReplyState.err);
+    if (QueryError_HasError(&hreq->base.reply.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&hreq->base.reply.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &hreq->base.reply.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
@@ -1402,6 +1376,6 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   serializeStoredResults_hybrid(hreq, reply);
   RedisModule_EndReply(reply);
 
-  // Note: No HybridRequest_DecrRef here - CoordRequestCtx_Free releases the context's reference.
+  // QueryRequest_OnFree releases the cycle's request reference.
   return REDISMODULE_OK;
 }

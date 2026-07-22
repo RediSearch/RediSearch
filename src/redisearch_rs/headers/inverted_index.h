@@ -16,11 +16,6 @@ typedef struct FieldSpec FieldSpec;
 
 
 /**
- * Result of scanning the index for garbage collection
- */
-typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
-
-/**
  * Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
  * are ordered by document ID, so the first entry in the block has the lowest document ID, and the
  * last entry has the highest document ID. The block also contains a buffer that is used to
@@ -38,68 +33,9 @@ typedef struct IndexBlock IndexBlock;
 typedef struct InvertedIndex InvertedIndex;
 
 /**
- * Summary information about an inverted index containing all key metrics
+ * Result of scanning the index for garbage collection
  */
-typedef struct IISummary {
-  uint32_t number_of_docs;
-  size_t number_of_entries;
-  t_docId last_doc_id;
-  uint64_t flags;
-  size_t number_of_blocks;
-  double block_efficiency;
-  bool has_efficiency;
-} IISummary;
-
-/**
- * Filter details to apply to numeric values
- */
-typedef struct NumericFilter {
-  /**
-   * The field specification which this filter is acting on
-   */
-  const FieldSpec *fieldSpec;
-  /**
-   * Beginning of the range
-   */
-  double min;
-  /**
-   * End of the range
-   */
-  double max;
-  /**
-   * Geo filter, if any
-   */
-  const void *geoFilter;
-  /**
-   * Range includes the min value
-   */
-  bool minInclusive;
-  /**
-   * Range includes the max value
-   */
-  bool maxInclusive;
-  /**
-   * Order of SORTBY (ascending/descending)
-   */
-  bool ascending;
-  /**
-   * Minimum number of results needed
-   */
-  size_t limit;
-  /**
-   * Number of results to skip
-   */
-  size_t offset;
-} NumericFilter;
-
-/**
- * Summary information about the key metrics of a block in an inverted index
- */
-typedef struct IIBlockSummary {
-  t_docId first_doc_id;
-  t_docId last_doc_id;
-  uint16_t number_of_entries;
-} IIBlockSummary;
+typedef struct InvertedIndexGcDelta InvertedIndexGcDelta;
 
 /**
  * Outcome of [`InvertedIndex::add_record`]: how the index grew during the write.
@@ -114,6 +50,28 @@ typedef struct AddRecordOutcome {
    */
   uint32_t blocks_added;
 } AddRecordOutcome;
+
+/**
+ * Summary information about the key metrics of a block in an inverted index
+ */
+typedef struct IIBlockSummary {
+  t_docId first_doc_id;
+  t_docId last_doc_id;
+  uint16_t number_of_entries;
+} IIBlockSummary;
+
+/**
+ * Summary information about an inverted index containing all key metrics
+ */
+typedef struct IISummary {
+  uint32_t number_of_docs;
+  size_t number_of_entries;
+  t_docId last_doc_id;
+  uint64_t flags;
+  size_t number_of_blocks;
+  double block_efficiency;
+  bool has_efficiency;
+} IISummary;
 
 /**
  * Information about the result of applying a garbage collection scan to the index
@@ -181,3 +139,45 @@ typedef union IndexDecoderCtx {
     const struct NumericFilter *numeric;
   };
 } IndexDecoderCtx;
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter {
+  /**
+   * The field specification which this filter is acting on
+   */
+  const FieldSpec *fieldSpec;
+  /**
+   * Beginning of the range
+   */
+  double min;
+  /**
+   * End of the range
+   */
+  double max;
+  /**
+   * Geo filter, if any
+   */
+  const void *geoFilter;
+  /**
+   * Range includes the min value
+   */
+  bool minInclusive;
+  /**
+   * Range includes the max value
+   */
+  bool maxInclusive;
+  /**
+   * Order of SORTBY (ascending/descending)
+   */
+  bool ascending;
+  /**
+   * Minimum number of results needed
+   */
+  size_t limit;
+  /**
+   * Number of results to skip
+   */
+  size_t offset;
+} NumericFilter;

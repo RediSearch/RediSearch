@@ -14,12 +14,14 @@
 //!
 //! Terms are stored verbatim. [`SpellCheckDictionary::contains`] and
 //! [`SpellCheckDictionary::fuzzy_matches`] are case-insensitive — the query
-//! and each candidate are lowercased via [`unicode_tolower_cow`] before comparison
-//! — but [`SpellCheckDictionary::remove`] matches verbatim and is therefore
+//! and each candidate are lowercased per-codepoint before comparison — but
+//! [`SpellCheckDictionary::remove`] matches verbatim and is therefore
 //! case-sensitive.
 //!
-//! Because matching lowercases verbatim-stored keys, those two queries scan
-//! every stored term rather than exploiting the trie's prefix structure.
+//! Both queries run as streaming-automaton trie descents (see
+//! [`StrTrieMap::case_insensitive_iter`] and [`StrTrieMap::fuzzy_iter`]),
+//! folding stored codepoints during the walk and pruning subtrees that can
+//! no longer match.
 
 // Public methods link the private length constants rather than duplicate their
 // rationale in prose.
@@ -27,7 +29,7 @@
 
 use std::fmt::{self, Debug};
 
-use string_utils::{unicode_tolower_capped, unicode_tolower_cow};
+use string_utils::unicode;
 use trie_rs::str_trie_map::StrTrieMap;
 
 /// Maximum query length, in Unicode codepoints, that the dictionary will match
@@ -106,12 +108,10 @@ impl SpellCheckDictionary {
     ///
     /// Returns `true` if such a term exists.
     pub fn contains(&self, term: &str) -> bool {
-        let Some(needle) = unicode_tolower_capped(term, TRIE_MAX_PREFIX) else {
+        let Some(needle) = unicode::tolower_capped(term, TRIE_MAX_PREFIX) else {
             return false;
         };
-        self.trie
-            .iter()
-            .any(|(key, _)| *unicode_tolower_cow(&key) == *needle)
+        self.trie.case_insensitive_iter(&needle).next().is_some()
     }
 
     /// Find stored terms within Levenshtein edit distance `max_dist`
@@ -120,13 +120,10 @@ impl SpellCheckDictionary {
     ///
     /// Returns an iterator over the matching terms, each in its stored case.
     pub fn fuzzy_matches(&self, term: &str, max_dist: u32) -> impl Iterator<Item = String> + '_ {
-        let needle = unicode_tolower_capped(term, TRIE_MAX_PREFIX);
-        needle.into_iter().flat_map(move |needle| {
-            self.trie.iter().filter_map(move |(key, _)| {
-                let dist = strsim::levenshtein(&unicode_tolower_cow(&key), &needle) as u32;
-                (dist <= max_dist).then_some(key)
-            })
-        })
+        let needle = unicode::tolower_capped(term, TRIE_MAX_PREFIX);
+        needle
+            .into_iter()
+            .flat_map(move |needle| self.trie.fuzzy_iter(&needle, max_dist).map(|(key, _)| key))
     }
 }
 
@@ -135,7 +132,7 @@ mod tests {
     use super::*;
     use rstest::rstest;
     use std::collections::BTreeSet;
-    use string_utils::unicode_tolower;
+    use string_utils::unicode;
 
     #[rstest]
     #[case(&["Hello"], "Hello", true)]
@@ -242,7 +239,7 @@ mod tests {
         // exceed the TRIE_MAX_PREFIX limit only after lowercasing.
         let term: String = "İ".repeat(51);
         assert_eq!(term.chars().count(), 51);
-        assert!(unicode_tolower(&term).chars().count() > TRIE_MAX_PREFIX);
+        assert!(unicode::tolower(&term).chars().count() > TRIE_MAX_PREFIX);
 
         let mut sut = SpellCheckDictionary::new();
         sut.add(&term);

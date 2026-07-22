@@ -28,7 +28,7 @@ use std::ptr::NonNull;
 /// The given context lives only for the duration of the callback.
 fn with_ctx<F, R>(key_type: KeyType, fields: &[(CString, CString)], f: F) -> R
 where
-    F: FnOnce(NonNull<ffi::RedisModuleCtx>) -> R,
+    F: FnOnce(NonNull<redis_module::RedisModuleCtx>) -> R,
 {
     redis_mock::init_redis_module_mock();
 
@@ -40,7 +40,7 @@ where
 
     let mut ctx = builder.build();
 
-    f(NonNull::from_mut(&mut ctx).cast::<ffi::RedisModuleCtx>())
+    f(NonNull::from_mut(&mut ctx).cast::<redis_module::RedisModuleCtx>())
 }
 
 /// Construct a `RedisString` from a `CString`.
@@ -397,7 +397,12 @@ fn borrow_does_not_close_caller_handle() {
 
         {
             // Safety: `raw_key` is a valid, open handle that outlives the loader.
-            let open_key = unsafe { raw_key.cast::<ffi::RedisModuleKey>().as_ref().unwrap() };
+            let open_key = unsafe {
+                raw_key
+                    .cast::<redis_module::RedisModuleKey>()
+                    .as_ref()
+                    .unwrap()
+            };
             let _loader = format.borrow(open_key, &key_name).unwrap();
             // `_loader` is dropped here; a borrowed handle must NOT be closed.
         }

@@ -7,55 +7,59 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, mem};
+use std::{ffi::CString, io::Cursor, mem};
 
 use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
-use fork_gc::{Frame, missing_docs::collect_missing_docs};
-use hidden_string::HiddenStringRef;
+use fork_gc::{
+    Frame, HandleError,
+    missing_docs::{FieldNotFound, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+};
+use hidden_string::OwnedHiddenString;
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
+use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-/// Add one entry to `dict` keyed by `field_name`, with value `ii`.
-///
-/// `MissingFieldDictType` uses `missingFieldDictType`, which copies the key via
-/// `keyDup` and owns the value via `valDestructor` (→ `InvertedIndex_Free`).
-/// The temporary `HiddenString` key is freed immediately after insertion;
-/// ownership of `ii` is transferred to the dict.
-fn add_entry(
-    dict: &mut OwnedDict<MissingFieldDictType>,
-    field_name: &[u8],
-    ii: Box<OpaqueInvertedIndex>,
-) {
-    // SAFETY: NewHiddenString copies `field_name`; the dict's keyDup copies
-    // the HiddenString itself, so we free the original immediately after insert.
-    let hs = unsafe { ffi::NewHiddenString(field_name.as_ptr().cast(), field_name.len(), false) };
-    let hs_ref = unsafe { HiddenStringRef::from_raw(hs) };
-    dict.try_insert(hs_ref, ii).unwrap();
-    unsafe { ffi::HiddenString_Free(hs, false) };
+/// Creates an inverted index containing `count` documents.
+fn index(count: u64) -> Box<OpaqueInvertedIndex> {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in 1..=count {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+    Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
 }
 
-fn make_spec(dict: &OwnedDict<MissingFieldDictType>) -> ffi::IndexSpec {
+/// Builds an `IndexSpec` with a `missingFieldDict` with the provided entries.
+fn make_spec(
+    entries: impl IntoIterator<Item = (&'static [u8], Box<OpaqueInvertedIndex>)>,
+) -> (ffi::IndexSpec, OwnedDict<MissingFieldDictType>) {
+    let mut dict: OwnedDict<MissingFieldDictType> = OwnedDict::create();
+    for (field_name, ii) in entries {
+        let field_name = CString::new(field_name).unwrap();
+        let hidden = OwnedHiddenString::new(&field_name);
+        dict.try_insert(&hidden, ii).unwrap();
+    }
+
     // SAFETY: zeroed IndexSpec is valid for read-only field access through the guard.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
     spec.missingFieldDict = dict.as_mut_ptr();
-    spec
+    (spec, dict)
 }
 
 /// When the dict has no entries, only a Terminator is written.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_dict_writes_only_terminator() {
-    let dict = OwnedDict::create();
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -73,13 +77,7 @@ fn empty_dict_writes_only_terminator() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn empty_inverted_index_is_skipped() {
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
-        InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-    ));
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"empty_field", ii);
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"empty_field"[..], index(0))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -102,16 +100,7 @@ fn empty_inverted_index_is_skipped() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn entry_with_deleted_docs_writes_delta_frame() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
-        .unwrap();
-    ii.add_record(&RSIndexResult::build_virt().doc_id(2).build())
-        .unwrap();
-    let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(ii));
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"age", ii);
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"age"[..], index(2))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -139,17 +128,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
 fn multiple_entries_write_multiple_delta_frames() {
-    let make_ii = |doc_id| {
-        let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
-            .unwrap();
-        Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
-    };
-
-    let mut dict = OwnedDict::create();
-    add_entry(&mut dict, b"field_a", make_ii(1));
-    add_entry(&mut dict, b"field_b", make_ii(2));
-    let spec = make_spec(&dict);
+    let (spec, _dict) = make_spec([(&b"field_a"[..], index(1)), (&b"field_b"[..], index(1))]);
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
@@ -176,4 +155,103 @@ fn multiple_entries_write_multiple_delta_frames() {
         Frame::Terminator
     ));
     assert_eq!(cursor.position(), buf.len() as u64);
+}
+
+#[test]
+fn receive_terminator_returns_none() {
+    let mut buf = Vec::new();
+    Frame::Terminator.encode(&mut buf).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    assert!(matches!(receive_missing_docs(&mut cursor).unwrap(), None));
+}
+
+#[test]
+fn receive_malformed_frame_returns_codec_error() {
+    let mut cursor = Cursor::new(b"garbage");
+    assert!(matches!(
+        receive_missing_docs(&mut cursor),
+        Err(HandleError::Codec {
+            msg: "reading the missing-docs field-name frame",
+            ..
+        })
+    ));
+}
+
+#[test]
+fn receive_data_frame_returns_field_name_and_delta() {
+    let mut buf = Vec::new();
+    Frame::data(b"age").encode(&mut buf).unwrap();
+    GcScanDelta::empty_for_testing()
+        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+        .unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    let (field_name, _delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(field_name, c"age");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn apply_returns_err_when_field_not_found() {
+    let (mut spec, _dict) = make_spec([]);
+    let delta = GcScanDelta::empty_for_testing();
+
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    assert!(matches!(
+        apply_missing_docs(c"nonexistent", delta, &mut *write_guard),
+        Err(HandleError::Custom(FieldNotFound))
+    ));
+}
+
+/// A successful apply with a no-op delta leaves the dict entry in place.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn apply_succeeds_and_keeps_entry_when_docs_remain() {
+    let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
+    let delta = GcScanDelta::empty_for_testing();
+
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    let stats = apply_missing_docs(c"age", delta, &mut *write_guard).unwrap();
+
+    assert_eq!(stats.records_removed, 0);
+    let hidden = OwnedHiddenString::new(c"age");
+    assert!(
+        write_guard
+            .missing_field_dict_mut()
+            .fetch_mut(&hidden)
+            .is_some()
+    );
+}
+
+/// Full child-to-parent roundtrip: when all docs are deleted the dict entry is removed.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn roundtrip_all_docs_deleted_removes_entry() {
+    let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
+
+    // Child side: collect.
+    let mut buf = Vec::new();
+    {
+        let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+        collect_missing_docs(&mut buf, &*read_guard).unwrap();
+    }
+
+    // Parent side: receive.
+    let mut cursor = Cursor::new(&buf);
+    let (field_name, delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(field_name, c"age");
+
+    // Parent side: apply.
+    let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    let stats = apply_missing_docs(&field_name, delta, &mut *write_guard).unwrap();
+
+    let hidden = OwnedHiddenString::new(c"age");
+    assert!(
+        write_guard
+            .missing_field_dict_mut()
+            .fetch_mut(&hidden)
+            .is_none()
+    );
+    assert!(stats.bytes_collected > 0);
+    assert_eq!(stats.records_removed, 0);
 }

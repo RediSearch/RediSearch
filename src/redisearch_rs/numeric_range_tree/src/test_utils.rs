@@ -46,7 +46,7 @@ pub const DEEP_TREE_ENTRIES: u64 = {
 pub fn build_tree(n: u64, compress_floats: bool, max_depth_range: usize) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, i as f64, false, max_depth_range);
+        tree.add(i, i as f64, false, false, max_depth_range);
     }
     tree
 }
@@ -59,7 +59,7 @@ pub fn build_single_leaf_tree(count: u64) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=count {
         let value = (i % 4 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(
         tree.root().is_leaf(),
@@ -75,7 +75,7 @@ pub fn build_large_tree() -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=50_000u64 {
         let value = ((i - 1) % 5000 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     tree
 }

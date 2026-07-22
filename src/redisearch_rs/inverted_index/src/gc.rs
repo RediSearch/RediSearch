@@ -102,7 +102,9 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
-#[cheadergen::config(rename = "II_GCScanStats")]
+// `export` is required: `src/fork_gc/{terms,tags}.c` declare this by value, so the
+// C header needs the complete type. Nothing else reaches it by value any more.
+#[cheadergen::config(export, rename = "II_GCScanStats")]
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[repr(C)]
 pub struct GcApplyInfo {
@@ -149,12 +151,18 @@ impl IndexBlock {
         let mut unique_read = 0;
         let mut unique_write = 0;
         let mut block_changed = false;
+        // Ordinal of the entry being read, used to carry its field-expiration bit
+        // (kept in this block's side bitset, not the encoded buffer) onto the
+        // re-encoded survivor so `add_record` re-propagates it into the new block.
+        let mut ordinal: u16 = 0;
 
         let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
 
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             D::decode(&mut cursor, base, &mut result)?;
+            result.has_field_expiration = self.expiration_bit(ordinal);
+            ordinal += 1;
 
             if doc_exist(result.doc_id) {
                 if let Some(repair) = repair.as_mut() {
