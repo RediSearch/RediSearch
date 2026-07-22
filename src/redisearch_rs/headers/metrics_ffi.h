@@ -16,6 +16,28 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
+ * field_mask, child records, and metrics.
+ *
+ * # Safety
+ *
+ * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
+ */
+void IndexResult_ResetAggregate(RSIndexResult *r);
+
+/**
+ * Returns a read-only slice view of the metrics collection for zero-copy
+ * iteration from C.
+ *
+ * # Safety
+ *
+ * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
+ * 2. The returned slice borrows from the `MetricsVec`; the caller must
+ *    not mutate or free the `MetricsVec` while the slice is in use.
+ */
+struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
+
+/**
  * Creates an empty metrics collection. Does not allocate.
  *
  * Use this to initialize the `metrics` field when constructing an
@@ -26,6 +48,17 @@ extern "C" {
  * `NULL`.
  */
 MetricsVec MetricsVec_New(void);
+
+/**
+ * Finds the first metric whose key matches `key` (pointer equality) and
+ * replaces its value.
+ *
+ * # Safety
+ *
+ * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
+ * 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
+ */
+void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
 
 /**
  * Moves all metrics from `child` into `parent`, leaving `child` empty.
@@ -56,39 +89,6 @@ void ResultMetrics_Add(RSIndexResult *r, const RLookupKey *key, double val);
  * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
  */
 void ResultMetrics_Reset(RSIndexResult *r);
-
-/**
- * Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
- * field_mask, child records, and metrics.
- *
- * # Safety
- *
- * 1. `r` must point to a valid `RSIndexResult` and cannot be null.
- */
-void IndexResult_ResetAggregate(RSIndexResult *r);
-
-/**
- * Returns a read-only slice view of the metrics collection for zero-copy
- * iteration from C.
- *
- * # Safety
- *
- * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. The returned slice borrows from the `MetricsVec`; the caller must
- *    not mutate or free the `MetricsVec` while the slice is in use.
- */
-struct MetricsSlice MetricsVec_AsSlice(const MetricsVec *metrics);
-
-/**
- * Finds the first metric whose key matches `key` (pointer equality) and
- * replaces its value.
- *
- * # Safety
- *
- * 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
- * 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
- */
-void MetricsVec_UpdateValue(MetricsVec *metrics, const RLookupKey *key, double new_value);
 
 #ifdef __cplusplus
 }  // extern "C"

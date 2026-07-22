@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
@@ -117,7 +125,7 @@ IndexSpec* CreateStandardTestIndexSpec(RedisModuleCtx *ctx, const char* indexNam
  * 3. Build pipeline
  * 4. Return the built HybridRequest
  *
- * Note: The caller is responsible for calling HybridRequest_DecrRef() and IndexSpec cleanup.
+ * Note: The caller is responsible for calling HybridRequest_Free() and IndexSpec cleanup.
  */
 HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* indexName,
                                           RMCK::ArgvList& args, QueryError *status, IndexSpec **outSpec = nullptr) {
@@ -140,7 +148,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
 
   // Create HybridRequest and allocate hybrid params
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
+  HybridRequest *hybridReq = MakeDefaultHybridRequest(test_sctx, args, args.size());
   if (!hybridReq) {
     return nullptr;
   }
@@ -159,18 +167,18 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   };
 
   ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
+  HybridRequest_InitArgsCursor(hybridReq, &ac, args.size());
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false, EXEC_NO_FLAGS);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    HybridRequest_Free(hybridReq);
     return nullptr;
   }
 
   // Build the pipeline using the parsed hybrid parameters
   rc = HybridRequest_BuildPipeline(hybridReq, cmd.hybridParams, true, status);
   if (rc != REDISMODULE_OK) {
-    HybridRequest_DecrRef(hybridReq);
+    HybridRequest_Free(hybridReq);
     return nullptr;
   }
   return hybridReq;
@@ -194,7 +202,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     HybridRequest* req; \
     IndexSpec* sp; \
     ~HybridTestCleanup() { \
-      if (req) HybridRequest_DecrRef(req); \
+      if (req) HybridRequest_Free(req); \
       if (sp) Indexes_RemoveSpecFromGlobals(sp->own_ref, false); \
     } \
   } cleanup{hybridReq, spec};

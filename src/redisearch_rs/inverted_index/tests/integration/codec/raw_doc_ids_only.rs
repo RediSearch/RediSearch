@@ -57,7 +57,7 @@ fn test_encode_raw_doc_ids_only_output_too_small() {
     let record = index_result::RSIndexResult::build_virt().build();
 
     let res = RawDocIdsOnly::encode(&mut cursor, 0, &record);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
@@ -69,7 +69,7 @@ fn test_decode_raw_doc_ids_only_input_too_small() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -81,7 +81,7 @@ fn test_decode_raw_doc_ids_only_empty_input() {
     let mut cursor = Cursor::new(buf.as_ref());
 
     let res = RawDocIdsOnly::decode_new(&mut cursor, 100);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
 }
@@ -103,7 +103,7 @@ fn test_seek_raw_doc_ids_only() {
     let found = RawDocIdsOnly::seek(&mut buf, 10, 16, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         record_decoded,
         RSIndexResult::build_term().doc_id(16).build()
@@ -112,7 +112,7 @@ fn test_seek_raw_doc_ids_only() {
     let found = RawDocIdsOnly::seek(&mut buf, 10, 20, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         record_decoded,
         RSIndexResult::build_term().doc_id(22).build()
@@ -121,7 +121,7 @@ fn test_seek_raw_doc_ids_only() {
     let found = RawDocIdsOnly::seek(&mut buf, 10, 50, &mut record_decoded)
         .expect("to decode raw docs ids only record");
 
-    assert!(!found);
+    assert!(found.is_none());
 }
 
 /// Test InvertedIndex<RawDocIdsOnly> with GC operations to ensure complete coverage

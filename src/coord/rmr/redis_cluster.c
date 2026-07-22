@@ -6,13 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "../config.h"
-#include "cluster.h"
 #include "redismodule.h"
 #include "rmr.h"
-#include "module.h"
-
-#include <stdbool.h>
+#include "rmr/cluster_topology.h"
+#include "rmutil/rm_assert.h"
 
 void UpdateTopology(RedisModuleCtx *ctx) {
   uint32_t my_shard_idx = UINT32_MAX;

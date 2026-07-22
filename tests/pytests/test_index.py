@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 def validate_spec_invidx_info(env, expected_reply, msg, depth=0):
@@ -142,7 +149,10 @@ def test_lazy_index_creation_info_modules(env):
 def test_restore_schema(env: Env):
 
     # Test that the command is not exposed to normal users
-    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains('unknown subcommand')
+    # In enterprise, _FT._RESTOREIFNX is rewritten to FT._RESTOREIFNX which exists;
+    # non-internal clients get 'wrong number of arguments' instead of 'unknown subcommand'
+    _restoreifnx_access_err = 'wrong number of arguments' if RS_TEST_ENTERPRISE else 'unknown subcommand'
+    env.expect('_FT._RESTOREIFNX', 'SCHEMA').error().contains(_restoreifnx_access_err)
     # Mark the client as internal for the rest of the test
     env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 

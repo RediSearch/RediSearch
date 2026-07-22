@@ -39,8 +39,7 @@ int nu_utf8_validread(const char *encoded, size_t max_len) {
 
 		if (p1 == 0xE0 && p2 < 0xA0) {
 			return 0;
-		}
-		else if (p1 == 0xED && p2 > 0x9F) {
+		} else if (p1 == 0xED && p2 > 0x9F) {
 			return 0;
 		}
 
@@ -84,10 +83,18 @@ char* nu_utf8_write(uint32_t unicode, char *utf8) {
 
 	if (utf8 != 0) {
 		switch (codepoint_len) {
-			case 1: *utf8 = (char)(unicode); break;
-			case 2: b2_utf8(unicode, utf8); break;
-			case 3: b3_utf8(unicode, utf8); break;
-			default: b4_utf8(unicode, utf8); break; /* len == 4 */
+			case 1:
+				*utf8 = (char)(unicode);
+				break;
+			case 2:
+				b2_utf8(unicode, utf8);
+				break;
+			case 3:
+				b3_utf8(unicode, utf8);
+				break;
+			default:
+				b4_utf8(unicode, utf8);
+				break; /* len == 4 */
 		}
 	}
 

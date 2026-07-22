@@ -1,6 +1,7 @@
 #ifndef NU_LIBNUNICODE_H
 #define NU_LIBNUNICODE_H
 
+#include "bmponly.h"
 #include "casemap.h"
 #include "cesu8.h"
 #include "defines.h"
@@ -8,8 +9,6 @@
 #include "extra.h"
 #include "strcoll.h"
 #include "strings.h"
-#include "validate.h"
-#include "version.h"
 #include "udb.h"
 #include "unaccent.h"
 #include "utf16.h"
@@ -21,5 +20,7 @@
 #include "utf32he.h"
 #include "utf32le.h"
 #include "utf8.h"
+#include "validate.h"
+#include "version.h"
 
 #endif /* NU_LIBNUNICODE_H */

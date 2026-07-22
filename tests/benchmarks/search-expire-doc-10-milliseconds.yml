@@ -4,6 +4,7 @@ description: |
   TTL table benchmark for document expiration under heavy lookup pressure.
   This variant focuses on lazy expiration by disabling active expiration so
   documents stay in the dataset while expiration metadata churns.
+timeout_seconds: 2700
 
 metadata:
   component: "search"

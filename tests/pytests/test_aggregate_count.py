@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 DEFAULT_LIMIT = 10
@@ -281,9 +288,9 @@ def _test_withoutcount(protocol):
 
         # WITHOUTCOUNT + SORTBY - backwards compatible, returns only 10 results
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@title'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '1', '@price'], DEFAULT_LIMIT),
         (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@title', 'ASC'], DEFAULT_LIMIT),
-        # (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT), # crash
+        (['FT.AGGREGATE', 'idx', '*', 'WITHOUTCOUNT', 'SORTBY', '2', '@price', 'ASC'], DEFAULT_LIMIT),
 
         # WITHOUTCOUNT + SORTBY + MAX
         # total_results = docs, length of results = MAX

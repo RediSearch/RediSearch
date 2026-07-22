@@ -1,0 +1,308 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Tests for the public filtered-iteration API (`value_iter_filtered` in each of
+//! its four modes, and the iteration deadline), the suffix-index iteration
+//! (`suffix_value_iter`), and suffix-query expansion (`suffix_expand`).
+//!
+//! The traversal logic itself is tested in `trie_rs`; these tests verify that
+//! each mode drives the right traversal over the index's values trie.
+
+use tag_index::{InMemoryMode, IterMode, SuffixQuery, Tag, TagIndex};
+
+use crate::util::{as_tag, commit_mem, elapsed_deadline, index_mem, value_iter_keys};
+
+/// Drain the index's suffix-trie iterator into its yielded keys, in iteration order.
+fn suffix_keys(idx: &TagIndex<InMemoryMode>) -> Vec<Vec<u8>> {
+    let mut it = idx
+        .suffix_value_iter()
+        .expect("index was created with a suffix trie");
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    while let Some(key) = it.advance() {
+        keys.push(key.as_bytes().to_vec());
+    }
+    keys
+}
+
+/// Build an in-memory index holding `tags`, each with one document.
+fn index_with_tags(tags: &[&[u8]]) -> TagIndex<InMemoryMode> {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, tags, 1);
+    tag_index
+}
+
+/// The `Prefix` mode yields only the tags starting with the prefix, and each
+/// yielded inverted index is the one stored in the trie.
+#[test]
+fn prefixed_iter_values_yields_only_matching_tags() {
+    let tag_index = index_with_tags(&[b"bar", b"foo", b"foobar", b"foz"]);
+
+    let mut iter = tag_index.value_iter_filtered(as_tag(b"foo"), IterMode::Prefix);
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    while let Some((tag, ii)) = iter.advance() {
+        let found = tag_index
+            .find_value(tag.as_bytes())
+            .expect("yielded tag is indexed");
+        assert!(
+            std::ptr::eq(ii, found),
+            "the yielded reference should be the inverted index stored in the trie"
+        );
+        keys.push(tag.as_bytes().to_vec());
+    }
+
+    assert_eq!(keys, [b"foo".to_vec(), b"foobar".to_vec()]);
+}
+
+/// The `Contains` mode yields only the tags containing the fragment.
+#[test]
+fn contains_iter_values_yields_only_matching_tags() {
+    let tag_index = index_with_tags(&[b"bar", b"foo", b"oof", b"xooy"]);
+
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Contains));
+
+    assert_eq!(keys, [b"foo".to_vec(), b"oof".to_vec(), b"xooy".to_vec()]);
+}
+
+/// The `Suffix` mode yields only the tags ending with the pattern. Unlike the
+/// other modes it filters a full trie walk, because a trie cannot seek by suffix.
+#[test]
+fn suffix_iter_values_yields_only_matching_tags() {
+    let tag_index = index_with_tags(&[b"bar", b"foo", b"oof", b"xoo"]);
+
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Suffix));
+
+    assert_eq!(
+        keys,
+        [b"foo".to_vec(), b"xoo".to_vec()],
+        "`oof` contains the pattern but does not end with it"
+    );
+}
+
+/// A suffix query (`*foo`) resolves a single suffix-trie node and yields every
+/// term it belongs to: the node's own tag when the suffix is itself a tag, plus
+/// every tag it is a proper suffix of, in the order they were registered.
+///
+/// The order is asserted unsorted because it is part of the contract.
+#[test]
+fn suffix_query_exact_node_yields_every_member() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    // `eat` last, so it lands after the terms it is a suffix of.
+    let tags: &[&[u8]] = &[b"beat", b"heat", b"eat", b"bean"];
+    index_mem(&mut tag_index, tags, 1);
+    commit_mem(&mut tag_index, tags);
+
+    let terms: Vec<Vec<u8>> = tag_index
+        .suffix_expand(SuffixQuery::Suffix(Tag::new(b"eat").unwrap()), None)
+        // The yielded terms carry their terminator; compare without it.
+        .map(|term| term.to_bytes().to_vec())
+        .collect();
+
+    assert_eq!(
+        terms,
+        [b"beat".to_vec(), b"heat".to_vec(), b"eat".to_vec()],
+        "`eat` is a tag itself and a suffix of `beat` and `heat`, but not of `bean`"
+    );
+}
+
+/// An elapsed deadline stops iteration early. The check is amortized over a fixed
+/// number of entries, so the first ones still come through — what matters is that
+/// iteration ends instead of walking the whole trie.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_cuts_iteration_short() {
+    // Comfortably more tags than the check granularity, so the deadline is
+    // guaranteed to be probed before the walk finishes.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter();
+    it.set_timeout(Some(elapsed_deadline()));
+    let seen = value_iter_keys(it).len();
+
+    assert!(seen > 0, "the entries before the first probe are yielded");
+    assert!(
+        seen < tags.len(),
+        "an elapsed deadline must stop the walk before the end"
+    );
+}
+
+/// The deadline also bounds the entries a suffix walk *skips*, not just the ones
+/// it yields. A trie cannot seek by suffix, so the walk here has to visit hundreds
+/// of non-matching tags before reaching the single match; probing the deadline only
+/// per yielded match would let that whole scan run to completion first.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_bounds_the_nonmatches_a_suffix_walk_skips() {
+    // The only match sorts last, behind comfortably more non-matching tags than
+    // the check granularity.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .chain(std::iter::once(b"zzzoo".to_vec()))
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(as_tag(b"oo"), IterMode::Suffix);
+    it.set_timeout(Some(elapsed_deadline()));
+
+    assert!(
+        it.advance().is_none(),
+        "an elapsed deadline must stop the walk before it reaches the match"
+    );
+}
+
+/// An elapsed deadline also stops a `Contains` walk early, not just the
+/// unfiltered one `set_timeout_cuts_iteration_short` covers.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_cuts_a_contains_walk_short() {
+    // Comfortably more tags than the check granularity, all matching the
+    // fragment, so the deadline is guaranteed to be probed before the walk
+    // finishes.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(as_tag(b"tag"), IterMode::Contains);
+    it.set_timeout(Some(elapsed_deadline()));
+    let seen = value_iter_keys(it).len();
+
+    assert!(seen > 0, "the entries before the first probe are yielded");
+    assert!(
+        seen < tags.len(),
+        "an elapsed deadline must stop the walk before the end"
+    );
+}
+
+/// An elapsed deadline also stops a `Wildcard` walk early, not just the
+/// unfiltered one `set_timeout_cuts_iteration_short` covers.
+#[test]
+#[cfg_attr(miri, ignore)] // probes CLOCK_MONOTONIC_RAW, unimplemented under miri
+fn set_timeout_cuts_a_wildcard_walk_short() {
+    // Comfortably more tags than the check granularity, all matching the
+    // pattern, so the deadline is guaranteed to be probed before the walk
+    // finishes.
+    let owned: Vec<Vec<u8>> = (0..400)
+        .map(|i| format!("tag{i:04}").into_bytes())
+        .collect();
+    let tags: Vec<&[u8]> = owned.iter().map(|t| t.as_slice()).collect();
+    let mut tag_index = TagIndex::<InMemoryMode>::new(false);
+    index_mem(&mut tag_index, &tags, 1);
+
+    let mut it = tag_index.value_iter_filtered(as_tag(b"tag*"), IterMode::Wildcard);
+    it.set_timeout(Some(elapsed_deadline()));
+    let seen = value_iter_keys(it).len();
+
+    assert!(seen > 0, "the entries before the first probe are yielded");
+    assert!(
+        seen < tags.len(),
+        "an elapsed deadline must stop the walk before the end"
+    );
+}
+
+/// `None` means "no deadline", so the walk completes.
+#[test]
+fn no_timeout_lets_iteration_complete() {
+    let tag_index = index_with_tags(&[b"a", b"b", b"c"]);
+
+    let mut it = tag_index.value_iter();
+    it.set_timeout(None);
+
+    assert_eq!(value_iter_keys(it).len(), 3);
+}
+
+/// The `Wildcard` mode supports the `*` and `?` metacharacters.
+#[test]
+fn wildcard_iter_values_matches_metacharacters() {
+    let tag_index = index_with_tags(&[b"bar", b"gao", b"go", b"goo", b"gooo"]);
+
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"g?o"), IterMode::Wildcard));
+    assert_eq!(keys, [b"gao".to_vec(), b"goo".to_vec()]);
+
+    let keys = value_iter_keys(tag_index.value_iter_filtered(as_tag(b"g*o"), IterMode::Wildcard));
+    assert_eq!(
+        keys,
+        [
+            b"gao".to_vec(),
+            b"go".to_vec(),
+            b"goo".to_vec(),
+            b"gooo".to_vec()
+        ],
+        "`g*o` also matches `go`, where the `*` expands to nothing"
+    );
+}
+
+/// Committing a tag that is already in the suffix trie must not re-register it.
+/// The second registration would replace the entry's owned term, freeing the
+/// allocation the suffix entries still point at — so expanding a suffix query
+/// afterwards would read through dangling pointers. `commit` runs once per
+/// document, so any tag value shared by two documents takes this path.
+#[test]
+fn recommitting_a_tag_keeps_its_suffix_terms_readable() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    let tags: &[&[u8]] = &[b"cat"];
+
+    for doc_id in 1..=2 {
+        index_mem(&mut tag_index, tags, doc_id);
+        commit_mem(&mut tag_index, tags);
+    }
+
+    // Materializing the expanded terms dereferences each suffix entry's term
+    // pointer, so a freed allocation surfaces here (as garbage, or as a miri
+    // error) rather than staying latent.
+    let terms: Vec<Vec<u8>> = tag_index
+        .suffix_expand(SuffixQuery::Suffix(Tag::new(b"at").unwrap()), None)
+        .map(|term| term.to_bytes().to_vec())
+        .collect();
+
+    assert_eq!(
+        terms,
+        [b"cat".to_vec()],
+        "`cat` stays registered exactly once under its suffix `at`"
+    );
+}
+
+/// Without `WITHSUFFIXTRIE` there is no suffix index to iterate.
+#[test]
+fn iter_suffix_entries_is_none_without_suffix_trie() {
+    let tag_index = TagIndex::<InMemoryMode>::new(false);
+    assert!(tag_index.suffix_value_iter().is_none());
+}
+
+/// With `WITHSUFFIXTRIE`, committing a tag registers the tag and every one of
+/// its suffixes in the suffix index.
+#[test]
+fn iter_suffix_entries_lists_every_suffix() {
+    let mut tag_index = TagIndex::<InMemoryMode>::new(true);
+    index_mem(&mut tag_index, &[b"foo"], 1);
+    commit_mem(&mut tag_index, &[b"foo"]);
+
+    let keys = suffix_keys(&tag_index);
+
+    let mut expected: Vec<Vec<u8>> = [b"foo".as_slice(), b"oo", b"o"]
+        .iter()
+        .map(|s| s.to_vec())
+        .collect();
+    expected.sort();
+    assert_eq!(keys, expected);
+
+    assert_eq!(
+        value_iter_keys(tag_index.value_iter()),
+        [b"foo".to_vec()],
+        "the values trie is keyed by the same bytes as the suffix trie"
+    );
+}

@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "global_stats.h"
-#include "aggregate/aggregate.h"
-#include "util/units.h"
+
 #include "rs_wall_clock.h"
 #include "util/workers.h"
 #include "concurrent_ctx.h"
+#include "VecSim/vec_sim_common.h"
+#include "query_flags.h"
 
 #define INCR_BY(x,y) __atomic_add_fetch(&(x), (y), __ATOMIC_RELAXED)
 #define DECR_BY(x,y) __atomic_sub_fetch(&(x), (y), __ATOMIC_RELAXED)
@@ -52,11 +53,15 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd) {
     if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_BF)
       RSGlobalStats.fieldsStats.numVectorFieldsFlat += toAdd;
     else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
-      if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB)
+      const VecSimParams *primaryParams =
+          fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+      if (primaryParams->algo == VecSimAlgo_HNSWLIB) {
         RSGlobalStats.fieldsStats.numVectorFieldsHNSW += toAdd;
-      if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
+        if (primaryParams->algoParams.hnswParams.quantType != VecSimQuant_NONE)
+          RSGlobalStats.fieldsStats.numVectorFieldsHNSWCompressed += toAdd;
+      } else if (primaryParams->algo == VecSimAlgo_SVS) {
         RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana += toAdd;
-        if (fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams.svsParams.quantBits)
+        if (primaryParams->algoParams.svsParams.quantBits != VecSimSvsQuant_NONE)
           RSGlobalStats.fieldsStats.numVectorFieldsSvsVamanaCompressed += toAdd;
       }
     }
@@ -291,5 +296,11 @@ void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd) 
     case INDEXFLD_T_GEOMETRY:
       RSGlobalStats.fieldsStats.geometryTotalDocsIndexed += toAdd;
       break;
+  }
+}
+
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd) {
+  if (field_types == INDEXFLD_T_VECTOR) {
+    RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled += toAdd;
   }
 }

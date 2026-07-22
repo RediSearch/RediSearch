@@ -22,6 +22,8 @@ use index_result::RSIndexResult;
 #[derive(Debug)]
 pub struct RawDocIdsOnly;
 
+const RAW_DOC_ID_DELTA_BYTES: usize = std::mem::size_of::<u32>();
+
 impl Encoder for RawDocIdsOnly {
     type Delta = u32;
     const RECOMMENDED_BLOCK_ENTRIES: u16 = 1000;
@@ -32,8 +34,7 @@ impl Encoder for RawDocIdsOnly {
         _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         writer.write_all(&delta.to_ne_bytes())?;
-        // Wrote delta as raw 4-bytes word
-        Ok(4)
+        Ok(RAW_DOC_ID_DELTA_BYTES)
     }
 
     fn delta_base(block: &IndexBlock) -> DocId {
@@ -48,7 +49,7 @@ impl Decoder for RawDocIdsOnly {
         base: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<()> {
-        let mut delta_bytes = [0u8; 4];
+        let mut delta_bytes = [0u8; RAW_DOC_ID_DELTA_BYTES];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
 
@@ -66,27 +67,30 @@ impl Decoder for RawDocIdsOnly {
         base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let entry_width = RAW_DOC_ID_DELTA_BYTES as u64;
+        let start_ordinal = cursor.position() / entry_width;
+
         // Check if the very next record is the target before starting a binary search
-        let mut delta_bytes = [0u8; 4];
+        let mut delta_bytes = [0u8; RAW_DOC_ID_DELTA_BYTES];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
         let mut doc_id = base + delta as DocId;
 
         if doc_id >= target {
             result.doc_id = doc_id;
-            return Ok(true);
+            return Ok(Some(0));
         }
 
         // Start binary search
-        let start = cursor.position() / 4;
-        let end = cursor.get_ref().len() as u64 / 4;
+        let start = cursor.position() / entry_width;
+        let end = cursor.get_ref().len() as u64 / entry_width;
         let mut left = start;
         let mut right = end;
 
         while left < right {
             let mid = left + (right - left) / 2;
-            cursor.set_position(mid * 4);
+            cursor.set_position(mid * entry_width);
             std::io::Read::read_exact(cursor, &mut delta_bytes)?;
             let delta = u32::from_ne_bytes(delta_bytes);
             doc_id = base + delta as DocId;
@@ -100,17 +104,17 @@ impl Decoder for RawDocIdsOnly {
 
         // Make sure we don't go past the end of the encoded input
         if left >= end {
-            return Ok(false);
+            return Ok(None);
         }
 
         // Read the final value
-        cursor.set_position(left * 4);
+        cursor.set_position(left * entry_width);
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
         let delta = u32::from_ne_bytes(delta_bytes);
         doc_id = base + delta as DocId;
 
         result.doc_id = doc_id;
-        Ok(true)
+        Ok(Some((left - start_ordinal) as u16))
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {

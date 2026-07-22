@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
+NEXTEST_VERSION=$(cat "$REPO_ROOT/.nextest-version")
+CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 # The repo pins an exact toolchain in rust-toolchain.toml. Use it as our baseline
 # instead of installing a separate `stable`: nothing needs a distinct `stable`
 # (all builds resolve to this pinned version via the override), and a separate
@@ -27,143 +29,175 @@ should_generate_headers() {
     esac
 }
 
+# dry-run prints these, real runs them (see deps_lib.sh _sh/_env). No summary:
+# the script flows through the same path in every mode, so dry-run can't drift
+# from what a real bootstrap does — including the shell/env setup below.
 install_rustup() {
-    echo "${1:-Installing Rust toolchain via rustup-init...}"
+    if [[ "${DRY_RUN:-0}" != 1 ]]; then echo "${1:-Installing Rust toolchain via rustup-init...}"; fi
     # --default-toolchain none: don't let rustup-init install `stable`; the
     # repo's pinned toolchain is installed explicitly below.
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
-    if [[ -f "$HOME/.cargo/env" ]]; then
-        # shellcheck disable=SC1091
-        source "$HOME/.cargo/env"
-    fi
-    export PATH="$HOME/.cargo/bin:$PATH"
+    _sh "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none"
+    # Source the freshly-installed env for the rest of THIS process (real mode).
+    # Not printed: the dry-run env prefix below already puts Cargo home on PATH.
+    [[ -f "$CARGO_HOME_DIR/env" ]] && . "$CARGO_HOME_DIR/env" || true
+    export PATH="$CARGO_HOME_DIR/bin:$PATH"
     hash -r
 }
 
-# Skip the rustup-init download/run if rustup and cargo are already on PATH,
-# or reachable from the standard ~/.cargo install location. A previous run
-# of this script may have installed them in a parent shell whose PATH we
-# did not inherit.
-if [[ -f "$HOME/.cargo/env" ]]; then
-    # shellcheck disable=SC1091
-    source "$HOME/.cargo/env"
-fi
-export PATH="$HOME/.cargo/bin:$PATH"
+# Make an already-installed rust (from a parent shell / prior run) visible so the
+# presence checks below are accurate. Detection only: runs in every mode but is
+# NEVER printed — it's not a step the user pastes. The env setup that IS pasted
+# comes from install_rustup, which only runs when rust is actually being installed.
+[[ -f "$CARGO_HOME_DIR/env" ]] && . "$CARGO_HOME_DIR/env" || true
+export PATH="$CARGO_HOME_DIR/bin:$PATH"
 hash -r
 
-if ! command -v rustup >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
-    install_rustup "Installing Rust toolchain via rustup-init..."
-else
-    echo "rustup ($(rustup --version 2>/dev/null | head -1)) and cargo already installed - skipping rustup-init"
-fi
+cargo_is_rustup_proxy() {
+    local cargo_path cargo_home_bin
+    cargo_path=$(command -v cargo 2>/dev/null || true)
+    [[ -n "$cargo_path" ]] || return 1
+    cargo_home_bin="$CARGO_HOME_DIR/bin"
+    [[ "$cargo_path" == "$cargo_home_bin/cargo" || "$cargo_path" == "$HOME/.cargo/bin/cargo" ]]
+}
 
-# Install the repo's pinned toolchain explicitly (idempotent - a no-op when the
-# exact version is already present, since it's a fixed version, not a channel).
-# We intentionally don't set a rustup default: in-repo invocations resolve the
-# toolchain via rust-toolchain.toml, and the few out-of-repo invocations name it
-# explicitly (`cargo +<pinned>`, `rustup run <pinned>`, `+<nightly>`).
-# Use --profile=minimal so rustdoc HTML (~800 MB/toolchain; nothing here serves
-# it) isn't pulled in. minimal omits clippy and rustfmt, which `make lint`/`make
-# fmt` run on this toolchain, so request them explicitly. `rustup toolchain
-# install` only adds components, so this never removes anything a pre-existing
-# toolchain already has.
-rustup toolchain install --profile=minimal "$PINNED_VERSION" -c clippy -c rustfmt
+pinned_components_ok() {
+    rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' &&
+        rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'
+}
 
-# If `cargo` is a distro binary instead of a rustup proxy, `cargo +<pinned>` will
-# not work. Install rustup-init to create the standard ~/.cargo/bin proxies so
-# later CI steps that run bare `cargo` respect rust-toolchain.toml.
-if ! cargo +"$PINNED_VERSION" -vV >/dev/null 2>&1; then
-    install_rustup "Installing rustup-init to create a rustup-proxied cargo..."
-    rustup toolchain install --profile=minimal "$PINNED_VERSION" -c clippy -c rustfmt
-fi
+nightly_components_ok() {
+    ! should_generate_headers ||
+        rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json'
+}
 
-rustup_bin="$(command -v rustup)"
-cargo_bin="$(command -v cargo)"
-rustup_bin_dir="$(dirname "$rustup_bin")"
-cargo_bin_dir="$(dirname "$cargo_bin")"
-
-# GitHub Actions runs each step in a fresh shell, so export PATH above is
-# only enough for this script. Persist the verified Rust binary directories
-# for later steps that invoke rustup or cargo directly.
-if [[ -n "${GITHUB_PATH:-}" ]]; then
-    echo "$cargo_bin_dir" >> "$GITHUB_PATH"
-    if [[ "$rustup_bin_dir" != "$cargo_bin_dir" ]]; then
-        echo "$rustup_bin_dir" >> "$GITHUB_PATH"
-    fi
-fi
-
-# Print where `rustup` is located for debugging purposes
-echo "Rustup binary location: $rustup_bin"
-# Print where `cargo` is located and verify the pinned toolchain is available.
-# Use the rustup cargo proxy explicitly so we verify the binary persisted for
-# later workflow steps.
-echo "Cargo binary location: $cargo_bin"
-cargo +"$PINNED_VERSION" -vV
-
-# Cargo subcommands should be installed into Cargo home, not necessarily next
-# to the `cargo` binary. `cargo` may come from /usr/bin or another
-# system-managed directory that a non-root bootstrap cannot write to.
-cargo_home_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
-mkdir -p "$cargo_home_bin_dir"
-export PATH="$cargo_home_bin_dir:$PATH"
-hash -r
-if [[ -n "${GITHUB_PATH:-}" &&
-      "$cargo_home_bin_dir" != "$cargo_bin_dir" &&
-      "$cargo_home_bin_dir" != "$rustup_bin_dir" ]]; then
-    echo "$cargo_home_bin_dir" >> "$GITHUB_PATH"
-fi
-
-# cargo-nextest is the runner `make test` / `make rust-tests` invoke
-# (build.sh runs `cargo nextest run`), so bootstrap must provision it or
-# the documented `make bootstrap` -> `make test` flow dies with
-# "no such command: `nextest`". Pinned via .nextest-version, which
-# .install/test_deps/install_rust_deps.sh shares. On Linux the
-# statically-linked musl prebuilt is used so the same artifact works on
-# any glibc (and on musl systems) — the same preference
-# test_deps/install_rust_deps.sh documents for its binstall fallbacks.
-NEXTEST_VERSION=$(cat "$REPO_ROOT/.nextest-version")
-have_nextest="$(cargo nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)"
-if [[ "$have_nextest" == "$NEXTEST_VERSION" ]]; then
-    echo "cargo-nextest $have_nextest already installed - skipping"
-else
-    if [[ -n "$have_nextest" ]]; then
-        echo "cargo-nextest $have_nextest does not match required $NEXTEST_VERSION - installing"
+# list: record the build-relevant deps (nothing installed). rust = rustup AND
+# cargo (mirrors the real install condition); cheadergen when header-gen is on.
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+    if command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy &&
+            pinned_components_ok && nightly_components_ok; then
+        DEPS_OK="$DEPS_OK rust"
     else
-        echo "Installing cargo-nextest $NEXTEST_VERSION"
+        DEPS_MISSING="$DEPS_MISSING rust"
     fi
-    if [[ "$OS_TYPE" = 'Darwin' ]]; then
+    if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]]; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
+    if should_generate_headers; then
+        if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then DEPS_OK="$DEPS_OK cheadergen"; else DEPS_MISSING="$DEPS_MISSING cheadergen"; fi
+    fi
+    return 0 2>/dev/null || exit 0
+fi
+
+# ── DRY_RUN prints each command; real executes. Same flow in both. ───────────
+
+# The rustup/cargo commands below live in Cargo home, which a freshly-opened
+# shell may not have on PATH. So in dry-run, if ANY rust step is pending, emit
+# the env setup FIRST — otherwise a pasted "rustup …" line dies with "command
+# not found" (the real bootstrap has it on PATH in-process; a fresh paste does
+# not). When every step is already satisfied nothing is pending and no env is
+# emitted.
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    _need=0
+    command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy || _need=1
+    # pending unless the pinned toolchain has BOTH clippy and rustfmt (the
+    # install adds missing components, so "toolchain present" alone isn't enough)
+    pinned_components_ok || _need=1
+    [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]] || _need=1
+    if should_generate_headers; then
+        # pending unless the nightly toolchain has rust-docs-json (the install
+        # adds it; "toolchain present" alone isn't enough — mirrors the pinned check)
+        nightly_components_ok || _need=1
+        [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]] || _need=1
+    fi
+    if [[ "$_need" == 1 ]]; then
+        _dry_line '[[ -f "${CARGO_HOME:-$HOME/.cargo}/env" ]] && . "${CARGO_HOME:-$HOME/.cargo}/env" || true'
+        _dry_line 'export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"'
+    fi
+fi
+
+if ! command -v rustup >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1 ||
+        { [[ "${DRY_RUN:-0}" == 1 ]] && ! cargo_is_rustup_proxy; }; then
+    install_rustup "Installing Rust toolchain via rustup-init..."
+elif [[ "${DRY_RUN:-0}" != 1 ]]; then
+    echo "rustup and cargo already installed - skipping rustup-init"
+fi
+
+# Install the repo's pinned toolchain explicitly. Gate on the COMPONENTS, not
+# just the toolchain: `rustup toolchain install` only ADDS components, so a
+# pre-existing minimal-profile toolchain still needs clippy/rustfmt (which `make
+# lint`/`make fmt` require). Skip only when both are already installed — so a
+# fully-provisioned host emits nothing, but a minimal one gets the components.
+if ! pinned_components_ok; then
+    _sh "rustup toolchain install --profile=minimal \"$PINNED_VERSION\" -c clippy -c rustfmt"
+fi
+
+# If `cargo` is a distro binary instead of a rustup proxy, `cargo +<pinned>`
+# won't work; install rustup-init to create the ~/.cargo/bin proxies. The probe
+# assumes an installed state, so it's real-only (skipped in dry-run, where the
+# install above hasn't actually run — avoids a false re-trigger).
+if [[ "${DRY_RUN:-0}" != 1 ]] && ! cargo +"$PINNED_VERSION" -vV >/dev/null 2>&1; then
+    install_rustup "Installing rustup-init to create a rustup-proxied cargo..."
+    _sh "rustup toolchain install --profile=minimal \"$PINNED_VERSION\" -c clippy -c rustfmt"
+fi
+
+# Binary-location bookkeeping, GITHUB_PATH persistence and the pinned-toolchain
+# verification all assume an installed state → real-only (not part of the paste).
+if [[ "${DRY_RUN:-0}" != 1 ]]; then
+    rustup_bin="$(command -v rustup)"
+    cargo_bin="$(command -v cargo)"
+    rustup_bin_dir="$(dirname "$rustup_bin")"
+    cargo_bin_dir="$(dirname "$cargo_bin")"
+    if [[ -n "${GITHUB_PATH:-}" ]]; then
+        echo "$cargo_bin_dir" >> "$GITHUB_PATH"
+        if [[ "$rustup_bin_dir" != "$cargo_bin_dir" ]]; then
+            echo "$rustup_bin_dir" >> "$GITHUB_PATH"
+        fi
+    fi
+    echo "Rustup binary location: $rustup_bin"
+    echo "Cargo binary location: $cargo_bin"
+    cargo +"$PINNED_VERSION" -vV
+fi
+
+# Cargo subcommands install into Cargo home (cargo may be a system binary in a
+# dir a non-root bootstrap can't write to). Put it on PATH — functional/detection
+# only, never printed (install_rustup already puts Cargo home on PATH in a paste).
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+cargo_home_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+if [[ "${DRY_RUN:-0}" != 1 ]]; then
+    mkdir -p "$cargo_home_bin_dir"
+    hash -r
+    if [[ -n "${GITHUB_PATH:-}" &&
+          "$cargo_home_bin_dir" != "$cargo_bin_dir" &&
+          "$cargo_home_bin_dir" != "$rustup_bin_dir" ]]; then
+        echo "$cargo_home_bin_dir" >> "$GITHUB_PATH"
+    fi
+fi
+
+# cargo-nextest — the runner `make test` / `make rust-tests` invoke. Pinned via
+# .nextest-version; Linux uses the static musl prebuilt (works on glibc & musl).
+if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" != "$NEXTEST_VERSION" ]]; then
+    if [[ "$OS_TYPE" == 'Darwin' ]]; then
         nextest_artifact="mac"
     elif [[ "$processor" =~ ^(aarch64|arm64)$ ]]; then
         nextest_artifact="linux-arm-musl"
     else
         nextest_artifact="linux-musl"
     fi
-    curl -L --proto '=https' --tlsv1.2 -sSf \
-        "https://get.nexte.st/${NEXTEST_VERSION}/${nextest_artifact}" \
-        | tar zxf - -C "$cargo_home_bin_dir"
+    _sh "mkdir -p \"$cargo_home_bin_dir\""
+    _sh "curl -L --proto '=https' --tlsv1.2 -sSf \"https://get.nexte.st/${NEXTEST_VERSION}/${nextest_artifact}\" | tar zxf - -C \"$cargo_home_bin_dir\""
     hash -r
 fi
 
-# cheadergen is required when REDISEARCH_GENERATE_HEADERS=ON, the default
-# for a top-level RediSearch build. It uses rustdoc JSON from the pinned
-# nightly toolchain to regenerate the Rust C headers.
+# cheadergen — required when REDISEARCH_GENERATE_HEADERS=ON (default). Uses
+# rustdoc JSON from the pinned nightly toolchain to regenerate the Rust C headers.
 if should_generate_headers; then
-    rustup toolchain install "$NIGHTLY_VERSION" \
-        --profile=minimal \
-        --allow-downgrade \
-        --component rust-docs-json
-
-    have_cheadergen="$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)"
-    if [[ "$have_cheadergen" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
-        echo "cheadergen $have_cheadergen already installed - skipping"
-    else
-        if [[ -n "$have_cheadergen" ]]; then
-            echo "cheadergen $have_cheadergen does not match required $REQUIRED_CHEADERGEN_VERSION - installing"
-        else
-            echo "Installing cheadergen $REQUIRED_CHEADERGEN_VERSION"
-        fi
-        rustup run "$PINNED_VERSION" cargo install --force --locked "cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}"
+    # Gate on the COMPONENT, not just the toolchain: the install adds
+    # rust-docs-json, so a pre-existing nightly without it still needs this
+    # (cheadergen reads its rustdoc JSON). Skip only when it's already present.
+    if ! nightly_components_ok; then
+        _sh "rustup toolchain install \"$NIGHTLY_VERSION\" --profile=minimal --allow-downgrade --component rust-docs-json"
     fi
-else
+    if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" != "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+        _sh "rustup run \"$PINNED_VERSION\" cargo install --force --locked \"cheadergen_cli@${REQUIRED_CHEADERGEN_VERSION}\""
+    fi
+elif [[ "${DRY_RUN:-0}" != 1 ]]; then
     echo "Skipping cheadergen setup because REDISEARCH_GENERATE_HEADERS is disabled"
 fi

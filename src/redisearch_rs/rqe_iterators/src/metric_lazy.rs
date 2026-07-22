@@ -16,10 +16,10 @@ use crate::{
     metric::{MetricType, RawMetric, SuspendedMetric},
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
-use ffi::{RLookupKey, RLookupKeyHandle};
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
+use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 
 /// A lazily-populated metric iterator sorted by document id.
@@ -92,7 +92,7 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     }
 
     /// Return a mutable reference to the (inner) iterator's key. See [`Metric::key_mut_ref`].
-    pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey {
+    pub const fn key_mut_ref(&mut self) -> &mut *mut RLookupKey<'index> {
         self.inner.key_mut_ref()
     }
 
@@ -101,7 +101,7 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     /// # Safety
     ///
     /// Same contract as [`Metric::set_handle`].
-    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle) {
+    pub const unsafe fn set_handle(&mut self, key_handle: *mut RLookupKeyHandle<'index>) {
         // SAFETY: contract forwarded to the caller of this function.
         unsafe { self.inner.set_handle(key_handle) };
     }
@@ -172,9 +172,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        // Before production the iterator is not (necessarily) exhausted — report not-at-EOF so
-        // callers read it and trigger production.
-        self.produced && self.inner.at_eof()
+        // Delegates as `current()` does, so the two agree. The inner iterator starts
+        // unread rather than past its end, so callers still read it and trigger
+        // production.
+        self.inner.at_eof()
     }
 
     #[inline(always)]

@@ -31,7 +31,7 @@
 // vecsimTimeoutCallback is a global function pointer in hybrid_reader.c, deliberately kept
 // non-static so tests can swap it to simulate timeouts.
 extern "C" {
-extern int (*vecsimTimeoutCallback)(TimeoutCtx *ctx);
+extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
 }
 
 // operator delete reads obj->allocator after destruction; keep the allocator's shared_ptr alive across delete.
@@ -291,11 +291,35 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
 
     // Swap the global timeout callback to simulate a timeout on every check.
     auto *saved = vecsimTimeoutCallback;
-    vecsimTimeoutCallback = [](TimeoutCtx *) -> int { return 1; };
+    vecsimTimeoutCallback = [](QueryRequestTimeout *) -> int { return 1; };
 
     EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
 
     vecsimTimeoutCallback = saved;
+}
+
+// The hybrid iterator gives up on an aborted child and on a timed-out one alike, but it has to say
+// which: both free the tree, and only a timeout tells the caller the result set is partial. Folding
+// the timeout into VALIDATE_ABORTED ends the query as if the index were exhausted.
+TEST_F(HybridReaderDiskTest, RevalidateReportsChildTimeoutApartFromAbort) {
+    // A fresh iterator per case: VALIDATE_TIMEOUT and VALIDATE_ABORTED both mean the iterator is
+    // finished and must be freed, so revalidating the same one again would exercise a sequence the
+    // API forbids.
+    const std::pair<ValidateStatus, const char *> cases[] = {
+        {VALIDATE_TIMEOUT, "a timed-out child must stay a timeout, not degrade to an abort"},
+        {VALIDATE_ABORTED, "an aborted child must stay an abort"},
+        {VALIDATE_OK, "a child that is still valid leaves the hybrid iterator usable"},
+    };
+
+    for (const auto &[childStatus, why] : cases) {
+        auto h = makeNormalIterator({{1, 0.5}}, {1}, 1);
+        ASSERT_NE(h.iter, nullptr);
+        auto *hr = (HybridIterator *)h.iter;
+        // `MockIterator` starts with its `QueryIterator base`, so the child pointer is the mock.
+        reinterpret_cast<MockIterator *>(hr->child)->SetRevalidateResult(childStatus);
+
+        EXPECT_EQ(h.iter->Revalidate(h.iter, &mockCtx->spec), childStatus) << why;
+    }
 }
 
 // Pins the CURRENT, unresolved hybrid KNN behavior (see expiration-semantics.md):
@@ -307,7 +331,7 @@ TEST_F(HybridReaderDiskTest, PinsUnderfillKWhenFieldsExpired) {
     // Expire field 0 of docs 1 and 2; this also populates spec.docs.ttl, the third gate condition.
     mockCtx->TTL_Add(1, (t_fieldIndex)0, past);
     mockCtx->TTL_Add(2, (t_fieldIndex)0, past);
-    mockCtx->sctx.time.current = {2, 0};
+    mockCtx->sctx.currentTime = {2, 0};
 
     // k=3 heap holds docs 2,1,4; live doc 3 (0.8) ranks just below it. Gate on via field 0.
     auto [index, it] =

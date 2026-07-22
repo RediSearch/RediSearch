@@ -8,12 +8,8 @@
 */
 
 #include "pipe.h"
-#include "module.h"
-#include "rmutil/rm_assert.h"
-#include <unistd.h>
-#include <poll.h>
-#include <errno.h>
-#include <string.h>
+
+#include <sys/uio.h>
 
 // Assumes the spec is locked.
 void FGC_updateStats(ForkGC *gc, RedisSearchCtx *sctx,

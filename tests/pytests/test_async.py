@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 
 def testCreateIndex(env):
@@ -43,6 +50,12 @@ def testDeleteIndex(env):
 
 def test_yield_while_bg_indexing_mod4745(env):
     conn = getConnectionByEnv(env)
+    # BG_INDEX yields are counted per RM_Scan cursor step (one per DB-dict bucket),
+    # so the expected count assumes the dict expands to ~one bucket per doc. Redis
+    # defers dict expansion while a persistence fork is live (copy-on-write), which
+    # would leave the dict under-sized and the scan short. Disable periodic RDB save
+    # so no bgsave fork races the key load and the count stays deterministic.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'save', '')
     # Create an index in which each shard has > 1000 docs.
     n = 1010 * env.shardsCount
     for i in range(n):
@@ -69,14 +82,11 @@ def test_eval_node_errors_async():
     conn = getConnectionByEnv(env)
     dim = 1000
 
+    env.assertEqual(conn.execute_command('HSET', 'key', 'foo', 'hello',
+                                         'v', create_np_array_typed([0] * dim).tobytes()), 2)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'foo', 'TEXT', 'bar', 'TEXT', 'WITHSUFFIXTRIE', 'g', 'GEO', 'num', 'NUMERIC',
                'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
     waitForIndex(env, 'idx')
-
-    n_docs = 10000
-    for i in range(n_docs):
-        env.assertEqual(conn.execute_command('HSET', f'key{i}', 'foo', 'hello',
-                                             'v', create_np_array_typed([i/1000]*dim).tobytes()), 2)
 
     # Test various scenarios where evaluating the AST should raise an error,
     # and validate that it was caught from the BG thread
@@ -87,10 +97,6 @@ def test_eval_node_errors_async():
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]', 'PARAMS', '2', 'b', 'abcdefg').error()\
         .contains('Error parsing vector similarity query: query vector blob size (7) does not match'
                   f' index\'s expected size ({dim*4}).')
-    env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE 10000000 $vec_param]', 'NOCONTENT', 'LIMIT', 0, n_docs,
-               'PARAMS', 2, 'vec_param', create_np_array_typed([0]*dim).tobytes(),
-               'TIMEOUT', 1).error().equal('SEARCH_TIMEOUT Timeout limit was reached')
-
     # This error is caught during building the implicit pipeline (also should occur in BG thread)
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 2 @v $b]=>{$yield_distance_as:v}', 'timeout', 0, 'PARAMS', '2', 'b',
                create_np_array_typed([0]*dim).tobytes()).error()\

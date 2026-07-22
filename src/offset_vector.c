@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <pthread.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "redisearch.h"
 #include "types_ffi.h"
 #include "varint_ffi.h"
 #include "rmalloc.h"
-#include "util/mempool.h"
-#include <sys/param.h>
+#include "buffer.h"
+#include "index_result_rs.h"
+#include "util/mempool/mempool.h"
 
 /* We have two types of offset vector iterators - for terms and for aggregates. For terms we simply
  * yield the encoded offsets one by one. For aggregates, we merge them on the fly in order.

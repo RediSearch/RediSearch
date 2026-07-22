@@ -7,25 +7,40 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_redis.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "module.h"
 #include "version.h"
 #include "info/global_stats.h"
 #include "cursor.h"
 #include "info/indexes_info.h"
 #include "util/units.h"
-#include <inttypes.h>
 #include "module_init_ffi.h"
 #include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/block_client.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "obfuscation/obfuscation_api.h"
+#include "query_request.h"
 #include "info/info_redis/threads/main_thread.h"
 #include "search_disk.h"
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
+#include "config.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "info/info_redis/types/spec_info.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
-static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregatedFieldsStats);
+static inline void AddToInfo_Fields(RedisModuleInfoCtx *ctx);
 
 // General sections info
 static inline void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
@@ -36,13 +51,27 @@ static inline void AddToInfo_Cursors(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
-static inline void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
+static inline void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_Disk(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_CoordinatorErrorsAndWarnings(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
+
+// Collection also primes the Enterprise disk metrics, so disk-only requests need it too.
+static bool AddSectionWithIndexStats(RedisModuleInfoCtx *ctx, const char *section,
+                                     TotalIndexesInfo *info, bool *collected) {
+  if (RedisModule_InfoAddSection(ctx, section) == REDISMODULE_ERR) {
+    return false;
+  }
+  if (!*collected) {
+    *info = IndexesInfo_TotalInfo();
+    *collected = true;
+  }
+  return true;
+}
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Module version
@@ -67,47 +96,53 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
     // Still emit the number of indexes and runtime configuration so operators can understand
     // why metrics are suppressed.
     AddToInfo_IndexesEmpty(ctx);
-    AddToInfo_RSConfig(ctx);
+    if (RedisModule_InfoAddSection(ctx, "runtime_configurations") == REDISMODULE_OK) {
+      AddToInfo_RSConfig(ctx);
+    }
     return;
   }
 
-  TotalIndexesInfo total_info = IndexesInfo_TotalInfo();
+  TotalIndexesInfo total_info;
+  bool collected = false;
 
-  // Indexes related statistics
-  AddToInfo_Indexes(ctx, &total_info);
+  if (AddSectionWithIndexStats(ctx, "indexes", &total_info, &collected)) {
+    AddToInfo_Indexes(ctx, &total_info);
+  }
+  if (RedisModule_InfoAddSection(ctx, "fields_statistics") == REDISMODULE_OK) {
+    AddToInfo_Fields(ctx);
+  }
+  if (AddSectionWithIndexStats(ctx, "memory", &total_info, &collected)) {
+    AddToInfo_Memory(ctx, &total_info);
+  }
+  if (AddSectionWithIndexStats(ctx, "vector_index", &total_info, &collected)) {
+    AddToInfo_VectorIndex(ctx, &total_info);
+  }
+  if (RedisModule_InfoAddSection(ctx, "cursors") == REDISMODULE_OK) {
+    AddToInfo_Cursors(ctx);
+  }
+  if (AddSectionWithIndexStats(ctx, "garbage_collector", &total_info, &collected)) {
+    AddToInfo_GC(ctx, &total_info);
+  }
+  if (AddSectionWithIndexStats(ctx, "queries", &total_info, &collected)) {
+    AddToInfo_Queries(ctx, &total_info);
+  }
+  if (AddSectionWithIndexStats(ctx, "warnings_and_errors", &total_info, &collected)) {
+    AddToInfo_ErrorsAndWarnings(ctx, &total_info);
+  }
+  if (RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors") == REDISMODULE_OK) {
+    AddToInfo_CoordinatorErrorsAndWarnings(ctx);
+  }
+  if (RedisModule_InfoAddSection(ctx, "multi_threading") == REDISMODULE_OK) {
+    AddToInfo_MultiThreading(ctx);
+  }
+  if (RedisModule_InfoAddSection(ctx, "dialect_statistics") == REDISMODULE_OK) {
+    AddToInfo_Dialects(ctx);
+  }
+  if (RedisModule_InfoAddSection(ctx, "runtime_configurations") == REDISMODULE_OK) {
+    AddToInfo_RSConfig(ctx);
+  }
 
-  // Fields statistics
-  AddToInfo_Fields(ctx, &total_info.fields_stats);
-
-  // Memory
-  AddToInfo_Memory(ctx, &total_info);
-
-  // Vector index
-  AddToInfo_VectorIndex(ctx, &total_info);
-
-  // Cursors
-  AddToInfo_Cursors(ctx);
-
-  // GC stats
-  AddToInfo_GC(ctx, &total_info);
-
-  // Query statistics
-  AddToInfo_Queries(ctx, &total_info);
-
-  // Errors statistics
-  AddToInfo_ErrorsAndWarnings(ctx, &total_info);
-
-  // Multi threading statistics
-  AddToInfo_MultiThreading(ctx, &total_info);
-
-  // Dialect statistics
-  AddToInfo_Dialects(ctx);
-
-  // Run time configuration
-  AddToInfo_RSConfig(ctx);
-
-  // Disk metrics, on Flex only.
-  if (SearchDisk_IsEnabled()) {
+  if (SearchDisk_IsEnabled() && AddSectionWithIndexStats(ctx, "disk", &total_info, &collected)) {
     RS_ASSERT(SearchDisk_IsInitialized());
     AddToInfo_Disk(ctx);
   }
@@ -123,9 +158,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 /* ========================== IMP ============================ */
 
 // Assuming that the GIL is already acquired
-void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregatedFieldsStats) {
-
-  RedisModule_InfoAddSection(ctx, "fields_statistics");
+void AddToInfo_Fields(RedisModuleInfoCtx *ctx) {
 
   if (RSGlobalStats.fieldsStats.numTextFields > 0) {
     RedisModule_InfoBeginDictField(ctx, "fields_text");
@@ -191,8 +224,12 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
     RedisModule_InfoAddFieldLongLong(ctx, "Vector", RSGlobalStats.fieldsStats.numVectorFields);
     if (RSGlobalStats.fieldsStats.numVectorFieldsFlat > 0)
       RedisModule_InfoAddFieldLongLong(ctx, "Flat", RSGlobalStats.fieldsStats.numVectorFieldsFlat);
-    if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0)
+    if (RSGlobalStats.fieldsStats.numVectorFieldsHNSW > 0) {
       RedisModule_InfoAddFieldLongLong(ctx, "HNSW", RSGlobalStats.fieldsStats.numVectorFieldsHNSW);
+      if (RSGlobalStats.fieldsStats.numVectorFieldsHNSWCompressed > 0)
+        RedisModule_InfoAddFieldLongLong(ctx, "HNSW_Compressed",
+                                         RSGlobalStats.fieldsStats.numVectorFieldsHNSWCompressed);
+    }
     if (RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana > 0) {
       RedisModule_InfoAddFieldLongLong(ctx, "SVS_VAMANA",
                                        RSGlobalStats.fieldsStats.numVectorFieldsSvsVamana);
@@ -231,10 +268,11 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
                                   RSGlobalStats.fieldsStats.geometryTotalDocsIndexed);
   RedisModule_InfoAddFieldLongLong(ctx, "total_indexing_ops_vector_fields",
                                   RSGlobalStats.fieldsStats.vectorTotalDocsIndexed);
+  RedisModule_InfoAddFieldLongLong(ctx, "total_relabel_ops_vector_fields",
+                                  RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled);
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "indexes");
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", Indexes_Count());
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
@@ -258,7 +296,6 @@ static inline void AddToInfo_IndexesEmpty(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "memory");
 
   // Total
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_indexes", total_info->total_mem);
@@ -272,7 +309,6 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 }
 
 void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "vector_index");
 
   RedisModule_InfoAddFieldULongLong(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
   RedisModule_InfoAddFieldULongLong(ctx, "hnsw_direct_main_thread_insertions", total_info->fields_stats.total_direct_hnsw_insertions);
@@ -280,7 +316,6 @@ void AddToInfo_VectorIndex(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info
 }
 
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "cursors");
   CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle_user", cursorsStats.total_idle_user);
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle_internal", cursorsStats.total_idle_internal);
@@ -289,7 +324,6 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "garbage_collector");
   InfoGCStats stats = total_info->gc_stats;
   RedisModule_InfoAddFieldLongLong(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldULongLong(ctx, "gc_total_cycles", stats.totalCycles);
@@ -299,7 +333,6 @@ void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 }
 
 void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "queries");
   QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
   RedisModule_InfoAddFieldULongLong(ctx, "total_queries_processed", stats.total_queries_processed);
   RedisModule_InfoAddFieldULongLong(ctx, "total_query_commands", stats.total_query_commands);
@@ -310,7 +343,6 @@ void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 }
 
 void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "warnings_and_errors");
   RedisModule_InfoAddFieldULongLong(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldULongLong(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
@@ -333,9 +365,10 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_oom", stats.shard_warnings.oom);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_max_prefix_expansions", stats.shard_warnings.maxPrefixExpansion);
   RedisModule_InfoAddFieldULongLong(ctx, "shard_total_query_warnings_asm_inaccurate_results", stats.shard_warnings.asm_inaccuracy);
+}
 
-  // Coordinator errors and warnings
-  RedisModule_InfoAddSection(ctx, "coordinator_warnings_and_errors");
+void AddToInfo_CoordinatorErrorsAndWarnings(RedisModuleInfoCtx *ctx) {
+  QueriesGlobalStats stats = TotalGlobalStats_GetQueryStats();
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_syntax", stats.coord_errors.syntax);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_arguments", stats.coord_errors.arguments);
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_errors_timeout", stats.coord_errors.timeout);
@@ -353,8 +386,7 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldULongLong(ctx, "coord_total_query_warnings_asm_inaccurate_results", stats.coord_warnings.asm_inaccuracy);
 }
 
-void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "multi_threading");
+void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx) {
   MultiThreadingStats stats = GlobalStats_GetMultiThreadingStats();
   RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_queries", stats.uv_threads_running_queries);
   RedisModule_InfoAddFieldULongLong(ctx, "uv_threads_running_topology_update", stats.uv_threads_running_topology_update);
@@ -367,7 +399,6 @@ void AddToInfo_MultiThreading(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_i
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
   for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
     char field[16] = {0};
     snprintf(field, sizeof field, "dialect_%d", dialect);
@@ -377,7 +408,6 @@ void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "runtime_configurations");
 
   if (RSGlobalConfig.extLoad != NULL) {
     RedisModule_InfoAddFieldCString(ctx, "extension_load", (char *)RSGlobalConfig.extLoad);
@@ -457,14 +487,10 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   // Assumes no other thread is currently accessing the active-threads container
   DLLIST_FOREACH(node, &(activeQueries->queries)) {
-    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
-    IndexSpec *sp = StrongRef_Get(at->spec);
-    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
-    if (!sp) {
-      continue;
-    }
-    RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
+    char buffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoBeginDictField(ctx, QueryRequest_ReportIndexName(at, buffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -475,13 +501,13 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     return;
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
-    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    IndexSpec *spec = StrongRef_Get(at->spec);
+    QueryRequest *at = DLLIST_ITEM(node, QueryRequest, registryInfo.node);
     char buffer[21]; // 20 is the max length of a uint64_t
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorId);
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, at->cursorInfo.id);
     RedisModule_InfoBeginDictField(ctx, buffer);
-    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
-    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
+    char nameBuffer[MAX_OBFUSCATED_INDEX_NAME];
+    RedisModule_InfoAddFieldCString(ctx, "index", QueryRequest_ReportIndexName(at, nameBuffer));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->registryInfo.cycle_start);
     RedisModule_InfoEndDictField(ctx);
   }
 }

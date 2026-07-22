@@ -17,7 +17,8 @@
 
 use std::{ffi::CStr, ptr::NonNull};
 
-use ffi::{QueryIterator, RedisModuleCtx};
+use ffi::QueryIterator;
+use redis_module::RedisModuleCtx;
 use redis_reply::Replier;
 use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 

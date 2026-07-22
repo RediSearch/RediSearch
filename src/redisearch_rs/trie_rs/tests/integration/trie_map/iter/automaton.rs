@@ -13,7 +13,7 @@
 //! jump yields the same entries as a plain root descent.
 
 use trie_rs::TrieMap;
-use trie_rs::iter::{Automaton, StateClass};
+use trie_rs::automaton::{Automaton, StateClass};
 
 /// Accepts exactly the keys equal to `needle`, byte for byte. The state is
 /// the number of needle bytes matched so far. `advertise_len` controls the

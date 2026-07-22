@@ -4,13 +4,13 @@
 /** @defgroup validation Encoding validation
  */
 
-#include <sys/types.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #include "config.h"
 #include "defines.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -45,7 +45,7 @@ const char* nu_validate(const char *encoded, size_t max_len,
 
 #endif /* NU_WITH_VALIDATION */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

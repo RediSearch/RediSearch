@@ -8,9 +8,31 @@
 */
 
 #include "query_optimizer.h"
-#include "iterators/optimizer_reader.h"
-#include "ext/default.h"
+
+#include <string.h>
+#include <math.h>
+
 #include "iterators_ffi.h"
+#include "aggregate/aggregate_plan.h"
+#include "field.h"
+#include "field_spec.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_iterator_type.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "vector_index.h"
+#include "numeric_filter.h"
+#include "redis_index.h"
+
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -32,18 +54,18 @@ void QOptimizer_Parse(AREQ *req) {
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(AREQ_AGGPlan(req));
   if (arng) {
     opt->limit = arng->limit + arng->offset;
-    if (IsSearch(req) && !opt->limit) {
+    if (!opt->limit) {
       opt->limit = DEFAULT_LIMIT;
     }
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (field && field->types == INDEXFLD_T_NUMERIC) {
+      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
       } else {
-        // sortby other fields, no optimization
+        // sortby other fields, or more than one sort key, no optimization
         opt->type = Q_OPT_NONE;
       }
     }
@@ -54,20 +76,15 @@ void QOptimizer_Parse(AREQ *req) {
     opt->scorerType = SCORER_TYPE_NONE;
   } else {
     const char *scorer = req->searchopts.scorerName;
-    if (!scorer || !strcmp(scorer, BM25_STD_SCORER_NAME)) {      // default is BM25STD
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, TFIDF_DOCNORM_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DISMAX_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, BM25_SCORER_NAME)) {
-      opt->scorerType = SCORER_TYPE_TERM;
-    } else if (!strcmp(scorer, DOCSCORE_SCORER)) {
+    // Scorers reading only document metadata, never term data.
+    if (scorer && (!strcmp(scorer, DOCSCORE_SCORER) ||
+                   !strcmp(scorer, HAMMINGDISTANCE_SCORER))) {
       opt->scorerType = SCORER_TYPE_DOC;
-    } else if (!strcmp(scorer, HAMMINGDISTANCE_SCORER)) {
-      opt->scorerType = SCORER_TYPE_DOC;
+    } else {
+      // Every other scorer, including the default and any extension-provided
+      // one, needs scoring. Claiming otherwise drops the scorer and sorter from
+      // the pipeline, so results come back unranked.
+      opt->scorerType = SCORER_TYPE_TERM;
     }
   }
 }
@@ -77,13 +94,13 @@ void QOptimizer_Parse(AREQ *req) {
 /* the function receives the QueryNode tree root and attempts to:
  * 1. find TEXT fields that need to be scored for some scorers
  * 2. find the numeric field used as SORTBY field  */
-static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode **parent,
-                                  bool *reqScore) {
+static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex,
+                                  QueryNode **parent, bool *reqScore) {
   QueryNode *ret = NULL;
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !HiddenString_CompareC(node->nn.nf->fieldSpec->fieldName, name, strlen(name))) {
+      if (targetFieldIndex != RS_INVALID_FIELD_INDEX && node->nn.nf->fieldIndex == targetFieldIndex) {
         ret = node;
       }
       break;
@@ -94,7 +111,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
         break;
       }
       for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
-        QueryNode *cur = checkQueryTypes(node->children[i], name, parent, reqScore);
+        QueryNode *cur = checkQueryTypes(node->children[i], targetFieldIndex, parent, reqScore);
         // we want to return numeric node and have its parent so we can remove it later.
         if (cur && cur->type == QN_NUMERIC && *parent == NULL) {
           if (ret != NULL || cur == INVALUD_PTR) {
@@ -119,7 +136,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
       for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
         // ignore return value from a union since sortby optimization cannot be achieved.
         // check if it contains TEXT fields.
-        checkQueryTypes(node->children[i], NULL, NULL, reqScore);
+        checkQueryTypes(node->children[i], RS_INVALID_FIELD_INDEX, NULL, reqScore);
       }
       break;
 
@@ -150,7 +167,7 @@ size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
-  const char *name = opt->fieldName;
+  t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
 
   if (root->type == QN_WILDCARD) {
@@ -159,7 +176,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
 
   // find the sortby numeric node and remove it from query node tree
   QueryNode *parentNode = NULL;
-  QueryNode *numSortbyNode = checkQueryTypes(root, name, &parentNode, &opt->scorerReq);
+  QueryNode *numSortbyNode = checkQueryTypes(root, targetFieldIndex, &parentNode, &opt->scorerReq);
   if (numSortbyNode && numSortbyNode != INVALUD_PTR) {
     RS_LOG_ASSERT(numSortbyNode->type == QN_NUMERIC, "found it");
     // numeric is part of an intersect. remove it for optimizer reader
@@ -225,6 +242,44 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
+// Build a Rust numeric top-k iterator for the sort field, a drop-in for the C
+// OptimizerIterator. Opens the field's numeric range tree and hands the residual
+// query (`root`) to the Rust reducer as the filter child. Returns NULL on an
+// allocation-size overflow (oversized OFFSET/LIMIT), so callers surface
+// QUERY_ERROR_CODE_LIMIT exactly as with the C optimizer.
+static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterator *root) {
+  size_t resArr_alloc_size;
+  if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) return NULL;
+  if (__builtin_mul_overflow(resArr_alloc_size, sizeof(RSIndexResult), &resArr_alloc_size)) return NULL;
+
+  IndexSpec *spec = qOpt->sctx->spec;
+  const FieldSpec *field =
+      IndexSpec_GetFieldWithLength(spec, qOpt->fieldName, strlen(qOpt->fieldName));
+  NumericRangeTree *tree = openNumericOrGeoIndex(spec, (FieldSpec *)field, DONT_CREATE_INDEX);
+  if (!tree) {
+    // No numeric index for the field: nothing to scan. `NewNumericTopKIterator`
+    // has not adopted `root` yet, so free it here, as the C optimizer does.
+    root->Free(root);
+    return NewEmptyIterator();
+  }
+
+  // Mirror the optimizer: with no explicit numeric range, scan the whole field.
+  NumericFilter *nf = qOpt->nf;
+  bool ownNf = false;
+  if (!nf) {
+    nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field, NULL);
+    ownNf = true;
+  }
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
+                                  .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  QueryIterator *it = NewNumericTopKIterator(tree, nf, qOpt->asc, qOpt->limit, spec->docs.size,
+                                             root, qOpt->sctx, &filterCtx);
+  // The Rust source copies the filter by value, so a synthesized one can be
+  // released immediately.
+  if (ownNf) NumericFilter_Free(nf);
+  return it;
+}
+
 int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
   QueryIterator *root = req->rootiter;
@@ -248,7 +303,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        req->rootiter = newNumericTopKFromOptimizer(opt, root);
         if (!req->rootiter) {
           req->rootiter = root;
           QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
@@ -260,7 +315,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+        req->rootiter = newNumericTopKFromOptimizer(opt, root);
         if (!req->rootiter) {
           req->rootiter = root;
           QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
@@ -273,8 +328,9 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
-        const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
-        FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fs->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+        // Read `fieldIndex` rather than deriving it from a FieldSpec* captured earlier,
+        // which could already be freed by now.
+        FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = opt->sortbyNode->nn.nf->fieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
         QueryIterator *numericIter = NewNumericFilterIterator(AREQ_SearchCtx(req), opt->sortbyNode->nn.nf, INDEXFLD_T_NUMERIC,
                                                               &req->ast.config, &filterCtx);
         updateRootIter(req, root, numericIter);
@@ -282,7 +338,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
-      req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
+      req->rootiter = newNumericTopKFromOptimizer(opt, root);
       if (!req->rootiter) {
         req->rootiter = root;
         QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");

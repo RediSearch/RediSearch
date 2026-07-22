@@ -1,4 +1,10 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import random
 
@@ -338,32 +344,35 @@ def test_MOD1266(env):
 
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
-  # sanity
+  # The key->docId mapping used to be an in-memory TrieMap accounted for by
+  # key_table_size_mb. It now lives in Redis key-metadata (not module-tracked
+  # memory), so key_table_size_mb is always 0 regardless of how many documents
+  # are indexed or removed.
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'd3', 't', 'help')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
 
   conn.execute_command('DEL', 'd3')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('DEL', 'doc1')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('DEL', 'doc2')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
 
   # mass
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
     conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', 0, delta=0)
 
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', 0, delta=0)
 
 def testUNF(env):
   conn = getConnectionByEnv(env)
@@ -425,18 +434,22 @@ def test_MOD_1517(env):
 
 @skip(msan=True, no_json=True)
 def test_MOD1544(env):
-  # Test parsing failure
   conn = getConnectionByEnv(env)
+  MAX_DIALECT = set_max_dialect(env)
   env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.name', 'AS', 'name', 'TEXT')
   conn.execute_command('JSON.SET', '1', '.', '{"name": "John Smith"}')
-  # res = [1, '1', ['name', '<b>John</b> Smith']]
+  res = [1, '1', ['name', '<b>John</b> Smith']]
 
-  # Highlight/summarize is not supported with JSON indexes
-  error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT').error().contains(error_msg)
+             'HIGHLIGHT').equal(res)
   env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
-             'HIGHLIGHT', 'FIELDS', '1', 'name').error().contains(error_msg)
+             'HIGHLIGHT', 'FIELDS', '1', 'name').equal(res)
+
+  for dialect in range(1, MAX_DIALECT + 1):
+    env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+               'HIGHLIGHT', 'DIALECT', dialect).equal(res)
+    env.expect('FT.SEARCH', 'idx', '@name:(John)', 'RETURN', '1', 'name',
+               'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', dialect).equal(res)
 
 def test_MOD_1808(env):
   conn = getConnectionByEnv(env)
@@ -1056,8 +1069,9 @@ def test_mod_4374(env):
   # the score of doc 10 is 6 without coordinator, and it is 4 with coordinator (3 shards)
   print(conn.execute_command('FT.SEARCH', 'idx', 'val|unique', 'withscores', 'nocontent'))
 
-@skip()
 def test_mod_4375(env):
+  # UNION_ITERATOR_HEAP used to change the result set of a NOT-union combined with an
+  # intersection, e.g. `(-@t:even | @n:[0 5])`. Verify the two configs still agree.
   conn = getConnectionByEnv(env)
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
@@ -1068,12 +1082,18 @@ def test_mod_4375(env):
     else:
       conn.execute_command('HSET', i, 't', 'odd', 'n', i)
 
-  # Expected results are: ['0', '2', '4', '1', '3', '5', '6', '8']
-  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+  expected = [8, '0', '1', '2', '3', '4', '5', '7', '9']
 
-  # After setting this configuration, we're getting: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-  conn.execute_command(config_cmd(), 'set', 'union_iterator_heap', '1')
-  print(conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2'))
+  res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
+  env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+
+  default = env.cmd(config_cmd(), 'GET', 'UNION_ITERATOR_HEAP')[0][1]
+  try:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', '1')
+    res = conn.execute_command('FT.SEARCH', 'idx', '(-@t:even | @n:[0 5])', 'nocontent', 'dialect', '2')
+    env.assertEqual(sorted(res, key=str), sorted(expected, key=str))
+  finally:
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'UNION_ITERATOR_HEAP', default)
 
 @skip(cluster=False) # This test is only relevant for cluster
 def test_mod_6557(env: Env):
@@ -1395,15 +1415,7 @@ def test_mod_6786(env:Env):
 
 @skip(cluster=False)
 def test_mod_7609(env:Env):
-  # Create the same named index on all shards, but with different schemas
-  for i in range(1, env.shardsCount + 1):
-    con = env.getConnection(i)
-    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
-    schema = []
-    for j in range(i):
-      schema.extend(['f'+str(j), 'TEXT'])
-    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
-
+  create_diverged_index(env, 'idx')
   env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)

@@ -7,25 +7,11 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "inverted_index.h"
 
 /**
  * Enum to hold either compressed or uncompressed numeric index.
  */
 typedef struct InvertedIndexNumeric InvertedIndexNumeric;
-
-/**
- * An iterator that performs a depth-first traversal of the numeric range tree.
- *
- * This iterator visits all nodes in the tree, yielding each node exactly once.
- * The traversal is done iteratively using an explicit stack to avoid recursion,
- * which is important for deeply nested trees that might overflow the call stack.
- *
- * # Traversal Order
- *
- * Nodes are visited in reverse pre-order (parent -> right child -> left child).
- */
-typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
 
 /**
  * A numeric range is a leaf-level storage unit in the numeric range tree.
@@ -47,6 +33,19 @@ typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
  * the first added value correctly sets both bounds.
  */
 typedef struct NumericRange NumericRange;
+
+/**
+ * A node in the numeric range tree.
+ *
+ * Nodes are either:
+ * - **Leaf nodes**: Have a range but no children.
+ * - **Internal nodes**: Have both children, a split value, depth tracking,
+ *   and optionally retain a range for query efficiency.
+ *
+ * When part of a [`NumericRangeTree`](crate::NumericRangeTree), nodes are
+ * stored in a [`generational_slab::Slab`] arena and referenced by [`NodeIndex`].
+ */
+typedef struct NumericRangeNode NumericRangeNode;
 
 /**
  * A numeric range tree for efficient range queries over numeric values.
@@ -84,17 +83,17 @@ typedef struct NumericRange NumericRange;
 typedef struct NumericRangeTree NumericRangeTree;
 
 /**
- * A node in the numeric range tree.
+ * An iterator that performs a depth-first traversal of the numeric range tree.
  *
- * Nodes are either:
- * - **Leaf nodes**: Have a range but no children.
- * - **Internal nodes**: Have both children, a split value, depth tracking,
- *   and optionally retain a range for query efficiency.
+ * This iterator visits all nodes in the tree, yielding each node exactly once.
+ * The traversal is done iteratively using an explicit stack to avoid recursion,
+ * which is important for deeply nested trees that might overflow the call stack.
  *
- * When part of a [`NumericRangeTree`](crate::NumericRangeTree), nodes are
- * stored in a [`generational_slab::Slab`] arena and referenced by [`NodeIndex`].
+ * # Traversal Order
+ *
+ * Nodes are visited in reverse pre-order (parent -> right child -> left child).
  */
-typedef struct NumericRangeNode NumericRangeNode;
+typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
 
 /**
  * Result of adding a value to the tree.
@@ -141,45 +140,6 @@ typedef struct AddResult {
    */
   int32_t block_count_delta;
 } AddResult;
-
-/**
- * Result of applying GC to a single node.
- *
- * Returned by [`NumericRangeTree::apply_gc_to_node`].
- */
-typedef struct SingleNodeGcResult {
-  /**
-   * Information about the outcome of garbage collection on
-   * the inverted index stored within this node.
-   */
-  struct II_GCScanStats index_gc_info;
-  /**
-   * Whether this node became empty after GC.
-   */
-  bool became_empty;
-} SingleNodeGcResult;
-
-/**
- * Returned by [`NumericRangeTree::compact_if_sparse`].
- */
-typedef struct CompactIfSparseResult {
-  /**
-   * The change in the tree's inverted index memory usage, in bytes.
-   * Positive values indicate growth, negative values indicate shrinkage.
-   * This tracks only inverted index memory, not node/range struct overhead.
-   */
-  int64_t inverted_index_size_delta;
-  /**
-   * The change in the tree's node memory usage, in bytes.
-   * Positive values indicate growth, negative values indicate shrinkage.
-   */
-  int64_t node_size_delta;
-  /**
-   * Net change in inverted-index block count across all dropped leaves. Always non-positive
-   * (trimming only removes blocks).
-   */
-  int32_t block_count_delta;
-} CompactIfSparseResult;
 
 /**
  * Result of trimming empty leaves from the tree.

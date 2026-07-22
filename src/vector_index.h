@@ -6,7 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#pragma once
+#ifndef VECTOR_INDEX_H__
+#define VECTOR_INDEX_H__
 #include "VecSim/vec_sim.h"
 #include "iterators/iterator_api.h"
 #include "query_node.h"
@@ -56,6 +57,7 @@
 #define VECSIM_USE_SEARCH_HISTORY_DEFAULT "DEFAULT"
 #define VECSIM_COMPRESSION "COMPRESSION"
 #define VECSIM_NO_COMPRESSION "NO_COMPRESSION"
+#define VECSIM_SQ8 "SQ8"
 #define VECSIM_LVQ_SCALAR "GlobalSQ8"
 #define VECSIM_LVQ_4 "LVQ4"
 #define VECSIM_LVQ_8 "LVQ8"
@@ -66,6 +68,9 @@
 #define VECSIM_TRAINING_THRESHOLD "TRAINING_THRESHOLD"
 #define VECSIM_REDUCED_DIM "REDUCE"
 #define VECSIM_RERANK "RERANK"
+
+#define HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD (10 * DEFAULT_BLOCK_SIZE)
+#define HNSW_QUANT_MAX_TRAINING_THRESHOLD (100 * DEFAULT_BLOCK_SIZE)
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
@@ -112,7 +117,8 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  const FieldSpec *field;             // the vector field
+  t_fieldIndex fieldIndex;            // stable index of the vector field into IndexSpec.fields;
+                                       // re-derive the FieldSpec* from this at evaluation time
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -149,6 +155,18 @@ typedef struct VecSimLogCtx {
 
 VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_missing);
 
+/**
+ * Move the vector(s) stored under `oldDocId` onto `newDocId`, for a field whose value this
+ * update did not change — see `AddDocumentCtx_ShouldRelabelField`, which is what the
+ * vector-insert sites check before calling this.
+ *
+ * Returns whether the entry was moved, i.e. whether the caller should skip its insert. On a
+ * refusal the old entry is dropped here, so the caller can insert into a clean label: VecSim
+ * refuses when the index type does not implement relabeling, when the old label holds
+ * nothing, and when the new label is already taken.
+ */
+bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId);
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
@@ -156,6 +174,9 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq);
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen);
 void VectorQuery_SetDefaultScoreField(VectorQuery *vq, const char *fieldName, size_t fieldNameLen);
+// Sets `vq->fieldIndex` from `field`, or RS_INVALID_FIELD_INDEX if NULL — the coordinator's
+// plan-only KNN parse (prepareOptionalTopKCase) has no spec to resolve a field against.
+void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field);
 
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                                             VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status);
@@ -164,6 +185,7 @@ const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
 const char *VecSimSearchMode_ToString(VecSearchMode vecsimSearchMode);
+const char *VecSimHnswCompression_ToString(VecSimQuantType quantType);
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
 bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits);
@@ -180,6 +202,8 @@ int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
                       const char *field_name); // includes tiered index
 int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
                       const char *field_name); // includes SVS algorithm support
+int VecSim_RdbLoad_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef spec,
+                      const char *field_name);  // includes HNSW quantization parameters
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
@@ -192,11 +216,14 @@ extern "C" {
 
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. The
 // underlying VecSim range query runs on the iterator's first read (see MOD-16437). Used by the
-// range branch of NewVectorIterator and by unit tests. See the definition for ownership details.
+// range branch of NewVectorIterator and by unit tests. The timeout is required and must outlive
+// the iterator. See the definition for ownership details.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    struct timespec timeout);
+                                                    QueryRequestTimeout *timeout);
 #ifdef __cplusplus
 }
 #endif
+
+#endif // VECTOR_INDEX_H__

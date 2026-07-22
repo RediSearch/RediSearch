@@ -23,11 +23,16 @@
  ******************************************************************************************/
 
 #include "debug_scorers.h"
+
+#include <stddef.h>
+
 #include "redisearch.h"
 #include "types_ffi.h"
 #include "query_term_ffi.h"
 #include "score_explain.h"
 #include "extension.h"
+#include "index_result_rs.h"
+#include "inverted_index.h"
 
 /* Recursively sum IDF values from all terms in the result */
 static double sumIdfRecursive(const RSIndexResult *r) {

@@ -6,12 +6,18 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdint.h>
+#include <string.h>
+
 #include "aggregate/reducer.h"
 #include "value_ffi.h"
 #include "util/block_alloc.h"
 #include "util/khash.h"
-#include "fnv_ffi.h"
 #include "hll/hll.h"
+#include "result_processor.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
 
 #define HLL_PRECISION_BITS 8
 #define INSTANCE_BLOCK_NUM 1024

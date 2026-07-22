@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import subprocess
 import os
 import os.path
@@ -5,7 +12,7 @@ import sys
 from RLTest import Env
 from includes import *
 from test_info_modules import info_modules_to_dict
-from common import config_cmd
+from common import config_cmd, skip
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -14,6 +21,7 @@ else:
     EXTPATH = 'tests/ctests/ext-example/libexample_extension.so'
 
 
+@skip(enterprise=True)
 def testExt(env):
     if env.env == 'existing-env' or NO_LIBEXT:
         env.skip()

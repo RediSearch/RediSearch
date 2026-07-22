@@ -89,11 +89,68 @@ int testStopwordListACEmpty() {
   return 0;
 }
 
+int testStopwordListEmbeddedNul() {
+
+  // Case folding stops at an embedded NUL and shortens the length, so the key
+  // actually stored is only the prefix before it. Reaching that state needs a
+  // cursor type that carries an explicit length: AC_TYPE_CHAR derives the
+  // length with strlen, while AC_TYPE_SDS (here) and AC_TYPE_RSTRING (the
+  // FT.CREATE path in production) both pass the length through untouched.
+  sds terms[] = {sdsnewlen("foo\0bar", 7)};
+
+  ArgsCursor ac;
+  ArgsCursor_InitSDS(&ac, terms, 1);
+
+  StopWordList *sl = NewStopWordListAC(&ac);
+  ASSERT(sl != NULL);
+
+  // Add and lookup fold through the same code, so both truncate identically:
+  // the full term matches, and so does the bare prefix.
+  ASSERT(StopWordList_Contains(sl, "foo\0bar", 7));
+  ASSERT(StopWordList_Contains(sl, "foo", 3));
+  // Truncation is lossy — anything sharing the prefix collides.
+  ASSERT(StopWordList_Contains(sl, "foo\0baz", 7));
+  ASSERT(!StopWordList_Contains(sl, "f", 1));
+  ASSERT(!StopWordList_Contains(sl, "bar", 3));
+
+  StopWordList_Free(sl);
+  sdsfree(terms[0]);
+  return 0;
+}
+
+int testStopwordListInvalidUtf8() {
+
+  // The folding decoder never validates its input: a lead byte consumes its
+  // continuation bytes whatever they hold, mapping invalid sequences onto some
+  // arbitrary key instead of rejecting them. What that key is does not matter
+  // here; what matters is that add and lookup mangle a term the same way, so a
+  // stopword given as invalid UTF-8 still suppresses the identical bytes at
+  // query time.
+  // Each sequence ends in a non-hex-digit character so the preceding \x escape
+  // cannot swallow it.
+  const char *terms[] = {"\xC3\x28z", "\xE0\x80q"};
+  const size_t nterms = sizeof(terms) / sizeof(const char *);
+
+  StopWordList *sl = NewStopWordListCStr(terms, nterms);
+  ASSERT(sl != NULL);
+
+  for (size_t i = 0; i < nterms; i++) {
+    ASSERT(StopWordList_Contains(sl, terms[i], strlen(terms[i])));
+  }
+
+  ASSERT(!StopWordList_Contains(sl, "\xC3\x28y", 3));
+
+  StopWordList_Free(sl);
+  return 0;
+}
+
 TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(testStopwordList);
   TESTFUNC(testStopwordListAC);
   TESTFUNC(testStopwordListACEmpty);
+  TESTFUNC(testStopwordListEmbeddedNul);
+  TESTFUNC(testStopwordListInvalidUtf8);
   TESTFUNC(testDefaultStopwords);
   StopWordList_FreeGlobals();
 });

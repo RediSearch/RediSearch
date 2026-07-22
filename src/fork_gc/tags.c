@@ -7,14 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "pipe.h"
 #include "triemap_ffi.h"
 #include "inverted_index_ffi.h"
 #include "redis_index.h"
 #include "tag_index.h"
-#include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
+#include "field_spec.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "redismodule.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 typedef struct {
   const char *field;

@@ -7,15 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "conn.h"
+
+#include <uv.h>
+#include <openssl/ssl.h>
+#include <string.h>
+#include <sys/time.h>
+
 #include "reply.h"
 #include "coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-
-#include <uv.h>
-
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+#include "config.h"
+#include "hiredis/hiredis.h"
+#include "hiredis/hiredis_ssl.h"
+#include "hiredis/read.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/endpoint.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 // Hot path first: callbacks read conn+state+protocol on every entry, so
 // they share the head of the first cache line. ep/loop are warm (init and
@@ -127,20 +138,25 @@ static void MRConnPool_Free(void *privdata, void *p) {
   rm_free(pool);
 }
 
-/* Get a connection from the connection pool. We select the next available connected connection with
- * a round robin selector */
-static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
-
+/* Return pool->num when no connected slot exists. Leave selection state unchanged. */
+static uint32_t MRConnPool_FindConnected(const MRConnPool *pool) {
+  uint32_t index = pool->rr;
   for (uint32_t i = 0; i < pool->num; i++) {
-
-    MRConn *conn = pool->conns[pool->rr];
-    // increase the round-robin counter
-    pool->rr = (pool->rr + 1) % pool->num;
-    if (conn->state == MRConn_Connected) {
-      return conn;
+    if (pool->conns[index]->state == MRConn_Connected) {
+      return index;
     }
+    index = (index + 1) % pool->num;
   }
-  return NULL;
+  return pool->num;
+}
+
+static MRConn *MRConnPool_GetConn(MRConnPool *pool) {
+  uint32_t index = MRConnPool_FindConnected(pool);
+  if (index == pool->num) {
+    return NULL;
+  }
+  pool->rr = (index + 1) % pool->num;
+  return pool->conns[index];
 }
 
 static dictType nodeIdToConnPoolType = {
@@ -223,7 +239,6 @@ void MRConnManager_FillStateDict(MRConnManager *mgr, dict *stateDict) {
 }
 
 
-/* Get the connection for a specific node by id, return NULL if this node is not in the pool */
 MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
   dictEntry *ptr = dictFind(mgr->map, id);
   if (ptr) {
@@ -231,6 +246,15 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id) {
     return MRConnPool_GetConn(pool);
   }
   return NULL;
+}
+
+bool MRConnManager_HasConnectedConnection(MRConnManager *mgr, const char *id) {
+  dictEntry *entry = dictFind(mgr->map, id);
+  if (!entry) {
+    return false;
+  }
+  const MRConnPool *pool = dictGetVal(entry);
+  return MRConnPool_FindConnected(pool) != pool->num;
 }
 
 /* Get the state string of the first connection for a specific node by id.
@@ -555,19 +579,9 @@ error:
 extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_cert,
                     RedisModuleString **ca_cert, RedisModuleString **key_pass) {
-  int ret = 1;
+  int ret = REDIS_OK;
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
-
-  // On OSS, the cluster topology module API returns the regular client port
-  // when `tls-cluster` is disabled, even if `tls-port` is also configured.
-  // Enterprise still uses the proxy port and should keep the tls-port fallback.
-  if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
-    if (!IsEnterprise() || getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
-      ret = 0;
-      goto done;
-    }
-  }
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
   *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
@@ -575,7 +589,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
-    ret = 0;
+    ret = REDIS_ERR;
     if(*client_key){
       RedisModule_FreeString(ctx, *client_key);
       *client_key = NULL;
@@ -594,7 +608,6 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
     }
   }
 
-done:
   RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
@@ -604,9 +617,13 @@ done:
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
-  if (!checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)) {
+  if (conn->ep.isTls == false) {
     return REDIS_OK;
+  }
+
+  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
+  if (checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass) == REDIS_ERR) {
+    return REDIS_ERR;
   }
 
   redisSSLContextError ssl_error = 0;

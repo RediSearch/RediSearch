@@ -104,7 +104,6 @@ fn string_vs_number_reversed() {
 }
 
 #[test]
-#[cfg_attr(miri, ignore = "Calls FFI function `snprintf`")]
 fn number_vs_unparseable_string_with_fallback() {
     let n = Value::Number(5.0);
     let s = Value::String(String::from_vec(b"hello".to_vec()));

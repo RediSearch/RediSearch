@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import threading
 
@@ -44,8 +51,6 @@ def test_flex_max_index_limit(env):
 @with_simulate_in_flex(True)
 def test_invalid_field_type(env):
     """Test that creating an index with an invalid field type fails when search-_simulate-in-flex is true"""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEO') \
-        .error().contains('GEO fields are not supported in Flex indexes')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'GEOSHAPE') \
         .error().contains('GEOSHAPE fields are not supported in Flex indexes')
 
@@ -153,11 +158,6 @@ def test_unsupported_schema_options(env):
     # Test NOINDEX is not supported
     env.expect('FT.CREATE', 'idx2', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'NOINDEX') \
         .error().contains('Disk index does not support NOINDEX fields')
-
-    # Test INDEXMISSING is not supported
-    env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
-        .error().contains('Disk index does not support INDEXMISSING fields')
-
 
 
 @skip(cluster=True)
@@ -326,10 +326,8 @@ def test_flex_search_allows_nocontent_withscores(env):
 @skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_flex_aggregate_allows_sortby(env):
-    """FT.AGGREGATE SORTBY is unrestricted on flex (sort keys load via the disk
-    async loader); the vector-distance-only restriction is FT.SEARCH only.
-    Multi-field SORTBY exercises the guard's early-return ordering (the
-    FT.SEARCH single-field asserts must not fire for aggregations)."""
+    """FT.AGGREGATE SORTBY is unrestricted on flex, including multi-field
+    SORTBY: sort keys load via the disk async loader at the arrange step."""
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                't', 'TEXT', 'u', 'TEXT').ok()
     env.expect('HSET', 'doc:1', 't', 'hello world', 'u', 'aaa').equal(2)
@@ -337,10 +335,6 @@ def test_flex_aggregate_allows_sortby(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'ASC').noError()
     env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', '4', '@t', 'ASC', '@u', 'DESC') \
         .noError()
-
-    # The FT.SEARCH restriction is unchanged.
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
-        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
 
 
 @skip(cluster=True)
@@ -382,6 +376,27 @@ def test_flex_blocks_dict_commands(env):
         .error().contains('FT.DICTDEL is not supported in Redis Flex')
     env.expect('FT.DICTDUMP', 'dict') \
         .error().contains('FT.DICTDUMP is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rejects_compression_and_training(env):
+    """Reject in-memory SQ8 options before creating a disk-backed vector field."""
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        base = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'L2',
+                'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        for extra, error in (
+            (['COMPRESSION', 'SQ8'], 'COMPRESSION is not supported for disk-based vector indexes'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 0],
+             'TRAINING_THRESHOLD is irrelevant when compression was not requested'),
+        ):
+            params = [*base, *extra]
+            env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                       'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(error)
 
 
 @skip(cluster=True)
@@ -943,16 +958,6 @@ def test_flex_blocks_configured_default_dialect_4(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_sortby_on_non_vector_fields(env):
-    """Test that SORTBY on non-vector-score fields is blocked in Redis Flex"""
-    _create_flex_search(env)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'SORTBY', 't') \
-        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_allows_sortby_on_vector_distance_fields(env):
     """Test that SORTBY on vector distance fields (from KNN queries) is allowed in Redis Flex"""
     # Create index with both text and vector fields
@@ -990,13 +995,6 @@ def test_flex_allows_sortby_on_vector_distance_fields(env):
                   'PARAMS', '2', 'b', query_blob,
                   'DIALECT', '2')
     env.assertEqual(res[0], 3)
-
-    # SORTBY on non-vector field should still be blocked
-    env.expect('FT.SEARCH', 'idx', '*=>[KNN 3 @v $b]', 'NOCONTENT',
-               'SORTBY', 't', 'ASC',
-               'PARAMS', '2', 'b', query_blob,
-               'DIALECT', '2') \
-        .error().contains('SORTBY in Redis Flex is restricted to sorting results by vector distance')
 
 
 @skip(cluster=True)

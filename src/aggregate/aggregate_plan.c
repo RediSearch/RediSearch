@@ -7,10 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_plan.h"
-#include "reducer.h"
-#include "expr/expression.h"
-#include <util/arr.h>
-#include <ctype.h>
+
+#include <stdio.h>
+#include <string.h>
+
+#include "obfuscation/hidden.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dllist.h"
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {
@@ -323,7 +328,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
       case PLN_T_LOAD: {
         const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
         for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
-          printf("  %s\n", (char *)lstp->args.objs[ii]);
+          printf("  %s\n", AC_StringArg(&lstp->args, ii, NULL));
         }
         break;
       }
@@ -341,7 +346,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
             printf("    ARGS:[");
           }
           for (size_t jj = 0; jj < r->args.argc; ++jj) {
-            printf("%s ", (char *)r->args.objs[jj]);
+            printf("%s ", AC_StringArg(&r->args, jj, NULL));
           }
           printf("]\n");
         }
@@ -370,7 +375,7 @@ static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
 }
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
-    append_string(arr, AC_StringArg(ac, ii));
+    append_string(arr, AC_StringArg(ac, ii, NULL));
   }
 }
 

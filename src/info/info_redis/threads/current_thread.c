@@ -8,9 +8,16 @@
 */
 
 #include "info/info_redis/threads/current_thread.h"
+
+#include <assert.h>
+#include <pthread.h>
+#include <stddef.h>
+
 #include "spec.h"
 #include "config.h"
-#include <assert.h>
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
 
 // TLS key for a spec information
 static pthread_key_t specInfoKey;

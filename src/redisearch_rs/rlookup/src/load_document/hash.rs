@@ -15,6 +15,7 @@ use crate::{RLookup, RLookupKey, RLookupKeyFlag, RLookupRow};
 use redis_module::RedisString;
 use redis_module::key::RedisKey;
 use redis_module::{KeyType, ScanKeyCursor};
+use std::cell::{RefCell, RefMut};
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
 use std::ptr::{self, NonNull};
@@ -22,9 +23,80 @@ use std::slice;
 use value::{SharedValue, Value};
 
 /// Document loading support for the hash format
-pub struct HashDocumentFormat {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+pub struct HashDocumentFormat<'n> {
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     force_string: bool,
+    /// Shared across the documents of one loader; see [`HashFieldNames`].
+    field_names: Option<&'n HashFieldNames>,
+}
+
+/// Hash field names as [`RedisString`]s, one per lookup key, indexed by the key's `dstidx`.
+///
+/// A field fetched by C string makes Redis allocate a transient string object per call;
+/// a [`RedisString`] is read in place. A loader that fetches the same fields for every
+/// document builds each name once here and reuses it, so the cache lives as long as the
+/// loader, not the document.
+///
+/// Names are detached strings (created without a context), so they may be freed on
+/// whichever thread drops the cache.
+#[derive(Debug, Default)]
+pub struct HashFieldNames {
+    names: RefCell<Vec<Option<RedisString>>>,
+}
+
+impl HashFieldNames {
+    /// An empty cache; names are built as fields are first loaded.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Number of names built so far.
+    pub fn len(&self) -> usize {
+        self.names.borrow().iter().flatten().count()
+    }
+
+    /// Whether no name has been built yet.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The name for the field at `path`, built on first use and kept in slot `idx` (the
+    /// key's `dstidx`).
+    fn get_or_create(&self, idx: u16, path: &[u8]) -> RefMut<'_, RedisString> {
+        let idx = idx as usize;
+        RefMut::map(self.names.borrow_mut(), |names| {
+            if names.len() <= idx {
+                names.resize_with(idx + 1, || None);
+            }
+            let name = names[idx]
+                .get_or_insert_with(|| RedisString::create_from_slice(ptr::null_mut(), path));
+            // A slot serves one field for the cache's lifetime; a mismatch means the
+            // lookup was re-planned under a live loader.
+            debug_assert_eq!(
+                name.as_slice(),
+                path,
+                "HashFieldNames slot {idx} was built for a different path"
+            );
+            name
+        })
+    }
+}
+
+/// The cache a [`HashFieldLoader`] resolves names through: the loader's shared one, or a
+/// document-local one when the caller did not supply any.
+#[derive(Debug)]
+enum FieldNames<'n> {
+    Shared(&'n HashFieldNames),
+    Local(HashFieldNames),
+}
+
+impl FieldNames<'_> {
+    const fn get(&self) -> &HashFieldNames {
+        match self {
+            Self::Shared(n) => n,
+            Self::Local(n) => n,
+        }
+    }
 }
 
 /// An open hash key handle, either owned or borrowed.
@@ -49,6 +121,7 @@ impl HashKey {
 pub struct HashFieldLoader<'a> {
     key: HashKey,
     key_name: &'a RedisString,
+    field_names: FieldNames<'a>,
 }
 
 /// Why opening a hash key failed.
@@ -59,9 +132,26 @@ enum HashOpenError {
     WrongType,
 }
 
-impl HashDocumentFormat {
-    pub const fn new(ctx: NonNull<ffi::RedisModuleCtx>, force_string: bool) -> Self {
-        Self { ctx, force_string }
+impl<'n> HashDocumentFormat<'n> {
+    pub const fn new(ctx: NonNull<redis_module::RedisModuleCtx>, force_string: bool) -> Self {
+        Self {
+            ctx,
+            force_string,
+            field_names: None,
+        }
+    }
+
+    /// Resolve field names through `field_names` instead of a per-document cache.
+    pub const fn with_field_names(mut self, field_names: &'n HashFieldNames) -> Self {
+        self.field_names = Some(field_names);
+        self
+    }
+
+    fn field_names(&self) -> FieldNames<'n> {
+        match self.field_names {
+            Some(names) => FieldNames::Shared(names),
+            None => FieldNames::Local(HashFieldNames::new()),
+        }
     }
 
     /// Open `key_name` and verify it points to a hash.
@@ -82,8 +172,11 @@ impl HashDocumentFormat {
     }
 }
 
-impl DocumentFormat for HashDocumentFormat {
-    type FieldLoader<'a> = HashFieldLoader<'a>;
+impl<'n> DocumentFormat for HashDocumentFormat<'n> {
+    type FieldLoader<'a>
+        = HashFieldLoader<'a>
+    where
+        Self: 'a;
 
     fn open<'key>(
         &'key self,
@@ -97,12 +190,13 @@ impl DocumentFormat for HashDocumentFormat {
         Ok(HashFieldLoader {
             key: HashKey::Owned(key),
             key_name,
+            field_names: self.field_names(),
         })
     }
 
     fn borrow<'key>(
         &'key self,
-        open_key: &'key ffi::RedisModuleKey,
+        open_key: &'key redis_module::RedisModuleKey,
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`, and the
@@ -124,6 +218,7 @@ impl DocumentFormat for HashDocumentFormat {
         Ok(HashFieldLoader {
             key: HashKey::Borrowed(ManuallyDrop::new(key)),
             key_name,
+            field_names: self.field_names(),
         })
     }
 
@@ -198,7 +293,11 @@ impl FieldLoader for HashFieldLoader<'_> {
             None => return Ok(()),
         };
 
-        let val = if let Some(val) = self.key.get().hash_get(path.to_bytes())? {
+        let field = self
+            .field_names
+            .get()
+            .get_or_create(kk.dstidx, path.to_bytes());
+        let val = if let Some(val) = self.key.get().hash_get_by_string(&field)? {
             let coerce = if kk.flags.contains(RLookupKeyFlag::Numeric) {
                 HashCoerceType::Double
             } else {

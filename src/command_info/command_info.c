@@ -953,7 +953,19 @@ int SetFt_ListInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
     .summary = "Returns a list of all existing indexes",
-    .complexity = "O(1)",
+    .complexity = "Without WITHCLUSTERSTATE: O(N), where N is the number of local indexes. With WITHCLUSTERSTATE: O(B + (I + 1) * S^2) total work, where S is the shard count, I is the number of distinct indexes, and B is the total schema content processed across shards, including index names, fields, stopwords, and synonym memberships. Each shard hashes its local schema content on its Redis thread; the coordinator compares shard reports.",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "withclusterstate",
+        .token = "WITHCLUSTERSTATE",
+        .summary = "Reports each index's cross-shard consistency state",
+        .since = "8.12.0",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {0}
+    },
+    .arity = -1,
     .since = "2.0.0",
     .tips = "dont_cache",
   };
@@ -1229,7 +1241,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "summarize",
-        .summary = "Splits a field into contextual fragments surrounding the found terms, Note that summarize for JSON documents is not currently supported.",
+        .summary = "Splits a field into contextual fragments surrounding the found terms. Note: SUMMARIZE is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){
@@ -1280,7 +1292,7 @@ int SetFtSearchInfo(RedisModuleCommand *cmd) {
       },
       {
         .name = "highlight",
-        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note that highlight for JSON documents is not currently supported.",
+        .summary = "Highlights terms in the search results, with customizable tags for emphasis. Note: HIGHLIGHT is not supported for JSON fields with multi-value JSONPath.",
         .type = REDISMODULE_ARG_TYPE_BLOCK,
         .flags = REDISMODULE_CMD_ARG_OPTIONAL,
         .subargs = (RedisModuleCommandArg[]){

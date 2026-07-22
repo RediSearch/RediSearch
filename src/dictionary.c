@@ -7,17 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <errno.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "dictionary.h"
 #include "redismodule.h"
 #include "rmalloc.h"
-#include "util/dict.h"
 #include "rdb.h"
-#include "resp3.h"
 #include "rmutil/rm_assert.h"
 #include "commands.h"
 #include "config.h"
-#include "module.h"
 #include "util/likely.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
 
 dict *spellCheckDicts = NULL;
 

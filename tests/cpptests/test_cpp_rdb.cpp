@@ -13,10 +13,14 @@
 #include "redismock/redismock.h"
 #include "synonym_map.h"
 #include "trie/trie.h"
+#include <array>
 #include <cstdint>  // For SIZE_MAX, UINT32_MAX
+#include <iterator>  // For std::size
+#include <vector>
 
 extern "C" {
 #include "spec.h"
+#include "vector_index.h"
 #include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
@@ -153,6 +157,9 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     // Verify original lock state
     EXPECT_TRUE(testLockState(spec)) << "Original IndexSpec should have properly initialized rwlock";
 
+    spec->queryCounter = 3;
+    spec->adminCounter = 5;
+
     // Create RDB IO context
     RedisModuleIO *io = RMCK_CreateRdbIO();
     std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
@@ -188,7 +195,8 @@ TEST_F(RdbMockTest, testIndexSpecRdbSerialization) {
     EXPECT_EQ(spec->scan_in_progress, loadedSpec->scan_in_progress);
     EXPECT_EQ(spec->scan_failed_OOM, loadedSpec->scan_failed_OOM);
     EXPECT_EQ(spec->used_dialects, loadedSpec->used_dialects);
-    EXPECT_EQ(spec->counter, loadedSpec->counter);
+    EXPECT_EQ(0, loadedSpec->queryCounter);
+    EXPECT_EQ(0, loadedSpec->adminCounter);
     EXPECT_EQ(spec->activeCursors, loadedSpec->activeCursors);
     // verify read locks can be taken
     int lockResult = pthread_rwlock_tryrdlock(&spec->rwlock);
@@ -265,6 +273,62 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
     EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
     EXPECT_FALSE(loadedSpec->flags & Index_WideSchema);
     EXPECT_FALSE(loadedSpec->flags & Index_StoreFieldFlags);
+}
+
+// Parses `args` into a spec, saves it and loads it back with `encver`, then
+// checks that missing.fields on both specs matches `expectedMissingFields`.
+static void checkIndexMissingRoundTrip(const char *name, const char **args, size_t nargs, int encver,
+                                       const std::vector<t_fieldIndex> &expectedMissingFields) {
+    QueryError err = QueryError_Default();
+    StrongRef original_spec_ref = IndexSpec_ParseC(nullptr, name, args, nargs, &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    auto *spec = static_cast<IndexSpec *>(StrongRef_Get(original_spec_ref));
+    ASSERT_TRUE(spec != nullptr);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(spec, [](const IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+
+    auto checkMissing = [&](const IndexSpec *sp) {
+        EXPECT_EQ(!expectedMissingFields.empty(), IndexSpec_HasIndexMissing(sp));
+        ASSERT_EQ(expectedMissingFields.size(), array_len(sp->missing.fields));
+        for (size_t i = 0; i < expectedMissingFields.size(); ++i) {
+            EXPECT_EQ(expectedMissingFields[i], sp->missing.fields[i]);
+        }
+    };
+    checkMissing(spec);
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+    ASSERT_TRUE(io != nullptr);
+
+    IndexSpec_RdbSave(io, spec, 0);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+
+    QueryError status = QueryError_Default();
+    IndexSpec *loadedSpec = IndexSpec_RdbLoad(io, encver, false, &status);
+    ASSERT_NE(nullptr, loadedSpec);
+    std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedSpecPtr(loadedSpec, [](const IndexSpec *spec) {
+        StrongRef_Release(spec->own_ref);
+    });
+    EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+    checkMissing(loadedSpec);
+}
+
+TEST_F(RdbMockTest, testIndexSpecRdbLoadIndexMissing) {
+    const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG", "INDEXMISSING", "price", "NUMERIC", "INDEXMISSING"};
+    const size_t nargs = std::size(args);
+
+    checkIndexMissingRoundTrip("test_rdb_indexmissing_idx", args, nargs, INDEX_CURRENT_VERSION, {1, 2});
+}
+
+TEST_F(RdbMockTest, testIndexSpecRdbLoadWithoutIndexMissing) {
+    const char *args[] = {"SCHEMA", "title", "TEXT", "tags", "TAG"};
+    checkIndexMissingRoundTrip("test_rdb_no_indexmissing_idx", args, std::size(args), INDEX_CURRENT_VERSION, {});
 }
 
 TEST_F(RdbMockTest, testIndexSpecStringSerialize) {
@@ -550,6 +614,77 @@ TEST_F(RdbMockTest, testSynonymMapRdbLoadValidGroupIds) {
     TermData *td = SynonymMap_GetIdsBySynonym_cstr(loadedSmap, "test_term");
     ASSERT_TRUE(td != nullptr);
     EXPECT_EQ(2, array_len(td->groupIds));
+}
+
+TEST_F(RdbMockTest, testStopWordListRdbRoundTrip) {
+    // A stopword list is written as a count followed by the already-folded
+    // keys, and read back without folding again — so a round trip is only an
+    // identity if the saved order and the exact key bytes both survive.
+    // Insertion order here is deliberately unsorted and mixed-script.
+    const char *terms[] = {"zebra", "apple", "שלום", "Mango"};
+    const size_t nterms = sizeof(terms) / sizeof(const char *);
+    StopWordList *sl = NewStopWordListCStr(terms, nterms);
+    ASSERT_TRUE(sl != nullptr);
+    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> slPtr(sl, [](StopWordList *sl) {
+        StopWordList_Unref(sl);
+    });
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+
+    StopWordList_RdbSave(io, sl);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    io->read_pos = 0;
+    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
+    ASSERT_TRUE(loaded != nullptr);
+    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> loadedPtr(loaded, [](StopWordList *sl) {
+        StopWordList_Unref(sl);
+    });
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    // Membership survives, including the folded form of the mixed-case term.
+    EXPECT_TRUE(StopWordList_Contains(loaded, "zebra", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "apple", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "mango", 5));
+    EXPECT_TRUE(StopWordList_Contains(loaded, "שלום", strlen("שלום")));
+    EXPECT_FALSE(StopWordList_Contains(loaded, "pear", 4));
+
+    // The INFO render is the observable projection of both the key bytes and
+    // their order, so comparing it either way pins the round trip whole.
+    RedisModuleInfoCtx before, after;
+    AddStopWordsListToInfo(&before, sl);
+    AddStopWordsListToInfo(&after, loaded);
+    ASSERT_EQ(before.fields.size(), 1);
+    ASSERT_EQ(after.fields.size(), 1);
+    EXPECT_EQ(before.fields[0].second, after.fields[0].second);
+}
+
+TEST_F(RdbMockTest, testStopWordListRdbLoadTruncated) {
+    // The count promises two keys but only one follows, so the read fails after
+    // the list already holds an entry. Unlike
+    // testStopWordListRdbLoadExceedsLimit, which bails before allocating
+    // anything, this reaches the cleanup path with a partially built list to
+    // free — the leak is only visible under a sanitizer, so the assertion here
+    // is just that load reports failure.
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
+        RMCK_FreeRdbIO(io);
+    });
+
+    RMCK_SaveUnsigned(io, 2);
+    const char *term = "foo";
+    RMCK_SaveStringBuffer(io, term, strlen(term));
+
+    io->read_pos = 0;
+
+    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
+    EXPECT_TRUE(loaded == nullptr) << "Expected RDB load to fail when the payload is short";
+    EXPECT_EQ(1, RMCK_IsIOError(io));
 }
 
 TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
@@ -981,4 +1116,260 @@ TEST_F(RdbMockTest, testHnswRerankRdbRoundtrip) {
         EXPECT_EQ(initialRerank, loaded->fields[loadedVfIdx].vectorOpts.diskCtx.rerank)
             << "rerank did not round-trip (expected " << initialRerank << ")";
     }
+}
+
+TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
+  std::array args{
+      "SCHEMA", "v",  "VECTOR",          "HNSW", "10",          "TYPE", "FLOAT32",
+      "DIM",    "64", "DISTANCE_METRIC", "L2",   "COMPRESSION", "SQ8",  "TRAINING_THRESHOLD",
+      "2048",
+  };
+  QueryError err = QueryError_Default();
+  StrongRef originalRef = IndexSpec_ParseC(nullptr, "hnsw_sq8_idx", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *original = static_cast<IndexSpec *>(StrongRef_Get(originalRef));
+  ASSERT_TRUE(original != nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> originalPtr(
+      original, [](const IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_TRUE(io != nullptr);
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+      io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+
+  IndexSpec_RdbSave(io, original, 0);
+  ASSERT_EQ(0, RMCK_IsIOError(io));
+  io->read_pos = 0;
+
+  QueryError status = QueryError_Default();
+  IndexSpec *loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &status);
+  ASSERT_TRUE(loaded != nullptr) << QueryError_GetUserError(&status);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> loadedPtr(
+      loaded, [](const IndexSpec *spec) { StrongRef_Release(spec->own_ref); });
+
+  int loadedFieldIndex = findVectorField(loaded);
+  ASSERT_GE(loadedFieldIndex, 0);
+  const TieredIndexParams *loadedTiered =
+      &loaded->fields[loadedFieldIndex].vectorOpts.vecSimParams.algoParams.tieredParams;
+  EXPECT_EQ(VecSimQuant_SQ8, loadedTiered->primaryIndexParams->algoParams.hnswParams.quantType);
+  EXPECT_EQ(2048u, loadedTiered->specificParams.tieredHnswParams.QuantNormalizationSetSize);
+
+  // Version 4 ended immediately after epsilon in the HNSW branch. Loading that exact legacy
+  // layout must synthesize the pre-SQ8 defaults rather than reading nonexistent fields.
+  RedisModuleIO *legacyIo = RMCK_CreateRdbIO();
+  ASSERT_TRUE(legacyIo != nullptr);
+  std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> legacyIoPtr(
+      legacyIo, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+  RMCK_SaveUnsigned(legacyIo, VecSimAlgo_TIERED);
+  RMCK_SaveUnsigned(legacyIo, VecSimAlgo_HNSWLIB);
+  RMCK_SaveUnsigned(legacyIo, 0);  // swapJobThreshold
+  RMCK_SaveUnsigned(legacyIo, VecSimType_FLOAT32);
+  RMCK_SaveUnsigned(legacyIo, 64);  // dim
+  RMCK_SaveUnsigned(legacyIo, VecSimMetric_L2);
+  RMCK_SaveUnsigned(legacyIo, 0);  // multi
+  RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_M);
+  RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_EF_C);
+  RMCK_SaveUnsigned(legacyIo, HNSW_DEFAULT_EF_RT);
+  RMCK_SaveDouble(legacyIo, HNSW_DEFAULT_EPSILON);
+  legacyIo->read_pos = 0;
+
+  VecSimParams legacyParams = {};
+  ASSERT_EQ(REDISMODULE_OK, VecSim_RdbLoad_v4(legacyIo, &legacyParams, originalRef, "v"));
+  const HNSWParams *legacyHnsw =
+      &legacyParams.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams;
+  EXPECT_EQ(VecSimQuant_NONE, legacyHnsw->quantType);
+  EXPECT_EQ(0u, legacyParams.algoParams.tieredParams.specificParams.tieredHnswParams
+                    .QuantNormalizationSetSize);
+  EXPECT_EQ(legacyIo->buffer.size(), legacyIo->read_pos);
+  VecSimParams_Cleanup(&legacyParams);
+}
+
+TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
+  std::array args{
+      "SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
+  };
+  QueryError err = QueryError_Default();
+  StrongRef specRef = IndexSpec_ParseC(nullptr, "hnsw_sq8_invalid", args.data(), args.size(), &err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+  auto *spec = static_cast<IndexSpec *>(StrongRef_Get(specRef));
+  ASSERT_NE(spec, nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
+      spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
+
+  struct InvalidParams {
+    uint64_t compression;
+    uint64_t threshold;
+    VecSimType type;
+    size_t truncatedBytes;
+    size_t dim = 64;
+    VecSimMetric metric = VecSimMetric_L2;
+    bool disk = false;
+  };
+  const std::array<InvalidParams, 12> cases{{
+      {2, 0, VecSimType_FLOAT32, 0},
+      {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
+      {VecSimQuant_SQ8, HNSW_QUANT_MAX_TRAINING_THRESHOLD + 1, VecSimType_FLOAT32, 0},
+      {VecSimQuant_SQ8, uint64_t{1} << 32, VecSimType_FLOAT32, 0},
+      {VecSimQuant_NONE, 1, VecSimType_FLOAT32, 0},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT64, 0},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, sizeof(uint64_t)},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 0},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
+  }};
+  for (const auto &test : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "compression=" << test.compression << " threshold=" << test.threshold
+                 << " type=" << test.type << " truncated=" << test.truncatedBytes
+                 << " dim=" << test.dim << " metric=" << test.metric << " disk=" << test.disk);
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_NE(io, nullptr);
+    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(
+        io, [](RedisModuleIO *rdb) { RMCK_FreeRdbIO(rdb); });
+    VecSimParams *params = &spec->fields[0].vectorOpts.vecSimParams;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.type = test.type;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.dim = test.dim;
+    params->algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.metric = test.metric;
+    VecSim_RdbSave(io, params);
+    // Replace the two new fields with wire values, including values wider than the enum.
+    io->buffer.resize(io->buffer.size() - 2 * sizeof(uint64_t));
+    RMCK_SaveUnsigned(io, test.compression);
+    RMCK_SaveUnsigned(io, test.threshold);
+    io->buffer.resize(io->buffer.size() - test.truncatedBytes);
+
+    VecSimParams loaded = {};
+    const bool previousFlex = RSGlobalConfig.simulateInFlex;
+    RSGlobalConfig.simulateInFlex = test.disk;
+    const int result = VecSim_RdbLoad_v5(io, &loaded, specRef, "v");
+    RSGlobalConfig.simulateInFlex = previousFlex;
+    EXPECT_EQ(REDISMODULE_ERR, result);
+    VecSimParams_Cleanup(&loaded);
+  }
+}
+
+// Legacy pre-2.0 module types (ft_invidx / numericdx / ft_tagidx) exist only so an old RDB can be read
+// and discarded during an upgrade. Their loaders return the `dummyNonNull` sentinel rather than NULL,
+// so a key can outlive the upgrade sweep holding nothing but that sentinel.
+//
+// Such a key is written with no payload at all, stamped LEGACY_EMPTY_ENC_VER so the loader knows not to
+// read one. Writing nothing under the *old* version is what corrupted the RDB: the loader then consumed
+// Redis's module EOF marker as its first field. See MOD-15685.
+extern "C" {
+extern void *dummyNonNull;
+void GenericType_DummyRdbSave(RedisModuleIO *rdb, void *value);
+void *InvertedIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *NumericIndexType_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+void *TagIndex_RdbLoad_Consume(RedisModuleIO *rdb, int encver);
+}
+
+namespace {
+// Mirrors the constants in src/legacy_types.c, which are private to that translation unit.
+constexpr int kLegacyEncVer = 1;
+constexpr int kLegacyLegacyEncVer = 0;
+constexpr int kLegacyEmptyEncVer = 2;
+}  // namespace
+
+TEST_F(RdbMockTest, testLegacyEmptySaveConsumesNothingOnLoad) {
+  void *(*loaders[])(RedisModuleIO *, int) = {
+      InvertedIndex_RdbLoad_Consume, NumericIndexType_RdbLoad_Consume, TagIndex_RdbLoad_Consume};
+
+  for (auto *load : loaders) {
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+
+    GenericType_DummyRdbSave(io, dummyNonNull);
+    // Nothing is written, which is the point: Redis appends its EOF marker straight after the header.
+    EXPECT_EQ(0u, io->buffer.size());
+
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, load(io, kLegacyEmptyEncVer));
+    // The loader must not have advanced, or it would eat the marker Redis expects to read next.
+    EXPECT_EQ(0u, io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+
+    RMCK_FreeRdbIO(io);
+  }
+}
+
+// A genuine pre-2.0 payload must still be consumed in full, so upgrading from a real 1.x RDB keeps
+// working. Bumping the registered version must not change how older records are read.
+TEST_F(RdbMockTest, testLegacyRealPayloadStillConsumed) {
+  {  // inverted index: flags, lastId, numDocs, then zero blocks
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    for (int i = 0; i < 4; i++) RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, InvertedIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    EXPECT_EQ(0, RMCK_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v1: a lone terminator
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // numeric v0: a zero entry count
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, NumericIndexType_RdbLoad_Consume(io, kLegacyLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+  {  // tag index: zero tags
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    ASSERT_TRUE(io != nullptr);
+    RMCK_SaveUnsigned(io, 0);
+    io->read_pos = 0;
+    EXPECT_EQ(dummyNonNull, TagIndex_RdbLoad_Consume(io, kLegacyEncVer));
+    EXPECT_EQ(io->buffer.size(), io->read_pos);
+    RMCK_FreeRdbIO(io);
+  }
+}
+
+TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
+  RedisModuleIO *io = RMCK_CreateRdbIO();
+  ASSERT_NE(io, nullptr);
+  DocTable table = NewDocTable(4, 4);
+  RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 4);
+  RMCK_SaveStringBuffer(io, "doc", 3);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, Document_DefaultFlags);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveUnsigned(io, 1);
+  RMCK_SaveDouble(io, 0.5);
+  io->read_pos = 0;
+
+  // The mock stores numeric values as doubles; this exercises the loader's allocation logic.
+  auto originalLoadFloat = RedisModule_LoadFloat;
+  RedisModule_LoadFloat = [](RedisModuleIO *rdb) { return static_cast<float>(RMCK_LoadDouble(rdb)); };
+  int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
+  RedisModule_LoadFloat = originalLoadFloat;
+  EXPECT_EQ(result, REDISMODULE_OK);
+
+  auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));
+  EXPECT_NE(dmd, nullptr);
+  if (dmd) {
+    EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+    EXPECT_FALSE(hasPayload(dmd->flags));
+    const size_t loadedSize = table.memsize;
+    EXPECT_EQ(DocTable_SetPayload(&table, dmd, "first", 5), 1);
+    EXPECT_EQ(table.memsize, loadedSize + sizeof(RSPayload) + 5);
+    DocTable_ClearPayload(&table, dmd);
+    EXPECT_EQ(table.memsize, loadedSize);
+    EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
+    DMD_Return(dmd);
+  }
+  DocTable_Free(&table);
+  RMCK_FreeRdbIO(io);
 }

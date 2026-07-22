@@ -43,7 +43,6 @@ jobs:
           {"Key": "Environment",  "Value": "CI"},
           {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
           {"Key": "PR",           "Value": "${{ github.event.number }}"},
-          {"Key": "Owner",        "Value": "${{ github.actor }}"},
           {"Key": "Project",      "Value": "${{ github.repository }}"}
         ]
     outputs:
@@ -51,7 +50,7 @@ jobs:
       ec2-instance-id: ${{ steps.start-ec2-runner.outputs.ec2-instance-id }}
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-access-key-id: ${{ secrets.PERFORMANCE_EC2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.PERFORMANCE_EC2_SECRET_KEY }}
@@ -59,7 +58,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: generate-app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
@@ -67,9 +66,33 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-administration: write
 
+      - name: Prepare EC2 ownership tags
+        id: ec2-tags
+        # Keep the original workflow actor as owner, including on reruns.
+        env:
+          OWNER_HANDLE: ${{ github.actor }}
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+
+          owner = os.environ["OWNER_HANDLE"].lower()
+          owner = re.sub(r"[^a-z0-9_]", "_", owner)
+          owner = re.sub(r"_+", "_", owner)[:63].strip("_")
+          if not owner:
+              raise SystemExit("Cannot derive an EC2 owner tag from github.actor")
+
+          tags = json.loads(os.environ["TAGS"])
+          tags.extend([
+              {"Key": "owner", "Value": owner},
+              {"Key": "team", "Value": "rqe"},
+          ])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"tags={json.dumps(tags)}\n")
       - name: Start EC2 runner
         id: start-ec2-runner
-        uses: machulav/ec2-github-runner@v2.6.1
+        uses: machulav/ec2-github-runner@343a1b2ae682e681c3cec9a235d882da17ff04ef # v2.6.1
         with:
           mode: start
           github-token: ${{ steps.generate-app-token.outputs.token }}
@@ -77,4 +100,4 @@ jobs:
           ec2-instance-type: ${{ inputs.ec2-instance-type }}
           subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
           security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
-          aws-resource-tags: ${{ env.TAGS }}
+          aws-resource-tags: ${{ steps.ec2-tags.outputs.tags }}

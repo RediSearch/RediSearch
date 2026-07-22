@@ -34,6 +34,8 @@
 
 use std::{cell::UnsafeCell, pin::Pin, ptr};
 
+use redis_module::raw::*;
+
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// Access to the RediSearch Module context
@@ -69,10 +71,9 @@ pub struct QueryProcessingCtx {
     /// re-indexed between buffering and load. The reported total is
     /// `totalResults - skippedResults`.
     ///
-    /// Tracked separately rather than decrementing `totalResults` so the live
-    /// match count stays stable for the length prediction (`calc_results_len`),
-    /// and so a post-header re-accumulation cannot "resurrect" a row whose
-    /// decrement already shipped in the RESP2 header.
+    /// Tracked separately rather than decrementing `totalResults` so that a
+    /// post-header re-accumulation cannot "resurrect" a row whose decrement
+    /// already shipped in the RESP2 header.
     pub skippedResults: u32,
     /// The number of results we requested to return at the current chunk.
     /// This value is meant to be used by the RP to limit the number of results

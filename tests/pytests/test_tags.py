@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 from RLTest import Env
 from includes import *
@@ -1174,3 +1179,119 @@ def testTagSuffixTrieInfoOverhead(env):
         res = env.cmd('FT.SEARCH', 'idx', '@t:{*llo}', 'NOCONTENT')
         env.assertEqual(res[0], 2)  # hello, jello
         env.assertEqual(py2sorted(res[1:]), ['doc1', 'doc2'])
+
+# A byte `nu_utf8_read` (deps/libnu/utf8.h) treats as the lead byte of a
+# 4-byte UTF-8 sequence -- any byte >= 0xf0 -- but which is not a valid UTF-8
+# lead byte at all (only 0xf0-0xf4 are). `utf8_4b` (deps/libnu/utf8_internal.h)
+# unconditionally reads the 3 bytes following the lead byte with no bounds
+# check, so ending a token in this byte makes the decoder read past whatever
+# it is embedded in.
+_INVALID_UTF8_LEAD = b'\xff'
+
+def _assertSurvivesInvalidUtf8TagToken(env, conn, query, dialect=None):
+    """Send `query` (a tag token ending in `_INVALID_UTF8_LEAD`) and assert
+    the server survives it.
+
+    Case-insensitive tag matching lowercases every non-ASCII token through
+    `unicode_tolower` (src/util/strconv.h), which decodes it with
+    `nu_utf8_read`. That decoder has no bounds checking of its own: a lead
+    byte whose declared multi-byte sequence extends past the token's length
+    reads past the token's allocation regardless of what memory follows it.
+    Under AddressSanitizer (`SAN=address`) this is an immediate, reliably
+    detected heap-buffer-overflow; on a plain build it silently reads
+    adjacent heap memory instead of crashing. A correct build bounds the
+    read and stays responsive either way.
+
+    `dialect`, if given, is appended as `DIALECT <dialect>`; leave unset to
+    use the server's default dialect.
+    """
+    args = ['FT.SEARCH', 'idx', query, 'NOCONTENT']
+    if dialect is not None:
+        args += ['DIALECT', dialect]
+    try:
+        conn.execute_command(*args)
+    except Exception:
+        # A graceful error reply is fine; a dropped connection means the
+        # server crashed, which the liveness check below reports. Either
+        # way the test must not stop here.
+        pass
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive,
+                    message='server crashed evaluating an invalid-UTF-8 tag token: %r' % query)
+
+def testTagInvalidUtf8LoweringOverflow(env):
+    """Regression: a case-insensitive tag token ending in a byte
+    `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
+    its allocation during `unicode_tolower`'s lowering.
+
+    Covers the token, prefix, and wildcard branches, which each reach
+    `tag_strtolower` independently in `src/query.c`. See
+    `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+    # Exact token, through QN_TOKEN. A leading ASCII run keeps the invalid
+    # byte off the very first position, off the ASCII-only fast path that
+    # ASCII-only tokens like `hello` above would take.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'}')
+    # Prefix token, through Query_EvalTagPrefixNode.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'*}')
+    # Wildcard token, through Query_EvalTagWildcardNode. `w'...'` needs DIALECT 2.
+    _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}",
+                                        dialect='2')
+
+    # The server must still serve a well-formed tag query.
+    env.expect('FT.SEARCH', 'idx', '@t:{hello}', 'NOCONTENT').equal([1, 'doc1'])
+
+def testTagIndexingInvalidUtf8LoweringOverflow(env):
+    """Regression: same `unicode_tolower` overflow as
+    `testTagInvalidUtf8LoweringOverflow`, but at indexing time via
+    `tokenizeTagString` (src/tag_index.c) instead of query time. A plain
+    (non-SORTABLE) TAG field has no UTF-8 validation, so the value reaches
+    `unicode_tolower` unchecked.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 't', b'caf' + _INVALID_UTF8_LEAD)
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 tag value')
+
+    env.assertEqual(index_errors(env, 'idx')['indexing failures'], 0)
+    env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc1'])
+
+def testSortableTagIndexingInvalidUtf8LoweringOverflow(env):
+    """Same as `testTagIndexingInvalidUtf8LoweringOverflow`, but for a
+    SORTABLE field: the lowering runs before SORTABLE's own UTF-8
+    validation, so the overflow is reachable ahead of the expected
+    "Invalid UTF-8" indexing error.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_sortable', 'SCHEMA', 't', 'TAG', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 't', b'caf' + _INVALID_UTF8_LEAD)
+
+    # check server is still alive
+    try:
+        alive = bool(conn.execute_command('PING'))
+    except redis.exceptions.ConnectionError:
+        alive = False
+    env.assertTrue(alive, message='server crashed indexing an invalid-UTF-8 sortable tag value')
+
+    errors = index_errors(env, 'idx_sortable')
+    env.assertEqual(errors['indexing failures'], 1)
+    env.assertContains('Invalid UTF-8', errors['last indexing error'])
+    env.assertEqual(errors['last indexing error key'], 'doc2')
+
+    env.expect('FT.SEARCH', 'idx_sortable', '*', 'NOCONTENT').equal([1, 'doc1'])

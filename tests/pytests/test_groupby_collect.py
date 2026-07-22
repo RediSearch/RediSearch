@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from test_hybrid_internal import get_shard_slot_ranges
 import json
@@ -1511,6 +1518,31 @@ def test_two_identical_collect_reducers():
         'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
         'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
     }
+    for g in res['results']:
+        attrs = g['extra_attributes']
+        env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])
+        env.assertEqual(_sort_collected(attrs['names_b'], 'name'), expected[attrs['color']])
+
+
+def test_two_collect_reducers_case_variant_keywords():
+    # Option keywords are case-insensitive: two COLLECTs differing only in
+    # keyword case (FIELDS/SORTBY/ASC) are the same reducer and must return
+    # the same results.
+    env = Env(protocol=3)
+    _setup_hash(env)
+
+    res = env.cmd(
+        'FT.AGGREGATE', 'idx', '*',
+        'GROUPBY', '1', '@color',
+            'REDUCE', 'COLLECT', '7', 'FIELDS', '1', '@name', 'SORTBY', '2', '@name', 'ASC', 'AS', 'names_a',
+            'REDUCE', 'COLLECT', '7', 'fields', '1', '@name', 'sortby', '2', '@name', 'asc', 'AS', 'names_b')
+
+    expected = {
+        'green':  [{'name': 'kiwi'},   {'name': 'lime'}],
+        'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
+        'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
+    }
+    env.assertEqual(len(res['results']), len(expected))
     for g in res['results']:
         attrs = g['extra_attributes']
         env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])

@@ -59,7 +59,7 @@ const LOGLEVEL_WARNING: &CStr = c"warning";
 static FILTER_RELOAD: OnceLock<reload::Handle<LevelFilter, Registry>> = OnceLock::new();
 
 type LogFunc = unsafe extern "C" fn(
-    ctx: *mut ffi::RedisModuleCtx,
+    ctx: *mut redis_module::RedisModuleCtx,
     level: *const c_char,
     fmt: *const c_char,
     ...
@@ -68,7 +68,7 @@ type LogFunc = unsafe extern "C" fn(
 /// Initializes a global subscriber that reports traces through `redismodule` logging.
 ///
 /// `level` is the initial maximum verbosity the filter is set to.
-pub fn init(ctx: Option<NonNull<ffi::RedisModuleCtx>>, filter: LevelFilter) {
+pub fn init(ctx: Option<NonNull<redis_module::RedisModuleCtx>>, filter: LevelFilter) {
     try_init(ctx, filter).expect("Unable to install global tracing subscriber")
 }
 
@@ -82,7 +82,7 @@ pub fn init(ctx: Option<NonNull<ffi::RedisModuleCtx>>, filter: LevelFilter) {
 /// Returns an Error if the initialization was unsuccessful, likely because
 /// a global subscriber was already installed by another call to `try_init`.
 pub fn try_init(
-    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
     filter: LevelFilter,
 ) -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     let (filter, reload_handle) = reload::Layer::new(filter);
@@ -98,7 +98,8 @@ pub fn try_init(
         .with_writer(MakeRedisModuleWriter {
             ctx: ctx.and_then(|ctx| {
                 // Safety: We assume this static will not be written to after it has been initialized
-                let detach_ctx = unsafe { ffi::RedisModule_GetDetachedThreadSafeContext.unwrap() };
+                let detach_ctx =
+                    unsafe { redis_module::RedisModule_GetDetachedThreadSafeContext.unwrap() };
 
                 // Create a detached context, thread-safe context from the one provided, so we can keep it around
                 // for logging.
@@ -106,7 +107,7 @@ pub fn try_init(
                 NonNull::new(unsafe { detach_ctx(ctx.as_ptr()) })
             }),
             // Safety: This static will not be written to after it has been initialized
-            log: unsafe { ffi::RedisModule_Log.unwrap() },
+            log: unsafe { redis_module::RedisModule_Log.unwrap() },
         });
 
     tracing_subscriber::registry()
@@ -158,7 +159,7 @@ fn should_print_colors() -> bool {
 }
 
 struct MakeRedisModuleWriter {
-    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
     log: LogFunc,
 }
 
@@ -191,7 +192,7 @@ impl<'a> MakeWriter<'a> for MakeRedisModuleWriter {
 }
 
 struct RedisModuleWriter {
-    ctx: Option<NonNull<ffi::RedisModuleCtx>>,
+    ctx: Option<NonNull<redis_module::RedisModuleCtx>>,
     level: &'static CStr,
     log: LogFunc,
 }

@@ -28,7 +28,7 @@ fn build_tree_with_post_fork_writes(compress_floats: bool) -> (NumericRangeTree,
     let n = ENTRIES_PER_BLOCK * 2;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
 
@@ -40,7 +40,7 @@ fn build_tree_with_post_fork_writes(compress_floats: bool) -> (NumericRangeTree,
 
     // Simulate parent writes after fork.
     for i in (n + 1)..=(n + ENTRIES_PER_BLOCK) {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
 
     (tree, delta)
@@ -55,7 +55,7 @@ fn build_single_leaf_tree(count: u64, compress_floats: bool) -> NumericRangeTree
     for i in 1..=count {
         // Cycle through 4 distinct values to keep cardinality low.
         let value = (i % 4 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(
         tree.root().is_leaf(),
@@ -260,7 +260,7 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
         } else {
             3.0
         };
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     let cardinality = tree.root().range().unwrap().cardinality();
@@ -278,7 +278,7 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
     // Simulate parent writes after scan: add 1 entry with value 4.0 to
     // the last block (block 2, still has room). This changes block 2's
     // num_entries, triggering ignored_last_block = true during apply.
-    tree.add(n + 1, 4.0, false, 0);
+    tree.add(n + 1, 4.0, false, false, 0);
 
     // Apply GC delta.
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
@@ -309,7 +309,7 @@ fn gc_delete_all_and_repopulate(#[values(false, true)] compress_floats: bool) {
     // Mirror C `testNumericCompleteGCAndRepopulation`.
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=100u64 {
-        tree.add(i, (i % 10 + 1) as f64, false, 0);
+        tree.add(i, (i % 10 + 1) as f64, false, false, 0);
     }
     assert_eq!(tree.num_entries(), 100);
 
@@ -322,7 +322,7 @@ fn gc_delete_all_and_repopulate(#[values(false, true)] compress_floats: bool) {
 
     // Repopulate with new docs (IDs must be > last_doc_id = 100).
     for i in 101..=150u64 {
-        tree.add(i, (i % 10 + 1) as f64, false, 0);
+        tree.add(i, (i % 10 + 1) as f64, false, false, 0);
     }
     assert_eq!(tree.num_entries(), 50);
 
@@ -346,7 +346,7 @@ fn gc_intensive_alternating_deletes(#[values(false, true)] compress_floats: bool
     let n = ENTRIES_PER_BLOCK * 2;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert_eq!(tree.num_entries(), n as usize);
     assert!(tree.root().is_leaf(), "single value should not split");
@@ -645,7 +645,7 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
     let n = ENTRIES_PER_BLOCK + partial;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     // Block 0: full (ENTRIES_PER_BLOCK entries)
@@ -657,7 +657,7 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
 
     // Add one entry after scan → goes to block 1 (still not full),
     // changing its num_entries vs scan time.
-    tree.add(n + 1, 42.0, false, 0);
+    tree.add(n + 1, 42.0, false, false, 0);
 
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
@@ -685,7 +685,7 @@ fn apply_gc_ignored_last_block_no_delta(#[values(false, true)] compress_floats: 
     let n = ENTRIES_PER_BLOCK + partial;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     // Block 0: ENTRIES_PER_BLOCK entries (doc IDs 1..=ENTRIES_PER_BLOCK) — full
@@ -706,7 +706,7 @@ fn apply_gc_ignored_last_block_no_delta(#[values(false, true)] compress_floats: 
 
     // Simulate parent writes after fork: add entries to block 1 (not full).
     // Use a different value (99.0) so cardinality should increase.
-    tree.add(n + 1, 99.0, false, 0);
+    tree.add(n + 1, 99.0, false, false, 0);
 
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 

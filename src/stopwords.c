@@ -8,13 +8,19 @@
 */
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
+#include "util/hash/hash.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "triemap_ffi.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
 #include "util/likely.h"
 #include "rmutil/rm_assert.h"
-#include <ctype.h>
 #include "rdb.h"
+#include "util/arr/arr.h"
 
 typedef struct StopWordList {
   TrieMap *m;
@@ -268,4 +274,21 @@ void AddStopWordsListToInfo(RedisModuleInfoCtx *ctx, struct StopWordList *sl) {
   RedisModule_InfoAddFieldCString(ctx, "stop_words", stopwords);
   array_free(stopwords);
   TrieMapIterator_Free(it);
+}
+
+static void fingerprintStopwords(Sha1Context *hash, const void *value) {
+  const StopWordList *sl = value;
+  Sha1_UpdateU64(hash, TrieMap_NUniqueKeys(sl->m));
+  TrieMapIterator *it = TrieMap_Iterate(sl->m);
+  char *word;
+  tm_len_t len;
+  void *unused;
+  while (TrieMapIterator_Next(it, &word, &len, &unused)) {
+    Sha1_UpdateBuffer(hash, word, len);
+  }
+  TrieMapIterator_Free(it);
+}
+
+uint64_t StopWordList_Fingerprint(const StopWordList *sl) {
+  return Sha1_ComputeValue(fingerprintStopwords, sl);
 }

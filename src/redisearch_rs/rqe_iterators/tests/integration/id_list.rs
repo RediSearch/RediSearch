@@ -13,29 +13,36 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
 };
+use rqe_iterators_test_utils::ContractChecker;
 use rstest_reuse::apply;
 
 #[test]
 fn type_sorted() {
-    let it = IdListSorted::new(vec![1, 2, 3]);
+    let it = ContractChecker::new(IdListSorted::new(vec![1, 2, 3]));
     assert_eq!(it.type_(), IteratorType::IdListSorted);
 }
 
 #[test]
 fn type_unsorted() {
-    let it = IdListUnsorted::new(vec![3, 1, 2]);
+    let it = ContractChecker::new_unordered(IdListUnsorted::new(vec![3, 1, 2]));
     assert_eq!(it.type_(), IteratorType::IdListUnsorted);
 }
 
 #[test]
 fn empty_initialization_works() {
-    let mut i = IdListSorted::new(vec![]);
+    let mut i = ContractChecker::new(IdListSorted::new(vec![]));
 
     let result = i.current().unwrap();
     assert_eq!(0, result.doc_id);
     assert_eq!(RSResultKind::Virtual, result.kind());
 
+    // Unread rather than past its end: `at_eof()` is the negation of `current()`,
+    // and both only flip once a read has actually found nothing.
+    assert!(!i.at_eof());
+
+    assert!(matches!(i.read(), Ok(None)));
     assert!(i.at_eof());
+    assert!(i.current().is_none());
 }
 
 #[test]
@@ -46,7 +53,7 @@ fn unsorted_initialization_of_sorted_variant_panics() {
 
 #[test]
 fn unsorted_initialization_of_unsorted_variant_works() {
-    let mut it = IdListUnsorted::new(vec![5, 3, 1, 4, 2]);
+    let mut it = ContractChecker::new_unordered(IdListUnsorted::new(vec![5, 3, 1, 4, 2]));
 
     let result = it.current().unwrap();
     assert_eq!(0, result.doc_id);
@@ -56,7 +63,7 @@ fn unsorted_initialization_of_unsorted_variant_works() {
 #[test]
 #[should_panic(expected = "Can't skip when working with unsorted document ids")]
 fn unsorted_variant_cannot_skip() {
-    let mut i = IdListUnsorted::new(vec![5, 3, 1, 4, 2]);
+    let mut i = ContractChecker::new_unordered(IdListUnsorted::new(vec![5, 3, 1, 4, 2]));
     let _ = i.skip_to(3);
 }
 
@@ -68,7 +75,7 @@ fn duplicate_initialization() {
 
 #[apply(id_cases)]
 fn read(#[case] case: &[u64]) {
-    let mut it = IdListSorted::new(case.to_vec());
+    let mut it = ContractChecker::new(IdListSorted::new(case.to_vec()));
 
     assert_eq!(it.num_estimated(), case.len());
     assert!(!it.at_eof());
@@ -84,7 +91,8 @@ fn read(#[case] case: &[u64]) {
         assert_eq!(RSResultKind::Virtual, result.kind());
     }
 
-    assert!(it.at_eof());
+    // Sitting on the last id is not EOF; the read that runs past it is.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 
@@ -95,14 +103,15 @@ fn read(#[case] case: &[u64]) {
 #[apply(id_cases)]
 #[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn skip_to(#[case] case: &[u64]) {
-    let mut it = IdListSorted::new(case.to_vec());
+    let mut it = ContractChecker::new(IdListSorted::new(case.to_vec()));
 
     // Read first element
     let first_doc = it.read().unwrap().unwrap();
     let first_id = case[0];
     assert_eq!(first_doc.doc_id, first_id);
     assert_eq!(it.last_doc_id(), first_id);
-    assert_eq!(it.at_eof(), Some(&first_id) == case.last());
+    // Positioned on an id, so not past the end, even when it is the last one.
+    assert!(!it.at_eof());
 
     // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
     let last = *case.last().unwrap();
@@ -127,7 +136,7 @@ fn skip_to(#[case] case: &[u64]) {
             };
             assert_eq!(res.doc_id, id);
             // Should land on next existing id
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             probe += 1;
         }
@@ -137,7 +146,7 @@ fn skip_to(#[case] case: &[u64]) {
             panic!("probe {probe} -> Expected `Found`");
         };
         assert_eq!(res.doc_id, id);
-        assert_eq!(it.at_eof(), Some(&id) == case.last());
+        assert!(!it.at_eof(), "still positioned on {id}");
         assert_eq!(it.last_doc_id(), id);
         probe += 1;
     }
@@ -154,7 +163,7 @@ fn skip_to(#[case] case: &[u64]) {
         };
         assert_eq!(res.doc_id, id);
         assert_eq!(it.last_doc_id(), id);
-        assert_eq!(it.at_eof(), Some(&id) == case.last());
+        assert!(!it.at_eof(), "still positioned on {id}");
     }
 }
 
@@ -165,7 +174,7 @@ fn skip_between_any_pair(#[case] case: &[u64]) {
         return;
     }
 
-    let mut it = IdListSorted::new(case.to_vec());
+    let mut it = ContractChecker::new(IdListSorted::new(case.to_vec()));
 
     for from_idx in 0..case.len() - 1 {
         for to_idx in from_idx + 1..case.len() {
@@ -190,14 +199,14 @@ fn skip_between_any_pair(#[case] case: &[u64]) {
             };
             assert_eq!(doc_to.doc_id, to_id);
             assert_eq!(it.last_doc_id(), to_id);
-            assert_eq!(it.at_eof(), Some(&to_id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {to_id}");
         }
     }
 }
 
 #[apply(id_cases)]
 fn rewind(#[case] case: &[u64]) {
-    let mut it = IdListSorted::new(case.to_vec());
+    let mut it = ContractChecker::new(IdListSorted::new(case.to_vec()));
 
     // Skip to each doc ID, verify, then rewind and check reset
     for &id in case {
@@ -232,7 +241,7 @@ fn rewind(#[case] case: &[u64]) {
 #[test]
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = IdListSorted::new(vec![1, 2, 3]);
+    let mut it = ContractChecker::new(IdListSorted::new(vec![1, 2, 3]));
     let status = it
         .revalidate(&*mock_ctx.spec_read())
         .expect("revalidate failed");
@@ -252,4 +261,19 @@ mod via_resume {
             .expect("resume should not fail")
             .expect_ok();
     }
+}
+
+#[test]
+fn id_list_sorted_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(IdListSorted::new(vec![10, 20, 30, 50, 80]));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+#[test]
+fn id_list_unsorted_upholds_current_contract() {
+    use rqe_iterators_test_utils::assert_current_contract;
+    let mut it = ContractChecker::new_unordered(IdListUnsorted::new(vec![10, 20, 30, 50, 80]));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
 }

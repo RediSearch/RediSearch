@@ -7,14 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
+
+#include <stdio.h>
+#include <sys/param.h>
+#include <string.h>
+
 #include "inverted_index_ffi.h"
 #include "tokenize.h"
 #include "fnv_ffi.h"
-#include "util/logging.h"
-#include <stdio.h>
-#include <sys/param.h>
 #include "rmalloc.h"
 #include "metrics_ffi.h"
+#include "index_result_rs.h"
+#include "spec.h"
+#include "util/arr/arr.h"
 
 typedef struct {
   KHTableEntry khBase;
@@ -287,12 +292,14 @@ int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo
  * growth and the number of new blocks the write created — callers maintaining per-spec
  * `total_inverted_index_blocks` should add `.blocks_added` to their counter.
  */
-AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent) {
+AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, ForwardIndexEntry *ent,
+                                                      bool hasFieldExpiration) {
   RSIndexResult rec = {.data.term_tag = RSResultData_Term,
                        .data.term.borrowed.tag = RSTermRecord_Borrowed,
                        .docId = ent->docId,
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask,
+                       .hasFieldExpiration = hasFieldExpiration,
                        .metrics = MetricsVec_New()};
 
   if (ent->vw) {

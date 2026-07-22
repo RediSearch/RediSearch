@@ -147,8 +147,7 @@ where
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
         let term_docs = reader.unique_docs() as usize;
-        term.set_idf(idf::calculate_idf(total_docs, term_docs));
-        term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
+        term.set_idfs(total_docs, term_docs);
 
         // The trie entry's encoding variant must match E.
         debug_assert!(
@@ -262,7 +261,7 @@ where
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        ctx.print_estimated(map);
     }
 }
 

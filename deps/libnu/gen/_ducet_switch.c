@@ -1,4 +1,4 @@
-/* Automatically generated file (contractions-toc), 1779042524
+/* Automatically generated file (contractions-toc), 1783791798
  *
  * Tag          : _nu_ducet
  * Contractions : 901
@@ -11,60 +11,63 @@
 const size_t _NU_DUCET_CONTRACTIONS = 901; /* contractions included in switch */
 const size_t _NU_DUCET_CODEPOINTS = 27985; /* complementary codepoints number */
 
-#define state_016D69 -943
-#define state_016D67 -941
-#define state_016D63_016D67 -938
-#define state_016D63 -937
-#define state_011390 -935
-#define state_01138B -933
-#define state_011384 -931
-#define state_011382 -929
-#define state_0105DA -927
-#define state_0105D2 -925
-#define state_00AABC -876
-#define state_00AABB -827
-#define state_00AAB9 -778
-#define state_00AAB6 -729
-#define state_00AAB5 -680
-#define state_001B11 -678
-#define state_001B0D -676
-#define state_001B0B -674
-#define state_001B09 -672
-#define state_001B07 -670
-#define state_001B05 -668
-#define state_0019BA -623
-#define state_0019B7 -578
-#define state_0019B6 -533
-#define state_0019B5 -488
-#define state_001025 -486
-#define state_000EC4 -440
-#define state_000EC3 -394
-#define state_000EC2 -348
-#define state_000EC1 -302
-#define state_000EC0 -256
-#define state_000E44 -209
-#define state_000E43 -162
-#define state_000E42 -115
-#define state_000E41 -68
-#define state_000E40 -21
-#define state_000B92 -19
-#define state_00064A -17
-#define state_000648 -15
-#define state_000627 -11
-#define state_000438 -9
-#define state_000418 -7
-#define state_00006C -4
-#define state_00004C -1
+#define state_016D69 (-943)
+#define state_016D67 (-941)
+#define state_016D63_016D67 (-938)
+#define state_016D63 (-937)
+#define state_011390 (-935)
+#define state_01138B (-933)
+#define state_011384 (-931)
+#define state_011382 (-929)
+#define state_0105DA (-927)
+#define state_0105D2 (-925)
+#define state_00AABC (-876)
+#define state_00AABB (-827)
+#define state_00AAB9 (-778)
+#define state_00AAB6 (-729)
+#define state_00AAB5 (-680)
+#define state_001B11 (-678)
+#define state_001B0D (-676)
+#define state_001B0B (-674)
+#define state_001B09 (-672)
+#define state_001B07 (-670)
+#define state_001B05 (-668)
+#define state_0019BA (-623)
+#define state_0019B7 (-578)
+#define state_0019B6 (-533)
+#define state_0019B5 (-488)
+#define state_001025 (-486)
+#define state_000EC4 (-440)
+#define state_000EC3 (-394)
+#define state_000EC2 (-348)
+#define state_000EC1 (-302)
+#define state_000EC0 (-256)
+#define state_000E44 (-209)
+#define state_000E43 (-162)
+#define state_000E42 (-115)
+#define state_000E41 (-68)
+#define state_000E40 (-21)
+#define state_000B92 (-19)
+#define state_00064A (-17)
+#define state_000648 (-15)
+#define state_000627 (-11)
+#define state_000438 (-9)
+#define state_000418 (-7)
+#define state_00006C (-4)
+#define state_00004C (-1)
 
+/* clang-format off */
 const int16_t _NU_DUCET_ROOTS_G[] = {
 	2, 7, 9, 0, -38, -37, 1, 0, -34, 0, -33, -32, 
 	-31, 0, 0, 0, -30, 0, -29, 0, 1, 0, 0, 10, 
 	1, 13, -28, 3, -27, -25, 1, -23, -16, 0, -13, -9, 
 	-3, 0, 0, 0, 0, 1, 25, };
+/* clang-format on */
 
 const size_t _NU_DUCET_ROOTS_G_SIZE = sizeof(_NU_DUCET_ROOTS_G) / sizeof(*_NU_DUCET_ROOTS_G);
 
 /* codepoints */
+/* clang-format off */
 const uint32_t _NU_DUCET_ROOTS_VALUES_C[] = {
 	0x000E40, 0x000EC0, 0x00AAB9, 0x001B07, 0x0019B6, 0x0019B5, 0x000438, 0x001B11, 
 	0x000418, 0x00064A, 0x0019B7, 0x011382, 0x00AABB, 0x016D63, 0x000648, 0x00AAB5, 
@@ -72,17 +75,21 @@ const uint32_t _NU_DUCET_ROOTS_VALUES_C[] = {
 	0x000627, 0x011390, 0x0019BA, 0x011384, 0x0105DA, 0x000B92, 0x001B0D, 0x001025, 
 	0x0105D2, 0x001B09, 0x00004C, 0x000EC2, 0x000E44, 0x001B05, 0x000E43, 0x000E41, 
 	0x000EC4, 0x000EC1, 0x001B0B, };
+/* clang-format on */
 
 /* indexes */
+/* clang-format off */
 const uint16_t _NU_DUCET_ROOTS_VALUES_I[] = {
 	0x0015, 0x0100, 0x030A, 0x029E, 0x0215, 0x01E8, 0x0009, 0x02A6, 0x0007, 0x0011, 
 	0x0242, 0x03A1, 0x033B, 0x03A9, 0x000F, 0x02A8, 0x03A5, 0x03AD, 0x018A, 0x03AF, 
 	0x0073, 0x036C, 0x02D9, 0x0004, 0x000B, 0x03A7, 0x026F, 0x03A3, 0x039F, 0x0013, 
 	0x02A4, 0x01E6, 0x039D, 0x02A0, 0x0001, 0x015C, 0x00D1, 0x029C, 0x00A2, 0x0044, 
 	0x01B8, 0x012E, 0x02A2, };
+/* clang-format on */
 
 /* MPH lookup for root codepoints + binary search on balanced tree
  * for intermediate states */
+/* clang-format off */
 int32_t _nu_ducet_weight_switch(uint32_t u, int32_t *w, void *context) {
 	(void)(context);
 
@@ -1398,3 +1405,4 @@ int32_t _nu_ducet_weight_switch(uint32_t u, int32_t *w, void *context) {
 
 	return 0;
 }
+/* clang-format on */

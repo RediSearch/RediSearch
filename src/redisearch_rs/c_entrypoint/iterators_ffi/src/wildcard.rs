@@ -45,8 +45,9 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
 ///
 /// There are three possible code paths:
 ///
-/// 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to the C
-///    function `SearchDisk_NewWildcardIterator`.
+/// 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
+///    the enterprise iterator API via
+///    [`rqe_iterators::wildcard::new_wildcard_iterator_on_disk`].
 /// 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
 ///    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
 /// 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all

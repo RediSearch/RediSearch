@@ -13,17 +13,19 @@ use super::{
     IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
-use ffi::{FieldSpec, IndexFlags};
+use ffi::IndexFlags;
 use index_result::RSIndexResult;
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldIndex, RS_INVALID_FIELD_INDEX};
 
 /// Filter details to apply to numeric values
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 #[cheadergen::config(export, rename_all = "camelCase")]
 pub struct NumericFilter {
-    /// The field specification which this filter is acting on
-    pub field_spec: *const FieldSpec,
+    /// Stable index of the field this filter acts on, into `IndexSpec.fields`.
+    /// Re-derive the `FieldSpec` from this at evaluation time, rather than a
+    /// pointer captured when the filter was built, which could already be freed.
+    pub field_index: FieldIndex,
 
     /// Beginning of the range
     pub min: f64,
@@ -44,20 +46,23 @@ pub struct NumericFilter {
     pub ascending: bool,
 
     /// Minimum number of results needed
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub limit: usize,
 
     /// Number of results to skip
+    #[deprecated(note = "pagination state, not part of the filter: the caller paginating owns it")]
     pub offset: usize,
 }
 
 impl Default for NumericFilter {
+    #[expect(deprecated, reason = "initialises the deprecated fields")]
     fn default() -> Self {
         Self {
             min: 0.0,
             max: f64::MAX,
             min_inclusive: true,
             max_inclusive: true,
-            field_spec: std::ptr::null(),
+            field_index: RS_INVALID_FIELD_INDEX,
             geo_filter: std::ptr::null(),
             ascending: true,
             limit: 0,
@@ -147,7 +152,6 @@ unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR>
 /// proof there).
 unsafe impl<RS: ResumableReader> ResumableReader for FilterNumericReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterNumericReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterNumericReader<RS::Resumed<'a>>;
@@ -239,10 +243,6 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterNumericRea
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
-        self.inner.refresh_buffer_pointers();
     }
 }
 

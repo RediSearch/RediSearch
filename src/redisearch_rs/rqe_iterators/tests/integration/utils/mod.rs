@@ -24,6 +24,8 @@ use rqe_iterators::{IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome};
 /// `RSIndexResult::field_mask`.
 pub(crate) struct FieldMaskMock {
     doc_ids: Vec<u64>,
+    /// Index of the next document to serve, [`past_end_cursor`] once we ran past
+    /// the last one.
     next: usize,
     result: RSIndexResult<'static>,
     mask: inverted_index::FieldMask,
@@ -42,11 +44,15 @@ impl FieldMaskMock {
 
 impl RQEIterator<'static> for FieldMaskMock {
     fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
+        if self.next == past_end_cursor(self.doc_ids.len()) {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
         if self.next >= self.doc_ids.len() {
+            self.next = past_end_cursor(self.doc_ids.len());
             return Ok(None);
         }
         self.result.doc_id = self.doc_ids[self.next];
@@ -63,6 +69,7 @@ impl RQEIterator<'static> for FieldMaskMock {
             self.next += 1;
         }
         if self.next >= self.doc_ids.len() {
+            self.next = past_end_cursor(self.doc_ids.len());
             return Ok(None);
         }
         self.result.doc_id = self.doc_ids[self.next];
@@ -96,7 +103,7 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 
     fn at_eof(&self) -> bool {
-        self.next >= self.doc_ids.len()
+        self.next == past_end_cursor(self.doc_ids.len())
     }
 
     fn type_(&self) -> IteratorType {
@@ -110,6 +117,17 @@ impl RQEIterator<'static> for FieldMaskMock {
 
 use rqe_core::DocId;
 use std::collections::BTreeSet;
+
+/// The cursor value the mock iterators in these tests use to record that a
+/// `read`/`skip_to` ran past their last document, given the number of documents
+/// they hold.
+///
+/// A cursor equal to `len` cannot express it: that is also the state while still
+/// sitting on the last document, and [`RQEIterator::current`] has to tell the two
+/// apart (it is `Some` on the last document, `None` past it).
+pub(crate) fn past_end_cursor(len: usize) -> usize {
+    len + 1
+}
 
 /// Drain all documents from an iterator and return their doc_ids.
 pub(crate) fn drain_doc_ids<'index, I: RQEIterator<'index>>(it: &mut I) -> Vec<DocId> {

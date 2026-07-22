@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
+
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+
 #include "triemap_ffi.h"
-#include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
@@ -18,6 +22,14 @@
 #include "util/likely.h"
 #include "spec.h"
 #include "rmutil/rm_assert.h"
+#include "doc_table.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "util/dict/dict.h"
+#include "value_ffi.h"
 
 
 TrieMap *SchemaPrefixes_g = NULL;

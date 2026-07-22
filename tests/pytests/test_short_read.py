@@ -1,4 +1,9 @@
-# coding=utf-8
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import collections
 import random
@@ -599,7 +604,7 @@ def doTest(env: Env, test_name, rdb_name, expected_index, depth=0):
         sendShortReads(env, fullPath, expected_index)
 
 # Dynamically create a test function for each rdb file
-@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64', no_json=True)
+@skip(cluster=True, redis_less_than='6.2.0', macos=True, asan=True, arch='aarch64', no_json=True, enterprise=True)
 def register_tests():
     test_func = lambda test, rdb, idx: lambda env: doTest(env, test, rdb, idx)
     for rdb_name, expected_index in RDBS.items():

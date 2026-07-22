@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{AREQ, QueryIterator, timespec};
+use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterators::{
     NewWildcardIterator, RQEIterator,
@@ -18,10 +18,7 @@ use rqe_iterators::{
     not::Not,
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
-    utils::{
-        AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock,
-        duration_from_redis_timespec,
-    },
+    utils::AnyTimeoutContext,
 };
 
 type NotFfi<'index> = Not<'index, CRQEIterator, AnyTimeoutContext>;
@@ -155,50 +152,16 @@ impl<'index> rqe_iterators::interop::ProfileChildren<'index> for NotIteratorEnum
 
 /// Build the [`AnyTimeoutContext`] the iterator should use.
 ///
-/// Selection rules:
-///
-/// * If `bc_timeout_areq` is non-null, the Blocked Client Timeout path is
-///   used and `timeout` / `skipTimeoutChecks` are ignored.
-/// * Else if `skipTimeoutChecks` is set or `timeout` is the Redis sentinel
-///   (no deadline), [`AnyTimeoutContext::NoTimeout`] is returned and every
-///   timeout probe becomes a no-op.
-/// * Otherwise the Clock Based Timeout path is used.
-///
 /// # Safety
 ///
-/// Caller must guarantee `q` and `q.sctx` are valid (FFI preconditions
-/// 3 and 4 of [`NewNotIterator()`]). When `bc_timeout_areq` is non-null, it
-/// must uphold the [`TimeoutContextBlockedClient::new`] safety contract for
-/// as long as the returned context (and any iterator built from it) is used.
-unsafe fn build_timeout_context(
-    timeout: timespec,
-    bc_timeout_areq: *mut AREQ,
-    q: NonNull<ffi::QueryEvalCtx>,
-) -> AnyTimeoutContext {
-    match NonNull::new(bc_timeout_areq) {
-        Some(areq) => {
-            // SAFETY: caller guarantees `areq` upholds the
-            // `TimeoutContextBlockedClient::new` contract.
-            let inner = unsafe { TimeoutContextBlockedClient::new(areq) };
-            AnyTimeoutContext::BlockedClient(inner)
-        }
-        None => {
-            // SAFETY: caller guarantees q is valid (3).
-            let q_ref = unsafe { q.as_ref() };
-            // SAFETY: caller guarantees q.sctx is valid (4).
-            let sctx = unsafe { &*q_ref.sctx };
-            if sctx.time.skipTimeoutChecks {
-                return AnyTimeoutContext::NoTimeout(NoTimeout);
-            }
-            match duration_from_redis_timespec(timeout) {
-                Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
-                    duration,
-                    TIMEOUT_CHECK_GRANULARITY,
-                )),
-                None => AnyTimeoutContext::NoTimeout(NoTimeout),
-            }
-        }
-    }
+/// Caller must uphold preconditions 3 and 4 of [`NewNotIterator()`] for the
+/// lifetime of the returned context and every iterator built from it.
+unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutContext {
+    // SAFETY: caller guarantees q is valid (3).
+    let q_ref = unsafe { q.as_ref() };
+    let sctx = NonNull::new(q_ref.sctx).expect("q.sctx must be non-null (precondition 4)");
+    // SAFETY: caller guarantees `q.sctx` and its borrowed request timeout remain valid (4).
+    unsafe { AnyTimeoutContext::from_sctx(sctx, TIMEOUT_CHECK_GRANULARITY) }
 }
 /// Creates a NOT iterator, choosing between non-optimized and optimized based
 /// on the query evaluation context.
@@ -206,13 +169,9 @@ unsafe fn build_timeout_context(
 /// If the child is trivially reducible (empty or wildcard), a simplified
 /// iterator is returned directly.
 ///
-/// `bc_timeout_areq` selects the timeout source. When non-null, the Blocked
-/// Client Timeout path is used: every iterator timeout probe forwards to
-/// `AREQ_CheckTimedOut` and `timeout` / `skipTimeoutChecks` are ignored.
-/// When null, the Clock Based Timeout path is used: `timeout` is the
-/// deadline and `skipTimeoutChecks` (read from `q.sctx.time`) disables the
-/// check entirely. The C caller is expected to pre-filter the owning
-/// request via `AREQ_TimeoutAreqOrNull` before passing it here.
+/// The request timeout reached through `q.sctx.timeout` selects no timeout,
+/// the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
+/// read back on every probe so a re-armed deadline is honoured.
 ///
 /// # Safety
 ///
@@ -221,29 +180,27 @@ unsafe fn build_timeout_context(
 /// 2. When non-null, `child` must not be aliased.
 /// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
 /// 4. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx).
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+///    address for the lifetime of the returned iterator: on the Clock Based Timeout path
+///    the iterator reads the request-owned deadline back on every probe. No write to that
+///    deadline may overlap a probe.
 /// 5. `q.sctx.spec` must be a non-null pointer to a valid
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
 ///    [`SchemaRule`](ffi::SchemaRule).
 /// 7. When the optimized path is taken, the preconditions of
 ///    [`crate::wildcard::NewWildcardIterator`] must hold.
-/// 8. When `bc_timeout_areq` is non-null, it must satisfy the
-///    [`TimeoutContextBlockedClient::new`] safety contract and remain
-///    valid for the lifetime of the returned iterator.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
     max_doc_id: DocId,
     weight: f64,
-    timeout: timespec,
-    bc_timeout_areq: *mut AREQ,
     q: *mut ffi::QueryEvalCtx,
 ) -> *mut QueryIterator {
     let query = NonNull::new(q).expect("q must be non-null");
 
-    // SAFETY: caller upholds preconditions (3, 4, 8).
-    let timeout_ctx = unsafe { build_timeout_context(timeout, bc_timeout_areq, query) };
+    // SAFETY: caller upholds preconditions (3, 4).
+    let timeout_ctx = unsafe { build_timeout_context(query) };
 
     // Handle null child: reduce with Empty directly (always becomes wildcard).
     let Some(child_ptr) = NonNull::new(child) else {

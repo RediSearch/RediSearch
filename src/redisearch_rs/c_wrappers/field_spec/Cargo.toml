@@ -12,6 +12,7 @@ workspace = true
 ffi.workspace = true
 hidden_string.workspace = true
 enumflags2.workspace = true
+numeric_range_tree.workspace = true
 workspace_hack.workspace = true
 
 [features]

@@ -49,7 +49,7 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
             VVW_Write(h.vw, n);
         }
 
-        InvertedIndex_WriteForwardIndexEntry(idx, &h);
+        InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
         VVW_Free(h.vw);
 
         id += idStep;

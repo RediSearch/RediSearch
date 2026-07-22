@@ -345,6 +345,27 @@ where
         unsafe { NonNull::new_unchecked(ptr) }
     }
 
+    /// Reborrows the concrete [`ResultProcessor`] implementation `P` behind a raw
+    /// `ffi::ResultProcessor` pointer previously produced by [`Self::into_ptr`].
+    ///
+    /// Lets an FFI entry point that only has the raw `rp` pointer reach into the concrete
+    /// Rust-side state, without going through the `next`/`free` VTable.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must have come from [`Self::into_ptr`] for this exact `P` and not yet been freed.
+    /// 2. The returned reference must not be used to move out of the wrapped `result_processor`.
+    /// 3. No `&mut` to the pointee may exist or be created concurrently for lifetime `'a`.
+    #[inline]
+    pub unsafe fn inner_from_raw<'a>(ptr: NonNull<ffi::ResultProcessor>) -> &'a P {
+        let ptr = ptr.cast::<Self>();
+        debug_assert!(ptr.is_aligned());
+        // Safety: invariant 1, upheld by the caller.
+        unsafe { Self::debug_assert_same_type(ptr.cast()) };
+        // Safety: invariants 1 and 2, upheld by the caller.
+        unsafe { &(*ptr.as_ptr()).result_processor }
+    }
+
     /// Constructs a `Box<ResultProcessor>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`

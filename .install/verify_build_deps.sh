@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 source "$SCRIPT_DIR/version_compare.sh"
+source "$SCRIPT_DIR/min_versions.sh"
 
 should_check_cheadergen() {
   case "${REDISEARCH_GENERATE_HEADERS:-1}" in
@@ -128,9 +129,9 @@ check_package_tdnf() {
 # It is not mandatory to implement checks for both min and max
 # [<dep>] = "<get_version_function> <check_function> <min_version> [<max_version>]"
 declare -A version_checks=(
-  ["gcc"]="get_compiler_version check_gcc_min_version 10"
-  ["g++"]="get_compiler_version check_gpp_min_version 10"
-  ["cmake"]="get_cmake_version check_cmake_version 3.25"
+  ["gcc"]="get_compiler_version check_gcc_min_version $GCC_MIN_VERSION"
+  ["g++"]="get_compiler_version check_gpp_min_version $GPP_MIN_VERSION"
+  ["cmake"]="get_cmake_version check_cmake_version $CMAKE_MIN_VERSION"
 )
 
 # ==== Version Getters ====

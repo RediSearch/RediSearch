@@ -7,7 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include <stddef.h>
+
 #include "value_ffi.h"
+#include "result_processor.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "util/block_alloc.h"
 
 typedef struct {
   const RLookupKey *retprop;   // The key to return

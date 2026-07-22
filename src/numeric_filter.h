@@ -26,8 +26,8 @@ extern "C" {
 // it is a wrapper around the NumericFilter struct
 // it is used to parse the legacy query syntax and convert it to the new query syntax
 // When parsing the legacy filters we do not have the index spec and we only have the field name
-// For that reason during the parsing phase the base.fieldSpec will be NULL
-// We will fill the fieldSpec during the apply context phase where we will use the field name to find the field spec
+// For that reason during the parsing phase the base.fieldIndex will be RS_INVALID_FIELD_INDEX
+// We will fill it during the apply context phase where we will use the field name to find the field spec
 // This struct was added in order to fix previous behaviour where the string pointer was stored inside the field spec pointer
 typedef struct LegacyNumericFilter {
   NumericFilter base;     // the numeric filter base details
@@ -35,7 +35,7 @@ typedef struct LegacyNumericFilter {
 } LegacyNumericFilter;
 
 NumericFilter *NewNumericFilter(double min, double max, bool inclusiveMin, bool inclusiveMax,
-                                bool asc, const FieldSpec *fs, const void* geoFilter);
+                                bool asc, t_fieldIndex fieldIndex, const void* geoFilter);
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf);

@@ -23,12 +23,14 @@ build_utils = {path = "../build_utils"}
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
+redis_reply.workspace = true
 rqe_core.workspace = true
 rqe_iterator_type.workspace = true
 rqe_iterators.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+itertools.workspace = true
 redis_mock.workspace = true
 redisearch_rs = {path = "../c_entrypoint/redisearch_rs", features = [
   "mock_allocator",

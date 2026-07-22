@@ -31,6 +31,11 @@ pub struct MockQueryNode {
     node: *mut ffi::RSQueryNode,
     /// Auxiliary heap allocations that must outlive the node.
     _aux: Vec<AuxAlloc>,
+    /// Whether the node's token buffer belongs to the Redis allocator, as
+    /// [`with_redis_token`](MockQueryNode::with_redis_token) leaves it. Drop
+    /// then frees whatever the token addresses *at that point*, which is not
+    /// necessarily the buffer that constructor allocated.
+    redis_allocated_token: bool,
 }
 
 /// A type-erased heap allocation freed on drop.
@@ -46,15 +51,50 @@ impl Drop for AuxAlloc {
     }
 }
 
-/// Allocate a zeroed instance of `T` on the heap and return a raw pointer.
+/// Allocate a writable, NUL-terminated copy of `content` on the heap.
 ///
-/// The returned [`AuxAlloc`] must be stored to keep the allocation alive.
-fn alloc_zeroed_aux<T>() -> (*mut T, AuxAlloc) {
-    let layout = Layout::new::<T>();
-    // SAFETY: layout is non-zero-sized for any struct with fields.
+/// The allocation spans one byte more than `content`: the copy, then the
+/// terminator an in-place token rewrite reads past the end and re-writes at the
+/// shortened end. Allocated raw rather than as a [`Vec`] so the pointer handed to
+/// the node has provenance over the whole buffer, matching how the node itself is
+/// stored (see [`MockQueryNode`]).
+///
+/// The returned [`AuxAlloc`] both keeps the allocation alive and addresses it,
+/// through its [`ptr`](AuxAlloc::ptr).
+fn alloc_token_aux(content: &[u8]) -> AuxAlloc {
+    let layout = Layout::array::<c_char>(content.len() + 1).expect("token layout must be valid");
+    // SAFETY: the layout is never zero-sized — the terminator alone accounts for a
+    // byte — and zeroing it leaves that terminator in place.
     let ptr = unsafe { alloc_zeroed(layout) };
     assert!(!ptr.is_null());
-    (ptr.cast::<T>(), AuxAlloc { ptr, layout })
+    // SAFETY: `ptr` owns `content.len() + 1` writable bytes and cannot overlap a
+    // caller's slice, so the copy fits and leaves the zeroed final byte untouched.
+    unsafe { std::ptr::copy_nonoverlapping(content.as_ptr(), ptr, content.len()) };
+    AuxAlloc { ptr, layout }
+}
+
+/// A [`QueryNodeType`] whose union payload begins with an [`ffi::RSToken`].
+///
+/// These four are exactly the node types [`MockQueryNode::with_token`] accepts:
+/// [`Token`](QueryNodeType::Token)'s payload *is* a token, and the prefix, fuzzy
+/// and verbatim payloads each start with one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenNodeType {
+    Token,
+    Prefix,
+    Fuzzy,
+    WildcardQuery,
+}
+
+impl From<TokenNodeType> for QueryNodeType {
+    fn from(type_: TokenNodeType) -> Self {
+        match type_ {
+            TokenNodeType::Token => Self::Token,
+            TokenNodeType::Prefix => Self::Prefix,
+            TokenNodeType::Fuzzy => Self::Fuzzy,
+            TokenNodeType::WildcardQuery => Self::WildcardQuery,
+        }
+    }
 }
 
 impl Drop for MockQueryNode {
@@ -62,7 +102,29 @@ impl Drop for MockQueryNode {
         // SAFETY: `self.node` is a valid, owned allocation. If `children` is
         // non-null it was allocated via `array_new_sz` and must be freed with
         // `array_free`.
+        //
+        // `redis_allocated_token` is set only by `with_redis_token`, which requires a
+        // token-carrying `type_` and never changes after construction, so
+        // whenever it is true the union's active member is (or begins with)
+        // an `RSToken` here too -- the same invariant that constructor's own
+        // SAFETY comment establishes at construction time. `tok.str_` is
+        // whatever that field addresses now, not necessarily the buffer
+        // `with_redis_token` allocated: a callee such as `tag_strtolower` may
+        // have freed that one and written back a replacement, but only ever
+        // one it obtained from the same `RedisModule_Alloc`/`RedisModule_Free`
+        // pair -- so at most one live Redis-allocator allocation is addressed
+        // here, never a dangling or already-freed pointer. `RedisModule_Free`
+        // is installed by the same test harness `with_redis_token` relies on
+        // to install `RedisModule_Alloc`.
         unsafe {
+            if self.redis_allocated_token {
+                let tok = &*(&raw const (*self.node).__bindgen_anon_1).cast::<ffi::RSToken>();
+                if !tok.str_.is_null() {
+                    let rm_free =
+                        redis_module::RedisModule_Free.expect("Redis allocator not available");
+                    rm_free(tok.str_.cast::<std::ffi::c_void>());
+                }
+            }
             let children = (*self.node).children;
             if !children.is_null() {
                 ffi::array_free(children.cast());
@@ -81,27 +143,11 @@ impl MockQueryNode {
             assert!(!node.is_null());
             (*node).type_ = type_;
 
-            let mut aux = Vec::new();
-
-            // Some node types contain pointers that `as_enum` dereferences
-            // unconditionally.  Set them to valid zeroed allocations so the
-            // mock can be used without extra setup.
-            let union_ptr = &raw mut (*node).__bindgen_anon_1;
-            match type_ {
-                QueryNodeType::Tag => {
-                    let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
-                    aux.push(alloc);
-                    (*union_ptr.cast::<ffi::QueryTagNode>()).fs = fs;
-                }
-                QueryNodeType::Missing => {
-                    let (fs, alloc) = alloc_zeroed_aux::<ffi::FieldSpec>();
-                    aux.push(alloc);
-                    (*union_ptr.cast::<ffi::QueryMissingNode>()).field = fs;
-                }
-                _ => {}
+            Self {
+                node,
+                _aux: Vec::new(),
+                redis_allocated_token: false,
             }
-
-            Self { node, _aux: aux }
         }
     }
 
@@ -118,10 +164,23 @@ impl MockQueryNode {
         unsafe { &mut (*self.node).opts }
     }
 
+    /// Panic in debug builds unless the node carries `type_`.
+    ///
+    /// Each setter below writes through one variant of the node's payload union,
+    /// which is the active one only for the matching node type. Writing through
+    /// the wrong one is a type confusion that surfaces far from the setter, and
+    /// the node knows its own type — so the setters check it here rather than
+    /// leave it to the caller.
+    fn debug_assert_type(&self, type_: QueryNodeType) {
+        // SAFETY: `self.node` is a valid, exclusively-owned allocation.
+        debug_assert_eq!(unsafe { (*self.node).type_ }, type_);
+    }
+
     /// Set the `nf` field of the numeric-node union variant.
     pub fn set_numeric_filter(&mut self, nf: *mut NumericFilter) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Numeric so the `nn` variant is active.
+        self.debug_assert_type(QueryNodeType::Numeric);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Numeric, per the assertion above, so the `nn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryNumericNode>()).nf = nf.cast();
@@ -130,8 +189,9 @@ impl MockQueryNode {
 
     /// Set the `gf` field of the geo-node union variant.
     pub fn set_geo_filter(&mut self, gf: *mut ffi::GeoFilter) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Geo so the `gn` variant is active.
+        self.debug_assert_type(QueryNodeType::Geo);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Geo, per the assertion above, so the `gn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryGeofilterNode>()).gf = gf;
@@ -140,23 +200,39 @@ impl MockQueryNode {
 
     /// Set the `geomq` field of the geometry-node union variant.
     ///
-    /// The caller must ensure the node is of Geometry type, so the `gmn` union
-    /// variant is active; otherwise this writes through the wrong variant. The
-    /// caller must also keep `geomq` (and the [`ffi::FieldSpec`] it points at)
+    /// The caller must keep `geomq` (and the [`ffi::FieldSpec`] it points at)
     /// valid for as long as the node is used.
     pub fn set_geometry(&mut self, geomq: *mut ffi::GeometryQuery) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Geometry so the `gmn` variant is active.
+        self.debug_assert_type(QueryNodeType::Geometry);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Geometry, per the assertion above, so the `gmn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryGeometryNode>()).geomq = geomq;
         }
     }
 
+    /// Set the `vq` field of the vector-node union variant.
+    ///
+    /// `vq` (and the [`ffi::FieldSpec`] it names) must outlive this
+    /// [`MockQueryNode`]: evaluation reads the field name out of it to derive the
+    /// default score field, and may take ownership of the node's distance field
+    /// by storing it in `vq.scoreField`.
+    pub fn set_vector_query(&mut self, vq: *mut ffi::VectorQuery) {
+        self.debug_assert_type(QueryNodeType::Vector);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Vector, per the assertion above, so the `vn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryVectorNode>()).vq = vq;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Prefix so the `pfx` variant is active.
+        self.debug_assert_type(QueryNodeType::Prefix);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Prefix, per the assertion above, so the `pfx` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let pfx = &mut *union_ptr.cast::<ffi::QueryPrefixNode>();
@@ -165,32 +241,120 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `maxDist` field of the fuzzy-node union variant: the maximum
+    /// Levenshtein distance between the query token and a term it expands to.
+    ///
+    /// Zero-initialising the node leaves this at 0, which would only ever match
+    /// the token itself, so a fuzzy test must set it explicitly.
+    pub fn set_fuzzy_max_dist(&mut self, max_dist: i32) {
+        self.debug_assert_type(QueryNodeType::Fuzzy);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Fuzzy, per the assertion above, so the `fz` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryFuzzyNode>()).maxDist = max_dist;
+        }
+    }
+
     /// Set the `exact` field of the phrase-node union variant.
     pub fn set_phrase_exact(&mut self, exact: i32) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Phrase so the `pn` variant is active.
+        self.debug_assert_type(QueryNodeType::Phrase);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Phrase, per the assertion above, so the `pn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryPhraseNode>()).exact = exact;
         }
     }
 
-    /// Set the `str`/`len` fields of the token-node union variant
-    /// ([`ffi::RSToken`]).
+    /// Build a token-carrying node whose [`ffi::RSToken`] addresses a writable,
+    /// NUL-terminated copy of `content` that the node owns.
     ///
-    /// The caller must keep `str_` valid for `len` bytes for as long as the
-    /// node is used (e.g. by owning the backing buffer alongside the node).
+    /// A query-node token is not read-only — evaluation rewrites some in place —
+    /// so a mock token needs backing that is writable, terminated one byte past
+    /// its content, and alive for as long as the node. Rather than leave those to
+    /// a caller's `unsafe` promise, this owns the buffer and copies into it, and
+    /// takes a [`TokenNodeType`] so the payload it writes through is the active
+    /// union variant by construction. That is the whole of what
+    /// [`QueryNodeMut::token_mut`] needs from a node, discharged by the types.
+    ///
+    /// `content` is the string *without* a terminator, and is taken as bytes
+    /// rather than a [`CStr`](std::ffi::CStr) because a token is binary data: an
+    /// interior NUL is legal content, and merely ends the string as far as C is
+    /// concerned.
+    ///
     /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
-    pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
-        // active.
+    ///
+    /// [`QueryNodeMut::token_mut`]: crate::QueryNodeMut::token_mut
+    pub fn with_token(type_: TokenNodeType, content: impl AsRef<[u8]>) -> Self {
+        let content = content.as_ref();
+        let alloc = alloc_token_aux(content);
+        let str_ = alloc.ptr.cast::<c_char>();
+        let mut this = Self::new(type_.into());
+        this._aux.push(alloc);
+
+        // SAFETY: `self.node` is valid and exclusively owned, and `type_` is a
+        // token-carrying type, so the union's active member either is an `RSToken`
+        // or begins with one.
         unsafe {
-            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let union_ptr = &raw mut (*this.node).__bindgen_anon_1;
             let tok = &mut *union_ptr.cast::<ffi::RSToken>();
             tok.str_ = str_;
-            tok.len = len;
+            tok.len = content.len();
         }
+
+        this
+    }
+
+    /// Like [`with_token`](MockQueryNode::with_token), but the token buffer is
+    /// allocated with `RedisModule_Alloc` instead of the Rust global allocator,
+    /// so a callee may legitimately `rm_free` it and hand back a replacement.
+    ///
+    /// This exists for the query paths that rewrite the token they are given:
+    /// lowercasing a tag token whose lowered form outgrows its buffer frees the
+    /// original and rewrites the token's pointer and length. Drop therefore
+    /// frees whatever the token addresses *at drop time* — not the buffer
+    /// allocated here — which is correct whether or not the callee replaced it,
+    /// since both buffers come from the same allocator. The buffer is not
+    /// tracked in `_aux`, which frees with the Rust allocator.
+    ///
+    /// Prefer [`with_token`](MockQueryNode::with_token): this constructor is
+    /// only sound for callees documented to own the buffer, and it cannot run
+    /// under Miri, which does not support the `RedisModule_Alloc` extern.
+    pub fn with_redis_token(type_: TokenNodeType, content: impl AsRef<[u8]>) -> Self {
+        let content = content.as_ref();
+        // SAFETY: the allocator externs are installed by the test harness, which
+        // is the only context this `unittest`-gated module is compiled into.
+        let rm_alloc =
+            unsafe { redis_module::RedisModule_Alloc.expect("Redis allocator not available") };
+        // The terminator the escape-removal rewrite writes past the shortened
+        // end accounts for the extra byte, as it does in `alloc_token_aux`.
+        // SAFETY: the length is non-zero — the terminator alone accounts for a
+        // byte — and the allocator is installed, per the call above.
+        let buf = unsafe { rm_alloc(content.len() + 1) }.cast::<u8>();
+        assert!(!buf.is_null());
+        // SAFETY: `buf` owns `content.len() + 1` writable bytes and cannot
+        // overlap the caller's slice, so the copy fits and leaves the final byte
+        // for the terminator written below.
+        unsafe {
+            std::ptr::copy_nonoverlapping(content.as_ptr(), buf, content.len());
+            buf.add(content.len()).write(0);
+        }
+
+        let mut this = Self::new(type_.into());
+        this.redis_allocated_token = true;
+
+        // SAFETY: `this.node` is valid and exclusively owned, and `type_` is a
+        // token-carrying type, so the union's active member either is an
+        // `RSToken` or begins with one.
+        unsafe {
+            let union_ptr = &raw mut (*this.node).__bindgen_anon_1;
+            let tok = &mut *union_ptr.cast::<ffi::RSToken>();
+            tok.str_ = buf.cast::<c_char>();
+            tok.len = content.len();
+        }
+
+        this
     }
 
     /// Allocate a children array and populate it with the given child pointers.
@@ -214,7 +378,12 @@ impl MockQueryNode {
     /// Set the fields of the IDs-node union variant.
     ///
     /// `keys` and `doc_ids` must outlive this `MockQueryNode`.
-    pub fn set_ids(&mut self, keys: *const ffi::sds, doc_ids: *mut DocId, len: usize) {
+    pub fn set_ids(
+        &mut self,
+        keys: *mut *mut redis_module::raw::RedisModuleString,
+        doc_ids: *mut DocId,
+        len: usize,
+    ) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
         // guarantees the node type is Ids so the `fn` variant is active.
         unsafe {
@@ -226,15 +395,27 @@ impl MockQueryNode {
         }
     }
 
-    /// Set the `field` pointer of the missing-node union variant.
-    ///
-    /// `field` must outlive this `MockQueryNode`.
-    pub fn set_missing_field(&mut self, field: *const ffi::FieldSpec) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Missing so the `miss` variant is active.
+    /// Set the missing-node union variant's `fieldIndex`, mirroring
+    /// `NewMissingNode` (`query.c`).
+    pub fn set_missing_field_index(&mut self, field_index: rqe_core::FieldIndex) {
+        self.debug_assert_type(QueryNodeType::Missing);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Missing, per the assertion above, so the `miss` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            (*union_ptr.cast::<ffi::QueryMissingNode>()).field = field.cast_mut();
+            (*union_ptr.cast::<ffi::QueryMissingNode>()).fieldIndex = field_index;
+        }
+    }
+
+    /// Set the tag-node union variant's `fieldIndex`, mirroring `NewTagNode`
+    /// (`query.c`).
+    pub fn set_tag_field_index(&mut self, field_index: rqe_core::FieldIndex) {
+        self.debug_assert_type(QueryNodeType::Tag);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // Tag, per the assertion above, so the `tag` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryTagNode>()).fieldIndex = field_index;
         }
     }
 }

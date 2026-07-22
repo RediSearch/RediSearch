@@ -1,10 +1,45 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
+import threading
 
 def initEnv(moduleArgs: str = 'WORKERS 1'):
     assert(moduleArgs != '')
     env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
     return env
+
+# Regression helper for MOD-18356: a query is parsed (capturing a field index) on the main
+# thread, but its job only runs later on a worker thread. A concurrent FT.ALTER can reallocate
+# IndexSpec.fields in between, so the query must resolve fields through their stable index at
+# run time rather than a pointer captured at parse time.
+def assert_query_survives_field_alter_race(env, idx, query_args, expected_count):
+    result = {}
+    def run_query():
+        conn = getConnectionByEnv(env)
+        result['res'] = conn.execute_command(*query_args)
+
+    with paused_workers(env):
+        thread = threading.Thread(target=run_query, name='alter-race-query', daemon=True)
+        thread.start()
+
+        # Wait for the query's job to be queued, so it captured its field index before the
+        # ALTER below runs, but cannot evaluate it until the workers are resumed.
+        wait_for_condition(
+            lambda: (getWorkersThpoolStats(env)['totalPendingJobs'] >= 1, getWorkersThpoolStats(env)),
+            'Timed out waiting for the query to queue on the paused worker pool',
+        )
+
+        # Grows IndexSpec.fields, which may move it via rm_realloc.
+        env.expect('FT.ALTER', idx, 'SCHEMA', 'ADD', 'extra', 'TEXT').ok()
+
+    thread.join(timeout=10)
+    env.assertFalse(thread.is_alive(), message='query did not complete after workers resumed')
+    env.assertEqual(result['res'][0], expected_count)
 
 def testEmptyBuffer():
     env = initEnv()
@@ -118,6 +153,123 @@ def test_delete_index_while_indexing():
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
     stats = getWorkersThpoolStats(env)
     env.assertEqual(n_local_vector, stats['totalJobsDone'], message=stats)
+
+
+# Regression test for MOD-18356 (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_vector_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    dim = 4
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    query_vec = load_vectors_to_redis(env, n_vec=10, query_vec_index=0, vec_size=dim)
+
+    query_args = ('FT.SEARCH', 'idx', '*=>[KNN 3 @vector $blob]',
+                  'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_tag_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'tag', 'foo')
+
+    query_args = ('FT.SEARCH', 'idx', '@tag:{foo}', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_numeric_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '@num:[0 10]', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). WITHOUTCOUNT routes the
+# wildcard query through the SORTBY optimizer's partial-range path (query_optimizer.c /
+# NewOptimizerIterator), a separate field-index re-derivation site from the plain numeric
+# filter above.
+@skip(cluster=True)
+def test_numeric_optimizer_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i)
+
+    query_args = ('FT.SEARCH', 'idx', '*', 'SORTBY', 'num', 'LIMIT', 0, 3,
+                  'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race). Combining a scored predicate
+# with a filter on the SORTBY field routes through the optimizer's Hybrid mode instead: here
+# checkQueryTypes pulls the numeric node out of the query tree and reuses its already-parsed
+# NumericFilter (fieldIndex set at parse time) as the optimizer's own filter, rather than
+# building a fresh one - the wildcard case above never exercises that reuse.
+@skip(cluster=True)
+def test_numeric_optimizer_hybrid_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'num', i, 't', f'hello{i}')
+
+    query_args = ('FT.SEARCH', 'idx', '(hello0|hello1|hello2) @num:[0 10]', 'SORTBY', 'num',
+                  'LIMIT', 0, 3, 'WITHOUTCOUNT', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_geo_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geo', 'GEO').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'geo', '1.23,4.56')
+
+    query_args = ('FT.SEARCH', 'idx', '@geo:[1.23 4.56 10 km]', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_missing_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'INDEXMISSING', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+
+    query_args = ('FT.SEARCH', 'idx', 'ismissing(@txt)', 'RETURN', 0, 'DIALECT', 2)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
+
+
+# Regression test (see assert_query_survives_field_alter_race).
+@skip(cluster=True)
+def test_geoshape_query_survives_field_alter_race():
+    env = initEnv(moduleArgs='WORKERS 1 DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SPHERICAL').ok()
+    conn = getConnectionByEnv(env)
+    point = 'POINT(34.9010 29.7010)'
+    for i in range(3):
+        conn.execute_command('HSET', f'doc{i}', 'geom', point)
+
+    poly = 'POLYGON((34.9001 29.7001, 34.9001 29.7100, 34.9100 29.7100, 34.9100 29.7001, 34.9001 29.7001))'
+    query_args = ('FT.SEARCH', 'idx', '@geom:[within $poly]',
+                  'PARAMS', 2, 'poly', poly, 'RETURN', 0, 'DIALECT', 3)
+    assert_query_survives_field_alter_race(env, 'idx', query_args, expected_count=3)
 
 
 def do_burst_threads_sanity(algo, data_type, test_name):
@@ -311,9 +463,8 @@ def test_async_updates_sanity():
                       query_before_update.tobytes())
         env.assertGreater(float(res[2][1]), float(0))
 
-        # Invoke GC, so we clean zombies for which all their repair jobs are done. We run in background
-        # so in case child process is not receiving cpu time, we do not hang the gc thread in the parent process.
-        forceBGInvokeGC(env)
+        # Wait for this cycle so a slow fork cannot accumulate redundant GC requests.
+        forceInvokeGC(env, timeout=0)
 
         # Number of zombies should decrease from one iteration to another.
         env.assertEqual(run_command_on_all_shards(env, *[debug_cmd(), 'WORKERS', 'PAUSE']), ['OK']*n_shards)
@@ -1070,3 +1221,96 @@ def test_aggregate_groupby_drops_doc_reindexed_during_load(env):
                     message=f'group count {total} != returned groups {len(rows)}: {res}')
     env.assertEqual(total, 1,
                     message=f'expected exactly one surviving group, got {res}')
+
+
+def _update_metadata_with_paused_reader(env, conn, query, command, sync_point):
+    """Apply a metadata update while a query is paused, assert reindexing, and return its reply."""
+    first = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+    out = []
+    query_conn = env.getConnection()
+
+    def run_query():
+        try:
+            out.append(query_conn.execute_command(*query))
+        except Exception as error:
+            out.append(error)
+
+    reader = threading.Thread(target=run_query, daemon=True)
+    reader.start()
+    try:
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+            f'Timeout waiting for {sync_point}', timeout=10)
+        conn.execute_command(*command)
+        current = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc:1')
+        env.assertGreater(current, first, message=(command, first, current))
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+        reader.join(timeout=10)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+
+    env.assertFalse(reader.is_alive(), message='retained-reader query did not finish after signal')
+    env.assertEqual(len(out), 1, message=out)
+    env.assertFalse(isinstance(out[0], Exception), message=out)
+    return out[0]
+
+
+@skip(cluster=True)
+def test_metadata_updates_reindex_with_retained_reader():
+    """Score and payload updates reindex while a query retains the document metadata."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', 'original')
+    query = ['FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderGILLock'
+    updates = [
+        (('HSET', 'doc:1', 'score', '0.5'), '0.5', 'original'),
+        (('HSET', 'doc:1', 'payload', 'replacement'), '0.5', 'replacement'),
+        (('HSET', 'doc:1', 'score', '0.75', 'payload', 'combined'), '0.75', 'combined'),
+    ]
+
+    for command, score, payload in updates:
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [0])
+        env.expect('FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+                   'WITHPAYLOADS', 'NOCONTENT').equal([1, 'doc:1', score, payload])
+
+
+@skip(cluster=True)
+def test_retained_reader_serializes_old_payload_during_metadata_update():
+    """A buffered reply keeps its old payload while payload metadata is fully reindexed."""
+    env = initEnv(moduleArgs='WORKERS 1 TIMEOUT 0 ON_TIMEOUT RETURN')
+    try:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    except Exception:
+        env.skip()  # Sync points require an ENABLE_ASSERT build.
+        return
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25', 'SCORE_FIELD', 'score',
+               'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'title', 'TEXT').ok()
+    old_score = '0.25'
+    old_payload = 'original payload ' * 32
+    conn.execute_command('HSET', 'doc:1', 'title', 'hello', 'payload', old_payload)
+    query = ['FT.SEARCH', 'idx', 'hello', 'SCORER', 'DOCSCORE', 'WITHSCORES',
+             'WITHPAYLOADS', 'RETURN', '1', 'title']
+    sync_point = 'BeforeSafeLoaderExitGIL'
+    updates = [
+        (('HSET', 'doc:1', 'payload', 'replacement payload ' * 64),
+         old_score, 'replacement payload ' * 64),
+        (('HSET', 'doc:1', 'score', '0.5', 'payload', 'combined payload ' * 48),
+         '0.5', 'combined payload ' * 48),
+    ]
+
+    for command, new_score, new_payload in updates:
+        result = _update_metadata_with_paused_reader(env, conn, query, command, sync_point)
+        env.assertEqual(result, [1, 'doc:1', old_score, old_payload, ['title', 'hello']])
+        env.expect(*query).equal([1, 'doc:1', new_score, new_payload, ['title', 'hello']])
+        old_score, old_payload = new_score, new_payload

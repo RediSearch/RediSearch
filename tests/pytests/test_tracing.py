@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 from includes import *
 from RLTest import Env
@@ -11,7 +18,7 @@ def _log_has_init_message(env):
     logFileName = env.cmd("CONFIG", "GET", "logfile")[1]
     logFilePath = os.path.join(logDir, logFileName)
     try:
-        with open(logFilePath) as f:
+        with open(logFilePath, encoding="utf-8", errors="replace") as f:
             return any(INIT_MESSAGE in line for line in f)
     except FileNotFoundError:
         return False

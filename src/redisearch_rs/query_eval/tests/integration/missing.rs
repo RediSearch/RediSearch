@@ -9,19 +9,20 @@
 
 //! QN_MISSING → Missing inverted-index iterator
 //!
-//! These require a real `IndexSpec` with a populated `missingFieldDict`, which
+//! These require a real `IndexSpec` with a populated `missing.indexes`, which
 //! the lightweight `MockQueryEvalCtx` cannot provide, so they rely on the
 //! full-FFI `TestContext`.
 //!
 //! Disabled under Miri: `TestContext` calls into the C library (e.g. to build
-//! the spec and its `missingFieldDict`), and Miri cannot execute foreign
+//! the spec and its `missing.indexes`), and Miri cannot execute foreign
 //! (non-Rust) functions.
 #![cfg(not(miri))]
 
 use ffi::IndexFlags_Index_StoreFreqs;
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 use query::mock::MockQueryNode;
@@ -29,21 +30,23 @@ use query::mock::MockQueryNode;
 #[test]
 fn eval_missing_returns_iterator_over_missing_docs() {
     let _guard = GlobalGuard::default();
-    // Real spec whose `missingFieldDict` records docs 1, 2 and 3 as
+    // Real spec whose `missing.indexes` records docs 1, 2 and 3 as
     // missing a value for the indexed field.
     let context = TestContext::missing([1u64, 2, 3].into_iter());
 
     // The `QueryEvalCtx` is backed by the real `sctx`, so `eval_missing`
-    // sees the populated `missingFieldDict`.
+    // sees the populated `missing.indexes`.
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    mock_node.set_missing_field_index(context.field_spec().index);
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("field has missing values, so should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("field has missing values, so should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::InvIdxMissing);
     for expected in [1, 2, 3] {
@@ -57,18 +60,18 @@ fn eval_missing_returns_iterator_over_missing_docs() {
 #[test]
 fn eval_missing_no_values_returns_none() {
     let _guard = GlobalGuard::default();
-    // Term context: the field exists but has no entry in `missingFieldDict`
+    // Term context: the field exists but has no entry in `missing.indexes`
     // (no document is missing a value for it).
     let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    mock_node.set_missing_field_index(context.field_spec().index);
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     assert!(
-        eval::eval_node(&mut ctx, &node, Config::default()).is_none(),
+        eval_node(&mut ctx, node, Config::default()).is_none(),
         "no missing values for the field, so eval should return None"
     );
 }
@@ -76,7 +79,7 @@ fn eval_missing_no_values_returns_none() {
 #[test]
 fn qast_iterate_substitutes_empty_for_none() {
     let _guard = GlobalGuard::default();
-    // Term context: the field has no entry in `missingFieldDict`, so a
+    // Term context: the field has no entry in `missing.indexes`, so a
     // QN_MISSING node makes `eval_node` return `None`. `qast_iterate` must
     // substitute an `Empty` iterator instead of propagating that `None`.
     let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
@@ -84,10 +87,10 @@ fn qast_iterate_substitutes_empty_for_none() {
     let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Missing);
-    mock_node.set_missing_field(context.field_spec());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    mock_node.set_missing_field_index(context.field_spec().index);
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::qast_iterate(&mut ctx, &node, Config::default()).into_boxed();
+    let mut it = ContractChecker::new(qast_iterate(&mut ctx, node, Config::default()).into_boxed());
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

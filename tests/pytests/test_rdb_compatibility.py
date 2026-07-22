@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import os
 import subprocess
 from includes import *
@@ -14,6 +21,22 @@ RDBS = [
     'redisearch_1.8.1.rdb',
     'redisearch_2.0.9.rdb'
 ]
+
+# Module types used only by pre-2.0 indexes. Their loaders consume and discard the old
+# payload, so a key of one of these types must never outlive the upgrade sweep.
+LEGACY_MODULE_TYPES = ['ft_invidx', 'numericdx', 'ft_tagidx', 'ft_index0']
+
+
+def countKeysOfType(env, keyType):
+    total = 0
+    cursor = 0
+    while True:
+        cursor, keys = env.cmd('SCAN', cursor, 'TYPE', keyType, 'COUNT', 1000)
+        total += len(keys)
+        cursor = int(cursor)
+        if cursor == 0:
+            return total
+
 
 @skip(cluster=True)
 def testRDBCompatibility(env):
@@ -50,6 +73,23 @@ def testRDBCompatibility(env):
             res = env.cmd('FT.SYNDUMP idx')
             res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
             env.assertEqual(res, {'term2': ['0'], 'term1': ['0']})
+
+        # The upgrade sweep must not leave legacy module-type keys behind. Such a key
+        # cannot be recreated by any command and, before legacy rdb_save callbacks
+        # existed, it silently made every subsequent RDB unloadable. MOD-15685.
+        for keyType in LEGACY_MODULE_TYPES:
+            env.assertEqual(countKeysOfType(env, keyType), 0,
+                            message=f'{fileName}: leftover {keyType} keys')
+
+        # Loading a legacy RDB was already covered above; saving one back out was not.
+        # Drop the symlink first so SAVE writes a real file instead of overwriting the
+        # shared fixture in the cache directory.
+        os.unlink(rdbFilePath)
+        env.dumpAndReload()
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH idx * LIMIT 0 0').equal([1000])
+        env.expect('DBSIZE').equal(1000)
+
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode(), message=fileName)
 
@@ -63,7 +103,8 @@ def testRDBCompatibility_vecsim():
 
     rdbs = ['redisearch_2.4.14_with_vecsim.rdb',
             'redisearch_2.6.9_with_vecsim.rdb',
-            'redisearch_8.0_with_vecsim.rdb']
+            'redisearch_8.0_with_vecsim.rdb',
+            'redisearch_8.10_with_vecsim.rdb']
 
     algorithms = ['FLAT', 'HNSW']
     if not getRDBFiles(env, rdbs):
@@ -99,7 +140,7 @@ def testRDBCompatibility_vecsim():
           'distance_metric', 'L2',
           'M', 16,
           'ef_construction', 200,
-          'ef_runtime', 10
+          'ef_runtime', 10,
         ], [
           'identifier', 'flat_vec',
           'attribute', 'flat_vec',
@@ -110,6 +151,16 @@ def testRDBCompatibility_vecsim():
           'distance_metric', 'L2',
         ]]
         assertInfoField(env, 'idx', 'attributes', expected_attr_info)
+
+        # A legacy HNSW field must remain loadable after saving in the current format.
+        os.unlink(rdbFilePath)
+        env.dumpAndReload()
+        waitForIndex(env, 'idx')
+        for vec_field in vec_fields:
+            env.expect('FT.SEARCH', 'idx', f'*=>[KNN 1000 @{vec_field} $b]',
+                       'PARAMS', '2', 'b', '<<????>>', 'LIMIT', '0', '0').equal([100])
+        assertInfoField(env, 'idx', 'attributes', expected_attr_info)
+        env.expect('DBSIZE').equal(100)
 
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())

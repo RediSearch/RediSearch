@@ -88,8 +88,7 @@ where
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
         let term_docs = reader.unique_docs() as usize;
-        term.set_idf(idf::calculate_idf(total_docs, term_docs));
-        term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
+        term.set_idfs(total_docs, term_docs);
 
         let result = RSIndexResult::build_term()
             .borrowed_record(Some(term), RSOffsetSlice::empty())
@@ -123,12 +122,6 @@ where
     /// The raw pointers inside `spec` (e.g. `keysDict`) must be valid and
     /// dereferenceable for the duration of the call.
     fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
-        // Redis_OpenInvertedIndex() relies on keysDict to open the II.
-        // It should always be set in production flows but some tests do not set up a full spec.
-        if !spec.has_keys_dict() {
-            return false;
-        }
-
         let term = self
             .it
             .result
@@ -255,7 +248,7 @@ where
             map.kv_string_buffer(c"Term", term_bytes);
         }
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        ctx.print_estimated(map);
     }
 }
 
@@ -379,11 +372,6 @@ impl<'index> IndexReader<'index> for TermIndexReader<'index> {
     #[inline(always)]
     fn needs_revalidation(&self) -> bool {
         term_ir_dispatch!(self, needs_revalidation)
-    }
-
-    #[inline(always)]
-    fn refresh_buffer_pointers(&mut self) {
-        term_ir_dispatch!(self, refresh_buffer_pointers)
     }
 }
 

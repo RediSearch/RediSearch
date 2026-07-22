@@ -124,7 +124,6 @@ unsafe impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
 /// proof there).
 unsafe impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
 where
-    for<'a> Self: 'static,
     for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
@@ -222,10 +221,6 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
 
     fn needs_revalidation(&self) -> bool {
         self.inner.needs_revalidation()
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
-        self.inner.refresh_buffer_pointers();
     }
 }
 

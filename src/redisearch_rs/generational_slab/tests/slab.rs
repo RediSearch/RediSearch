@@ -737,7 +737,7 @@ fn get_disjoint_mut_out_of_bounds_index_error() {
         big_slab.insert(0);
     }
     // key at position 5
-    let k5 = big_slab.iter().last().unwrap().0;
+    let k5 = big_slab.iter().next_back().unwrap().0;
 
     // Index 0 and 1 are valid, but index 5 is out of bounds (beyond len)
     assert_eq!(

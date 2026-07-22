@@ -6,8 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdio.h>
 #include <rmutil/rm_assert.h>
+
 #include "wildcard.h"
 
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len) {
@@ -79,11 +79,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
   while (1) {
     if (pattern_end != pattern_itr) {
       const rune c = *pattern_itr;
-      if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
-        ++str_itr;
-        ++pattern_itr;
-        continue;
-      } else if (c == '*') {
+      if (c == '*') {
         while ((pattern_end != pattern_itr) && (*pattern_itr == '*')) {
           ++pattern_itr;
         }
@@ -93,6 +89,10 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
         }
         np_itr = pattern_itr - 1;
         ns_itr = str_itr + 1;
+        continue;
+      } else if ((str_end != str_itr) && (c == *str_itr || c == '?')) {
+        ++str_itr;
+        ++pattern_itr;
         continue;
       }
     } else if (str_end == str_itr) {
@@ -136,6 +136,11 @@ size_t Wildcard_TrimPattern(char *pattern, size_t p_len) {
 }
 
 size_t Wildcard_RemoveEscape(char *str, size_t len) {
+  // The scan below reads str[0] unconditionally, and an empty pattern would leave it
+  // with i == 1 != len, taking the unescape path and writing str[1] past the buffer
+  if (len == 0) {
+    return 0;
+  }
   int i = 0;
   do {
     if (str[i] == '\\') break;

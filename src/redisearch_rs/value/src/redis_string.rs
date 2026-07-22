@@ -8,7 +8,7 @@
 */
 
 use ffi::context::redisearch_module_context;
-use ffi::{RedisModule_FreeString, RedisModule_StringPtrLen, RedisModuleString};
+use redis_module::{RedisModule_FreeString, RedisModule_StringPtrLen, RedisModuleString};
 use std::ffi::c_char;
 use std::fmt;
 use std::mem::MaybeUninit;

@@ -7,6 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+
+#include "info/global_stats.h"
+
+#include <string.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h> // IWYU pragma: keep
+#include <strings.h>
+#include <time.h>
+
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
@@ -16,11 +30,26 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 #include "search_disk.h"
-
-#include <string.h>
+#include "config.h"
+#include "field.h"
+#include "geometry/geometry_types.h"
+#include "param.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_request.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rqe_iterators.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/timeout.h"
 
 #if defined(__x86_64__) && defined(__GLIBC__)
-#include <cpuid.h>
+#include <cpuid.h> // IWYU pragma: keep
 #define CPUID_AVAILABLE 1
 #endif
 
@@ -44,6 +73,47 @@ bool isLVQSupported() {
 #endif
   return false; // In which case we know that LVQ not supported.
 }
+// Contract documented on the declaration in vector_index.h.
+// Names for the refusal codes, so a log line reads as the reason rather than as a number.
+// A table rather than a switch: the mapping is data, and a `case` per code would leave every
+// code a given run does not reach permanently uncovered.
+static const char *const relabelCodeNames[] = {
+    [VecSimRelabel_OK] = "OK",
+    [VecSimRelabel_OldLabelMissing] = "OldLabelMissing",
+    [VecSimRelabel_NewLabelTaken] = "NewLabelTaken",
+    [VecSimRelabel_SameLabel] = "SameLabel",
+    [VecSimRelabel_Unsupported] = "Unsupported",
+};
+
+static const char *relabelCodeName(VecSimRelabelCode rc) {
+  // Cast before comparing so a negative code wraps into the out-of-range branch rather than
+  // indexing behind the table.
+  const size_t i = (size_t)rc;
+  return i < sizeof(relabelCodeNames) / sizeof(*relabelCodeNames) && relabelCodeNames[i]
+             ? relabelCodeNames[i]
+             : "unknown";
+}
+
+bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
+  const VecSimRelabelCode rc = VecSimIndex_RelabelVector(vecsim, oldDocId, newDocId);
+  // `SameLabel` is a success for this caller, not a refusal. Memory mode never hits it
+  // (doc-ids are monotonic), but a doc-table that reuses the id on replace would.
+  if (rc == VecSimRelabel_OK || rc == VecSimRelabel_SameLabel) {
+    FieldsGlobalStats_UpdateFieldDocsRelabeled(INDEXFLD_T_VECTOR, 1);
+    return true;
+  }
+
+  VecSimIndex_DeleteVector(vecsim, oldDocId);
+  // Every refusal is reported, not just the colliding one: a refusal silently costs the
+  // caller a delete and a re-add, and until this covered all of them a relabel that never
+  // engaged was indistinguishable from one that was never attempted.
+  RedisModule_Log(RSDummyContext, rc == VecSimRelabel_NewLabelTaken ? "warning" : "verbose",
+                  "Vector relabel %llu -> %llu refused: %s",
+                  (unsigned long long)oldDocId, (unsigned long long)newDocId,
+                  relabelCodeName(rc));
+  return false;
+}
+
 
 VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool create_if_missing) {
   RS_ASSERT(FIELD_IS(fieldSpec, INDEXFLD_T_VECTOR));
@@ -106,13 +176,10 @@ typedef struct {
   VecSimIndex *vecsim;          // borrowed; valid for the iterator's lifetime
   const void *vector;           // borrowed from the query AST (not owned, not freed)
   double radius;
-  VecSimQueryParams qParams;    // resolved at build time; POD, copied by value
+  // Resolved at build time and copied by value. Its timeoutCtx borrows the request timeout,
+  // which must outlive the lazy iterator and any reply retained while it is drained.
+  VecSimQueryParams qParams;
   VecSimQueryReply_Order order;
-  // Timeout context that `qParams.timeoutCtx` points to. It must live as long as the query
-  // reply is in use: a tiered index defers part of the search (and its timeout checks) to the
-  // reply iteration, so a stack-local would dangle by then. Stored here so it lives until the
-  // whole producer context is freed (after the reply is drained).
-  TimeoutCtx timeoutCtx;
 } VectorRangeProducerCtx;
 
 // Runs the deferred vector range query. On timeout, frees the reply, marks `out` and returns NULL;
@@ -121,7 +188,6 @@ typedef struct {
 // documents whose id exceeds the query's snapshot are dropped downstream when their (missing)
 // metadata is looked up in the doc table.
 static VecSimQueryReply *runVectorRangeQuery(VectorRangeProducerCtx *ctx, VectorRangeResults *out) {
-  ctx->qParams.timeoutCtx = &ctx->timeoutCtx;
   VecSimQueryReply *reply =
       VecSimIndex_RangeQuery(ctx->vecsim, ctx->vector, ctx->radius, &ctx->qParams, ctx->order);
   if (VecSimQueryReply_GetCode(reply) == VecSim_QueryReply_TimedOut) {
@@ -159,12 +225,13 @@ static void vectorRangeFreeCtx(void *ctxp) {
 // Builds a lazily-evaluated vector range iterator from already-resolved query parameters. Shared
 // by NewVectorIterator's range branch and by unit tests, so both drive the same deferred path
 // (the query runs on the iterator's first read, after the spec lock is released; see MOD-16437).
-// `vector` is borrowed and must outlive the iterator; `timeout` is the query deadline (monotonic
-// clock). Ownership of the freshly-allocated context transfers to the returned iterator.
+// `vector` and `timeout` are borrowed and must outlive the iterator. Ownership of the
+// freshly-allocated context transfers to the returned iterator.
 QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
                                                     double radius, VecSimQueryParams qParams,
                                                     VecSimQueryReply_Order order, bool yields_metric,
-                                                    struct timespec timeout) {
+                                                    QueryRequestTimeout *timeout) {
+  RS_ASSERT(timeout);
   VectorRangeProducerCtx *ctx = rm_malloc(sizeof(*ctx));
   *ctx = (VectorRangeProducerCtx){
       .vecsim = vecsim,
@@ -172,8 +239,8 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const v
       .radius = radius,
       .qParams = qParams,
       .order = order,
-      .timeoutCtx = {.timeout = timeout, .counter = 0},
   };
+  ctx->qParams.timeoutCtx = timeout;
   ProduceResultsFn produce = yields_metric ? vectorRangeProduceMetric : vectorRangeProduceIdList;
   return NewLazyVectorRangeIterator(produce, vectorRangeFreeCtx, ctx, yields_metric,
                                     order == BY_ID, VecSimIndex_IndexSize(vecsim), VECTOR_DISTANCE);
@@ -206,8 +273,10 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  // Cast is safe: openVectorIndex only mutates fieldSpec when create_if_missing is true.
-  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, (FieldSpec *)vq->field, DONT_CREATE_INDEX);
+  // FieldSpec* captured back then could no longer be trusted.
+  RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
+  FieldSpec *fieldSpec = ctx->spec->fields + vq->fieldIndex;
+  VecSimIndex *vecsim = openVectorIndex(ctx->redisCtx, fieldSpec, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -218,7 +287,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = vq->field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -238,10 +307,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       }
       // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
       // it, fall back to the index's create-time RERANK default
-      if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
+      if (fieldSpec->vectorOpts.diskCtx.indexName != NULL &&
           qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
         qParams.hnswDiskRuntimeParams.shouldRerank =
-            vq->field->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
+            fieldSpec->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
       }
       if (vq->knn.k > MAX_KNN_K) {
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
@@ -257,7 +326,6 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                       .vectorScoreField = vq->scoreField,
                                       .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
-                                      .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
@@ -288,7 +356,7 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
       return NewLazyVectorRangeIteratorFromParams(vecsim, vq->range.vector, vq->range.radius,
                                                   qParams, vq->range.order,
                                                   /*yields_metric=*/vq->scoreField != NULL,
-                                                  q->sctx->time.timeout);
+                                                  q->sctx->timeout);
     }
   }
   return NULL;
@@ -323,6 +391,13 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
   params.params[index].value = rm_strndup(val, val_len);
   params.params[index].valLen = val_len;
   return 1;
+}
+
+void VectorQuery_SetField(VectorQuery *vq, const FieldSpec *field) {
+  // `field` can be NULL: the v2 grammar only validates/resolves the field when
+  // ctx->sctx->spec is set (e.g. a coordinator shard with no local spec), and still
+  // calls this setter on the unresolved result.
+  vq->fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
 }
 
 char *VectorQuery_GetDefaultScoreFieldName(const char *fieldName, size_t fieldNameLen) {
@@ -423,6 +498,16 @@ bool VecSim_IsLeanVecCompressionType(VecSimSvsQuantBits quantBits) {
   return quantBits == VecSimSvsQuant_4x8_LeanVec || quantBits == VecSimSvsQuant_8x8_LeanVec;
 }
 
+const char *VecSimHnswCompression_ToString(VecSimQuantType quantType) {
+  switch (quantType) {
+    case VecSimQuant_NONE:
+      return VECSIM_NO_COMPRESSION;
+    case VecSimQuant_SQ8:
+      return VECSIM_SQ8;
+  }
+  return NULL;
+}
+
 const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
   // If quantBits is not NONE, We need to check if we are running on intel machine,  and if not, we
   // need to fall back to scalar quantization.
@@ -481,6 +566,9 @@ void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
       RedisModule_SaveUnsigned(rdb, primaryParams->efConstruction);
       RedisModule_SaveUnsigned(rdb, primaryParams->efRuntime);
       RedisModule_SaveDouble(rdb, primaryParams->epsilon);
+      RedisModule_SaveUnsigned(rdb, primaryParams->quantType);
+      RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams
+                                        .tieredHnswParams.QuantNormalizationSetSize);
     } else if (vecsimParams->algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_SVS) {
       RedisModule_SaveUnsigned(rdb, vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
       SVSParams *primaryParams = &vecsimParams->algoParams.tieredParams.primaryIndexParams->algoParams.svsParams;
@@ -517,8 +605,25 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   return rv;
 }
 
-int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
-                      const char *field_name) {
+static bool isSupportedHnswQuantDataType(VecSimType type) {
+  return type == VecSimType_FLOAT32 || type == VecSimType_FLOAT16;
+}
+
+static bool isSupportedHnswQuantMetric(VecSimMetric metric) {
+  return metric == VecSimMetric_L2 || metric == VecSimMetric_IP || metric == VecSimMetric_Cosine;
+}
+
+static bool VecSimHnswQuantParams_AreValid(const HNSWParams *params, size_t trainingThreshold) {
+  if (params->quantType == VecSimQuant_NONE) {
+    return trainingThreshold == 0;
+  }
+  return params->quantType == VecSimQuant_SQ8 && isSupportedHnswQuantDataType(params->type) &&
+         params->dim > 0 && isSupportedHnswQuantMetric(params->metric) &&
+         trainingThreshold <= HNSW_QUANT_MAX_TRAINING_THRESHOLD;
+}
+
+static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                                const char *field_name, bool hasHnswQuantParams) {
   VecSimLogCtx *logCtx = NULL;
   VecSimParams *primaryParams = NULL;
 
@@ -551,6 +656,22 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
       primaryParams->algoParams.hnswParams.efConstruction = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.efRuntime = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.hnswParams.epsilon = LoadDouble_IOError(rdb, goto fail);
+      primaryParams->algoParams.hnswParams.quantParams = NULL;
+      if (hasHnswQuantParams) {
+        uint64_t quantType = LoadUnsigned_IOError(rdb, goto fail);
+        uint64_t trainingThreshold = LoadUnsigned_IOError(rdb, goto fail);
+        if ((quantType != VecSimQuant_NONE && quantType != VecSimQuant_SQ8) ||
+            trainingThreshold > HNSW_QUANT_MAX_TRAINING_THRESHOLD) {
+          goto invalidQuantParams;
+        }
+        primaryParams->algoParams.hnswParams.quantType = quantType;
+        vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+            .QuantNormalizationSetSize = trainingThreshold;
+      } else {
+        primaryParams->algoParams.hnswParams.quantType = VecSimQuant_NONE;
+        vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+            .QuantNormalizationSetSize = 0;
+      }
     } else if (primaryParams->algo == VecSimAlgo_SVS) {
       vecsimParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = LoadUnsigned_IOError(rdb, goto fail);
 
@@ -573,10 +694,32 @@ int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef 
     goto fail; // We dont expect to see an HNSW/SVS index without a tiered index
   }
 
+  if (primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB) {
+    const HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+    size_t trainingThreshold = vecsimParams->algoParams.tieredParams.specificParams.tieredHnswParams
+                                   .QuantNormalizationSetSize;
+    if (!VecSimHnswQuantParams_AreValid(hnswParams, trainingThreshold)) {
+      goto invalidQuantParams;
+    }
+  }
+
   return VecSimIndex_validate_Rdb_parameters(rdb, vecsimParams);
 
+invalidQuantParams:
+  RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING,
+                         "ERROR: loading vector index failed! Invalid HNSW SQ8 parameters");
 fail:
   return REDISMODULE_ERR;
+}
+
+int VecSim_RdbLoad_v4(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
+  return VecSim_RdbLoad_v4_v5(rdb, vecsimParams, sp_ref, field_name, false);
+}
+
+int VecSim_RdbLoad_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
+                      const char *field_name) {
+  return VecSim_RdbLoad_v4_v5(rdb, vecsimParams, sp_ref, field_name, true);
 }
 
 int VecSim_RdbLoad_v3(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
@@ -765,6 +908,8 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
 }
 
 void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref) {
+  // Legacy RDB conversion reuses the non-tiered HNSW union storage.
+  *params = (TieredIndexParams){0};
   params->primaryIndexParams = rm_calloc(1, sizeof(VecSimParams));
   // We expect the thread pool to be initialized from the module init function, and to stay constant
   // throughout the lifetime of the module. It can be initialized to NULL.

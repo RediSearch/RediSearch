@@ -1,10 +1,9 @@
 name: Release an OSS Version
 
-# Added these to use JWT token to connect with AWS
-permissions:
-  id-token:       write   # This is required for requesting the JWT
-  contents:       write   # This is required for actions/checkout (read) and to push commits (write)
-  pull-requests:  write   # This is required for creating a PR
+# Every job below declares exactly what it needs. This empty default is the floor
+# rather than a grant: without it a job added later would inherit the repository's
+# default workflow permissions, which can be broader than anything here.
+permissions: {}
 
 on:
   push:
@@ -26,6 +25,8 @@ jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read # actions/checkout, plus `git branch`/`rev-parse` below
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -34,7 +35,7 @@ jobs:
       expected_sha: ${{ steps.get_sha.outputs.sha }}
       release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.checkout_target }}
           fetch-depth: 0
@@ -44,7 +45,7 @@ jobs:
       - name: Get version branch
         id: get_version_branch
         run: |
-          version_branch=$(git branch -a --contains tags/${{ env.input_tag }} | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
+          version_branch=$(git branch -a --contains "tags/$input_tag" | grep -oE 'remotes/origin/[0-9]+\.[0-9]+$' | sed 's|.*/||')
           if [ -z "$version_branch" ]; then
             echo "Error: No version branch found"
             exit 1
@@ -98,6 +99,9 @@ jobs:
     runs-on: ubuntu-slim
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
+    permissions:
+      contents: write      # push the bump-version branch with checkout's credentials
+      pull-requests: write # `gh pr create --reviewer` below, via github.token
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
       # Common environment variables for security (shell injection prevention)
@@ -107,7 +111,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.validate-tag.outputs.release_branch }}
       - name: Update version for next patch
@@ -161,7 +165,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: generate-app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
@@ -178,6 +182,8 @@ jobs:
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
   generate-matrix:
+    # Pure computation: no checkout, no API calls.
+    permissions: {}
     uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: all,!intel
@@ -186,16 +192,20 @@ jobs:
   set-artifacts:
     needs: [validate-tag, generate-matrix]
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      # OIDC JWT for the ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME path below. This job
+      # never checks the repository out, so it needs nothing else.
+      id-token: write
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Configure AWS Credentials Using Keys
         if: vars.USE_AWS_ROLE == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}

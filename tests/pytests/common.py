@@ -1,10 +1,19 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from includes import *
 try:
     from collections.abc import Iterable
 except ImportError:
     from collections import Iterable
 import time
+from contextlib import contextmanager
 from packaging import version
+from contextlib import contextmanager
 from functools import wraps
 import signal
 import platform
@@ -26,6 +35,7 @@ import inspect
 import math
 import tempfile
 import faker
+import redis.client
 
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
 REDISEARCH_CACHE_DIR = os.path.join(tempfile.gettempdir(), 'redisearch-rdbs')
@@ -81,7 +91,60 @@ def wait_for_condition(check_fn, message, timeout=120):
         log = f"{message}: {timeout_msg}"
         raise Exception(f'Error: {e}, log: {log}')
 
-class DialectEnv(Env):
+class RediSearchEnterpriseStandaloneEnv(Env):
+    """Standalone-only Env: re-seeds the single-shard coordinator topology
+    (see _seed_single_shard_topology further below) after every (re)start,
+    since the enterprise build otherwise leaves the coordinator
+    uninitialized until SEARCH.CLUSTERSET arrives."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._seed_topology()
+
+    def start(self, *args, **kwargs):
+        super().start(*args, **kwargs)
+        self._seed_topology()
+
+    def dumpAndReload(self, restart=False, shardId=None, timeout_sec=40):
+        super().dumpAndReload(restart=restart, shardId=shardId, timeout_sec=timeout_sec)
+        if restart:
+            self._seed_topology()
+
+    def _seed_topology(self):
+        # 'existing' (external) servers set up their own topology.
+        try:
+            if 'existing' in self.env:
+                return
+        except Exception:
+            return
+        if self.isCluster():
+            raise RuntimeError("RediSearchEnterpriseStandaloneEnv is standalone-only; do not use with a cluster env")
+        conn = self.getConnection()
+        port = conn.connection_pool.connection_kwargs.get('port')
+        try:
+            _seed_single_shard_topology(conn, port)
+        except Exception:
+            pass
+        # Also seed the slave, if any (useSlaves=True).
+        try:
+            slave_conn = self.getSlaveConnection()
+            slave_port = slave_conn.connection_pool.connection_kwargs.get('port')
+            _seed_single_shard_topology(slave_conn, slave_port)
+        except Exception:
+            pass
+
+
+# Activate the seeding subclass for bare Env(...) construction, but only under
+# enterprise (read by RLTest's Env.__new__ hook). In OSS the class above stays
+# defined but unused, so setting env_class here would be a no-op at best.
+if RS_TEST_ENTERPRISE:
+    Defaults.env_class = RediSearchEnterpriseStandaloneEnv
+
+# Base for suite-defined Env subclasses so they inherit enterprise seeding
+# (the Env.__new__ hook only redirects bare Env(), not subclasses).
+EnterpriseStandaloneEnvBase = RediSearchEnterpriseStandaloneEnv if RS_TEST_ENTERPRISE else Env
+
+class DialectEnv(EnterpriseStandaloneEnvBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dialect = None
@@ -297,6 +360,17 @@ def set_workers(env, workers):
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
     env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
 
+@contextmanager
+def paused_workers(env):
+    """Pause the worker thread pool for the duration of the block, so that jobs it schedules are
+    queued but cannot run yet. Resumed on the way out even if the block fails: the pool state
+    outlives the test, and a pool left paused fails the next test's WORKERS DRAIN."""
+    env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+    try:
+        yield
+    finally:
+        env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
+
 def getWorkersThpoolStatsFromShard(shard_conn):
     return to_dict(shard_conn.execute_command(debug_cmd(), "WORKERS", "stats"))
 
@@ -326,20 +400,63 @@ def skipOnDialect(env, dialect):
     if dialect == server_dialect:
         env.skip()
 
-def waitForRdbSaveToFinish(env):
+def waitForRdbSaveToFinish(env_or_check, attempts=None, sleep_interval=0.1, stop_on_error=False):
+    """Wait for RDB bgsave to go idle.
+
+    env_or_check: either an Env (poll every master, or every shard if
+    clustered), or a zero-arg callable returning an INFO persistence reply
+    (a dict, or a raw RESP2 string) -- e.g. for polling a single connection.
+
+    attempts=None (default): busy-wait with no cap, for callers where a
+    bgsave is expected to finish quickly (e.g. right after DEBUG RELOAD).
+    attempts=<N>: bounded poll, up to N tries `sleep_interval` apart;
+    returns the final in-progress state instead of blocking indefinitely.
+
+    stop_on_error: if a poll raises, treat it as idle and return False
+    instead of propagating (used where a stale/closing connection means
+    there's nothing left to wait for).
+    """
+    if callable(env_or_check):
+        get_info = env_or_check
+        if attempts is None:
+            attempts = 50
+        in_progress = True
+        for _ in range(attempts):
+            try:
+                info = get_info()
+            except Exception:
+                if stop_on_error:
+                    return False
+                raise
+            if isinstance(info, dict):
+                in_progress = bool(info.get('rdb_bgsave_in_progress', 0))
+            else:
+                in_progress = 'rdb_bgsave_in_progress:1' in str(info)
+            if not in_progress:
+                break
+            time.sleep(sleep_interval)
+        return in_progress
+
+    env = env_or_check
     if env.isCluster():
         conns = env.getOSSMasterNodesConnectionList()
     else:
         conns = [env.getConnection()]
 
-    # Busy wait until all connection are done rdb bgsave
+    # Busy wait until all connections are done with rdb bgsave.
     check_bgsave = True
-    while check_bgsave:
+    tries = itertools.count() if attempts is None else range(attempts)
+    for _ in tries:
         check_bgsave = False
         for conn in conns:
             if conn.execute_command('info', 'Persistence')['rdb_bgsave_in_progress']:
                 check_bgsave = True
                 break
+        if not check_bgsave:
+            break
+        if attempts is not None:
+            time.sleep(sleep_interval)
+    return check_bgsave
 
 
 def countKeys(env, pattern='*'):
@@ -361,6 +478,137 @@ def collectKeys(env, pattern='*'):
     return sorted(keys)
 
 
+# ---------------------------------------------------------------------------
+# Enterprise test-compatibility helpers
+# Gated by RS_TEST_ENTERPRISE=1; default=0 → zero behavior change on OSS CI.
+# ---------------------------------------------------------------------------
+
+# Enterprise standalone test builds expose the local config command as
+# _FT.CONFIG.  Route public FT.CONFIG SET/GET through that command so OSS tests
+# exercise the same FT.CONFIG parser and reply shape instead of emulating it
+# with Redis CONFIG search-* twins.
+
+# The two helpers below both strip the enterprise-only 'Shard ID' key from
+# FT.PROFILE replies, but for different reply shapes (RESP2 flat lists vs.
+# RESP3 dicts) — kept separate rather than unified into one function.
+
+def _strip_shard_id_from_profile(obj):
+    """Strip 'Shard ID',<value> pair from each shard flat list in FT.PROFILE reply.
+    Enterprise inserts 'Shard ID' before 'Warning', shifting Iterators profile index.
+    Normalizes the shard list to the OSS layout so positional accesses work unchanged.
+    No-op when RS_TEST_ENTERPRISE is off or the key is absent."""
+    if not RS_TEST_ENTERPRISE or CLUSTER or not isinstance(obj, list) or len(obj) < 2:
+        return obj
+    # FT.PROFILE RESP2 structure: [search_result, ['Shards', [shard0, shard1, ...], ...]]
+    # shard is a flat list: ['Shard ID', '1', 'Warning', [...], 'Iterators profile', ...]
+    # Walk recursively through lists; strip ['Shard ID', <val>] from flat k-v lists.
+    def _strip_shard(lst):
+        if not isinstance(lst, list):
+            return lst
+        # Check if this looks like a shard profile flat list containing 'Shard ID'
+        try:
+            idx = lst.index('Shard ID')
+            if idx % 2 == 0 and idx + 1 < len(lst):
+                lst = lst[:idx] + lst[idx+2:]
+        except ValueError:
+            pass
+        return [_strip_shard(v) if isinstance(v, list) else v for v in lst]
+    return _strip_shard(obj)
+
+
+def strip_enterprise_profile_keys(obj):
+    """Recursively remove the enterprise-only 'Shard ID' key from an
+    FT.PROFILE reply so community-shaped expected values still match.
+    No-op unless RS_TEST_ENTERPRISE=1."""
+    if not RS_TEST_ENTERPRISE or CLUSTER:
+        return obj
+    if isinstance(obj, dict):
+        return {k: strip_enterprise_profile_keys(v) for k, v in obj.items() if k != 'Shard ID'}
+    if isinstance(obj, list):
+        return [strip_enterprise_profile_keys(v) for v in obj]
+    return obj
+
+
+if RS_TEST_ENTERPRISE:
+    _orig_execute_command = redis.client.Redis.execute_command
+
+    # NOTE: command routing stays on this process-global patch
+    # rather than a per-connection subclass because RLTest's own
+    # envRunner.dumpAndReload() (used by Env.dumpAndReload(), i.e. most
+    # DEBUG RELOAD flows) issues `conn.save()` on a connection it obtains
+    # internally, bypassing any wrapping done at the Env.getConnection()
+    # level -- exactly the call site the SAVE-collision handling below
+    # exists to protect. A connection subclass would miss it.
+    def _enterprise_execute_command(self, *args, **kwargs):
+        """Intercept command rewrites for enterprise/OSS compat:
+        - FT.CONFIG GET|SET → _FT.CONFIG GET|SET
+        - _FT._RESTOREIFNX → FT._RESTOREIFNX (enterprise registers without leading underscore)
+        - FT.PROFILE: strip 'Shard ID' from each shard's flat list to normalize positions
+        """
+        # Rewrite _FT._RESTOREIFNX -> FT._RESTOREIFNX
+        if args and str(args[0]).upper() == '_FT._RESTOREIFNX':
+            args = ('FT._RESTOREIFNX',) + tuple(args[1:])
+        if len(args) >= 2 and str(args[0]).upper() == 'FT.CONFIG' and str(args[1]).upper() in ('SET', 'GET'):
+            args = ('_FT.CONFIG',) + tuple(args[1:])
+        # FT.PROFILE: strip Shard ID from raw RESP2 shard lists so index [3] stays = Iterators profile value
+        if args and str(args[0]).upper() == 'FT.PROFILE':
+            raw = _orig_execute_command(self, *args, **kwargs)
+            return _strip_shard_id_from_profile(raw)
+        # SAVE collision: wait for any in-progress BGSAVE before issuing SAVE.
+        # Enterprise background-saves can fire automatically; OSS tests that call
+        # SAVE directly would race and get 'Background save already in progress'.
+        if args and str(args[0]).upper() == 'SAVE':
+            waitForRdbSaveToFinish(lambda: _orig_execute_command(self, 'INFO', 'persistence'), stop_on_error=True)
+            # Now issue SAVE and retry once if still racing
+            for _attempt in range(3):
+                try:
+                    return _orig_execute_command(self, *args, **kwargs)
+                except Exception as _exc:
+                    if 'Background save already in progress' in str(_exc) and _attempt < 2:
+                        time.sleep(0.2)
+                        continue
+                    raise
+        return _orig_execute_command(self, *args, **kwargs)
+
+    redis.client.Redis.execute_command = _enterprise_execute_command
+
+# Unlike OSS, the enterprise build doesn't auto-seed a single-shard topology
+# at module init: coordinator-gated commands (FT.SEARCH / FT.AGGREGATE /
+# _FT.DEBUG query-debug) reply "ERRCLUSTER Uninitialized cluster state" until
+# a SEARCH.CLUSTERSET arrives. RediSearchEnterpriseStandaloneEnv (above)
+# sends one covering all slots so standalone enterprise envs behave like OSS.
+
+def _seed_single_shard_topology(conn, port, attempts=50, sleep_interval=0.1):
+    """Send SEARCH.CLUSTERSET to seed a single-shard (all slots) topology on
+    `conn`, addressed at `port`. Callers wrap this in their own exception
+    handling since tolerance for 'command absent' vs. transient errors
+    differs by call site.
+
+    Retries on ConnectionError (server still coming up) up to `attempts`
+    times, sleeping `sleep_interval` seconds between tries; the last
+    ConnectionError is re-raised. ResponseError (e.g. command unsupported)
+    propagates immediately for callers to handle."""
+    password = conn.connection_pool.connection_kwargs.get('password')
+    addr = f'{password}@127.0.0.1:{port}' if password else f'127.0.0.1:{port}'
+    for attempt in range(attempts):
+        try:
+            return conn.execute_command(
+                'SEARCH.CLUSTERSET',
+                'MYID', '1',
+                'RANGES', '1',
+                'SHARD', '1',
+                'SLOTRANGE', '0', '16383',
+                'ADDR', addr,
+                'MASTER',
+            )
+        except redis.exceptions.ConnectionError:
+            if attempt >= attempts - 1:
+                raise
+            time.sleep(sleep_interval)
+
+
+# ---------------------------------------------------------------------------
+
 def debug_cmd():
     return '_FT.DEBUG'
 
@@ -376,6 +624,94 @@ def run_command_on_all_shards(env, *args):
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
+
+def create_diverged_index(env, idx='idx'):
+    """Create `idx` on every shard with a schema no other shard has, and return the
+    shard connections used, in shard order.
+
+    Internal `_FT.CREATE` does not fan out, so per-shard creates from an internal
+    client are the only way to build a deliberately inconsistent cluster. Shard `i`
+    gets `i` fields, so the cluster ends up with `env.shardsCount` distinct schemas.
+    The connections are returned because MARK-INTERNAL-CLIENT marks the connection,
+    not the shard.
+    """
+    assert env.shardsCount > 1, 'divergence needs at least two shards'
+    conns = []
+    for shardId in range(1, env.shardsCount + 1):
+        con = env.getConnection(shardId)
+        con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        schema = []
+        for field in range(shardId):
+            schema.extend([f'f{field}', 'TEXT'])
+        con.execute_command('_FT.CREATE', idx, 'SCHEMA', *schema)
+        conns.append(con)
+    return conns
+
+@contextmanager
+def stopped_shard(env, shardId):
+    """Stop shard `shardId` (1-based, as in `env.getConnection`) for the body of the
+    `with`, then restart it and wait for it to rejoin the cluster.
+
+    Without the restart and the wait, teardown and any later test reusing this env
+    run against a broken cluster.
+    """
+    shard = env.envRunner.shards[shardId - 1]
+
+    def rejoined():
+        # The port is dead until the restart completes, so a connection error is the
+        # expected state here rather than a failure. Anything else propagates.
+        try:
+            info = env.getConnection(shardId).execute_command('CLUSTER', 'INFO')
+        except redis_exceptions.RedisError as e:
+            return False, {'error': str(e)}
+        return 'cluster_state:ok' in info, {'cluster_info': info}
+
+    shard.stopEnv()
+    try:
+        yield shard
+    finally:
+        shard.startEnv()
+        wait_for_condition(rejoined, f'restarted shard {shardId} did not rejoin the cluster',
+                           timeout=30)
+
+def _cluster_bus_ports(env):
+    """`{client port: cluster-bus port}` for every shard, from one `CLUSTER NODES` read.
+
+    One read covers the whole cluster, since every node reports the full topology.
+    """
+    nodes = env.getOSSMasterNodesConnectionList()[0].execute_command('CLUSTER', 'NODES')
+    if isinstance(nodes, bytes):
+        nodes = nodes.decode()
+    ports = {}
+    for line in nodes.splitlines():
+        if not line.strip():
+            continue
+        # `<id> <ip>:<port>@<cport>[,<hostname>] <flags> ...`
+        hostport, cport = line.split()[1].split('@')
+        ports[int(hostport.rsplit(':', 1)[1])] = int(cport.split(',')[0])
+    return ports
+
+def disable_tls_cluster_on_all_shards(env):
+    """Turn `tls-cluster` off on every shard, keeping the cluster bus reachable.
+
+    A shard binds its cluster-bus listener once at startup, to whichever client port
+    `tls-cluster` selected then, but re-derives the port it *advertises* on every
+    gossip message. With both `port` and `tls-port` configured, flipping `tls-cluster`
+    at runtime therefore makes each shard advertise a bus port nothing listens on:
+    peers adopt it, drop their working links, and then never receive the pings that
+    would correct the peer ports they latched while the flip was still in progress.
+    Pinning `cluster-announce-bus-port` to the port a shard actually listens on takes
+    the advertised port out of `tls-cluster`'s hands, so the flip leaves the bus intact.
+    """
+    bus_ports = _cluster_bus_ports(env)
+    for con, node in zip(env.getOSSMasterNodesConnectionList(),
+                         env.envRunner.getMasterNodesList()):
+        # A KeyError here means a shard is not advertising the port RLTest assigned
+        # it. Fail loudly rather than pin the wrong port, which would re-create the
+        # very breakage this helper exists to avoid.
+        env.assertEqual(con.execute_command('CONFIG', 'SET', 'cluster-announce-bus-port',
+                                            bus_ports[node['port']]), 'OK')
+    verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
 def allShards_set_info_on_zero_indexes(env, enabled: bool):
     """
@@ -497,21 +833,69 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
-def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
+binary_commands = None
+def binary_has_command(name):
+    """True if `Defaults.binary` provides command `name`.
+
+    Version alone cannot answer this: a server may report a version that carries a
+    command and still be built without it, which is how the guarded test then fails.
+
+    Asks the binary the same way `server_version_is_at_least` asks it for a version,
+    so a @skip can be decided before any test env exists. `--version` cannot answer
+    this one, so this starts a throwaway server on a private unix socket — no port to
+    collide over — and asks it, caching the answer for the rest of the session.
+
+    Only the binary's own commands are visible; no module is loaded, so this cannot
+    speak for `FT.*`.
+    """
+    global binary_commands
+    if binary_commands is None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = os.path.join(directory, 'command-probe.sock')
+            server = subprocess.Popen(
+                [Defaults.binary, '--port', '0', '--unixsocket', socket_path,
+                 '--save', '', '--appendonly', 'no'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                conn = redis.Redis(unix_socket_path=socket_path, decode_responses=True)
+                # `COMMAND LIST` is a flat array of names, but redis-py parses every
+                # `COMMAND` reply as though it were `COMMAND INFO` and mangles it. This
+                # client is private to the probe, so the callback can just be dropped.
+                conn.set_response_callback('COMMAND', lambda reply: reply)
+                deadline = time.time() + 10
+                while True:
+                    try:
+                        conn.ping()
+                        break
+                    except redis.exceptions.RedisError:
+                        if time.time() > deadline or server.poll() is not None:
+                            raise
+                        time.sleep(0.05)
+                binary_commands = {str(c).lower()
+                                   for c in conn.execute_command('COMMAND', 'LIST')}
+            finally:
+                server.terminate()
+                server.wait()
+    return name.lower() in binary_commands
+
+
+def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
                             redis_greater_equal, min_shards, arch, gc_no_fork,
-                            no_json):
+                            no_json, enterprise, missing_redis_command):
     """True if the caller provided at least one skip condition.
 
     With no conditions, @skip's legacy behaviour is to always skip — used as a
     "temporarily disable this test" marker.
     """
-    return ((cluster is not None) or macos or asan or msan or redis_less_than
+    return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json)
+            or gc_no_fork or no_json or (enterprise is not None)
+            or (missing_redis_command is not None))
 
 
-def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
-                            no_json):
+def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise,
+                           missing_redis_command):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
     Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
@@ -520,6 +904,8 @@ def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
     if cluster is not None and cluster == CLUSTER:
         return True
     if macos and OS == 'macos':
+        return True
+    if musl and MUSL:
         return True
     if arch == platform.machine():
         return True
@@ -530,6 +916,10 @@ def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
     if min_shards and Defaults.num_shards < min_shards:
         return True
     if no_json and not REJSON:
+        return True
+    if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
+        return True
+    if missing_redis_command and not binary_has_command(missing_redis_command):
         return True
     return False
 
@@ -549,9 +939,10 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
-    static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json)
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None, missing_redis_command=None):
+    static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
+                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise,
+                         missing_redis_command=missing_redis_command)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
                           gc_no_fork=gc_no_fork)
@@ -1342,10 +1733,13 @@ def distinct_shard_tags(conn):
                 return
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    # Wait for the index to finish scan
-    # Check if equals 1 for RESP3 support
+    # Wait for the index to finish scanning. Poll the 'indexing' flag rather than
+    # percent_indexed: a background build aborted on OOM freezes percent_indexed
+    # below 1.0 (so a partial index isn't reported as complete), so it would never
+    # reach 1 and this would time out. 'indexing' drops to 0 once the scan ends,
+    # whether it completed or was cancelled by OOM.
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
-        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        while index_info(env, idx)['indexing'] not in (0, '0'):
             time.sleep(0.1)
 
 def bgScanCommand():
@@ -1402,10 +1796,10 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    # Wait for the index to finish scan
-    # Check if equals 1 for RESP3 support
+    # Wait for the index to finish scanning. See waitForIndexFinishScan: poll the
+    # 'indexing' flag, since an OOM-aborted build freezes percent_indexed below 1.0.
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
-        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        while index_info(env, idx)['indexing'] not in (0, '0'):
             time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):

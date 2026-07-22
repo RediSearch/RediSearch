@@ -7,14 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
-#include "types_ffi.h"
-#include "iterators/iterator_api.h"
+
+#include "result_processor.h"
 #include "iterators_ffi.h"
-#include "query_term_ffi.h"
-#include "reply_macros.h"
-#include "util/units.h"
 #include "coord/rmr/rmr.h"
 #include "hybrid/hybrid_request.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/expr/expression.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "result_processor_ffi.h"
+#include "search_disk_api.h"
 
 static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
   if (rp == NULL) {
@@ -77,6 +81,12 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
+  // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
+  if (printProfileClock && rp->upstream &&
+      (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
+    RPLoader_ReplyProfileFields(reply, rp->upstream);
+  }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
@@ -219,9 +229,8 @@ static void Profile_PrintCommon(RedisModule_Reply *reply,
     Profile_PrintIterators(reply->ctx, root,
                            AREQ_RequestFlags(req) & QEXEC_F_PROFILE_LIMITED,
                            profile_verbose);
-    // The Rust function emits directly through ctx, bypassing the reply
-    // wrapper's count tracking. Notify the wrapper about the emitted element.
-    RedisModule_Reply_TrackExternalElement(reply);
+    // The Rust function emits directly through ctx, bypassing the reply wrapper.
+    RedisModule_Reply_ExternalElement(reply);
   }
 
   // Call printbeforeRPSectionCB if provided (before printing main result processors)
@@ -266,11 +275,13 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   Profile_PrintCommon(reply, &request, NULL, NULL);
 }
 
+// RESP3 nests the results under a "Results" key of the profile map; RESP2 wraps them in a flat array
+// together with the profile (and the cursor id when there is one), closed with RedisModule_Reply_ArrayEnd.
 void Profile_PrepareMapForReply(RedisModule_Reply *reply) {
   if (reply->resp3) {
     RedisModule_ReplyKV_Map(reply, "Results");
   } else {
-    RedisModule_Reply_Map(reply);
+    RedisModule_Reply_Array(reply);
   }
 }
 

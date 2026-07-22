@@ -17,4 +17,4 @@ mod query_eval_ctx;
 mod query_node_ref;
 
 pub use query_eval_ctx::MockQueryEvalCtx;
-pub use query_node_ref::MockQueryNode;
+pub use query_node_ref::{MockQueryNode, TokenNodeType};

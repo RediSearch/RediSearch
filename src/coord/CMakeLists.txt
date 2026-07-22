@@ -38,7 +38,12 @@ include_directories(
 
 add_subdirectory(rmr)
 
+# rmr/ has its own object library below (added via add_subdirectory), so exclude
+# it here — a bare *.c pattern recurses into every subdirectory, and without this
+# filter rmr's sources would be compiled twice: once into `rmr`, once again into
+# `coordinator-core`, both ending up in redisearch-coord's FINAL_OBJECTS below.
 file(GLOB_RECURSE COORDINATOR_SRC CONFIGURE_DEPENDS *.c *.cpp)
+list(FILTER COORDINATOR_SRC EXCLUDE REGEX "/rmr/")
 add_library(coordinator-core OBJECT ${COORDINATOR_SRC})
 
 
