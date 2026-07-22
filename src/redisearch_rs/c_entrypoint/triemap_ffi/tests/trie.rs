@@ -8,10 +8,7 @@
 */
 use libc::size_t;
 use redis_mock::mock_or_stub_missing_redis_c_symbols;
-use std::{
-    ffi::{c_char, c_int, c_void},
-    time::{Duration, Instant},
-};
+use std::ffi::{c_char, c_int, c_void};
 use triemap_ffi::*;
 
 mock_or_stub_missing_redis_c_symbols!();
