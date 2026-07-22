@@ -12,10 +12,8 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 source "$SCRIPT_DIR/version_compare.sh"
 
-# Pinned toolchain versions, read from the SAME files the install path uses so
-# the check can't specify a different version than what bootstrap installs:
-#   LLVM_VERSION      — clang/lld major (install_llvm.sh)
-#   PINNED_RUST_VERSION — exact rust toolchain (install_rust.sh reads the same)
+# Toolchain version pins, read from the same files the install path uses so the
+# check can't drift from what bootstrap installs.
 source "$SCRIPT_DIR/LLVM_VERSION.sh"
 PINNED_RUST_VERSION=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
   "$REPO_ROOT/rust-toolchain.toml" | head -1)
@@ -49,8 +47,7 @@ DEPS_OPT_MISSING=""
 
 # Optional = installed by bootstrap but NOT needed for the default (non-LTO)
 # build/run, so their absence must not fail the check. lld is only used as the
-# LTO linker (build.sh, -fuse-ld=lld); a plain `make build` uses the system
-# linker. Matched by dependency name.
+# LTO linker; a plain `make build` uses the system linker.
 OPTIONAL_DEPS="lld"
 is_optional_dep() { case " $OPTIONAL_DEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
@@ -286,22 +283,16 @@ check_cmake_version() {
 # OS-Specific Dependencies
 # ============================================
 
-# Define common dependencies
-# Verification methods:
-#   command — present on PATH (optionally version-checked via version_checks)
-#   package — installed per the OS package manager
-#   cheadergen — present and matching .cheadergen-version
-#   llvm    — clang/lld toolchain, major pinned to LLVM_VERSION.sh
-#   rust    — cargo present and the pinned rust-toolchain.toml version available
+# Common dependencies, keyed to a verify_method dispatched in the loop below.
 declare -A common_dependencies=(
-  ["make"]="command"       # Verify using command -v
-  ["gcc"]="command"        # Verify using command -v
-  ["g++"]="command"        # Verify using command -v
-  ["python3"]="command"    # Verify using command -v
-  ["cmake"]="command"      # Verify using command -v
-  ["cargo"]="rust"         # Verify presence + pinned toolchain
-  ["clang"]="llvm"         # LLVM C compiler (bindgen/libclang need it; LTO uses it)
-  ["lld"]="llvm"           # LTO linker — optional (see OPTIONAL_DEPS)
+  ["make"]="command"
+  ["gcc"]="command"
+  ["g++"]="command"
+  ["python3"]="command"
+  ["cmake"]="command"
+  ["cargo"]="rust"
+  ["clang"]="llvm"   # required: bindgen/libclang need it, LTO uses it as CC
+  ["lld"]="llvm"     # LTO linker only -> optional (see OPTIONAL_DEPS)
 )
 
 # cheadergen is only needed when regenerating Rust C headers.

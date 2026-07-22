@@ -63,7 +63,6 @@ should_check_cheadergen() {
 # Checkers
 # ============================================
 
-# Present-on-PATH check.
 check_cmd_dep() {
   if command -v "$1" &>/dev/null; then
     emit_result "$1" ok
