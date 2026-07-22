@@ -1397,6 +1397,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->numSortableFields;
+  const uint32_t prevFieldIdToIndexLen = array_len(sp->fieldIdToIndex);
   const IndexFlags prevFlags = sp->flags;
   Trie *prevSuffix = sp->suffix;
   const t_fieldMask prevSuffixMask = sp->suffixMask;
@@ -1432,6 +1433,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
     if (memchr(fieldName, '\0', namelen) != NULL) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot contain null bytes");
+      goto reset;
+    }
+    if (fieldPath && memchr(fieldPath, '\0', pathlen) != NULL) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field path cannot contain null bytes");
       goto reset;
     }
 
@@ -1567,6 +1572,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
+  array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
   if (sp->suffix && sp->suffix != prevSuffix) {
     TrieType_Free(sp->suffix);
   }
