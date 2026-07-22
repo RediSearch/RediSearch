@@ -10,44 +10,45 @@
 //! GC collection for numeric and geo inverted indexes.
 
 use std::io::{self, Read, Write};
-use std::mem::size_of_val;
 
 use field_spec::FieldSpecType;
 use index_spec::IndexSpecReadGuard;
 use serde::Serialize as _;
 
-use numeric_range_tree::Hll;
+use numeric_range_tree::{Hll, NodeGcDelta};
 
 use crate::Frame;
 
 /// A single node entry in the numeric GC wire protocol.
-pub struct NumericNodeDelta<D> {
+pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
-    pub delta_data: D,
-    pub registers_with_last_block: [u8; Hll::size()],
-    pub registers_without_last_block: [u8; Hll::size()],
+    pub delta: NodeGcDelta,
 }
 
-impl<'a> NumericNodeDelta<&'a [u8]> {
+impl NumericNodeDelta {
     /// Write this node entry to `writer`.
     pub fn encode(self, writer: &mut impl Write) -> io::Result<()> {
+        let mut delta_data = Vec::new();
+        self.delta
+            .delta
+            .serialize(&mut rmp_serde::Serializer::new(&mut delta_data))
+            .map_err(io::Error::other)?;
+
         let node_len = size_of_val(&self.position)
             + size_of_val(&self.generation)
-            + self.delta_data.len()
-            + size_of_val(&self.registers_with_last_block)
-            + size_of_val(&self.registers_without_last_block);
+            + delta_data.len()
+            + size_of_val(&self.delta.registers_with_last_block)
+            + size_of_val(&self.delta.registers_without_last_block);
 
         writer.write_all(&node_len.to_ne_bytes())?;
         writer.write_all(&self.position.to_ne_bytes())?;
         writer.write_all(&self.generation.to_ne_bytes())?;
-        writer.write_all(self.delta_data)?;
-        writer.write_all(&self.registers_with_last_block)?;
-        writer.write_all(&self.registers_without_last_block)
+        writer.write_all(&delta_data)?;
+        writer.write_all(&self.delta.registers_with_last_block)?;
+        writer.write_all(&self.delta.registers_without_last_block)
     }
-}
 
-impl NumericNodeDelta<Box<[u8]>> {
     /// Read one node entry from `reader`.
     ///
     /// Returns `Ok(None)` when a [`Frame::Terminator`] is received (end of
@@ -69,19 +70,21 @@ impl NumericNodeDelta<Box<[u8]>> {
         reader.read_exact(&mut pos_bytes)?;
         let mut gen_bytes = [0u8; size_of::<u32>()];
         reader.read_exact(&mut gen_bytes)?;
-        let mut delta_data = vec![0u8; delta_data_len].into_boxed_slice();
+        let mut delta_data = vec![0u8; delta_data_len];
         reader.read_exact(&mut delta_data)?;
-        let mut registers_with = [0u8; Hll::size()];
-        reader.read_exact(&mut registers_with)?;
-        let mut registers_without = [0u8; Hll::size()];
-        reader.read_exact(&mut registers_without)?;
+        let mut registers_with_last_block = [0u8; Hll::size()];
+        reader.read_exact(&mut registers_with_last_block)?;
+        let mut registers_without_last_block = [0u8; Hll::size()];
+        reader.read_exact(&mut registers_without_last_block)?;
 
         Ok(Some(NumericNodeDelta {
             position: u32::from_ne_bytes(pos_bytes),
             generation: u32::from_ne_bytes(gen_bytes),
-            delta_data,
-            registers_with_last_block: registers_with,
-            registers_without_last_block: registers_without,
+            delta: NodeGcDelta {
+                delta: rmp_serde::from_slice(&delta_data).map_err(io::Error::other)?,
+                registers_with_last_block,
+                registers_without_last_block,
+            },
         }))
     }
 }
@@ -119,18 +122,10 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
             .indexed_iter()
             .filter_map(|(idx, node)| node.scan_gc(&|id| spec.doc_exists(id)).map(|d| (idx, d)))
         {
-            let mut delta_data = Vec::new();
-            delta
-                .delta
-                .serialize(&mut rmp_serde::Serializer::new(&mut delta_data))
-                .map_err(io::Error::other)?;
-
             NumericNodeDelta {
                 position: node_idx.position(),
                 generation: node_idx.generation(),
-                delta_data: delta_data.as_slice(),
-                registers_with_last_block: delta.registers_with_last_block,
-                registers_without_last_block: delta.registers_without_last_block,
+                delta,
             }
             .encode(writer)?;
         }
