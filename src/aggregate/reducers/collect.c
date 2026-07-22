@@ -14,6 +14,7 @@
 #include "spec.h"
 #include "config.h"
 #include "reducers_ffi.h"
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -286,14 +287,6 @@ void CollectArgs_Free(CollectArgs *args) {
   args->sort_names = NULL;
 }
 
-static void asciiToLower(char *s, size_t len) {
-  for (size_t i = 0; i < len; i++) {
-    if (s[i] >= 'A' && s[i] <= 'Z') {
-      s[i] += 'a' - 'A';
-    }
-  }
-}
-
 // Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
 // field/sort name, so a name can never be mistaken for a keyword.
 static bool isCollectKeyword(const char *tok, size_t len) {
@@ -320,7 +313,9 @@ void CollectArgs_NormalizeKeywords(const ArgsCursor *args) {
     size_t len = 0;
     char *tok = (char *)AC_GetStringNC(&it, &len);
     if (tok && isCollectKeyword(tok, len)) {
-      asciiToLower(tok, len);
+      for (size_t i = 0; i < len; i++) {
+        tok[i] = tolower((unsigned char)tok[i]);
+      }
     }
   }
 }
