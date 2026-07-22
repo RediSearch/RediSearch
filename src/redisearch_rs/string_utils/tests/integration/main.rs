@@ -17,3 +17,4 @@ mod str_to_lower_runes;
 mod tag_strtolower;
 mod unicode_tolower;
 mod unicode_tolower_capped;
+mod utf8_to_runes;
