@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Constructor mode-selection tests: how `new_vector_top_k_filtered_boxed`
+//! Constructor mode-selection tests: how `new_vector_top_k_filtered`
 //! maps the requested `HYBRID_POLICY` (or its absence) onto a [`TopKMode`].
 
 use std::num::NonZeroUsize;
@@ -17,7 +17,7 @@ use ffi::{
     VecSimIndex_Free,
 };
 use top_k::TopKMode;
-use vector_score_source::new_vector_top_k_filtered_boxed;
+use vector_score_source::new_vector_top_k_filtered;
 use vector_score_source::test_utils::{
     build_flat_index, make_child, make_source_with_mode, uniform_blob,
 };
@@ -37,7 +37,7 @@ fn explicit_adhoc_policy() {
             3,
         )
     };
-    let it = new_vector_top_k_filtered_boxed(
+    let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
@@ -64,7 +64,7 @@ fn explicit_batches_policy() {
             3,
         )
     };
-    let it = new_vector_top_k_filtered_boxed(
+    let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
@@ -93,7 +93,7 @@ fn unset_policy_uses_heuristic() {
             3,
         )
     };
-    let it = new_vector_top_k_filtered_boxed(
+    let it = new_vector_top_k_filtered(
         source,
         make_child(vec![1, 2, 3]),
         NonZeroUsize::new(3).unwrap(),
