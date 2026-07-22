@@ -1927,8 +1927,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread(ctx)) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // Capture the timeout policy on the main thread; BeginCycle stores it on
-    // the wrapper for the cycle.
+    // reqConfig was captured at request construction, so a concurrent
+    // FT.CONFIG SET cannot desync the callbacks chosen here from the policy
+    // the BG thread and the timeout callback act on.
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;

@@ -401,11 +401,11 @@ struct BlockedRequestCtx {
                        // true => BG stores results and the reply callback
                        // registered with RedisModule_BlockClient serializes
                        // them on main after UnblockClient
-  // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
-  // results/error here before UnblockClient; the reply or timeout callback
-  // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
-  // EndCycle (per cycle) and, idempotently, in BlockedRequestCtx_Free as a
-  // safety net.
+  // Stored-reply slot for deferred (deferred_reply) cycles: the BG thread
+  // stores results/error here before UnblockClient; the reply or timeout
+  // callback reads it on main. One slot serves AREQ and hybrid cycles.
+  // Destroyed at EndCycle (per cycle) and, idempotently, in
+  // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;
 
   /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====

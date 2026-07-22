@@ -1174,8 +1174,9 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // Capture the timeout policy on the main thread; BeginCycle stores it on
-    // the wrapper for the cycle.
+    // reqConfig was captured at request construction, so a concurrent
+    // FT.CONFIG SET cannot desync the callbacks chosen here from the policy
+    // the BG thread and the timeout callback act on.
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;

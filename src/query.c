@@ -838,7 +838,8 @@ bool AREQ_CheckTimedOut(AREQ *areq) {
   return AREQ_TimedOut(areq);
 }
 
-static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
+static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
+                                           const EvalConfig *evalConfig) {
   RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
 
   if (qn->opts.distField) {
@@ -872,7 +873,7 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   QueryIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RS_ASSERT(QueryNode_NumChildren(qn) == 1);
-    child_it = Query_EvalNode_Rs(q, qn->children[0]);
+    child_it = Query_EvalNode_Rs(q, qn->children[0], evalConfig);
     // If child iterator is in valid or empty, the hybrid iterator is empty as well.
     if (child_it == NULL) {
       return NULL;
@@ -1212,7 +1213,7 @@ static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
 }
 
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
+QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig) {
   switch (n->type) {
     case QN_IDS:
     case QN_WILDCARD:
@@ -1227,7 +1228,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_TOKEN:
     case QN_GEOMETRY:
       // These node types have been ported to Rust.
-      return Query_EvalNode_Rs(q, n);
+      return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
     case QN_PREFIX:
@@ -1235,7 +1236,7 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n) {
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_VECTOR:
-      return Query_EvalVectorNode(q, n);
+      return Query_EvalVectorNode(q, n, evalConfig);
     case QN_WILDCARD_QUERY:
       return Query_EvalWildcardQueryNode(q,n);
     case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
