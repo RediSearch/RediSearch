@@ -9,12 +9,61 @@
 
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
 };
 
 #[derive(Default)]
+#[repr(C)]
 struct Infinite<'index>(index_result::RSIndexResult<'index>);
+
+/// Suspended counterpart of [`Infinite`]. The mock holds only owned data
+/// (no live index borrows), so the suspended form is byte-identical to the
+/// active form at any lifetime.
+#[repr(C)]
+struct InfiniteSuspended(index_result::RSIndexResult<'static>);
+
+impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
+    type Suspended = InfiniteSuspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
+        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
+        // borrows, so the lifetime parameter is phantom and the layouts
+        // are byte-identical. Box::from_raw reuses the same heap.
+        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended {
+    type Resumed<'a>
+        = Infinite<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-identical — see [`Infinite::suspend`].
+        let active = unsafe { Box::from_raw(raw as *mut Infinite<'a>) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> ffi::t_docId {
+        self.0.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        usize::MAX
+    }
+}
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
@@ -244,4 +293,31 @@ fn take_iterator_from_empty_returns_none() {
     // Still behaves as empty
     assert!(it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+}
+
+mod via_resume {
+    use super::*;
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    #[test]
+    fn revalidate_empty() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
+        // Resuming an empty wrapper stays at the same (empty) position.
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume failed")
+            .expect_ok();
+    }
+
+    #[test]
+    fn revalidate_not_empty() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let it = Box::new(MaybeEmpty::new(Infinite::default()));
+        // The mock child resumes as `Ok`, so the wrapper does too.
+        revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume failed")
+            .expect_ok();
+    }
 }
