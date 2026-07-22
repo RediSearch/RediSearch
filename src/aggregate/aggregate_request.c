@@ -10,7 +10,6 @@
 #include "aggregate_debug.h"
 #include "search_result_ffi.h"
 #include "reducer.h"
-#include "reducers/collect_parse.h"
 
 #include <cursor.h>
 #include <query.h>
@@ -861,12 +860,6 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, name, rv);
     goto error;
-  }
-
-  // Keyword case must be canonical: getReducerAlias lowercases the args while the reducer
-  // dedup compares bytes (MOD-16365).
-  if (!strcasecmp(name, "COLLECT")) {
-    CollectArgs_NormalizeKeywords(&gr->args);
   }
 
   // See if there is an alias

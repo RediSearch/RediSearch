@@ -14,7 +14,6 @@
 #include "spec.h"
 #include "config.h"
 #include "reducers_ffi.h"
-#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -287,37 +286,15 @@ void CollectArgs_Free(CollectArgs *args) {
   args->sort_names = NULL;
 }
 
-// Bare tokens are unambiguous: COLLECT requires the `@` prefix on every (case-sensitive)
-// field/sort name, so a name can never be mistaken for a keyword.
-static bool isCollectKeyword(const char *tok, size_t len) {
-  static const char *const keywords[] = {"FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC,
-                                         "LIMIT", "DISTINCT"};
+const char *CollectArgs_CanonicalKeyword(const char *tok) {
+  static const char *const keywords[] = {"fields", "sortby", "asc", "desc", "limit", "distinct"};
   static const size_t nkeywords = sizeof(keywords) / sizeof(keywords[0]);
-  if (len == 0 || tok[0] == '@') {
-    return false;
-  }
   for (size_t i = 0; i < nkeywords; i++) {
-    if (len == strlen(keywords[i]) && !strncasecmp(tok, keywords[i], len)) {
-      return true;
+    if (!strcasecmp(tok, keywords[i])) {
+      return keywords[i];
     }
   }
-  return false;
-}
-
-void CollectArgs_NormalizeKeywords(const ArgsCursor *args) {
-  if (args->type == AC_TYPE_RSTRING) {
-    return;  // RedisModuleString* tokens, not mutable char buffers (never used for COLLECT)
-  }
-  ArgsCursor it = *args;
-  while (!AC_IsAtEnd(&it)) {
-    size_t len = 0;
-    char *tok = (char *)AC_GetStringNC(&it, &len);
-    if (tok && isCollectKeyword(tok, len)) {
-      for (size_t i = 0; i < len; i++) {
-        tok[i] = tolower((unsigned char)tok[i]);
-      }
-    }
-  }
+  return NULL;
 }
 
 // ===== Post-parse key resolution (side-effectful: opens RLookupKeys) =====
