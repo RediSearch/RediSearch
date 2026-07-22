@@ -19,6 +19,7 @@ use crate::util::with_hidden_string_ref;
 use crate::{ForkGC, Frame};
 
 /// Successful outcome of [`handle_missing_docs`].
+#[derive(Debug, Clone, Copy)]
 pub enum HandleOutcome {
     /// Delta received and applied; iteration may continue.
     Collected,
@@ -29,18 +30,26 @@ pub enum HandleOutcome {
 /// Error returned by [`handle_missing_docs`] and its sub-functions.
 ///
 /// Mapped to `FGCError` variants at the FFI layer.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum HandleError {
-    /// Pipe read error; child likely crashed.
-    PipeReadError(io::Error),
-    /// Deserialisation failed; child likely crashed.
-    DeserializationFailed(rmp_serde::decode::Error),
-    /// Child sent a valid frame of an unexpected kind (protocol violation).
+    /// Reading a frame from the child's pipe failed; the child likely crashed.
+    #[error("pipe read error")]
+    PipeReadError(#[from] io::Error),
+
+    /// A frame's MessagePack payload could not be decoded into a [`GcScanDelta`]; the child likely crashed.
+    #[error("deserialisation failed")]
+    DeserializationFailed(#[from] rmp_serde::decode::Error),
+
+    /// An empty frame arrived where a field-name [`Frame::Data`] or [`Frame::Terminator`] was required.
+    #[error("child sent a valid frame of an unexpected kind")]
     UnexpectedFrame,
-    /// The index spec was deleted before the delta could be applied.
+
+    /// The weak spec reference could not be promoted; the index was dropped before apply.
+    #[error("the index spec was deleted before the delta could be applied")]
     SpecDeleted,
-    /// The field was removed from `missingFieldDict` between the child's scan
-    /// and the parent's apply (race between GC and a concurrent field removal).
+
+    /// The field was removed from `missingFieldDict` between the child's scan and the parent's apply.
+    #[error("the field was removed from missingFieldDict before the delta could be applied")]
     FieldNotFound,
 }
 
@@ -98,28 +107,21 @@ type MissingDocsMessage = (Box<[u8]>, GcScanDelta);
 pub fn receive_missing_docs(
     reader: &mut impl Read,
 ) -> Result<Option<MissingDocsMessage>, HandleError> {
-    match Frame::decode(reader).map_err(HandleError::PipeReadError)? {
+    match Frame::decode(reader)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
-            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
-                .map_err(HandleError::DeserializationFailed)?;
+            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)?;
             Ok(Some((field_name.into_inner(), delta)))
         }
-        _ => Err(HandleError::UnexpectedFrame),
+        Frame::Empty => Err(HandleError::UnexpectedFrame),
     }
 }
 
-/// Apply a pre-decoded GC delta to the field's inverted index in `missingFieldDict`.
+/// Apply a pre-decoded GC delta to the field's inverted index.
 ///
-/// Looks up `field_name` in `missingFieldDict` and applies `delta`. If the inverted
-/// index has no remaining documents after the apply, removes the entry from the dict
-/// (the dict's `valDestructor`, `InvIndFreeCb`, frees the inverted index on removal).
+/// The field's inverted index is removed from the dict once it has no unique docs left.
 ///
 /// Returns [`ApplyInfo`] with counters the caller can forward to [`update_stats`].
-///
-/// Returns `Err(HandleError::FieldNotFound)` when the field is absent from
-/// `missingFieldDict`, which can happen if it was removed between the child's scan
-/// and the parent's apply.
 pub fn apply_missing_docs(
     field_name: &[u8],
     delta: GcScanDelta,
@@ -142,8 +144,14 @@ pub fn apply_missing_docs(
         };
 
         Ok(ApplyInfo {
-            added_block_count: gc_info.block_count_delta - remaining_blocks as i64,
-            bytes_freed: gc_info.bytes_freed + extra,
+            added_block_count: gc_info
+                .block_count_delta
+                .checked_sub(remaining_blocks as i64)
+                .expect("block count delta should never underflow/overflow"),
+            bytes_freed: gc_info
+                .bytes_freed
+                .checked_add(extra)
+                .expect("freed bytes should never overflow"),
             bytes_allocated: gc_info.bytes_allocated,
             entries_removed: gc_info.entries_removed,
             ignored_last_block: gc_info.ignored_last_block,

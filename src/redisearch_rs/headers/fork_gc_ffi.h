@@ -112,9 +112,9 @@ void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
 /**
  * Receive and apply the GC delta for one field in the spec's `missingFieldDict`.
  *
- * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when the
- * child sent a terminator (all fields processed), [`FGCError::Collected`] after
- * successfully applying a delta, or an error variant on pipe or spec failure.
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
+ * successfully applying a delta, [`FGCError::Done`] when the child sent a
+ * terminator (all fields processed), or an error variant on pipe or spec failure.
  *
  * Called in a loop (via `COLLECT_FROM_CHILD`) until it returns something other
  * than [`FGCError::Collected`].
