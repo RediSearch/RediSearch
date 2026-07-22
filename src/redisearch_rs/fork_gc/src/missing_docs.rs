@@ -91,10 +91,13 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
     Frame::Terminator.encode(writer)
 }
 
+/// A decoded missing-docs message: the field name and its GC delta.
+type MissingDocsMessage = (Box<[u8]>, GcScanDelta);
+
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<(Box<[u8]>, GcScanDelta)>, HandleError> {
+) -> Result<Option<MissingDocsMessage>, HandleError> {
     match Frame::decode(reader).map_err(HandleError::PipeReadError)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
