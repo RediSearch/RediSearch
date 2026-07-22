@@ -2213,9 +2213,9 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
   } else {
     // Single-cursor hybrid fallback: only reachable via
     // HybridRequest_StartSingleCursor (execState NULL, hybrid_ref set),
-    // i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported
-    // (see cursor.h CursorTimeoutInfo). _FT.HYBRID WITHCURSOR sub-cursors
-    // always carry an execState and take the if branch above.
+    // i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported.
+    // _FT.HYBRID WITHCURSOR sub-cursors always carry an execState and take
+    // the if branch above.
     HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
     *reqFlags = hreq->reqflags;
     qctx = &hreq->tailPipeline->qctx;
@@ -2358,9 +2358,13 @@ static void coordCursorRead_ctx(void *p) {
   rm_free(cr_ctx);
 }
 
-int RSCursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long long count,
-                              RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
-                              rs_wall_clock_ms_t timeout_ms, int poolType) {
+/* Block the client with the taken cursor's wrapper as privdata and dispatch a
+ * slim coordCursorRead_ctx job to `poolType`. FAIL/RETURN_STRICT pass
+ * reply/timeout callbacks and a timer; RETURN passes none and the BG job
+ * replies inline through a thread-safe ctx. */
+static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long long count,
+                                   RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
+                                   rs_wall_clock_ms_t timeout_ms, int poolType) {
   AREQ *req = cursor->execState;
   RS_ASSERT(req);
   // If a timeout is armed, both callbacks must be provided (mirrors the shard
@@ -2406,12 +2410,20 @@ static bool cursorIsDiskBacked(const Cursor *cursor) {
   return isDisk;
 }
 
+// Coordinator blocked-client callbacks (coord/dist_aggregate.c), used when the
+// taken cursor is a coordinator (RPNet) cursor.
+int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
+                                              int argc);
+
 /**
  * FT.CURSOR READ {index} {CID} {COUNT} [MAXIDLE]
  *
- * Multi-shard coordinator reads do not come through here (any policy):
- * CursorCommand parses and takes the cursor on the main thread and dispatches
- * a coordCursorRead_ctx job via RSCursorReadDispatchTaken.
+ * The single READ handler for every flow: COUNT is parsed and the cursor taken
+ * on the main thread, then coordinator-list cursors dispatch a slim read job
+ * to the coordinator pool, shard cursors block and dispatch to the workers
+ * pool, and non-blockable / workers-off contexts read inline.
  */
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 4) {
@@ -2441,6 +2453,47 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
   if (cursor == NULL) {
     return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+  }
+
+  if (cursor->is_coord &&
+      !(RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING)) {
+    // Coordinator cursor: the read pulls from the shards over the network, so
+    // it is always dispatched to the coordinator pool, independent of the
+    // WORKERS config. execState is always set — the only execState-less
+    // cursors (single-cursor hybrid) are not user-reachable.
+    AREQ *req = cursor->execState;
+    RS_ASSERT(req != NULL);
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE for the queued re-read; the BG job advances it back
+    // to PIPELINE at pickup. (A timed-out RETURN_STRICT read depletes its
+    // cursor, so the freeze cannot swallow this store on a live cursor.)
+    AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_QUEUE);
+    RedisModuleCmdFunc replyCallback = NULL;
+    RedisModuleCmdFunc timeoutCallback = NULL;
+    rs_wall_clock_ms_t timeoutMS = 0;
+    if (cursor->queryTimeoutPolicy != TimeoutPolicy_Return) {
+      // Apply the foreground cap to the blocked-client timer budget. The
+      // cursor cached its queryTimeoutMS at WITHCURSOR time; tightening
+      // search-_max-foreground-timeout-limit (or disabling workers) between
+      // cursor open and this READ must shrink both the execution deadline
+      // (capped in runCursor) and the coordinator-side timer here.
+      long long capped = cursor->queryTimeoutMS > (size_t)LLONG_MAX
+                           ? LLONG_MAX
+                           : (long long)cursor->queryTimeoutMS;
+      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
+        RedisModule_Log(ctx, "verbose",
+          "FT.CURSOR READ: coordinator blocked-client timer capped by "
+          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
+          cursor->queryTimeoutMS, capped);
+      }
+      replyCallback = DistAggregateReplyCallback;
+      timeoutCallback = (cursor->queryTimeoutPolicy == TimeoutPolicy_Fail)
+          ? DistAggregateTimeoutFailCallback
+          : DistCursorReadTimeoutReturnStrictCallback;
+      timeoutMS = (rs_wall_clock_ms_t)capped;
+    }
+    return cursorReadDispatchTaken(ctx, cursor, count, replyCallback, timeoutCallback, timeoutMS,
+                                   DIST_THREADPOOL);
   }
 
   if (RunInThread(ctx)) {

@@ -674,15 +674,6 @@ void AREQ_CleanUpStoredCursor(AREQ *req);
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-/* Coordinator blocking FT.CURSOR READ (every timeout policy), mirroring the
- * shard shape: `cursor` was taken for execution on the main thread (COUNT
- * already parsed there); this blocks the client with the cursor's wrapper as
- * privdata and dispatches a slim read job to `poolType`. FAIL/RETURN_STRICT
- * pass reply/timeout callbacks and a timer; RETURN passes none and the BG job
- * replies inline through a thread-safe ctx. */
-int RSCursorReadDispatchTaken(RedisModuleCtx *ctx, struct Cursor *cursor, long long count,
-                              RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
-                              rs_wall_clock_ms_t timeout_ms, int poolType);
 int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

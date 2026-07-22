@@ -3720,7 +3720,6 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
@@ -3997,86 +3996,19 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  // READ is handled by the same handler on every path: RSCursorReadCommand
+  // parses COUNT and takes the cursor on the main thread, then dispatches
+  // coordinator-list cursors to the coordinator pool.
+  if (sub == CURSOR_SUBCMD_READ) {
+    return subcmd(ctx, argv, argc);
+  }
+
+  // DEL / GC: generic dist re-entry on the coordinator pool.
+  RS_ASSERT(dist_callback != NULL);
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
 
   handlerCtx.spec_ref = (WeakRef){0};
-
-  // On coord+READ, peek the cursor's cached timeout config so coord and shard
-  // stay aligned across changes to the `search-on-timeout` config. Reject
-  // malformed/unknown CIDs on the main thread so the RETURN_STRICT timer can
-  // later trust argv[3] without re-peeking.
-  if (sub == CURSOR_SUBCMD_READ) {
-    long long cid;
-    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    }
-    CursorTimeoutInfo info =
-        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (!info.found) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
-    }
-    // Parse COUNT on the main thread (mirrors RSCursorReadCommand), before
-    // taking the cursor so argument errors reply inline with nothing to
-    // undo.
-    long long count = 0;
-    if (argc > 5) {
-      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
-      if (strcasecmp(count_str, "count") != 0) {
-        return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-      }
-      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-        const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
-        return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
-      }
-    }
-    // Take the cursor for execution here, on the main thread — same shape as
-    // the shard path for every timeout policy: the parked request's wrapper
-    // becomes the blocked client's privdata and a slim read job is dispatched
-    // to the coord pool.
-    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (!cursor) {
-      // Taken by a concurrent READ, or reaped between the peek and here.
-      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
-    }
-    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
-    // reset it to QUEUE for the queued re-read; the BG job advances it back
-    // to PIPELINE at pickup.
-    AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
-    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
-#ifdef ENABLE_ASSERT
-      // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
-      RS_ASSERT(!info.isHybrid);
-#endif
-      // Apply the foreground cap to the blocked-client timer budget. The cursor
-      // cached its queryTimeoutMS at WITHCURSOR time; tightening
-      // search-_max-foreground-timeout-limit (or disabling workers) between
-      // cursor open and this READ must shrink both the execution deadline
-      // (capped in runCursor) and the coordinator-side timer here.
-      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
-                           ? LLONG_MAX
-                           : (long long)info.queryTimeoutMS;
-      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-        RedisModule_Log(ctx, "verbose",
-          "FT.CURSOR READ: coordinator blocked-client timer capped by "
-          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
-          info.queryTimeoutMS, capped);
-      }
-      RedisModuleCmdFunc timeoutCallback = (info.queryTimeoutPolicy == TimeoutPolicy_Fail)
-          ? DistAggregateTimeoutFailCallback
-          : DistCursorReadTimeoutReturnStrictCallback;
-      return RSCursorReadDispatchTaken(ctx, cursor, count, DistAggregateReplyCallback,
-                                       timeoutCallback, (size_t)capped, DIST_THREADPOOL);
-    }
-    // RETURN: same main-thread take and slim job, with no timer and no
-    // callbacks — the BG job replies inline through a thread-safe ctx and
-    // unblocking only runs the wrapper's OnFree.
-    return RSCursorReadDispatchTaken(ctx, cursor, count, NULL, NULL, 0, DIST_THREADPOOL);
-  }
-
-  // DEL / GC. READ always returns above, so a dist re-entry callback is
-  // required here.
-  RS_ASSERT(dist_callback != NULL);
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
