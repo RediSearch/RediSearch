@@ -31,8 +31,12 @@ pub enum HandleOutcome {
 /// Mapped to `FGCError` variants at the FFI layer.
 #[derive(Debug)]
 pub enum HandleError {
-    /// Pipe read error or deserialisation failed; child likely crashed.
-    ChildError,
+    /// Pipe read error; child likely crashed.
+    PipeReadError(io::Error),
+    /// Deserialisation failed; child likely crashed.
+    DeserializationFailed(rmp_serde::decode::Error),
+    /// Child sent a valid frame of an unexpected kind (protocol violation).
+    UnexpectedFrame,
     /// The index spec was deleted before the delta could be applied.
     SpecDeleted,
     /// The field was removed from `missingFieldDict` between the child's scan
@@ -88,21 +92,17 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 }
 
 /// Decode one missing-docs message from `reader`.
-///
-/// Returns `Ok(Some((field_name, delta)))` when the child sent a GC delta for a
-/// field, `Ok(None)` when the child sent a terminator (all fields processed), or
-/// `Err(HandleError::ChildError)` on any read or deserialisation failure.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
 ) -> Result<Option<(Box<[u8]>, GcScanDelta)>, HandleError> {
-    match Frame::decode(reader).map_err(|_| HandleError::ChildError)? {
+    match Frame::decode(reader).map_err(HandleError::PipeReadError)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
             let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
-                .map_err(|_| HandleError::ChildError)?;
+                .map_err(HandleError::DeserializationFailed)?;
             Ok(Some((field_name.into_inner(), delta)))
         }
-        _ => Err(HandleError::ChildError),
+        _ => Err(HandleError::UnexpectedFrame),
     }
 }
 

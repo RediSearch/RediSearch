@@ -164,11 +164,11 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_child_error() {
+fn receive_malformed_frame_returns_pipe_read_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_missing_docs(&mut cursor),
-        Err(HandleError::ChildError)
+        Err(HandleError::PipeReadError(_))
     ));
 }
 
