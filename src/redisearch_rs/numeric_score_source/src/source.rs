@@ -243,7 +243,7 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        Ok(self.ranges.next_n(self.range_batch_size))
+        Ok(self.ranges.next_n(self.range_batch_size)?)
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {

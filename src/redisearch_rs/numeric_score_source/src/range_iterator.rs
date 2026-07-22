@@ -70,17 +70,17 @@ impl<'index> NumericRangeIterator<'index> {
     }
 
     /// Materialize the next `n` value-ordered ranges into one doc-id-ordered
-    /// batch, or `None` once the window is exhausted.
+    /// batch, or `Ok(None)` once the window is exhausted.
     ///
     /// `n` is clamped to at least `1`.
-    pub fn next_n(&mut self, n: usize) -> Option<NumericScoreBatch> {
+    pub fn next_n(&mut self, n: usize) -> std::io::Result<Option<NumericScoreBatch>> {
         if self.pos >= self.ranges.len() {
-            return None;
+            return Ok(None);
         }
         let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter);
+        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter)?;
         self.pos = end;
-        Some(batch)
+        Ok(Some(batch))
     }
 }
 
@@ -97,12 +97,15 @@ impl<'index> NumericRangeIterator<'index> {
 /// times with different scores. Such runs are coalesced to a single entry
 /// carrying the doc's best score for the sort direction — the value that decides
 /// its rank in a top-k over this batch's ranges.
-fn merge_ranges(ranges: &[&NumericRange], filter: NumericFilter) -> NumericScoreBatch {
+fn merge_ranges(
+    ranges: &[&NumericRange],
+    filter: NumericFilter,
+) -> std::io::Result<NumericScoreBatch> {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
         let mut reader = FilterNumericReader::new(filter, range.reader());
-        while reader.next_record(&mut record).unwrap_or(false) {
+        while reader.next_record(&mut record)? {
             let score = record
                 .as_numeric()
                 .expect("numeric range yields numeric records");
@@ -111,7 +114,7 @@ fn merge_ranges(ranges: &[&NumericRange], filter: NumericFilter) -> NumericScore
     }
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
     coalesce_by_doc_id(&mut items, filter.ascending);
-    NumericScoreBatch::new(items)
+    Ok(NumericScoreBatch::new(items))
 }
 
 /// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
@@ -156,7 +159,7 @@ mod tests {
     fn drain_pairs(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<(DocId, f64)> {
         let mut it = NumericRangeIterator::new(tree, filter);
         let mut pairs = Vec::new();
-        while let Some(mut batch) = it.next_n(8) {
+        while let Some(mut batch) = it.next_n(8).unwrap() {
             while let Some(pair) = batch.next() {
                 pairs.push(pair);
             }
