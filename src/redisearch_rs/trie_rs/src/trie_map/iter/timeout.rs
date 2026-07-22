@@ -30,9 +30,14 @@ impl From<Option<Instant>> for IteratorTimeoutState {
         match value {
             None => Self::no_timeout(),
             Some(deadline) => {
+                // Amortize the clock probe over many iterations in release
+                // builds; in debug/test builds probe every iteration so
+                // deadlines are honored promptly.
+                const TIMEOUT_CHECK_LIMIT: u32 = if cfg!(debug_assertions) { 1 } else { 100 };
                 let duration = deadline.saturating_duration_since(Instant::now());
                 Self(AnyTimeoutChecker::Deadline(DeadlineTimeoutChecker::new(
-                    duration, 100,
+                    duration,
+                    TIMEOUT_CHECK_LIMIT,
                 )))
             }
         }

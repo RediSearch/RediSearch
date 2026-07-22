@@ -3005,6 +3005,9 @@ dependencies = [
 [[package]]
 name = "timeout"
 version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
 
 [[package]]
 name = "tinystr"

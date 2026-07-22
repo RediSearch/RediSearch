@@ -71,10 +71,10 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
         self.counter += 1;
-        // For optimized builds, we only check the deadline
-        // once every `self.limit` iterations. In development,
-        // we're checking each iteration.
-        if self.counter >= self.limit || cfg!(debug_assertions) {
+        // We only check the deadline once every `self.limit` iterations,
+        // amortizing the cost of probing the clock. Callers that need
+        // prompt detection construct the checker with a small `limit`.
+        if self.counter >= self.limit {
             // Reset the counter whenever we probe the clock so the next
             // `limit` calls are amortized again. Without this reset the
             // counter would stay `>= limit` forever, turning every
@@ -112,8 +112,7 @@ impl TimeoutChecker for NoTimeoutChecker {
     }
 
     #[inline(always)]
-    fn reset_counter(&mut self) {
-    }
+    fn reset_counter(&mut self) {}
 }
 
 /// Type-erased [`TimeoutChecker`] wrapping the concrete variants.
@@ -127,14 +126,9 @@ pub enum AnyTimeoutChecker {
 impl TimeoutChecker for AnyTimeoutChecker {
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
-        
         match self {
-            Self::NoTimeout(c) => {
-                c.check_timeout()
-            },
-            Self::Deadline(c) => {
-                c.check_timeout()
-            },
+            Self::NoTimeout(c) => c.check_timeout(),
+            Self::Deadline(c) => c.check_timeout(),
         }
     }
 
