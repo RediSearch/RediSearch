@@ -193,6 +193,46 @@ fn filtered_retry_expands_window_to_reach_low_scored_match() {
 }
 
 #[test]
+fn filtered_retry_reaches_match_past_multivalue_inflated_ranges() {
+    // Numeric top-k over a multivalue field keeps a low-valued match when a
+    // selective filter forces the window to expand into low ranges.
+    //
+    // A multivalue field indexes one entry per value, so the per-range count
+    // `find` totals over a window exceeds the unique document count. Four filler
+    // docs interleave values across the whole high span, landing each in every
+    // high leaf; the summed count runs well past the five unique docs. DESC,
+    // k=1, and the only child match sits alone in the lowest leaf.
+    let mut tree = NumericRangeTree::new(false);
+    for d in 1..=4u64 {
+        for j in 0..100u64 {
+            tree.add(d, 1000.0 + (j as f64) * 100.0 + (d as f64), true, 0);
+        }
+    }
+    let match_id = 99999u64;
+    tree.add(match_id, 0.5, false, 0);
+    assert!(
+        tree.num_leaves() >= 3,
+        "fixture needs several high leaves to inflate the per-range total"
+    );
+
+    let num_docs = 5; // docs 1..=4 plus the match doc
+    let mut filter = full_range();
+    filter.limit = 1;
+    let source = NumericScoreSource::filtered(&tree, filter, false, 1, num_docs, 1);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(vec![match_id]),
+        NonZeroUsize::new(1).unwrap(),
+    );
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(match_id, 0.5)]);
+}
+
+#[test]
 fn rewind_restarts_iteration() {
     let tree = build_tree(20, false, 0);
     let mut source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1);
