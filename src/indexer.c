@@ -258,17 +258,15 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
 
-  // Look up any existing key -> docId mapping. This is the memory-mode analogue
-  // of the disk path's oldDocId lookup in doAssignIds.
+  // Existing key -> docId mapping (memory-mode analogue of the disk oldDocId
+  // lookup in doAssignIds).
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, sctx, &oldDocId);
 
   if (oldDocId) {
     if (replace) {
-      // Drop the previous version from the table along with its stats +
-      // auxiliary in-memory indexes. The new doc's stats are folded in by the
-      // caller via `addNewDocStats`; the key -> docId mapping is overwritten by
-      // the actxDocIdMetaSet below.
+      // Drop the previous version + its stats/aux indexes; the mapping is
+      // overwritten by the actxDocIdMetaSet below.
       RSDocumentMetadata *old = DocTable_DeleteById(table, (t_docId)oldDocId);
       if (old) {
         removeOldDocStats(spec, old->docLen);
@@ -277,9 +275,8 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
         DMD_Return(old);
       }
     } else {
-      // Already indexed and not a REPLACE: return the existing metadata without
-      // assigning a new id (preserving DocTable_Put's former dedup behavior).
-      // Fall through to create a fresh entry only if the mapping is stale.
+      // Already indexed, not a REPLACE: return the existing DMD (former
+      // DocTable_Put dedup). Fall through only if the mapping is stale.
       RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, (t_docId)oldDocId);
       if (existing) {
         doc->docId = existing->id;
@@ -294,11 +291,8 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
       DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
-    // Publish the key -> docId mapping inline (the disk path defers the
-    // equivalent DocIdMeta_Set to applyDocTable, after the write batch commits).
-    // A failure here means RedisModule_OpenKey/SetKeyMeta itself failed on a
-    // live key we are mid-indexing — effectively unrecoverable — so match the
-    // disk post-commit policy and crash rather than leave a DMD with no mapping.
+    // Publish the key -> docId mapping. Crash on failure (matches the disk
+    // post-commit policy) rather than leave a DMD with no mapping.
     int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
     RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
   }

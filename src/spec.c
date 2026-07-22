@@ -408,9 +408,8 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  // The DocTable no longer keeps an in-memory key -> docId trie; that mapping
-  // lives on the Redis key as key-metadata (DocIdMeta) and is not counted here.
-  // `doctable_tm_size` is retained for call-site compatibility and is 0.
+  // No in-memory key trie anymore (it's Redis key-metadata, not counted here);
+  // doctable_tm_size is retained for call-site compatibility and is 0.
   res += doctable_tm_size;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
@@ -2768,9 +2767,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  // key -> docId is stored on the Redis key as key-metadata (DocIdMeta), not in
-  // an in-memory trie, so the module-tracked key-table size is 0. The field is
-  // kept for backward compatibility.
+  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
+  // for backward compatibility.
   RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
@@ -3489,9 +3487,7 @@ static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                  : DocIdMeta_Delete(ctx, key, specId);
 }
 
-// Resolve a key -> docId for this spec via the DocIdMeta key metadata. Returns 0
-// if the key is not indexed by the spec. Replaces the former DocTable key trie
-// lookup; valid in both memory and disk mode.
+// Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
 t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key) {
   uint64_t docId = 0;
   if (DocIdMeta_Get(ctx, key, sp->specId, &docId) != REDISMODULE_OK) {
@@ -3500,9 +3496,8 @@ t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, Redis
   return (t_docId)docId;
 }
 
-// Borrow the in-memory DMD for a key, resolving key -> docId via DocIdMeta.
-// Memory mode only (disk mode fetches DMDs from disk via
-// SearchDisk_GetDocumentMetadata). Returns NULL if the key is not indexed.
+// Borrow the in-memory DMD for a key (memory mode; disk fetches from disk).
+// NULL if the key is not indexed.
 const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
                                                     RedisModuleString *key) {
   t_docId docId = IndexSpec_GetDocIdByKeyR(sp, ctx, key);
@@ -3512,16 +3507,10 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
   return DocTable_Borrow(&sp->docs, docId);
 }
 
-// Logical de-index of a document addressed by its Redis key: the key still
-// exists in the keyspace but should no longer be indexed by this spec (e.g. an
-// update that makes it stop passing the index FILTER, a REPLACE, or a changed
-// indexed field). Physical key removal (DEL / overwrite / expiry / eviction) is
-// handled instead by the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
-//
-// Unified across memory and disk mode: resolve the docId from DocIdMeta, delete
-// the document (from the in-memory DocTable or from disk), drop the key->docId
-// mapping so DocIdMeta stays authoritative as an "is this key indexed?" oracle,
-// and clean up stats / auxiliary indexes.
+// Logical de-index of a still-existing key that should no longer be indexed
+// (filter no longer matches, REPLACE, changed indexed field). Physical key
+// removal goes through the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
+// Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
   // Look up docId from the key metadata.
@@ -3548,9 +3537,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     DMD_Return(md);
   }
 
-  // Drop the key->docId mapping now that the document is de-indexed. Without
-  // this, a key that survives in the keyspace but is de-indexed would keep a
-  // stale mapping pointing at an already-deleted docId.
+  // Drop the mapping so a surviving-but-de-indexed key isn't left pointing at a
+  // deleted docId.
   dropDocIdMeta(ctx, key, openKey, spec->specId);
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
@@ -3569,12 +3557,10 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. This is the single de-indexing entry
-// point driven by the DocIdMeta `unlink` callback when a key is removed from the
-// keyspace (delete / overwrite / expiry / eviction), in both memory and disk
-// mode. Acquires the spec write lock; a no-op if the docId is not present.
+// Delete a document by its internal docId. The de-indexing entry point driven by
+// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
+// the spec write lock; no-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  // Acquire the write lock
   IndexSpec_IncrActiveWrites(spec);
   pthread_rwlock_wrlock(&spec->rwlock);
 

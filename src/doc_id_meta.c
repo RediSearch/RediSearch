@@ -230,23 +230,10 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
 }
 
 void DocIdMeta_Init(RedisModuleCtx *ctx) {
-  // The key→docId mapping is used in both memory and disk mode, but the RDB
-  // save/load callbacks are registered in disk mode only:
-  //   - Disk mode: the mapping is authoritative and must survive an RDB
-  //     round-trip, since the documents themselves live on disk and are not
-  //     re-indexed on load. The `ForgetDocIdMetadata` machinery in
-  //     notifications.c gates these callbacks during SST-based persistence.
-  //   - Memory mode: an RDB load rebuilds the whole index by re-scanning the
-  //     keyspace and re-indexing, which re-assigns docIds and repopulates this
-  //     mapping from scratch. A persisted mapping would therefore be stale, so
-  //     we must NOT save or load it. There is also no memory-mode counterpart
-  //     to the `ForgetDocIdMetadata` gating.
-  // All other callbacks (move/unlink/free) apply to both modes; in particular
-  // `unlink` is the single de-indexing trigger for key deletion/expiry/eviction.
-  //
-  // Use the "for validation" variant so tests that simulate disk mode
-  // (RSGlobalConfig.simulateInFlex) also register these callbacks; in
-  // production `simulateInFlex` is false, so this equals SearchDisk_IsEnabled().
+  // RDB save/load are registered in disk mode only: memory mode rebuilds the
+  // mapping by re-indexing on RDB load, so a persisted mapping would be stale.
+  // IsEnabledForValidation lets simulateInFlex tests exercise the callbacks;
+  // equals IsEnabled() in production.
   const bool onDisk = SearchDisk_IsEnabledForValidation();
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = REDISMODULE_KEY_META_VERSION,

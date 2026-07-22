@@ -1425,11 +1425,9 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->inkeys) {
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // Resolve INKEYS key names -> docIds here, on the main thread. The key->docId
-    // mapping lives on the Redis key as key-metadata (DocIdMeta) in both memory
-    // and disk mode, and DocIdMeta_Get opens the key, which requires the GIL — so
-    // it must not run on a background query-execution thread. Pre-resolving here
-    // means the query evaluator only ever consumes docIds.
+    // Resolve INKEYS key names -> docIds here (main thread, both modes):
+    // DocIdMeta_Get opens the key (needs the GIL) so it must not run on a
+    // background query thread. The evaluator then only consumes docIds.
     filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
       uint64_t docId = 0;

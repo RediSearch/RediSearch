@@ -4916,11 +4916,8 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  // The key→docId mapping is stored on the Redis key as key-metadata in both
-  // memory and disk mode, so the DocIdMeta class is registered unconditionally.
-  // DocIdMeta_Init only registers the RDB save/load callbacks in disk mode
-  // (see the comment there). Registration must happen during OnLoad, which this
-  // is, so it is valid for a runtime `MODULE LOAD` of a memory-mode index too.
+  // key->docId is stored as Redis key-metadata in both modes; RDB callbacks are
+  // gated to disk mode inside DocIdMeta_Init. Must run during OnLoad.
   DocIdMeta_Init(ctx);
 
   // Check if we are actually in cluster mode

@@ -277,10 +277,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // A DEL, or a SET that overwrites an indexed hash/JSON with a string,
-      // removes the document's value. De-indexing is driven by the DocIdMeta
-      // `unlink` callback in both memory and disk mode, so there is nothing to
-      // do here.
+      // De-indexed via the DocIdMeta `unlink` callback (both modes).
       break;
 
 /********************************************************
@@ -313,8 +310,8 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
         RedisModule_CloseKey(kp);
       }
       if (kType == DocumentType_Unsupported) {
-        // Empty key means the key was deleted (e.g. under CRDT). De-indexing is
-        // driven by the DocIdMeta `unlink` callback in both modes.
+        // Empty key = deleted (e.g. under CRDT); de-indexed via the DocIdMeta
+        // `unlink` callback (both modes).
         break;
       }
       // todo: here we will open the key again, we can optimize it by
@@ -329,10 +326,8 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      // Expiry / eviction / trimming removes the key's value. De-indexing is
-      // driven by the DocIdMeta `unlink` callback in both modes. We no longer
-      // subscribe to these events (see Initialize_KeyspaceNotifications); the
-      // labels stay as a defensive no-op.
+      // De-indexed via the DocIdMeta `unlink` callback (both modes); we no longer
+      // subscribe to these events (see Initialize_KeyspaceNotifications).
       break;
   }
 
@@ -772,12 +767,8 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    // We do not subscribe to the notifications that lead to deleting a key
-    // (EXPIRED / EVICTED / TRIMMED): de-indexing on physical key removal is
-    // driven by the DocIdMeta `unlink` callback in both memory and disk mode.
-    // GENERIC covers EXPIRE/PERSIST/DEL/RENAME/RESTORE/COPY; HASH covers
-    // HSET/HDEL and the hash field-TTL events (hexpire/hexpired); STRING covers
-    // SET; MODULE covers RedisJSON writes; LOADED covers RDB-load events.
+    // Physical key removal (EXPIRED/EVICTED/TRIMMED) is de-indexed via the
+    // DocIdMeta `unlink` callback in both modes, so we don't subscribe to those.
     int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
                       REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LOADED |
                       REDISMODULE_NOTIFY_MODULE;

@@ -840,9 +840,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
 
-      // Perform the rename. After RENAME the key metadata (docId) rides with the
-      // key to to_key (the DocIdMeta rename callback is NULL, i.e. "keep"), so we
-      // look up the docId on to_key and just update the stored key name.
+      // After RENAME the docId metadata rides to to_key (rename callback keeps
+      // it), so look it up there and just update the stored key name.
       uint64_t docId;
       if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         if (SearchDisk_IsEnabled()) {
@@ -857,9 +856,8 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       dictDelete(to_specs->specs, spec->specName);
       array_del_fast(to_specs->specsOps, index);
     } else {
-      // The document should not be indexed by the new key, so delete it. After
-      // RENAME the metadata lives on to_key; look up the docId there, delete by
-      // id, and drop the mapping. Unified across memory and disk mode.
+      // Not indexed by the new key: delete it. After RENAME the metadata lives
+      // on to_key, so look up the docId there, delete by id, and drop the mapping.
       uint64_t docId;
       if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         IndexSpec_DeleteDocById(spec, (t_docId)docId);

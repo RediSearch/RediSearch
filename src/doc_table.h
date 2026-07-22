@@ -40,9 +40,8 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
  * new
  * incremental ids to inserted keys.
  *
- * The key -> docId direction is NOT stored here: it lives on the Redis key as
- * key-metadata (see doc_id_meta.{h,c}), in both memory and disk mode. The
- * DocTable therefore only maps docId -> RSDocumentMetadata (via `buckets`).
+ * The key -> docId direction is stored on the Redis key as key-metadata (see
+ * doc_id_meta.{h,c}), not here; the DocTable only maps docId -> RSDocumentMetadata.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -179,15 +178,12 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-/* Remove a document from the table by its internal docId. Used by the unified
- * delete path driven by the DocIdMeta `unlink` callback. Returns the removed DMD
- * with ownership moved to the caller (ref count unchanged), or NULL if docId is
- * not present. */
+/* Remove a document by its internal docId (unified unlink-driven delete path).
+ * Ownership of the returned DMD moves to the caller, or NULL if not present. */
 RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
 
-/* Update the stored key of an existing document (addressed by docId), used by
- * the RENAME path. The key -> docId mapping is not touched (it rides with the
- * Redis key metadata across RENAME). No-op if docId is not present. */
+/* Update the stored key of a document (by docId) after a RENAME; the key -> docId
+ * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
 void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
 
 /* increasing the ref count of the given dmd */

@@ -281,8 +281,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
   size_t offset_vecs_size = isDisk ? 0 : sp->stats.offsetVecsSize;
   size_t sortables_size = isDisk ? 0 : sp->docs.sortablesSize;
-  // key -> docId lives on the Redis key as key-metadata (DocIdMeta) in both
-  // modes, not in an in-memory trie, so the module-tracked key-table size is 0.
+  // No in-memory key trie (it's Redis key-metadata, not module-tracked): 0.
   size_t dt_tm_size = 0;
   size_t tags_overhead = isDisk ? 0 : IndexSpec_collect_tags_overhead(sp);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);

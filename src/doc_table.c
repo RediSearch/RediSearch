@@ -276,13 +276,9 @@ void DocTable_ClearExpirationData(DocTable *t) {
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
-/* Put a new document into the table, assign it a fresh incremental id and store the
- * metadata in the table. The key -> docId mapping is published separately by the caller
- * via DocIdMeta (key metadata); this function only allocates the docId and the DMD.
- *
- * Callers are responsible for detecting an existing document (via DocIdMeta) before
- * calling this: there is no key-based deduplication here, so calling it twice for the
- * same key produces two DMDs with distinct docIds. */
+/* Put a new document into the table with a fresh incremental id. The key -> docId
+ * mapping is published separately by the caller via DocIdMeta; there is no key-based
+ * dedup here, so callers must detect an existing document before calling. */
 RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
                                  const char *payload, size_t payloadSize, DocumentType type) {
 
@@ -383,11 +379,8 @@ void DocTable_Free(DocTable *t) {
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
-// Remove a document from the table by its internal docId, for the unified delete
-// path driven by the DocIdMeta `unlink` callback. Unchains the DMD, marks it deleted,
-// drops its per-field TTL entry and updates size/memory accounting. Ownership of
-// the returned DMD is moved to the caller (ref count unchanged); returns NULL if
-// the docId is not present.
+// Remove a document from the table by its internal docId (unified unlink-driven
+// delete path). Ownership of the returned DMD moves to the caller; NULL if absent.
 RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
     return NULL;
@@ -428,9 +421,8 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
 }
 
 // Not thread safe. Assumes the caller has locked the spec for write.
-// Update the stored key of an existing document (addressed by docId) after a
-// RENAME. The key -> docId mapping is not touched here: it rides with the Redis
-// key metadata (DocIdMeta) across the rename.
+// Update the stored key of an existing document (by docId) after a RENAME. The
+// key -> docId mapping is untouched (it rides with the Redis key metadata).
 void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t to_len) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (!dmd) {
@@ -537,9 +529,8 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       ++deletedElements;
       DMD_Free(dmd);
     } else {
-      // Legacy RDB load (memory mode only). The key -> docId mapping is not
-      // rebuilt here: legacy indexes are re-scanned/re-indexed after the load
-      // completes (Indexes_EndRDBLoadingEvent), which repopulates DocIdMeta.
+      // key -> docId is not rebuilt here: legacy indexes are re-indexed after
+      // load (Indexes_EndRDBLoadingEvent), which repopulates DocIdMeta.
       DocTable_Set(t, dmd->id, dmd);
       t->memsize += sizeof(RSDocumentMetadata) + len;
     }
