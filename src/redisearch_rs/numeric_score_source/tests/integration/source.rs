@@ -27,12 +27,11 @@ use numeric_score_source::{
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
-use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
     Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError, Wildcard,
     c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
-    utils::{NoTimeoutChecker, TimeoutContext},
+    utils::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContext},
 };
 use top_k::{ScoreBatch, ScoreSource};
 
