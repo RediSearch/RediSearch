@@ -1760,70 +1760,78 @@ def test_create_multi_value_json():
             env.assertEqual(to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "vec"))['IS_MULTI_VALUE'], 0, message=f'{algo}, {path}')
 
 
-def test_index_multi_value_json():
+def index_multi_value_json(data_t):
     env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dim = 4
     n = 100
     per_doc = 5
 
-    for data_t in VECSIM_DATA_TYPES:
-        conn.flushall()
-        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
-            '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-            '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+        '$.vecs[*]', 'AS', 'hnsw', 'VECTOR', 'HNSW', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2',
+        '$.vecs[*]', 'AS', 'flat', 'VECTOR', 'FLAT', '6', 'TYPE', data_t, 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
 
-        for i in range(0, n, 2):
-            # Test setting vectors with python list
-            conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
-            # Test setting vectors with numpy array of the same type
-            conn.json().set(i + 1, '.', {'vecs': [
-                create_np_array_typed([i + 1 + j] * dim, data_t).tolist() for j in range(per_doc)]})
+    for i in range(0, n, 2):
+        # Test setting vectors with python list
+        conn.json().set(i, '.', {'vecs': [[i + j] * dim for j in range(per_doc)]})
+        # Test setting vectors with numpy array of the same type
+        conn.json().set(i + 1, '.', {'vecs': [
+            create_np_array_typed([i + 1 + j] * dim, data_t).tolist() for j in range(per_doc)]})
 
-        score_field_name = 'dist'
-        k = min(10, n)
-        element = create_np_array_typed([0]*dim, data_t)
-        cmd_knn = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
+    score_field_name = 'dist'
+    k = min(10, n)
+    element = create_np_array_typed([0]*dim, data_t)
+    cmd_knn = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'SORTBY', score_field_name]
 
-        expected_res_knn = []  # the expected ids are going to be unique
-        for i in range(k):
-            expected_res_knn.append(str(i))                                 # Expected id
-            expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
+    expected_res_knn = []  # the expected ids are going to be unique
+    for i in range(k):
+        expected_res_knn.append(str(i))                                 # Expected id
+        expected_res_knn.append([score_field_name, str(i * i * dim)])   # Expected score
 
-        radius = dim * k**2
-        element = create_np_array_typed([n]*dim, data_t)
-        cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
-        expected_res_range = []
-        for i in range(n-k-per_doc+1, n-per_doc+1):
-            expected_res_range.append(str(i))
-            expected_res_range.append([score_field_name, str(dim * (n-per_doc-i+1)**2)])
-        for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
-            expected_res_range.append(str(i))
-            expected_res_range.append([score_field_name, '0'])
-        expected_res_range.insert(0, int(len(expected_res_range)/2))
+    radius = dim * k**2
+    element = create_np_array_typed([n]*dim, data_t)
+    cmd_range = ['FT.SEARCH', 'idx', '', 'PARAMS', '2', 'b', element.tobytes(), 'RETURN', '1', score_field_name, 'LIMIT', 0, n]
+    expected_res_range = []
+    for i in range(n-k-per_doc+1, n-per_doc+1):
+        expected_res_range.append(str(i))
+        expected_res_range.append([score_field_name, str(dim * (n-per_doc-i+1)**2)])
+    for i in range(n-per_doc+1, n):        # Ids for which there is a vector whose distance to the query vec is zero.
+        expected_res_range.append(str(i))
+        expected_res_range.append([score_field_name, '0'])
+    expected_res_range.insert(0, int(len(expected_res_range)/2))
 
-        for _ in env.reloadingIterator():
-            waitForIndex(env, 'idx')
-            info = index_info(env, 'idx')
-            env.assertEqual(info['num_docs'], n)
-            env.assertEqual(info['num_records'], 0)
-            env.assertEqual(info['hash_indexing_failures'], 0)
+    for _ in env.reloadingIterator():
+        waitForIndex(env, 'idx')
+        info = index_info(env, 'idx')
+        env.assertEqual(info['num_docs'], n)
+        env.assertEqual(info['num_records'], 0)
+        env.assertEqual(info['hash_indexing_failures'], 0)
 
-            cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
-            hnsw_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(hnsw_res, expected_res_knn)
+        cmd_knn[2] = f'*=>[KNN {k} @hnsw $b AS {score_field_name}]'
+        hnsw_res = conn.execute_command(*cmd_knn)[1:]
+        env.assertEqual(hnsw_res, expected_res_knn)
 
-            cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
-            flat_res = conn.execute_command(*cmd_knn)[1:]
-            env.assertEqual(flat_res, expected_res_knn)
+        cmd_knn[2] = f'*=>[KNN {k} @flat $b AS {score_field_name}]'
+        flat_res = conn.execute_command(*cmd_knn)[1:]
+        env.assertEqual(flat_res, expected_res_knn)
 
-            cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            hnsw_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(hnsw_res), expected_res_range)
+        cmd_range[2] = f'@hnsw:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+        hnsw_res = conn.execute_command(*cmd_range)
+        env.assertEqual(sortedResults(hnsw_res), expected_res_range)
 
-            cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
-            flat_res = conn.execute_command(*cmd_range)
-            env.assertEqual(sortedResults(flat_res), expected_res_range)
+        cmd_range[2] = f'@flat:[VECTOR_RANGE {radius} $b]=>{{$yield_distance_as:{score_field_name}}}'
+        flat_res = conn.execute_command(*cmd_range)
+        env.assertEqual(sortedResults(flat_res), expected_res_range)
+
+
+# Generate one test per data type so each gets its own RLTest per-test timeout budget and can run
+# on a separate parallel worker, without weakening coverage (MOD-15571).
+multi_value_json_test_gen = lambda dt: lambda: index_multi_value_json(dt)
+for _data_t in VECSIM_DATA_TYPES:
+    _test_name = f"test_index_multi_value_json_{_data_t}"
+    _test_func = multi_value_json_test_gen(_data_t)
+    _test_func.__name__ = _test_name
+    globals()[_test_name] = _test_func
 
 
 def test_bad_index_multi_value_json():
