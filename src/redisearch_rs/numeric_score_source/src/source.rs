@@ -88,7 +88,8 @@ pub struct NumericScoreSource<'index> {
     num_estimated: usize,
     /// Whether the filtered expand-and-retry path is active.
     retry_enabled: bool,
-    /// Total documents in the index, used to bound and cap window expansion.
+    /// Total documents in the index, the selectivity denominator that sizes
+    /// each retry window's estimated limit.
     num_docs: usize,
     /// Filter child's selectivity estimate, used to size the next window.
     child_estimate: usize,
@@ -212,9 +213,9 @@ impl<'index> NumericScoreSource<'index> {
         if !self.retry_enabled || self.num_iterations >= MAX_ITERATIONS {
             return false;
         }
-        // `limit == 0` is unbounded, and `limit >= num_docs` already reads the
-        // whole index: in both cases there is nothing left to expand into.
-        if self.filter.limit == 0 || self.filter.limit >= self.num_docs {
+        // A `limit == 0` window is unbounded and has already read every remaining
+        // range, so there is nothing left to expand into.
+        if self.filter.limit == 0 {
             return false;
         }
 
@@ -222,9 +223,9 @@ impl<'index> NumericScoreSource<'index> {
         let success_ratio = self.success_ratio(heap_count);
 
         if success_ratio < MIN_SUCCESS_RATIO || self.num_iterations + 1 >= MAX_ITERATIONS {
-            // Hits are too sparse, or this is the last allowed retry: stop
-            // estimating and read every remaining document.
-            self.filter.limit = self.num_docs;
+            // Hits are too sparse, or this is the last allowed retry: drop the
+            // window limit so the retry reads every remaining range.
+            self.filter.limit = 0;
         } else {
             let results_missing = k.saturating_sub(heap_count);
             let estimate = estimate_limit(self.num_docs, self.child_estimate, results_missing);
@@ -232,9 +233,16 @@ impl<'index> NumericScoreSource<'index> {
             self.filter.limit = self.last_limit_estimate.max(1);
         }
 
+        self.ranges.refind(&self.filter);
+
+        // The advanced window resolved to no ranges: the tree is exhausted, so
+        // report no expansion rather than a spurious empty one.
+        if self.ranges.is_exhausted() {
+            return false;
+        }
+
         self.num_iterations += 1;
         self.heap_old_size = heap_count;
-        self.ranges.refind(&self.filter);
         true
     }
 }
