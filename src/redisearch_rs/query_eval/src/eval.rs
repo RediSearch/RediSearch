@@ -34,6 +34,7 @@ use rqe_iterators::{
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
     union_opaque::build_union,
 };
+use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
 
 use crate::{
@@ -790,18 +791,18 @@ fn eval_geo<'index>(
 fn eval_token<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     // A `QN_TOKEN` node always carries a non-null term string.
-    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let term_bytes = tok.as_bytes();
+    debug_assert!(term_bytes.is_some(), "token string should not be null");
+    let term_bytes = term_bytes.unwrap_or_default();
     let opts = node.opts();
     let weight = opts.weight;
     // the node's field mask narrowed to the query's.
     let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
     let token_id = ctx.next_token_id() as i32;
-    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
-    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
     let term = RSQueryTerm::new_bytes(term_bytes, token_id, tok.flags());
 
     // SAFETY: `ctx.spec().diskSpec` is either null or a valid
@@ -832,7 +833,7 @@ fn eval_token<'index>(
 /// field(s)), dropping `term`.
 fn open_term_reader<'index>(
     ctx: &'index mut QueryEvalContext,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     term: Box<RSQueryTerm>,
     weight: f64,
     effective_field_mask: FieldMask,
@@ -845,13 +846,8 @@ fn open_term_reader<'index>(
     // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
     // `tok` is the query node's `RSToken`; `Redis_OpenReaderIndex` only reads the
     // token and does not retain it.
-    let idx = unsafe {
-        ffi::Redis_OpenReaderIndex(
-            ctx.sctx_ptr(),
-            std::ptr::from_ref(tok),
-            effective_field_mask,
-        )
-    };
+    let idx =
+        unsafe { ffi::Redis_OpenReaderIndex(ctx.sctx_ptr(), tok.as_ptr(), effective_field_mask) };
     let idx = NonNull::new(idx)?;
 
     // SAFETY: `ctx.sctx_ptr()` is non-null (`QueryEvalContext` invariant 2).
@@ -886,7 +882,7 @@ fn open_term_reader<'index>(
 fn eval_token_disk<'index>(
     ctx: &'index mut QueryEvalContext,
     disk: SearchDiskHandle,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     mut term: Box<RSQueryTerm>,
     opts: &QueryNodeOptions,
     weight: f64,
@@ -900,13 +896,13 @@ fn eval_token_disk<'index>(
     debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
-    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let term_bytes = tok.as_bytes();
+    debug_assert!(term_bytes.is_some(), "token string should not be null");
+    let term_bytes = term_bytes.unwrap_or_default();
 
     // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
     // outlives this lookup.
     let terms = unsafe { CTrieRef::from_raw(spec.terms) };
-    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
-    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
     let num_docs_in_term = terms.num_docs(term_bytes);
     let num_documents = spec.stats.scoring.numDocuments;
     let idf = idf::calculate_idf(num_documents, num_docs_in_term);

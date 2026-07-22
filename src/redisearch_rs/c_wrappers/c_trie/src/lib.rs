@@ -195,9 +195,13 @@ impl CTrieRef {
     /// up as an exact match. Used to compute a term's inverse document
     /// frequency (IDF).
     ///
-    /// Returns `0` for input that cannot correspond to a stored term — invalid
-    /// UTF-8, or a term longer than the trie can hold — since such a term can
-    /// never have been inserted.
+    /// Returns `0` for a term longer than the trie can hold, since such a term
+    /// can never have been inserted.
+    ///
+    /// `term` is decoded as the (possibly WTF-8) byte string the key was stored
+    /// under, so a term carrying a lone surrogate — a non-BMP codepoint
+    /// truncated to a rune at index time — still resolves its real count rather
+    /// than being rejected as invalid UTF-8.
     ///
     /// # Safety
     ///
@@ -211,35 +215,18 @@ impl CTrieRef {
             return 0;
         }
 
-        // The rune conversion decodes UTF-8 without bounds-checking multibyte
-        // sequences against the slice end, so a truncated or invalid sequence
-        // could read past `term`. Reject non-UTF-8 input up front; such a term
-        // cannot match a stored (rune-decoded) term anyway.
-        if std::str::from_utf8(term).is_err() {
-            return 0;
-        }
-
-        // A UTF-8 string yields at most as many runes as bytes; the extra slot
-        // leaves room for the conversion to write a trailing rune.
-        let mut runes = vec![0 as ffi::rune; term.len() + 1];
-        // SAFETY: `term` is valid UTF-8 of `term.len()` bytes, so the decode
-        // stays within the slice, and `runes` has room for `term.len() + 1`
-        // runes, so the conversion writes within bounds.
-        let rlen = unsafe {
-            ffi::strToRunesN(
-                term.as_ptr() as *const c_char,
-                term.len(),
-                runes.as_mut_ptr(),
-            )
-        };
-        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `runes`/
-        // `rlen` describe a valid rune slice, and `rlen <= term.len()` fits
-        // `t_len` (guarded above).
+        // Decode to runes with a bounds-checked WTF-8 decoder (never reading past
+        // `term`), which preserves surrogate-bearing keys instead of rejecting
+        // them, and yields at most `term.len()` runes (so `rlen` fits `t_len`,
+        // guarded above).
+        let runes = string_utils::runes::utf8_to_runes(term);
+        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `runes`
+        // describes a valid rune slice whose length fits `t_len`.
         let node = unsafe {
             ffi::Trie_GetNode(
                 self.ptr,
                 runes.as_ptr(),
-                rlen as ffi::t_len,
+                runes.len() as ffi::t_len,
                 true,
                 std::ptr::null_mut(),
             )
