@@ -9,10 +9,11 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GeoDistance, GeoFilter, QueryIterator, QueryNodeType, RedisSearchCtx};
+use ffi::{GeoDistance, GeoFilter, QueryIterator, RedisSearchCtx};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::{GEO_RANGE_COUNT, hash::InvalidWGS84Coordinates};
 use inverted_index::NumericFilter;
+use query_types::QueryNodeType;
 
 use crate::{
     NumericIteratorVariant, c2rust::CRQEIterator, open_numeric_or_geo_index,

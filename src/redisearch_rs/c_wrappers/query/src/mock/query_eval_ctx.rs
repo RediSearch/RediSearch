@@ -159,6 +159,10 @@ impl MockQueryEvalCtx {
         self.doc_table
     }
 
+    pub fn opts_ptr(&self) -> *mut ffi::RSSearchOptions {
+        self.opts
+    }
+
     pub fn set_max_doc_id(&mut self, max_doc_id: rqe_core::DocId) {
         // SAFETY: `self.doc_table` is a valid, exclusively-owned allocation.
         unsafe { (*self.doc_table).maxDocId = max_doc_id }

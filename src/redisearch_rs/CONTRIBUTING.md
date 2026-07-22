@@ -113,7 +113,7 @@ That's not an issue when it comes to _compilation_, but it becomes a challenge i
 
 ### Our solution
 
-The CMake build creates `libredisearch_all.a`, a unified static library that bundles all C/C++ dependencies (including VectorSimilarity, SVS, spdlog, etc.). Rust crates that need to link against C code use the `build_utils::bind_foreign_c_symbols()` function in their `build.rs` to link this library.
+The CMake build creates `libredisearch_c_bundle.a`, a unified static library that bundles all C/C++ dependencies (including VectorSimilarity, SVS, spdlog, etc.). Rust crates that need to link against C code use the `build_utils::bind_foreign_c_symbols()` function in their `build.rs` to link this library.
 
 They must also depend on `redisearch_rs` and invoke `redis_mock::mock_or_stub_missing_redis_c_symbols!()` to ensure that C symbols defined in Rust are available.
 

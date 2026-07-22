@@ -23,7 +23,7 @@ use query_eval::{
     QueryEvalContext, QueryNodeRef,
     eval::{self, Config, EvalResult},
 };
-use query_node_type::QueryNodeType;
+use query_types::QueryNodeType;
 use rqe_iterators::RQEIterator;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 

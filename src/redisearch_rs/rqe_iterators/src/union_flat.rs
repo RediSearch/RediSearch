@@ -71,7 +71,7 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 /// - `QUICK_EXIT`: If `true`, returns immediately after finding any matching child.
 ///   If `false`, aggregates results from all children with the minimum doc_id.
 #[repr(C)]
-pub struct RawUnionFlat<Rf: Ref, I, const QUICK_EXIT: bool> {
+pub struct RawUnionFlat<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     /// Child iterators. Active children are in `children[..num_active]`,
     /// exhausted children are moved to the end and not removed so we can rewind the iterator.
     children: Vec<IndexedChild<I>>,
@@ -82,12 +82,13 @@ pub struct RawUnionFlat<Rf: Ref, I, const QUICK_EXIT: bool> {
     /// Whether the iterator has reached EOF (all children exhausted).
     is_eof: bool,
     /// Aggregate result combining children's results, reused to avoid allocations.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
 }
 
 /// Alias for an [`Active`] [`RawUnionFlat`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type UnionFlat<'index, I, const QUICK_EXIT: bool> = RawUnionFlat<Active<'index>, I, QUICK_EXIT>;
+pub type UnionFlat<'index, I, const QUICK_EXIT: bool> =
+    RawUnionFlat<'index, Active<'index>, I, QUICK_EXIT>;
 
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where

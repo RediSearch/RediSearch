@@ -45,7 +45,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// * `TC` - The [`TimeoutContext`] implementation. Chosen at construction
 ///   time and monomorphized into the hot path.
 #[repr(C)]
-pub struct RawNotOptimized<Rf: Ref, W, I, TC> {
+pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
     /// The wildcard iterator over all existing documents.
     wcii: W,
     /// The child iterator whose results are negated.
@@ -55,7 +55,7 @@ pub struct RawNotOptimized<Rf: Ref, W, I, TC> {
     /// Sticky EOF flag, set when iteration completes.
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
     /// Tracks the execution deadline for this iterator. Pass
     /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
@@ -64,7 +64,7 @@ pub struct RawNotOptimized<Rf: Ref, W, I, TC> {
 
 /// Alias for an [`Active`] [`RawNotOptimized`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
-pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<Active<'index>, W, I, TC>;
+pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<'index, Active<'index>, W, I, TC>;
 
 impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
 where

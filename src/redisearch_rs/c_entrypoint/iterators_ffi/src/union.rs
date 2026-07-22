@@ -14,7 +14,8 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{QueryIterator, QueryNodeType};
+use ffi::QueryIterator;
+use query_types::QueryNodeType;
 
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{

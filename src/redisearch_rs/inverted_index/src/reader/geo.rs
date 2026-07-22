@@ -8,7 +8,8 @@
 */
 
 use super::{
-    IndexReader, IndexReaderCore, NumericFilter, NumericReader, ResumableReader, SuspendableReader,
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ResumableReader,
+    SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
@@ -31,9 +32,15 @@ unsafe extern "C" {
 ///
 /// This should only be wrapped around readers that return numeric records.
 ///
-/// `#[repr(C)]` so that, once `IR` is layout-compatible across `Active`/`Suspended`
-/// instantiations of its inner [`RawIndexReaderCore`](crate::RawIndexReaderCore),
-/// the whole `FilterGeoReader` is too.
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** When the inner reader `IR` is
+///    layout-compatible with its suspended form (invariant 1 on
+///    [`RawIndexReaderCore`](crate::RawIndexReaderCore)), so is
+///    `FilterGeoReader<IR>`: it is `#[repr(C)]` and `IR` is its only
+///    mode-dependent field (`filter`/`geo_filter` carry no `Rf`). This is the
+///    layout compatibility the [`SuspendableReader`]/[`ResumableReader`] contract
+///    requires. Enforced by the `const _` proof below.
 #[repr(C)]
 pub struct FilterGeoReader<IR> {
     /// Numeric filter with a geo filter set to which a record needs to match to be valid.
@@ -50,6 +57,23 @@ pub struct FilterGeoReader<IR> {
     /// The inner reader that will be used to read the records from the index.
     inner: IR,
 }
+
+// Compile-time proof of invariant 1 on `FilterGeoReader`, for a representative
+// concrete numeric-encoded inner reader. The inner reader's own layout
+// compatibility is invariant 1 on `RawIndexReaderCore`.
+const _: () = {
+    use crate::RawIndexReaderCore;
+    use crate::codec::numeric::Numeric;
+    use ref_mode::{Active, Suspended};
+    use std::mem::{align_of, offset_of, size_of};
+    type A = FilterGeoReader<RawIndexReaderCore<Active<'static>, Numeric>>;
+    type S = FilterGeoReader<RawIndexReaderCore<Suspended, Numeric>>;
+    assert!(offset_of!(A, filter) == offset_of!(S, filter));
+    assert!(offset_of!(A, geo_filter) == offset_of!(S, geo_filter));
+    assert!(offset_of!(A, inner) == offset_of!(S, inner));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
     /// Create a new filter geo reader with the given numeric filter and inner iterator
@@ -84,7 +108,10 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
 
 /// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
 /// only the inner reader switches modes.
-impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterGeoReader`] (const
+/// proof there), given `IR`'s own layout compatibility.
+unsafe impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
     type Suspended = FilterGeoReader<IR::Suspended>;
 }
 
@@ -92,12 +119,21 @@ impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
 /// `FilterGeoReader<RS::Resumed<'a>>` for any `RS: ResumableReader`. The
 /// `IndexReader<'a>` bound requires `RS::Resumed<'a>: NumericReader<'a>`, which
 /// the resumed core reader provides.
-impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
+///
+/// SAFETY: layout compatibility is invariant 1 on [`FilterGeoReader`] (const
+/// proof there).
+unsafe impl<RS: ResumableReader> ResumableReader for FilterGeoReader<RS>
 where
     for<'a> Self: 'static,
     for<'a> FilterGeoReader<RS::Resumed<'a>>: IndexReader<'a>,
 {
     type Resumed<'a> = FilterGeoReader<RS::Resumed<'a>>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // read-lock obligation, which we forward unchanged to the inner reader.
+        unsafe { self.inner.refresh_pointers() }
+    }
 }
 
 impl<'index, E> FilterGeoReader<IndexReaderCore<'index, E>> {

@@ -630,8 +630,8 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
- "query_node_type",
  "query_term",
+ "query_types",
  "rqe_core",
  "rqe_iterator_type",
  "workspace_hack",
@@ -1052,6 +1052,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field_spec",
  "inverted_index",
@@ -1166,11 +1167,12 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
- "query_node_type",
+ "query_types",
  "redis_reply",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "trie_rs",
  "workspace_hack",
 ]
 
@@ -1705,7 +1707,7 @@ dependencies = [
  "query",
  "query_error",
  "query_flags",
- "query_node_type",
+ "query_types",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
@@ -1740,17 +1742,20 @@ name = "query_eval"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "c_trie",
  "cheadergen",
  "ffi",
  "field",
  "geo",
+ "idf",
  "index_result",
  "inverted_index",
  "proptest",
  "query",
  "query_error",
  "query_eval",
- "query_node_type",
+ "query_term",
+ "query_types",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -1767,6 +1772,7 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "query_eval",
+ "query_types",
  "rqe_iterators",
  "workspace_hack",
 ]
@@ -1777,16 +1783,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "enumflags2",
- "workspace_hack",
-]
-
-[[package]]
-name = "query_node_type"
-version = "0.0.1"
-dependencies = [
- "cheadergen",
- "enumflags2",
- "rqe_core",
  "workspace_hack",
 ]
 
@@ -1804,6 +1800,18 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "query_term",
+ "workspace_hack",
+]
+
+[[package]]
+name = "query_types"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "enumflags2",
+ "rqe_core",
+ "strum",
+ "thiserror",
  "workspace_hack",
 ]
 
@@ -2296,6 +2304,7 @@ dependencies = [
  "index_spec",
  "insta",
  "inverted_index",
+ "iterators_ffi",
  "libc",
  "numeric_range_tree",
  "pretty_assertions",
@@ -2303,6 +2312,7 @@ dependencies = [
  "query_error",
  "query_term",
  "query_term_ffi",
+ "query_types",
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
@@ -2352,6 +2362,7 @@ dependencies = [
 name = "rqe_iterators_test_utils"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "field",
  "geo",
@@ -2552,6 +2563,7 @@ dependencies = [
 name = "schema_rule"
 version = "0.0.1"
 dependencies = [
+ "document",
  "ffi",
  "pretty_assertions",
  "redis_mock",
@@ -2566,6 +2578,7 @@ dependencies = [
  "build_utils",
  "ffi",
  "inverted_index",
+ "query_term",
  "redis_mock",
  "redisearch_rs",
  "rqe_core",
@@ -2899,6 +2912,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tag_index"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "inverted_index",
+ "redis_mock",
+ "redisearch_rs",
+ "tag_index",
+ "thin_vec",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2916,6 +2944,7 @@ name = "term_suffix_index"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "itertools 0.15.0",
  "proptest",
  "rqe_wildcard",
  "rstest",
@@ -3174,6 +3203,7 @@ dependencies = [
  "proptest-derive",
  "rqe_wildcard",
  "trie_rs",
+ "utf8parse",
  "workspace_hack",
 ]
 
@@ -3349,6 +3379,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
+name = "utf8parse"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3430,13 +3467,35 @@ dependencies = [
 name = "vector_score_source"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "ffi",
  "index_result",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "tracing",
  "vecsim",
+ "vector_score_source",
+ "workspace_hack",
+]
+
+[[package]]
+name = "vector_score_source_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cc",
+ "criterion",
+ "ffi",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_iterators",
+ "rqe_iterators_test_utils",
+ "top_k",
+ "vector_score_source",
  "workspace_hack",
 ]
 

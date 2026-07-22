@@ -17,8 +17,7 @@ use crate::trie_map::node::Node;
 pub struct Iter<'tm, Data, F> {
     /// Stack of nodes and whether they have been visited.
     stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Determine if the current node should be yielded and
-    /// if its children should be visited.
+    /// The [`TraversalFilter`] deciding, per node, the [`FilterOutcome`](super::filter::FilterOutcome).
     filter: F,
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.

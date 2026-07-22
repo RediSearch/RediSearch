@@ -11,6 +11,13 @@
 #include "coord/rmr/reply.h"
 #include "search_disk.h"
 
+// Per-field disk metric reply keys, shared by the shard emitter and the
+// coordinator deserializer so both agree on the wire names.
+#define FIELD_DISK_EXCLUSIVE_BYTES "disk_exclusive_bytes"
+#define FIELD_DISK_SHARED_BYTES    "disk_shared_bytes"
+#define FIELD_DISK_TOTAL_BYTES     "disk_total_bytes"
+#define FIELD_DISK_NUM_KEYS        "disk_num_keys"
+
 static FieldType getFieldType(const char *type){
     if (strcmp(type, "vector") == 0) {
         return INDEXFLD_T_VECTOR;
@@ -18,18 +25,42 @@ static FieldType getFieldType(const char *type){
     return 0;
 }
 
-static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
-    if (!first->type){
-        *first = *second;
+// Per-field disk metrics are cluster-wide totals, so each metric is summed
+// across shards. A shard that omits the `disk` metrics (e.g. an older,
+// mixed-version shard, or a non-disk-backed shard) reports `available = false`
+// and contributes nothing.
+static void PerFieldTextDiskMetrics_Combine(PerFieldTextDiskMetrics *dst,
+                                            const PerFieldTextDiskMetrics *src) {
+    if (!src->available) {
         return;
     }
-    switch (first->type) {
-        case INDEXFLD_T_VECTOR:
-            VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
-            break;
-        default:
-            break;
-        }
+    dst->exclusive_bytes += src->exclusive_bytes;
+    dst->shared_bytes += src->shared_bytes;
+    dst->available = true;
+}
+
+static void PerFieldCfDiskMetrics_Combine(PerFieldCfDiskMetrics *dst,
+                                          const PerFieldCfDiskMetrics *src) {
+    if (!src->available) {
+        return;
+    }
+    dst->total_bytes += src->total_bytes;
+    dst->estimate_num_keys += src->estimate_num_keys;
+    dst->available = true;
+}
+
+static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
+    // The field type is consistent across shards; adopt it from the first shard
+    // that reports one (non-vector fields carry type 0 on the coordinator).
+    if (!first->type) {
+        first->type = second->type;
+    }
+    if (first->type == INDEXFLD_T_VECTOR) {
+        VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
+    }
+    // Disk metrics apply to every field type, independently of `type`.
+    PerFieldTextDiskMetrics_Combine(&first->textDisk, &second->textDisk);
+    PerFieldCfDiskMetrics_Combine(&first->cfDisk, &second->cfDisk);
 }
 
 FieldSpecInfo FieldSpecInfo_Init() {
@@ -74,6 +105,30 @@ void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
     info->stats = stats;
 }
 
+// Parse the optional per-field `disk` metrics emitted by a disk-backed shard.
+// Keys are absent for non-disk-backed or older (mixed-version) shards, in which
+// case `available` stays false and the metrics contribute nothing to the reduce.
+static void FieldStats_DeserializeDiskMetrics(FieldSpecStats *stats, const MRReply *reply) {
+    MRReply *exclusive = MRReply_MapElement(reply, FIELD_DISK_EXCLUSIVE_BYTES);
+    MRReply *shared = MRReply_MapElement(reply, FIELD_DISK_SHARED_BYTES);
+    // The two keys of each metric pair are emitted together by the shard, or not at all.
+    RS_ASSERT((exclusive != NULL) == (shared != NULL));
+    stats->textDisk.available = exclusive && shared;
+    if (stats->textDisk.available) {
+        stats->textDisk.exclusive_bytes = MRReply_Integer(exclusive);
+        stats->textDisk.shared_bytes = MRReply_Integer(shared);
+    }
+
+    MRReply *totalBytes = MRReply_MapElement(reply, FIELD_DISK_TOTAL_BYTES);
+    MRReply *numKeys = MRReply_MapElement(reply, FIELD_DISK_NUM_KEYS);
+    RS_ASSERT((totalBytes != NULL) == (numKeys != NULL));
+    stats->cfDisk.available = totalBytes && numKeys;
+    if (stats->cfDisk.available) {
+        stats->cfDisk.total_bytes = MRReply_Integer(totalBytes);
+        stats->cfDisk.estimate_num_keys = MRReply_Integer(numKeys);
+    }
+}
+
 static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* reply){
     FieldSpecStats stats = {0};
     FieldType fieldType = getFieldType(type);
@@ -93,6 +148,9 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
         default:
             break;
     }
+    // Disk metrics are field-type independent and keyed by name, so parse them
+    // for every field regardless of the vector switch above.
+    FieldStats_DeserializeDiskMetrics(&stats, reply);
     return stats;
 }
 
@@ -114,12 +172,12 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
 
     // Per-field disk metrics (disk-backed indexes only; gated on `available`).
     if (stats->textDisk.available) {
-        REPLY_KVINT("disk_exclusive_bytes", stats->textDisk.exclusive_bytes);
-        REPLY_KVINT("disk_shared_bytes", stats->textDisk.shared_bytes);
+        REPLY_KVINT(FIELD_DISK_EXCLUSIVE_BYTES, stats->textDisk.exclusive_bytes);
+        REPLY_KVINT(FIELD_DISK_SHARED_BYTES, stats->textDisk.shared_bytes);
     }
     if (stats->cfDisk.available) {
-        REPLY_KVINT("disk_total_bytes", stats->cfDisk.total_bytes);
-        REPLY_KVINT("disk_num_keys", stats->cfDisk.estimate_num_keys);
+        REPLY_KVINT(FIELD_DISK_TOTAL_BYTES, stats->cfDisk.total_bytes);
+        REPLY_KVINT(FIELD_DISK_NUM_KEYS, stats->cfDisk.estimate_num_keys);
     }
 }
 

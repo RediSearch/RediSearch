@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// `rqe_iterators` (a dependency of `search_disk`) links `libredisearch_all.a`,
+// `rqe_iterators` (a dependency of `search_disk`) links `libredisearch_c_bundle.a`,
 // whose C objects call back into Rust FFI symbols exported only by the
 // `c_entrypoint/*_ffi` crates. A normal build garbage-collects those C objects,
 // but a coverage build keeps dead code, so the symbols must resolve. Force-link

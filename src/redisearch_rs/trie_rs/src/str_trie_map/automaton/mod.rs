@@ -1,0 +1,44 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! UTF-8-aware streaming automatons for
+//! [`StrTrieMap`](super::StrTrieMap) queries.
+//!
+//! The byte-level automaton framework —
+//! [`Automaton`](crate::iter::Automaton), its driver, and the wildcard
+//! NFA — lives with the byte-keyed trie and knows nothing about key
+//! encoding. The automatons here are its Unicode-aware consumers: they
+//! reassemble codepoints from the byte stream (via
+//! [`CodepointDecoder`](utf8::CodepointDecoder), handling trie edges
+//! that split a codepoint) and
+//! match under per-codepoint case folding, which only makes sense for
+//! the UTF-8 keys a [`StrTrieMap`](super::StrTrieMap) stores. Keys that
+//! are not valid UTF-8 never match.
+//!
+//! - [`case_fold`]: [`CaseFoldExact`] — case-insensitive exact match.
+//! - [`levenshtein`]: [`CaseFoldLevenshtein`] — case-insensitive
+//!   Levenshtein distance in codepoints, as a DP row.
+//! - [`levenshtein_nfa`]: [`CaseFoldLevenshteinNfa`] — the same matching
+//!   model as a bit-parallel NFA, for needles and distances within its
+//!   word-width bounds.
+//! - [`wildcard`]: [`CodepointWildcard`] — wildcard matching where `*`
+//!   matches any run of codepoints and `?` consumes exactly one codepoint
+//!   (rather than one byte), plus its trie automaton
+//!   ([`CodepointWildcardNfa`]).
+
+pub mod case_fold;
+pub mod levenshtein;
+pub mod levenshtein_nfa;
+mod utf8;
+pub mod wildcard;
+
+pub use case_fold::CaseFoldExact;
+pub use levenshtein::CaseFoldLevenshtein;
+pub use levenshtein_nfa::CaseFoldLevenshteinNfa;
+pub use wildcard::{CodepointWildcard, CodepointWildcardNfa};
