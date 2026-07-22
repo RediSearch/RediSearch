@@ -415,7 +415,7 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
   // Shallow copy: only pointers are copied; the strings stay owned by src->args
   // (or are static). Option keywords are normalized so that case-variant
-  // duplicate reducers dedup (MOD-16365); values are forwarded verbatim.
+  // duplicate reducers dedup; values are forwarded verbatim.
   for (size_t i = 0; i < srcArgc; i++) {
     const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
     remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
