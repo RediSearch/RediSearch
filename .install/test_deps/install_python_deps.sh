@@ -3,6 +3,17 @@ set -eo pipefail
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
+# Ensure uv meets MIN_UV_VERSION before the `uv` calls below (`uv venv`,
+# `uv sync --locked`). Some CI container images ship an older uv that
+# re-resolves the git-pinned rltest dependency and then rejects the lock under
+# --locked. install_python.sh is a no-op when uv is already new enough (as on
+# runners where it runs as its own setup step).
+# TODO(MOD-15876): drop this along with the rltest git-pin in pyproject.toml /
+# uv.lock once RLTest publishes the pinned fix to PyPI.
+bash "$(dirname "${BASH_SOURCE[0]}")/../install_python.sh"
+export PATH="$HOME/.local/bin:$PATH"
+hash -r
+
 activate_venv() {
 	echo "copy activation script to shell config"
 	if [[ $OS_TYPE == Darwin ]]; then
