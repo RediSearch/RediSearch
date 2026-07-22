@@ -3833,7 +3833,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
   handlerCtx.bcCtx.brc = r->brc;
-  handlerCtx.bcCtx.timeoutPolicy = policy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
@@ -3940,7 +3939,6 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
   handlerCtx.bcCtx.brc = hreq->brc;
-  handlerCtx.bcCtx.timeoutPolicy = policy;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -4054,7 +4052,6 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
       handlerCtx.cursor = cursor;
       handlerCtx.bcCtx.brc = cursor->execState->brc;
-      handlerCtx.bcCtx.timeoutPolicy = info.queryTimeoutPolicy;
       handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
       handlerCtx.bcCtx.timeoutMS = (size_t)capped;
       handlerCtx.bcCtx.timeout_callback = (info.queryTimeoutPolicy == TimeoutPolicy_Fail)

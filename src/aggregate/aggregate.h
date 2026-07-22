@@ -397,13 +397,10 @@ struct BlockedRequestCtx {
    * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
    * Between cycles these are NULL/zeroed and must not be read. */
   RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
-  RedisModuleCmdFunc reply_cb;  // NULL => BG replied inline via a thread-safe
-                                // ctx; non-NULL => BG stores results and this
-                                // runs on main after UnblockClient
-  RSTimeoutPolicy timeout_policy; // captured on main at BeginCycle and
-                                  // immutable for the cycle, so BG and the
-                                  // timeout callback agree on one value even
-                                  // if FT.CONFIG SET changes it mid-flight
+  bool deferred_reply; // false => BG replies inline via a thread-safe ctx;
+                       // true => BG stores results and the reply callback
+                       // registered with RedisModule_BlockClient serializes
+                       // them on main after UnblockClient
   // Stored-reply slot for deferred (reply_cb) cycles: the BG thread stores
   // results/error here before UnblockClient; the reply or timeout callback
   // reads it on main. One slot serves AREQ and hybrid cycles. Destroyed at
@@ -680,7 +677,10 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 /* Like RSCursorReadCommand, but for the coordinator's blocking FT.CURSOR READ
  * path (FAIL / RETURN_STRICT): `takenCursor` was taken for execution on the
  * main thread at dispatch and its wrapper is the blocked client's privdata.
- * Pass NULL for every other path (the cursor is then taken here by id). */
+ * Pass NULL for every other path (the cursor is then taken here by id).
+ * TRANSITIONAL(MOD-16691): exists because the coord path still runs this whole
+ * command body on the coord pool; retiring ConcurrentSearch_HandleRedisCommandEx
+ * replaces it with a slim BG read job like the shard path's cursorRead_ctx. */
 int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           struct Cursor *takenCursor);
 int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

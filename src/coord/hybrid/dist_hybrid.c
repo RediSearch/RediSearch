@@ -630,20 +630,6 @@ static bool shouldCheckInPipelineTimeoutCoord(HybridRequest *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
-// prepareForExecution's parseHybridCommand re-reads RSGlobalConfig on the BG
-// thread, so once the pipelines are built we force every
-// config + pipeline ctx the request consults onto the policy captured at
-// dispatch, and recompute skipTimeoutChecks from it.
-static void applyCoordReqConfigTimeoutPolicy(HybridRequest *hreq, RSTimeoutPolicy policy) {
-    hreq->reqConfig.timeoutPolicy = policy;
-    hreq->tailPipeline->qctx.timeoutPolicy = policy;
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      hreq->requests[i]->reqConfig.timeoutPolicy = policy;
-      hreq->requests[i]->pipeline.qctx.timeoutPolicy = policy;
-    }
-    HybridRequest_SetSkipTimeoutChecks(hreq, !shouldCheckInPipelineTimeoutCoord(hreq));
-}
-
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
         size_t numShards, QueryError *status,
@@ -1104,10 +1090,6 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
       return;
     }
 
-    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
-    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
-    applyCoordReqConfigTimeoutPolicy(hreq, brc->timeout_policy);
-
     if (HybridRequest_prepareCursors(hreq, &status) != REDISMODULE_OK) {
         DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, &status);
         return;
@@ -1186,10 +1168,6 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       return;
     }
 
-    // Re-pin onto the dispatch-time policy: prepareForExecution re-read
-    // RSGlobalConfig on this BG thread (races FT.CONFIG SET).
-    applyCoordReqConfigTimeoutPolicy(hreq, brc->timeout_policy);
-
     // The tail (merge) pipeline runs only on the coordinator, so the tail debug
     // timeout takes effect here.
     if (debugParams.tail_timeout_count > 0 && hreq->tailPipeline) {
@@ -1237,10 +1215,9 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
   HybridRequest *hreq = brc->query.hybrid;
@@ -1266,10 +1243,9 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
 // Called on the main thread when the blocking client times out (RETURN-STRICT policy only).
 int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
   HybridRequest *hreq = brc->query.hybrid;
@@ -1321,10 +1297,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    RedisModule_Log(ctx, "warning", "DistHybridReplyCallback: no context");
-    return RedisModule_ReplyWithError(ctx, "Internal error: no request context");
-  }
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
   HybridRequest *hreq = brc->query.hybrid;

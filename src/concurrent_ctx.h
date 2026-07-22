@@ -63,9 +63,6 @@ typedef struct ConcurrentSearchBlockClientCtx {
   // BlockedRequestCtx_OnFree). ConcurrentSearch_HandleRedisCommandEx runs
   // BlockedRequestCtx_BeginCycle on it right after blocking the client.
   struct BlockedRequestCtx *brc;
-  // Timeout policy captured on the main thread at dispatch (avoids a TOCTOU
-  // against a concurrent FT.CONFIG SET); recorded on the cycle by BeginCycle.
-  RSTimeoutPolicy timeoutPolicy;
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {

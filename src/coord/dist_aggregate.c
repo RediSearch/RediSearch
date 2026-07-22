@@ -704,17 +704,9 @@ static bool shouldCheckInPipelineTimeoutCoord(AREQ *req) {
          (req->reqConfig.timeoutPolicy == TimeoutPolicy_Return);
 }
 
-// Pin the request's config + tail-pipeline policy to the dispatch-time value
-// (captured on the cycle by BeginCycle), undoing AREQ_New/AREQ_Compile's RSGlobalConfig re-read on
-// the BG thread. Avoids a TOCTOU with a concurrent FT.CONFIG SET (mirrors hybrid).
-static void applyCoordReqConfigTimeoutPolicy(AREQ *r, RSTimeoutPolicy policy) {
-  r->reqConfig.timeoutPolicy = policy;
-  r->pipeline.qctx.timeoutPolicy = policy;
-}
-
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
-                               RSTimeoutPolicy requestTimeoutPolicy, QueryError *status) {
+                               QueryError *status) {
   AREQ_QueryProcessingCtx(r)->err = status;
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -744,10 +736,6 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       !SearchDisk_MarkUnsupportedArgumentIfDiskEnabled("WITHCURSOR", status)) {
     return REDISMODULE_ERR;
   }
-
-  // Pin back to the dispatch-time policy before skipTimeoutChecks / the pipeline
-  // ctx are derived from it below.
-  applyCoordReqConfigTimeoutPolicy(r, requestTimeoutPolicy);
 
   r->profile = printAggProfile;
 
@@ -938,10 +926,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
-  // The global timeout policy may change before this background job is picked up.
-  // Use the policy captured on the main thread at dispatch.
-  RSTimeoutPolicy requestTimeoutPolicy = brc->timeout_policy;
-
   QueryError status = QueryError_Default();
   specialCaseCtx *knnCtx = NULL;
 
@@ -957,8 +941,8 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, requestTimeoutPolicy,
-                          &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, &status) !=
+      REDISMODULE_OK) {
     goto err;
   }
 
@@ -1004,10 +988,9 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
@@ -1045,10 +1028,9 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // This shouldn't happen but handle gracefully
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
   AREQ *req = brc->query.areq;
@@ -1099,10 +1081,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    RedisModule_Log(ctx, "warning", "DistAggregateReplyCallback: no context");
-    return RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
-  }
+  RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
   AREQ *req = brc->query.areq;
@@ -1142,9 +1121,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // on `hasStoredResults`.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    return RedisModule_ReplyWithError(ctx, "Internal error: timeout with no context");
-  }
+  RS_ASSERT(brc != NULL);
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
   AREQ *req = brc->query.areq;
@@ -1222,10 +1199,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   MRCommand *cmd = NULL;
   size_t numShards = 0;
   RPNet *rpnet = NULL;
-  // The global timeout policy may change before this background job is picked up.
-  // Use the policy captured on the main thread at dispatch. Declared here,
-  // before any `goto err`, to avoid jumping over its initialization.
-  RSTimeoutPolicy requestTimeoutPolicy = brc->timeout_policy;
 
   QueryError status = QueryError_Default();
 
@@ -1243,7 +1216,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, numShards,
-                          requestTimeoutPolicy, &status) != REDISMODULE_OK) {
+                          &status) != REDISMODULE_OK) {
     goto err;
   }
 

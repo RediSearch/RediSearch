@@ -21,7 +21,7 @@
 #endif
 
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
-                                  RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy) {
+                                  RedisModuleCmdFunc reply_cb) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
   // new cycle may begin on the same wrapper.
   // TRANSITIONAL(MOD-16691): until the cursor-ownership step moves cursor
@@ -37,8 +37,7 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // cursor-ownership step makes the cycle the single owner.
   BlockedRequestCtx_IncrRef(brc);
   brc->bc = bc;
-  brc->reply_cb = reply_cb;
-  brc->timeout_policy = policy;
+  brc->deferred_reply = (reply_cb != NULL);
   atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
   RedisModule_BlockClientSetPrivateData(bc, brc);
   // Cursor cycles reuse the wrapper across reads: reset the per-read
@@ -76,7 +75,7 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   ChunkReplyState_Destroy(&brc->reply);
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;
-  brc->reply_cb = NULL;
+  brc->deferred_reply = false;
 }
 
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -94,7 +93,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
                                                       BlockedRequestCtx *brc,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
-                                                      RSTimeoutPolicy policy,
                                                       rs_wall_clock_ms_t timeout_ms) {
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
@@ -109,7 +107,7 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
-  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb, policy);
+  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
   brc->registry_node = node;
   brc->registry_node_is_cursor = false;
   // report block client start time
@@ -122,7 +120,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                        BlockedRequestCtx *brc,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
-                                                       RSTimeoutPolicy policy,
                                                        rs_wall_clock_ms_t timeout_ms) {
   RS_ASSERT(cursor->execState != NULL);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
@@ -136,7 +133,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
-  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb, policy);
+  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
   brc->registry_node = node;
   brc->registry_node_is_cursor = true;
   // report block client start time
