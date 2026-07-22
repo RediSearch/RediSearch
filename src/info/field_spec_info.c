@@ -7,9 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec_info.h"
+
+#include <string.h>
+
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "info/index_error.h"
+#include "info/vector_index_stats.h"
+#include "obfuscation/hidden.h"
+#include "redis_index.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "vector_index.h"
 
 // Per-field disk metric reply keys, shared by the shard emitter and the
 // coordinator deserializer so both agree on the wire names.

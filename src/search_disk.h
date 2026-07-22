@@ -193,6 +193,16 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           RLookup *lk, const RLookupKey **keys,
                                                           size_t nkeys, uint32_t *outStateFlags);
 
+/**
+ * @brief Hand the disk async-loader result processor its request sync context, so it can run
+ * the same RETURN_STRICT GIL handshake as RP_SAFE_LOADER (see aggregate.h). Called from
+ * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
+ *
+ * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
+ * @param brc `BlockedRequestCtx *`, or NULL to clear
+ */
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc);
+
 // Index API wrappers
 
 /**
@@ -384,24 +394,6 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
-/**
- * @brief Create a numeric range IndexIterator over the disk-backed index
- *
- * Wraps the disk API's per-bucket readers in a union iterator that yields
- * doc-ids matching `filter`'s range. The disk snapshot is taken from
- * `sctx->diskSnapshot` (which must be non-NULL) so the buckets are read at
- * the same point in time as sibling iterators in the same query.
- *
- * @param index Pointer to the index
- * @param sctx Search context whose `diskSnapshot` field selects the read view. The
- *             `diskSnapshot` field is required to be non-NULL.
- * @param filter Pointer to the numeric filter (min, max, inclusivity, field spec)
- * @param fieldIndex Field index for the numeric field
- * @param status QueryError to populate with the cause when creation fails (may be NULL)
- * @return Pointer to the IndexIterator, or NULL if no buckets overlap the filter
- */
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status);
-
 // DocTable API wrappers
 
 /**
@@ -480,6 +472,14 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
  * @return The number of IDs written to the buffer
  */
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
+
+/**
+ * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
+ *
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
+ */
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID
@@ -741,19 +741,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Get vector index memory for a disk index
- *
- * Returns disk-side vector index memory in bytes from the latest collected snapshot.
- * Does not include RAM-only accounting from non-disk paths.
- * Call SearchDisk_CollectIndexMetrics(index) before this getter.
- * Requires initialized SearchDisk and non-null index (RS_ASSERT).
- *
- * @param index Pointer to the disk index spec
- * @return Vector index memory in bytes
- */
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
-
-/**
  * @brief Get the disk-owned total number of records for a disk index
  *
  * Returns the disk-side num_records counter used by FT.INFO.
@@ -894,6 +881,12 @@ void SearchDisk_PreFork(IndexSpec *sp);
 void SearchDisk_PostFork(IndexSpec *sp);
 
 /**
+ * @brief Hot-restart save-ended hook: re-enable compactions, keep the numeric
+ * consistency gate closed. See IndexDiskAPI.hotRestartSaveEnded.
+ */
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp);
+
+/**
  * @brief Master-side SST replication ABORT hook for a single index.
  *
  * Dispatches to the disk-side replicationAbort hook, then releases whichever
@@ -939,6 +932,13 @@ typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
   SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // A numeric split between its Step B scan and its Step C+D commit (GC
+  // thread) — the mid-flight, nothing-committed point.
+  SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
+  // index_spec_pre_checkpoint right after the consistency gate of the
+  // numeric index closes (main thread); cross-wake source for
+  // deterministically deferring a held split.
+  SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
 } SearchDiskCompactionSite;
 
 /**

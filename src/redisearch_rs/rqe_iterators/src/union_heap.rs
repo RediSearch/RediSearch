@@ -126,6 +126,11 @@ where
     }
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
+    ///
+    /// Every child that still owes a result is pushed, and only those that have
+    /// run past their last one are left out (see [`RQEIterator::at_eof`]). Leaving
+    /// out a child that has merely returned its final document would lose it — and
+    /// report EOF for the union outright, if it was the only one left.
     fn rebuild_heap(&mut self) {
         self.heap.clear();
         for (idx, child) in self.children.iter().enumerate() {
@@ -220,18 +225,26 @@ where
     }
 
     /// Performs initial read on all children and builds the heap.
+    ///
+    /// Clears the heap first: a `revalidate` before the first read runs
+    /// [`Self::rebuild_heap`] while every child is still at `last_doc_id() == 0`,
+    /// and those doc-0 entries would otherwise sort ahead of every real id.
     fn initialize_children(&mut self) -> Result<(), RQEIteratorError> {
+        self.heap.clear();
         for (idx, child) in self.children.iter_mut().enumerate() {
             if child.last_doc_id() == 0 && !child.at_eof() {
                 if child.read()?.is_some() {
                     self.heap.push(child.last_doc_id(), idx);
-                } else {
-                    self.num_active -= 1;
                 }
             } else if child.last_doc_id() > 0 {
                 self.heap.push(child.last_doc_id(), idx);
             }
         }
+        // Derived here rather than adjusted, for the same reason the heap is:
+        // a `rebuild_heap` before the first read counts only the children it kept,
+        // and this pass can seed the heap with one it dropped. Leaving the count
+        // alone would let the per-child decrements below run past zero.
+        self.num_active = self.heap.len();
         Ok(())
     }
 

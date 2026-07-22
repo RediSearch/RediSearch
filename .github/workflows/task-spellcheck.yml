@@ -9,4 +9,6 @@ on: [workflow_call]
 
 jobs:
   spellcheck:
+    permissions: # actions/checkout
+      contents: read
     uses: redislabsdev/redisearch-ci-common/.github/workflows/spellcheck.yml@v1

@@ -14,6 +14,8 @@ bench = false
 
 [dependencies]
 c_ffi_utils.workspace = true
+document_metadata.workspace = true
+document.workspace = true
 ffi.workspace = true
 libc.workspace = true
 rlookup.workspace = true
@@ -23,6 +25,9 @@ value.workspace = true
 value_ffi = { path = "../value_ffi" }
 query_error.workspace = true
 workspace_hack.workspace = true
+redis_json_api.workspace = true
+tracing.workspace = true
+cheadergen.workspace = true
 
 [dev-dependencies]
 # Crate required to invoke C symbols

@@ -1,20 +1,19 @@
 #include "hybrid/hybrid_request.h"
+#include "config.h"
 #include <stdatomic.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
-#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_search_result.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
-#include "util/workers.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
@@ -22,6 +21,14 @@
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "result_processor_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "shard_window_ratio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -264,7 +271,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request
@@ -276,12 +283,15 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
+    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
+    // the request's lifetime.
+    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
 
     // Initialize error tracking for each individual request
-    hybridReq->errors = array_new(QueryError, nrequests);
+    hybridReq->errors = array_newlen(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states
@@ -291,7 +301,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
@@ -305,7 +315,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
     RequestSyncState_Init(&hybridReq->syncState);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-    hybridReq->storedReplyState.err = QueryError_Default();
 
 
 }
@@ -411,9 +420,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
-
-    // Clean up storedReplyState
-    ChunkReplyState_Destroy(&req->storedReplyState);
 
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);

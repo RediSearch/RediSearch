@@ -63,7 +63,7 @@ jobs:
         shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Compute effective benchmark filter
         id: benchmark-filter
         working-directory: tests/benchmarks
@@ -107,7 +107,7 @@ jobs:
           github_token: ${{ github.token }}
       - name: Download prebuilt redisearch.so
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.binary_artifact_name }}
           # Place the .so where `inputs.module_path` expects it, e.g.
@@ -127,7 +127,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
       - name: install terraform
         if: steps.benchmark-filter.outputs.skip != 'true'
-        uses: hashicorp/setup-terraform@v4.0.1
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.11.1
           terraform_wrapper: false
@@ -238,6 +238,12 @@ jobs:
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
           PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+          COMPARISON_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          BASELINE_BRANCH: ${{ inputs.base_branch || github.event.pull_request.base.ref }}
+          PULL_REQUEST: ${{ github.event.number }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
         # --architectures enables the multi-arch PR comment layout from
         # redisbench-admin 0.12.25+: one H2 section per arch covering
         # branch-over-branch, plus a cross-arch delta section on the PR
@@ -255,14 +261,19 @@ jobs:
         # of this PR on top of its parent. Baselining against master instead
         # shows the cumulative performance impact of the whole stack. Fall back
         # to the PR base branch when no baseline is passed (e.g. workflow_dispatch).
-        run: redisbench-admin compare
-              --defaults_filename ./tests/benchmarks/defaults.yml
-              --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
-              --baseline-branch ${{ inputs.base_branch || github.event.pull_request.base.ref }}
-              --architectures x86_64,aarch64
-              --auto-approve
-              --pull-request ${{ github.event.number }}
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+        #
+        # Everything dynamic goes through env rather than being expanded into the
+        # script: a PR author controls their own branch name, so interpolating it
+        # into a shell command lets them inject arbitrary code.
+        run: |
+          redisbench-admin compare \
+              --defaults_filename ./tests/benchmarks/defaults.yml \
+              --comparison-branch "$COMPARISON_BRANCH" \
+              --baseline-branch "$BASELINE_BRANCH" \
+              --architectures x86_64,aarch64 \
+              --auto-approve \
+              --pull-request "$PULL_REQUEST" \
+              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
+              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
               --last_n_baseline 20

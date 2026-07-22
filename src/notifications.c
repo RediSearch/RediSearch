@@ -6,6 +6,15 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
@@ -16,16 +25,20 @@
 #include "module.h"
 #include "util/workers.h"
 #include "dictionary.h"
-#include "slot_ranges.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/redis_cluster.h"
 #include "cursor.h"
 #include "search_disk.h"
 #include "disk_gc.h"
-#include "debug_commands.h"
 #include "doc_id_meta.h"
-#include "iterators_ffi.h"
 #include "module_init_ffi.h"
+#include "document_rs.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "slots_tracker_ffi.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 RedisModuleString *global_RenameFromKey = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -944,9 +957,10 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
     if (vecsimdisk_sst_consistency_lock_held) {
-      // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
-      // re-enabling compactions via PostFork on success.
-      DiskConsistencyWindow_End(SearchDisk_PostFork);
+      // Re-enable compactions but keep the numeric consistency gate
+      // closed: the writes it guards must stay coherent with the
+      // just-serialized RDB (see SearchDisk_HotRestartSaveEnded).
+      DiskConsistencyWindow_End(SearchDisk_HotRestartSaveEnded);
       RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {

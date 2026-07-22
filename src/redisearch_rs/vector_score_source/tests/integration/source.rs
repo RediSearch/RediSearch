@@ -20,11 +20,11 @@ use std::{num::NonZeroUsize, ptr::NonNull};
 
 use std::collections::HashSet;
 
-use ffi::{VecSimIndex, VecSimIndex_Free, t_docId};
-use index_result::RSResultKind;
+use ffi::{RLookupKey, VecSimIndex, VecSimIndex_Free, t_docId};
+use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
-use top_k::{TopKIterator, TopKMode};
+use top_k::{ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::test_utils::{self, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
     VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
@@ -154,7 +154,7 @@ fn first_result_after_rewind_is_best() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -182,7 +182,7 @@ fn filtered_full_child_yields_best_first() {
     let child = make_child((1..=n as t_docId).collect());
     // Public constructor auto-selects batches vs adhoc; either way the heap is
     // drained best-first, so ordering is deterministic.
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     // Best (lowest distance) first → highest ids first.
     let ids = collect_ids(&mut it);
@@ -215,7 +215,7 @@ fn filtered_batches_partial_child_intersects() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -246,7 +246,7 @@ fn filtered_adhoc_matches_batches() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 
@@ -284,7 +284,7 @@ fn filtered_adhoc_drops_nan_distance_docs() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 
@@ -316,7 +316,7 @@ fn rewind_replays_same_results() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -350,7 +350,7 @@ fn disjoint_child_yields_nothing() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -405,7 +405,7 @@ fn filtered_batches_drops_expired_without_refill() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::ForcedBatches,
     );
 
@@ -436,7 +436,7 @@ fn filtered_adhoc_drops_expired_without_refill() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 
@@ -458,6 +458,98 @@ fn index_size_reflects_added_vectors() {
     let source = unsafe { make_source(index, n, 10, n) };
     assert_eq!(source.index_size(), n);
 
+    drop(source);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+/// A zero-filled lookup key. The metrics channel only compares the key's
+/// address, so the fields are never read.
+fn make_key() -> RLookupKey {
+    // SAFETY: `RLookupKey` is plain data whose all-zero state (null pointers,
+    // zero indices) is valid and never dereferenced by the metrics code.
+    unsafe { std::mem::zeroed() }
+}
+
+/// The first yield on fresh storage: with no entry yet under the source's
+/// output key, the score is appended without disturbing metrics the child
+/// attached under other keys.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_appends_when_absent() {
+    // Arrange: a keyed source and a result holding only the child's own metric.
+    let index = build_hnsw_index(3);
+    // SAFETY: index outlives the source (freed at end of scope).
+    let mut source = unsafe { make_source(index, 3, 3, 3) };
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
+
+    let foreign = make_key();
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    result.metrics.push_with_key(&foreign, 7.0);
+
+    // Act.
+    source.attach_score_metric(&mut result, 42.0);
+
+    // Assert: appended alongside the untouched foreign metric.
+    assert_eq!(result.metrics.len(), 2);
+    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 42.0);
+    assert_eq!(
+        result.metrics.find_by_key_mut(&foreign).unwrap().value(),
+        7.0
+    );
+
+    drop(result);
+    drop(source);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+/// Repeated yields reuse one child storage slot, so the source overwrites its
+/// own score entry in place rather than appending — otherwise a stale score
+/// from an earlier document would leak onto a later one.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_overwrites_in_place() {
+    // Arrange: a result already carrying a stale score under our key, as if left
+    // by a previous yield on the same storage.
+    let index = build_hnsw_index(3);
+    // SAFETY: index outlives the source (freed at end of scope).
+    let mut source = unsafe { make_source(index, 3, 3, 3) };
+    let mut own = make_key();
+    *source.own_key = (&mut own as *mut RLookupKey).cast();
+
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    result.metrics.push_with_key(&own, 1.0);
+
+    // Act.
+    source.attach_score_metric(&mut result, 99.0);
+
+    // Assert: updated in place, not duplicated.
+    assert_eq!(result.metrics.len(), 1);
+    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 99.0);
+
+    drop(result);
+    drop(source);
+    // SAFETY: no live references to the index remain.
+    unsafe { VecSimIndex_Free(index.as_ptr()) };
+}
+
+/// With no output key wired up (the metrics loader never ran), attaching a
+/// score must be a no-op rather than pushing a keyless entry.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn attach_score_metric_without_key_is_noop() {
+    let index = build_hnsw_index(3);
+    // SAFETY: index outlives the source (freed at end of scope).
+    let source = unsafe { make_source(index, 3, 3, 3) };
+    assert!(source.own_key.is_null(), "no key wired by default");
+
+    let mut result = RSIndexResult::build_virt().doc_id(1).build();
+    source.attach_score_metric(&mut result, 42.0);
+    assert_eq!(result.metrics.len(), 0, "no key means no metric attached");
+
+    drop(result);
     drop(source);
     // SAFETY: no live references to the index remain.
     unsafe { VecSimIndex_Free(index.as_ptr()) };

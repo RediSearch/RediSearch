@@ -63,7 +63,7 @@ fn flat_filtered_full_child_yields_best_first() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), (91..=100).rev().collect::<Vec<_>>());
 
@@ -86,7 +86,7 @@ fn cosine_metric_filtered_top_k_are_highest_ids() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(1.0, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     let ids = collect_ids(&mut it);
     assert_eq!(ids.first().copied(), Some(n as DocId));
@@ -116,7 +116,7 @@ fn middle_query_orders_by_distance_then_lower_id() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(mid as f32, dim), n, k, n) };
     let child = make_child((1..=n as DocId).collect());
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     let mut expected = vec![mid];
     for d in 1..=4 {
@@ -166,7 +166,7 @@ fn dim1_filtered_subset_knn_top3() {
     // SAFETY: index outlives the iterator (freed at end of scope).
     let source = unsafe { make_source(index, uniform_blob(0.0, dim), n, k, child_ids.len()) };
     let child = make_child(child_ids);
-    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap());
+    let mut it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
 
     assert_eq!(collect_ids(&mut it), vec![6, 7, 8]);
 
@@ -193,7 +193,7 @@ fn batches_switch_to_adhoc_yields_no_duplicates() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -248,7 +248,7 @@ fn numeric_like_subset_batches_matches_adhoc() {
             source,
             Some(make_child(child_ids.clone())),
             NonZeroUsize::new(k).unwrap(),
-            asc,
+            asc(),
             mode,
         );
 

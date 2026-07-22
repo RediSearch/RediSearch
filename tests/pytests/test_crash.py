@@ -1,9 +1,9 @@
-import RLTest
-
 from common import *
 
 
-class CrashingEnv(RLTest.Env):
+# EnterpriseStandaloneEnvBase (not RLTest.Env) so this still gets enterprise
+# topology seeding (see common.py) when it defines its own Env subclass.
+class CrashingEnv(EnterpriseStandaloneEnvBase):
     def getEnvByName(self):
         env = super().getEnvByName()
         env._stopProcess = self.passStopProcess

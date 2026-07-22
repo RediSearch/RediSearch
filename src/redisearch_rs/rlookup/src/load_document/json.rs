@@ -91,6 +91,9 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             self.japi
                 .open_from_handle(ptr::from_ref(open_key).cast_mut().cast())
         }
+        // If we fail to open the JSON root from the borrowed handle: fall back to
+        // open the document by name.
+        .or_else(|| self.open_key(key_name))
         .ok_or(LoadFieldError::KeyNotFound)?;
 
         Ok(JsonFieldLoader {

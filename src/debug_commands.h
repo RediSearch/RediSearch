@@ -237,11 +237,11 @@ void HybridStoreCursorsDebugCtx_SetPauseAfterEnabled(bool enabled);
 bool HybridStoreCursorsDebugCtx_IsPaused(void);
 void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 
-// Coord request ctx free counter. Bumped on every CoordRequestCtx_Free so
+// Blocked-request OnFree counter. Bumped on every BlockedRequestCtx_OnFree so
 // tests can deterministically observe that free_privdata has fired without
 // blocking the main thread inside the callback.
-void CoordReqCtxFreeDebug_Increment(void);
-uint64_t CoordReqCtxFreeDebug_GetCount(void);
+void BlockedRequestOnFreeDebug_Increment(void);
+uint64_t BlockedRequestOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the

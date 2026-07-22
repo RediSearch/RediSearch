@@ -9,7 +9,7 @@
 
 //! QN_NULL → Empty
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -20,9 +20,9 @@ fn eval_null_returns_empty_iterator() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 

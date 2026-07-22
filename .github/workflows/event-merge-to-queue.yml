@@ -3,6 +3,10 @@ run-name: Validate ${{ github.ref_name }}
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   merge_group:
     types: [checks_requested]
@@ -19,6 +23,7 @@ jobs:
   # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
   # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
+    permissions: {} # echoes a pinned SHA
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
@@ -72,12 +77,17 @@ jobs:
       platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
-      options: unit-tests,coordinator,standalone,rejson,fail-fast
+      job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1", "ubsan": "QUICK=1"}'
+      options: unit-tests,coordinator,standalone,rejson,fail-fast,ubsan
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep the merge-queue lane focused on the trie regression
+      # until those findings are fixed separately.
+      ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       separate-coordinator-job: true
       rejson-branch: master
 
   pr-validation:
+    permissions: {} # aggregation gate: inspects needs.* only
     needs:
       - get-latest-redis-tag
       - lint

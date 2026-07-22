@@ -19,7 +19,7 @@ use rqe_iterators::{
     not_optimized::NotOptimized,
     not_reducer::{NewNotIterator, TIMEOUT_CHECK_GRANULARITY, new_not_iterator},
     utils::{
-        AnyTimeoutContext, NoTimeout, TimeoutContextBlockedClient, TimeoutContextClock,
+        AnyTimeoutContext, DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutContextBlockedClient,
         duration_from_redis_timespec,
     },
 };
@@ -188,14 +188,14 @@ unsafe fn build_timeout_context(
             // SAFETY: caller guarantees q.sctx is valid (4).
             let sctx = unsafe { &*q_ref.sctx };
             if sctx.time.skipTimeoutChecks {
-                return AnyTimeoutContext::NoTimeout(NoTimeout);
+                return AnyTimeoutContext::NoTimeout(NoTimeoutChecker);
             }
             match duration_from_redis_timespec(timeout) {
-                Some(duration) => AnyTimeoutContext::Clock(TimeoutContextClock::new(
+                Some(duration) => AnyTimeoutContext::Clock(DeadlineTimeoutChecker::new(
                     duration,
                     TIMEOUT_CHECK_GRANULARITY,
                 )),
-                None => AnyTimeoutContext::NoTimeout(NoTimeout),
+                None => AnyTimeoutContext::NoTimeout(NoTimeoutChecker),
             }
         }
     }

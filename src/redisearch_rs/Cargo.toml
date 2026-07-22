@@ -14,6 +14,7 @@ members = [
     "index_result",
     "inverted_index",
     "inverted_index_bencher",
+    "nul_terminated_bytes",
     "numeric_range_tree",
     "thin_vec",
     "qint",
@@ -41,6 +42,7 @@ members = [
     "string_utils",
     "tag_index",
     "term_suffix_index",
+    "timeout",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -51,6 +53,7 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "vector_score_source_bencher",
+    "numeric_score_source",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -127,7 +130,9 @@ index_spec = { path = "./c_wrappers/index_spec" }
 index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
+nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }
@@ -143,6 +148,7 @@ ref_mode = { path = "./ref_mode" }
 result_processor = { path = "./result_processor" }
 rlookup = { path = "./rlookup" }
 rm_array = { path = "./c_wrappers/rm_array" }
+rs_token = { path = "./c_wrappers/rs_token" }
 query_types = { path = "./query_types" }
 rqe_core = { path = "./rqe_core" }
 rqe_iterator_type = { path = "./rqe_iterator_type" }
@@ -156,6 +162,7 @@ sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
+timeout = { path = "timeout" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
@@ -254,9 +261,9 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Less aggressive link-time optimization, to recover
-#   parallelism in the build.
-lto = "thin"
+# - Skip link-time optimization, to avoid a large compile-time
+#   penalty.
+lto = false
 codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true

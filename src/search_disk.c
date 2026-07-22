@@ -8,14 +8,23 @@
 */
 
 #include "search_disk.h"
+
+#include <stdatomic.h>
+#include <string.h>
+
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
-#include <stdatomic.h>
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -223,6 +232,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
@@ -349,11 +363,6 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     disk->index.freeSnapshot(snapshot);
 }
 
-QueryIterator* SearchDisk_NewNumericIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const NumericFilter *filter, t_fieldIndex fieldIndex, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskSnapshot && filter);
-    return disk->index.newNumericIterator(index, filter, fieldIndex, sctx->diskSnapshot, status);
-}
-
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     disk->index.runGC(index, stats);
@@ -388,6 +397,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && handle);
+    return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
 }
 
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
@@ -558,11 +572,6 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
 }
 
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
-}
-
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->metrics.getNumRecords(index);
@@ -621,6 +630,11 @@ void SearchDisk_PreFork(IndexSpec *sp) {
 void SearchDisk_PostFork(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.postFork(sp->diskSpec);
+}
+
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  disk->index.hotRestartSaveEnded(sp->diskSpec);
 }
 
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {

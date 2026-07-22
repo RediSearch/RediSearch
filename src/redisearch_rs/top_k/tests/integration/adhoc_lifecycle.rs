@@ -23,7 +23,7 @@ use top_k::{
     mock::MockScoreSource,
 };
 
-fn asc(a: f64, b: f64) -> Ordering {
+fn asc(a: &f64, b: &f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 
@@ -69,6 +69,16 @@ impl ScoreSource for CallCountingScoreSource {
         Self: 'r,
     {
         RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
     }
 
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
@@ -146,7 +156,12 @@ impl<'index> ErrOnSecondRead<'index> {
 
 impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
+        // Later reads fail rather than report depletion, so this stub never
+        // advances past its single document once it has been read.
+        if self.n == 0 {
+            return None;
+        }
+        Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {

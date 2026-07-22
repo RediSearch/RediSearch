@@ -7,15 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "conn.h"
+
+#include <uv.h>
+#include <openssl/ssl.h>
+#include <string.h>
+#include <sys/time.h>
+
 #include "reply.h"
 #include "coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-
-#include <uv.h>
-
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+#include "config.h"
+#include "hiredis/hiredis.h"
+#include "hiredis/hiredis_ssl.h"
+#include "hiredis/read.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/endpoint.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 // Hot path first: callbacks read conn+state+protocol on every entry, so
 // they share the head of the first cache line. ep/loop are warm (init and
@@ -555,19 +566,9 @@ error:
 extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_cert,
                     RedisModuleString **ca_cert, RedisModuleString **key_pass) {
-  int ret = 1;
+  int ret = REDIS_OK;
   RedisModuleCtx *ctx = RSDummyContext;
   RedisModule_ThreadSafeContextLock(ctx);
-
-  // On OSS, the cluster topology module API returns the regular client port
-  // when `tls-cluster` is disabled, even if `tls-port` is also configured.
-  // Enterprise still uses the proxy port and should keep the tls-port fallback.
-  if (!getRedisConfigBool(ctx, "tls-cluster", false)) {
-    if (!IsEnterprise() || getRedisConfigNumeric(ctx, "tls-port", 0) == 0) {
-      ret = 0;
-      goto done;
-    }
-  }
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
   *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
@@ -575,7 +576,7 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
-    ret = 0;
+    ret = REDIS_ERR;
     if(*client_key){
       RedisModule_FreeString(ctx, *client_key);
       *client_key = NULL;
@@ -594,7 +595,6 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
     }
   }
 
-done:
   RedisModule_ThreadSafeContextUnlock(ctx);
   return ret;
 }
@@ -604,9 +604,13 @@ done:
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
-  if (!checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass)) {
+  if (conn->ep.isTls == false) {
     return REDIS_OK;
+  }
+
+  RedisModuleString *client_cert = NULL, *client_key = NULL, *ca_cert = NULL, *key_file_pass = NULL;
+  if (checkTLS(&client_key, &client_cert, &ca_cert, &key_file_pass) == REDIS_ERR) {
+    return REDIS_ERR;
   }
 
   redisSSLContextError ssl_error = 0;

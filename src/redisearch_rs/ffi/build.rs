@@ -191,10 +191,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_IsBatchMode",
             "RS_VecSimCheckTimeout",
         ],
-        // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
-        // deadline) handed to VecSim. Exposed via this already-included header
-        // rather than a dedicated `timeout.h` bindgen root.
-        types: &["TimeoutCtx", "timespec"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -214,7 +211,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &[],
+        fns: &["JSON_GetJsonFromHandleCompat"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -349,13 +346,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/rlookup_load_document.h",
-        fns: &[
-            "loadIndividualKeys",
-            "RLookup_LoadDocumentAll",
-            "RLookup_LoadDocumentIndividual",
-            "sdslen_rust",
-        ],
-        types: &["RLookupLoadOptions"],
+        fns: &["sdslen_rust"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {
@@ -400,6 +392,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
+            // RETURN_STRICT GIL handshake ctx; kept opaque (forward-declared
+            // here, defined in `aggregate.h`).
+            "BlockedRequestCtx",
             "DocTableDiskAPI",
             "IndexDiskAPI",
             "MetricsDiskAPI",
@@ -424,6 +419,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
+            "IndexSpec_AddTerm",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
@@ -444,8 +440,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/suffix.h",
-        fns: &[],
-        types: &[],
+        fns: &[
+            "Suffix_IterateContains",
+            "addSuffixTrie",
+            "suffixTrie_freeCallback",
+        ],
+        types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
@@ -456,20 +456,27 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["strToLowerRunes", "strToRunesN"],
+        fns: &["runesToStr", "strToLowerRunes", "strToRunesN"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        fns: &[
+            "NewTrie",
+            "Trie_DecrementNumDocs",
+            "Trie_GetNode",
+            "Trie_InsertStringBuffer",
+            "Trie_IterateContains",
+            "TrieType_Free",
+        ],
         types: &[],
         vars: &[],
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieNode_NumDocs"],
-        types: &[],
+        types: &["TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -520,9 +527,31 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
+        path: "src/vector_index.h",
+        fns: &["VecSimSearchMode_ToString"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
         fns: &["Wildcard_RemoveEscape"],
         types: &[],
+        vars: &[],
+    },
+    // `vector_score_source` owns a `TimeoutCtx` (carrying an absolute
+    // `timespec` deadline) that it hands to VecSim as the timeout context.
+    HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &["TimeoutCtx", "timespec"],
+        vars: &[],
+    },
+    // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
+    // chosen for `vector_top_k` hybrid iteration.
+    HeaderAllowlist {
+        path: "src/vector_index.h",
+        fns: &["VecSimSearchMode_ToString"],
+        types: &["VecSimSearchMode"],
         vars: &[],
     },
 ];
@@ -592,12 +621,12 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `RSSortingVector` (a typedef of `ThinVec_SharedValue__u64`) is embedded
     // by value in `RSDocumentMetadata` (src/redisearch.h).
     "sorting_vector.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
-    "value_ffi.h",
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // `aggregate.h` includes `value_ffi.h`; reachable via
+    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
@@ -700,6 +729,11 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
+
+    // `BlockedRequestCtx` is only forward-declared in `search_disk_api.h`, but its full
+    // definition (aggregate.h) is pulled in transitively through `AREQ_CheckTimedOut`. Force it
+    // opaque so Rust callers only ever get a pointer, never its (Rust-unsafe-to-model) C internals.
+    bindings = bindings.opaque_type("BlockedRequestCtx");
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

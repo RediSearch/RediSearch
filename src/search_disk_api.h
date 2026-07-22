@@ -31,6 +31,9 @@ typedef struct RLookupKey RLookupKey;
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
 
+// Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
+typedef struct BlockedRequestCtx BlockedRequestCtx;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -48,9 +51,10 @@ typedef const void* RedisSearchDiskRdbState;
 // Opaque handle for a consistent point-in-time view of the disk database.
 //
 // Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
-// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
-// so all iterators in a query observe the same database state. The snapshot must outlive
-// every iterator created from it, and must not outlive the originating index spec.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` and to the Rust-side
+// numeric/wildcard iterator entry points so all iterators in a query observe the same
+// database state. The snapshot must outlive every iterator created from it, and must
+// not outlive the originating index spec.
 typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
@@ -328,6 +332,19 @@ typedef struct BasicDiskAPI {
   ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
                                                     RLookup *lk, const RLookupKey **keys,
                                                     size_t nkeys, uint32_t *outStateFlags);
+
+  /**
+   * Hand the disk async-loader result processor its request sync context, so it can perform
+   * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
+   * `BlockedRequestCtx_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   *
+   * @param rp  The disk async-loader ResultProcessor, previously returned by
+   *            `newAsyncLoaderResultProcessor`.
+   * @param brc `BlockedRequestCtx *`, or NULL to clear.
+   *
+   * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
+   */
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, BlockedRequestCtx *brc);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -504,9 +521,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
    *
-   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
-   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
-   * iterator created for one query observes the same database state. Must be released by
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
+   * the Rust-side numeric/wildcard iterator entry points so that every iterator
+   * created for one query observes the same database state. Must be released by
    * `freeSnapshot` when no iterator is still using it.
    *
    * @param index Pointer to the index spec
@@ -522,26 +539,6 @@ typedef struct IndexDiskAPI {
    * @param snapshot Snapshot handle returned by `createSnapshot`
    */
   void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
-
-  /**
-   * @brief Creates a new iterator over a numeric range on the disk-backed index
-   *
-   * Enumerates the in-memory ordered map's buckets that overlap `filter`'s range
-   * and opens one Speedb-snapshot-backed iterator per candidate bucket, with a
-   * per-yielded-entry value filter of `effective_range ∩ filter_range`. The
-   * candidate iterators are heap-merged by `doc_id` via a union iterator, which
-   * also collapses any transient duplicates that the in-flight split protocol
-   * may produce.
-   *
-   * @param index Pointer to the index
-   * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
-   * @param fieldIndex Field index for the numeric field
-   * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
-   * @param status QueryError to populate with the cause when creation fails (may be NULL)
-   * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
-   */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -641,6 +638,33 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the disk index spec
    */
   void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Debug: dump a numeric field's in-memory bucket routing map.
+   *
+   * Writes a JSON array describing every bucket of the field's map (max
+   * value, state, entry count) into memory obtained from `allocate`, so the
+   * caller owns the result through its own allocator. Returns NULL when the
+   * field has no numeric index on this handle.
+   *
+   * @param index Pointer to the disk index spec
+   * @param fieldIndex The numeric field's index
+   * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
+   */
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
+
+  /**
+   * @brief Hot-restart save-ended hook.
+   *
+   * Called once per index after a successful foreground hot-restart save.
+   * Re-enables compactions (the on-disk DBs are kept and the process exits
+   * shortly) but deliberately leaves the numeric consistency gate closed:
+   * reopening it would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*hotRestartSaveEnded)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -987,18 +1011,6 @@ typedef struct MetricsDiskAPI {
    * @return Inverted index memory in bytes
    */
   uint64_t (*getInvertedIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Get total vector index memory for a specific index
-   *
-   * Returns disk-side vector index memory in bytes from the latest collected snapshot.
-   * Does not include RAM-only accounting from non-disk paths.
-   *
-   * @param disk Pointer to the disk context
-   * @param index Pointer to the index spec
-   * @return Vector index memory in bytes
-   */
-  uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
    * @brief Get the disk-owned total number of records for a specific index

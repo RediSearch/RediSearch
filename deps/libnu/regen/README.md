@@ -6,8 +6,8 @@ data files under `../gen/` (`_tofold.c`, `_tolower.c`, `_toupper.c`,
 
 ```
 regen/
-├── tools/             # Python pipeline from upstream nunicode 1.11,
-│                      # ported to Python 3 (see "Py3 port" below).
+├── tools/             # Python pipeline from upstream nunicode
+│                      # (natively Python 3 since 1.11.1).
 ├── unicode.org/       # UCD inputs (Unicode 17.0, fetched 2025-2026).
 ├── CMakeLists.txt     # Regen recipe (adapted from upstream).
 ├── LICENSE.upstream   # Original nunicode license (MIT, covers tools/).
@@ -43,33 +43,20 @@ can be included from `deps/libnu/ducet.c` (one dir up from `gen/`).
    uppercase/lowercase pairs must be removed from the gap set. Run
    `testToLowerConversionExactMatch` to surface stale entries.
 
-## Py3 port
+## Tool provenance
 
-Upstream `tools/` shipped Python 2 scripts. The port applied here:
-
-* `2to3 -w -n` over every file in `tools/` (print → print(), xrange,
-  filter/map → list, etc.).
-* `tools/mph.py:153` — `ord(x)` on a bytes iterator drops the `ord()`
-  call (`x` is already an int in Py3 when iterating bytes).
-* `tools/mph-combined:36` and `tools/contractions-toc:141-143` —
-  `len(X) / N` integer division fixed to `// N`.
-* `tools/contractions-toc:54-67` and `:115` — two `set()` → list
-  conversions now go through `sorted()` so state ID assignment and
-  switch-case ordering are deterministic across runs (Py3 randomizes
-  hash iteration order for arbitrary types).
-* Shebangs in extension-less scripts changed to
-  `#!/usr/bin/env python3`.
-
-Confirmed: running the pipeline against the original Unicode 13.0 UCD
-inputs (the version the previously-vendored tables were built from in
-February 2020) reproduces the five MPH tables byte-for-byte, modulo
-the embedded `time.time()` header timestamp. `_ducet_switch.c` is
-semantically equivalent but reorders internal `#define state_…` IDs
-because Py2 set-iteration order is irrecoverable.
+`tools/` tracks upstream nunicode, which ported its pipeline to
+Python 3 and made generation order deterministic itself (the earlier
+RediSearch-local py3 port is superseded). The only local addition is
+`tools/fixup-ducet-switch-include.sh` (see "Running" above). Upstream's
+`poetry.lock`, `pyproject.toml`, and `tools/README.md` are dev-lint
+scaffolding for the nunicode repo and are not vendored.
 
 ## Variants not regenerated
 
-Upstream also produces `*_compact.c` variants (BMP-only) and a set of
-`_*_test.c` files for nunicode's own test suite. RediSearch does not
-consume either, so the vendored CMakeLists.txt only builds the six
-files actually included by `deps/libnu/`.
+Upstream also produces `*_compact.c` (BMP-only) variants and a set of
+`_*_test.c` files for nunicode's own test suite. The `../gen/*_compact.c`
+files are vendored verbatim from upstream but only compiled under
+`NU_WITH_BMP_ONLY`, which RediSearch never defines; the test files are
+not vendored. The CMakeLists.txt here regenerates only the six tables
+actually included by `deps/libnu/`.

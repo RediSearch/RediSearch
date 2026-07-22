@@ -7,12 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "module.h"
-#include "resp3.h"
+
 #include <time.h>
-#include <assert.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -430,26 +436,6 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
 
   CursorList_Unlock(cl);
   return cur;
-}
-
-CursorTimeoutInfo Cursors_PeekTimeoutInfo(CursorList *cl, uint64_t cid) {
-  CursorTimeoutInfo info = {.queryTimeoutMS = 0,
-                            .queryTimeoutPolicy = TimeoutPolicy_Return,
-                            .found = false};
-  CursorList_Lock(cl);
-  CursorList_IncrCounter(cl);
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter != kh_end(cl->lookup)) {
-    const Cursor *cur = kh_value(cl->lookup, iter);
-    info.queryTimeoutMS = cur->queryTimeoutMS;
-    info.queryTimeoutPolicy = cur->queryTimeoutPolicy;
-    info.found = true;
-#ifdef ENABLE_ASSERT
-    info.isHybrid = (cur->hybrid_ref.rm != NULL);
-#endif
-  }
-  CursorList_Unlock(cl);
-  return info;
 }
 
 int Cursors_Purge(CursorList *cl, uint64_t cid) {

@@ -199,7 +199,11 @@ dependencies = [
 name = "c_trie"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "c_trie",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "strum",
  "workspace_hack",
 ]
@@ -677,6 +681,7 @@ dependencies = [
  "ffi",
  "field_spec",
  "hidden_string",
+ "numeric_range_tree",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -722,6 +727,7 @@ dependencies = [
  "build_utils",
  "dict",
  "ffi",
+ "field_spec",
  "fork_gc",
  "hidden_string",
  "index_result",
@@ -729,12 +735,16 @@ dependencies = [
  "inverted_index",
  "libc",
  "nix",
+ "nul_terminated_bytes",
+ "numeric_range_tree",
+ "proptest",
  "redis-module",
  "redis_mock",
  "redisearch_rs",
  "rmp-serde",
  "rqe_core",
  "serde",
+ "thiserror",
  "tracing",
  "workspace_hack",
 ]
@@ -747,6 +757,7 @@ dependencies = [
  "ffi",
  "fork_gc",
  "index_spec",
+ "nul_terminated_bytes",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1184,12 +1195,15 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis_reply",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "top_k",
  "trie_rs",
+ "vector_score_source",
  "workspace_hack",
 ]
 
@@ -1451,6 +1465,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nul_terminated_bytes"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1487,6 +1508,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rstest",
  "tracing",
@@ -1511,6 +1533,26 @@ dependencies = [
  "rqe_core",
  "serde",
  "tracing",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_score_source"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "index_result",
+ "inverted_index",
+ "itertools 0.15.0",
+ "numeric_range_tree",
+ "numeric_score_source",
+ "redis_mock",
+ "redis_reply",
+ "redisearch_rs",
+ "rqe_core",
+ "rqe_iterator_type",
+ "rqe_iterators",
+ "top_k",
  "workspace_hack",
 ]
 
@@ -1730,6 +1772,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "rs_token",
  "search_disk",
  "workspace_hack",
 ]
@@ -1764,7 +1807,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "inverted_index",
  "proptest",
@@ -1778,6 +1820,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
+ "rs_token",
  "search_disk",
  "thiserror",
  "workspace_hack",
@@ -1808,6 +1851,8 @@ name = "query_term"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "idf",
+ "nul_terminated_bytes",
  "workspace_hack",
 ]
 
@@ -2248,15 +2293,20 @@ name = "rlookup_ffi"
 version = "0.0.1"
 dependencies = [
  "c_ffi_utils",
+ "cheadergen",
+ "document",
+ "document_metadata",
  "ffi",
  "libc",
  "query_error",
+ "redis_json_api",
  "redis_mock",
  "redisearch_rs",
  "rlookup",
  "rlookup_ffi",
  "search_result",
  "sorting_vector",
+ "tracing",
  "value",
  "value_ffi",
  "workspace_hack",
@@ -2316,7 +2366,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "index_spec",
  "insta",
@@ -2341,6 +2390,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "timeout",
  "tracing",
  "trie_rs",
  "ttl_table",
@@ -2434,6 +2484,19 @@ dependencies = [
  "value_ffi",
  "varint_ffi",
  "wildcard",
+ "workspace_hack",
+]
+
+[[package]]
+name = "rs_token"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "query_term",
+ "redis_mock",
+ "redisearch_rs",
+ "rs_token",
  "workspace_hack",
 ]
 
@@ -3019,6 +3082,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "timeout"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3086,7 +3156,9 @@ dependencies = [
  "index_result",
  "index_spec",
  "inverted_index",
+ "itertools 0.15.0",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
  "rqe_core",
  "rqe_iterator_type",
@@ -3219,6 +3291,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "timeout",
  "trie_rs",
  "utf8parse",
  "workspace_hack",
@@ -3416,6 +3489,7 @@ dependencies = [
  "cheadergen",
  "ffi",
  "libc",
+ "nul_terminated_bytes",
  "query_error",
  "redis-module",
  "redis_mock",
@@ -3488,8 +3562,11 @@ dependencies = [
  "ffi",
  "index_result",
  "redis_mock",
+ "redis_reply",
  "redisearch_rs",
+ "rlookup",
  "rqe_core",
+ "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",

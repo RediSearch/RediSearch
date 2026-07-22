@@ -13,7 +13,7 @@ use rqe_iterators::{
     optional::Optional,
     profile::Profile,
     union::{Union, UnionQuickFlat},
-    utils::NoTimeout,
+    utils::NoTimeoutChecker,
 };
 
 use crate::utils::Mock;
@@ -42,7 +42,7 @@ fn leaf_wraps_self() {
 #[test]
 fn not_wraps_child_and_self() {
     let child = Mock::new([2, 4]);
-    let not = Not::new(child, 5, 1.0, NoTimeout);
+    let not = Not::new(child, 5, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     assert_eq!(profiled.counters().read, 0);
@@ -69,7 +69,7 @@ fn not_wraps_child_and_self() {
 #[test]
 fn not_empty_child() {
     let child = Mock::new([]);
-    let not = Not::new(child, 3, 1.0, NoTimeout);
+    let not = Not::new(child, 3, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     for expected in 1..=3 {
@@ -245,7 +245,7 @@ fn leaf_skip_to() {
 #[test]
 fn not_skip_to() {
     let child = Mock::new([3, 7]);
-    let not = Not::new(child, 10, 1.0, NoTimeout);
+    let not = Not::new(child, 10, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     // skip_to(5): doc 5 is not in child {3,7}, so NOT yields it.
@@ -258,7 +258,7 @@ fn not_skip_to() {
 #[test]
 fn not_rewind() {
     let child = Mock::new([2]);
-    let not = Not::new(child, 5, 1.0, NoTimeout);
+    let not = Not::new(child, 5, 1.0, NoTimeoutChecker);
     let mut profiled = Profile::new(not);
 
     let _ = profiled.read().unwrap(); // doc 1

@@ -7,23 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <string.h>
-#include "triemap_ffi.h"
-#include "value_ffi.h"
 #include <inttypes.h>
+#include <stdbool.h>
 
+#include "value_ffi.h"
 #include "document.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "forward_index.h"
-#include "numeric_filter.h"
 #include "numeric_range_tree.h"
 #include "numeric_range_tree_ffi.h"
 #include "sorting_vector_ffi.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/mempool.h"
 #include "spec.h"
 #include "tokenize.h"
-#include "util/logging.h"
 #include "rmalloc.h"
 #include "indexer.h"
 #include "tag_index.h"
@@ -32,11 +27,27 @@
 #include "rmutil/rm_assert.h"
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
-#include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "doc_id_meta.h"
 #include "iterators_ffi.h"
+#include "VecSim/vec_sim.h"
+#include "config.h"
+#include "doc_table.h"
+#include "geo_ffi.h"
+#include "geo_index.h"
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "info/index_error.h"
+#include "query.h"
+#include "query_error_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rules.h"
+#include "search_result_rs.h"
+#include "synonym_map.h"
+#include "util/mempool/mempool.h"
+#include "varint_ffi.h"
+#include "vector_index.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -1016,8 +1027,8 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   RLookupRow row = RLookupRow_New();;
   RSValue *rv = NULL;
   IndexSpecCache *spcache = NULL;
-  RLookupLoadOptions loadopts = {0};
   ExprEval evaluator = {0};
+  LoadIndividualKeysOptions opts = {0};
 
   RedisSearchCtx_LockSpecRead(sctx);
   dmd = DocTable_BorrowByKeyR(&sctx->spec->docs, key);
@@ -1038,8 +1049,15 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
     goto done;
   }
 
-  loadopts = (RLookupLoadOptions){.sctx = sctx, .dmd = dmd, .status = status};
-  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &loadopts) != REDISMODULE_OK) {
+  opts = (LoadIndividualKeysOptions){
+      .sctx = sctx,
+      .dmd = dmd,
+      .force_string = false,
+      .force_load = false,
+      .cached_only = false,
+      .status = status,
+  };
+  if (RLookup_LoadDocumentIndividual(&lookup_s, &row, &opts) != REDISMODULE_OK) {
      goto done;
   }
 

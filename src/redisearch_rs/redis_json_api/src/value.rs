@@ -107,10 +107,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Return the length of the value if it is an Object or Array
     pub fn len(&self) -> Option<usize> {
-        let vtable = self.api.vtable();
-        let get_len = vtable
-            .getLen
-            .expect("RedisJSON API function `getLen` not available");
+        let get_len = vtable_fn!(self.api, getLen);
 
         let mut out: usize = 0;
 
@@ -131,10 +128,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the type of this `JsonValue`.
     pub fn get_type(&self) -> JsonType {
-        let vtable = self.api.vtable();
-        let get_type = vtable
-            .getType
-            .expect("RedisJSON API function `getType` not available");
+        let get_type = vtable_fn!(self.api, getType);
 
         // Safety: `ptr` is valid by construction.
         let raw = unsafe { get_type(self.ptr) };
@@ -144,10 +138,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the i64 value of this `JsonValue`s if it is a Number or `None` otherwise.
     pub fn get_int(&self) -> Option<i64> {
-        let vtable = self.api.vtable();
-        let get_int = vtable
-            .getInt
-            .expect("RedisJSON API function `getInt` not available");
+        let get_int = vtable_fn!(self.api, getInt);
 
         let mut out: i64 = 0;
 
@@ -163,10 +154,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the f64 value of this `JsonValue`s if it is a Number or `None` otherwise.
     pub fn get_double(&self) -> Option<f64> {
-        let vtable = self.api.vtable();
-        let get_double = vtable
-            .getDouble
-            .expect("RedisJSON API function `getDouble` not available");
+        let get_double = vtable_fn!(self.api, getDouble);
 
         let mut out: f64 = 0.0;
 
@@ -182,10 +170,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the boolean value of this `JsonValue`s if it is a Boolean or `None` otherwise.
     pub fn get_bool(&self) -> Option<bool> {
-        let vtable = self.api.vtable();
-        let get_boolean = vtable
-            .getBoolean
-            .expect("RedisJSON API function `getBoolean` not available");
+        let get_boolean = vtable_fn!(self.api, getBoolean);
 
         let mut out: i32 = 0;
 
@@ -201,10 +186,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the string value of this `JsonValue`s if it is a String or `None` otherwise.
     pub fn get_str(&self) -> Option<&str> {
-        let vtable = self.api.vtable();
-        let get_string = vtable
-            .getString
-            .expect("RedisJSON API function `getString` not available");
+        let get_string = vtable_fn!(self.api, getString);
 
         let mut str: *const c_char = std::ptr::null();
         let mut len: usize = 0;
@@ -226,10 +208,7 @@ impl<'a> JsonValueRef<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     pub fn get_at(&self, idx: usize) -> Option<JsonValue<'_>> {
-        let vtable = self.api.vtable();
-        let get_at = vtable
-            .getAt
-            .expect("RedisJSON API function `getAt` not available");
+        let get_at = vtable_fn!(self.api, getAt);
 
         let mut out = JsonValue::new(self.api);
 
@@ -256,10 +235,7 @@ impl<'a> JsonValueRef<'a> {
         let (ptr, len) = if let Some(len) = self.len()
             && len > 0
         {
-            let vtable = self.api.vtable();
-            let get_key_values = vtable
-                .getKeyValues
-                .expect("RedisJSON API function `getKeyValues` not available");
+            let get_key_values = vtable_fn!(self.api, getKeyValues);
 
             // Safety: `ptr` is valid by construction.
             let ptr = unsafe { get_key_values(self.ptr) };
@@ -277,8 +253,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns an iterator over values matched by `path`.
     pub fn get(&self, path: &CStr) -> Option<ResultsIter<'_>> {
-        let api = self.api.vtable();
-        let get = api.get.expect("RedisJSON API function `get` not available");
+        let get = vtable_fn!(self.api, get);
 
         // Safety: `ptr` is valid by construction and CStr ensures `ptr` is a valid c string.
         let ptr = unsafe { get(self.ptr, path.as_ptr()) };
@@ -299,10 +274,7 @@ impl<'a> JsonValueRef<'a> {
         &self,
         ctx: *mut ffi::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
-        let api = self.api.vtable();
-        let get_json = api
-            .getJSON
-            .expect("RedisJSON API function `getJSON` not available");
+        let get_json = vtable_fn!(self.api, getJSON);
 
         let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
 
@@ -338,13 +310,8 @@ impl<'a> JsonValue<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     pub(crate) fn new(api: &'a RedisJsonApi) -> Self {
-        let vtable = api.vtable();
-        let alloc_json = vtable
-            .allocJson
-            .expect("RedisJSON API function `allocJson` not available");
-        let free = vtable
-            .freeJson
-            .expect("RedisJSON API function `freeJson` not available");
+        let alloc_json = vtable_fn!(api, allocJson);
+        let free = vtable_fn!(api, freeJson);
 
         // Safety: the redis json module is initialized at this point
         let ptr = unsafe { alloc_json() };

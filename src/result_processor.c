@@ -6,26 +6,29 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <util/minmax_heap.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "aggregate/aggregate.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
-#include "query.h"
 #include "extension.h"
-#include <util/minmax_heap.h>
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "rs_wall_clock.h"
-#include <stdatomic.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <time.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
@@ -36,8 +39,28 @@
 #include "search_result.h"
 #include "search_result_ffi.h"
 #include "redisearch.h"
+#include "reply.h"
 #include "asm_state_machine.h"
 #include "index_result_async_read.h"
+#include "doc_table.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "index_result_rs.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "score_explain.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "shard_window_ratio.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "spec.h"
+#include "util/dict/dict.h"
+#include "util/dllist.h"
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16
@@ -914,8 +937,14 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 typedef struct {
   ResultProcessor base;
   RLookup *lk;
-  RLookupLoadOptions loadopts;
+  RedisSearchCtx *sctx;
+  const RLookupKey **keys;
+  size_t nkeys;
   bool load_all;
+  bool forceLoad;
+  // Per-key load profiling buffer (nkeys entries), allocated only for
+  // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
+  LoadFieldProfile *profileFields;
   QueryError status;
 } RPLoader;
 
@@ -927,9 +956,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->loadopts.sctx->spec->diskSpec) {
+  if (self->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
@@ -949,13 +978,30 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   int ret;
   if (self->load_all) {
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadAllKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .force_string = true,
+          .status = &self->status,
+      };
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadIndividualKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .keys = self->keys,
+          .nkeys = self->nkeys,
+          .force_string = true,
+          .force_load = self->forceLoad,
+          .cached_only = false,
+          .status = &self->status,
+          .profile_fields = self->profileFields,
+      };
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1014,7 +1060,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
-  rm_free(lc->loadopts.keys);
+  rm_free(lc->keys);
+  rm_free(lc->profileFields);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1022,16 +1069,18 @@ static void rploaderFree(ResultProcessor *base) {
   rm_free(base);
 }
 
-static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
-  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = forceLoad;
-  self->loadopts.status = &self->status;
-  self->loadopts.sctx = sctx;
-  self->loadopts.dmd = NULL;
+static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk,
+                                    const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                    bool withProfile) {
+  self->sctx = sctx;
+  self->forceLoad = forceLoad;
   if (nkeys) {
-    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-    self->loadopts.nkeys = nkeys;
+    self->keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->keys, keys, sizeof(*keys) * nkeys);
+    self->nkeys = nkeys;
+    if (withProfile) {
+      self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
+    }
     self->load_all = false;
   } else {
     self->load_all = true;
@@ -1041,10 +1090,12 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   self->lk = lk;
 }
 
-static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPPlainLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                          const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                          bool withProfile) {
   RPLoader *self = rm_calloc(1, sizeof(*self));
 
-  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(self, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   self->base.Next = rploaderNext;
   self->base.Free = rploaderFree;
@@ -1343,10 +1394,12 @@ static void rpSafeLoaderFree(ResultProcessor *base) {
   rm_free(sl);
 }
 
-static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
+                                         const RLookupKey **keys, size_t nkeys, bool forceLoad,
+                                         bool withProfile) {
   RPSafeLoader *sl = rm_calloc(1, sizeof(*sl));
 
-  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad);
+  rploaderNew_setLoadOpts(&sl->base_loader, sctx, lk, keys, nkeys, forceLoad, withProfile);
 
   sl->BufferBlocks = NULL;
   sl->buffer_results_count = 0;
@@ -1408,13 +1461,54 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
     }
   }
   *outStateflags |= QEXEC_S_HAS_LOAD;
+  const bool withProfile = reqflags & QEXEC_F_PROFILE;
   if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
-    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPSafeLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   } else {
     // Assumes that Redis *IS* locked while executing the loader
-    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad);
+    return RPPlainLoader_New(sctx, lk, keys, nkeys, forceLoad, withProfile);
   }
+}
+
+static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
+  RS_LOG_ASSERT(base->type == RP_LOADER || base->type == RP_SAFE_LOADER,
+                "RPLoader profile requested for non-loader RP");
+  if (base->type == RP_SAFE_LOADER) {
+    return &((const RPSafeLoader *)base)->base_loader;
+  }
+  return (const RPLoader *)base;
+}
+
+void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
+  const RPLoader *loader = RPLoader_GetProfileSource(base);
+  if (loader->nkeys == 0) {
+    return;
+  }
+
+  const LoadFieldProfile *fields = loader->profileFields;
+  RS_LOG_ASSERT(fields, "profileFields must exist for explicit LOAD profile");
+
+  RedisModule_ReplyKV_Array(reply, "Field loads profile");
+  for (size_t ii = 0; ii < loader->nkeys; ++ii) {
+    const RLookupKey *key = loader->keys[ii];
+    const LoadFieldProfile *field = &fields[ii];
+    const char *fieldName = RLookupKey_GetPath(key);
+    if (!fieldName) {
+      fieldName = RLookupKey_GetName(key);
+    }
+    if (!fieldName) {
+      fieldName = "";
+    }
+
+    RedisModule_Reply_Map(reply);
+    RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, strlen(fieldName));
+    RedisModule_ReplyKV_Double(reply, "Time",
+                               rs_wall_clock_convert_ns_to_ms_d(field->load_time_ns));
+    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->load_count);
+    RedisModule_Reply_MapEnd(reply);
+  }
+  RedisModule_Reply_ArrayEnd(reply);
 }
 
 // Consumes the input loader and returns a new safe loader that wraps it.
@@ -1423,7 +1517,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
-  sl->sctx = loader->loadopts.sctx;
+  sl->sctx = loader->sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state
@@ -1463,14 +1557,19 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
   qctx->endProc = dummyHead.upstream;
 }
 
-// Link the request sync context into every RP_SAFE_LOADER in the pipeline so
-// they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
+// Link the request sync context into every RP_SAFE_LOADER (and disk RP_DISK_ASYNC_LOADER) in the
+// pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
+//
+// The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
+// `SearchDisk_AsyncLoader_SetSyncCtx` (see aggregate.h).
 void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
     if (rp->type == RP_SAFE_LOADER) {
       ((RPSafeLoader *)rp)->brc = sync;
+    } else if (rp->type == RP_DISK_ASYNC_LOADER) {
+      SearchDisk_AsyncLoader_SetSyncCtx(rp, sync);
     }
     rp = rp->upstream;
   }
@@ -1769,6 +1868,11 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
+
+#define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
+  "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
+  "Please retry."
+
 typedef struct {
   ResultProcessor base;                // Base result processor struct
   // We require separate contexts because we have different threads.
@@ -1889,6 +1993,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
+      QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -2261,8 +2367,8 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
     } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
       anyTimedOut = true;
@@ -2431,6 +2537,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
+    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
   }
 

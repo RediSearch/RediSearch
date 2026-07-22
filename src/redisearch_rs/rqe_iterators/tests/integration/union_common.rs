@@ -837,10 +837,12 @@ macro_rules! union_common_tests {
                 ));
             }
 
-            // Test 2: ALL children move to EOF during revalidate
+            // Test 2: ALL children move *past* their last result during revalidate.
+            // Two ids each, both consumed by the reads below, so the moves run off
+            // the end and the children are left unpositioned.
             {
-                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
-                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+                let mock1: Mock<'static, 2> = Mock::new([10, 20]);
+                let mock2: Mock<'static, 2> = Mock::new([10, 25]);
 
                 let mut data1 = mock1.data();
                 let mut data2 = mock2.data();
@@ -860,6 +862,45 @@ macro_rules! union_common_tests {
                 let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
                 assert!(matches!(status, RQEValidateStatus::Moved { current: None }));
                 assert!(union_iter.at_eof());
+            }
+
+            // Test 3: children merely *sitting on* their last result are kept.
+            //
+            // A child that has just returned its final document still owes it. The
+            // post-revalidate rebuild partitions children by `at_eof()`, so
+            // dropping them here would lose 30 and 35 and report EOF for the whole
+            // union.
+            {
+                let mock1: Mock<'static, 3> = Mock::new([10, 20, 30]);
+                let mock2: Mock<'static, 3> = Mock::new([10, 25, 35]);
+
+                let mut data1 = mock1.data();
+                let mut data2 = mock2.data();
+
+                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+                    vec![Box::new(mock1), Box::new(mock2)];
+
+                let mut union_iter = Union::new(children);
+
+                union_iter.read().expect("read failed").unwrap();
+                union_iter.read().expect("read failed").unwrap();
+
+                // Each child moves onto its final id: 30 and 35.
+                data1.set_revalidate_result(MockRevalidateResult::Move);
+                data2.set_revalidate_result(MockRevalidateResult::Move);
+
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let status = union_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                assert!(matches!(
+                    status,
+                    RQEValidateStatus::Moved { current: Some(_) }
+                ));
+                assert!(!union_iter.at_eof());
+                assert_eq!(union_iter.last_doc_id(), 30);
+
+                // Both survivors are still reachable.
+                let result = union_iter.read().expect("read failed").unwrap();
+                assert_eq!(result.doc_id, 35);
             }
         }
 
