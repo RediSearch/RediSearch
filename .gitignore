@@ -41,3 +41,18 @@ compile_commands.json
 # Per-run memtier_benchmark result files dropped in the repo root by
 # `redisbench-admin run-local` (named <setup>-<timestamp>--<test>.json).
 oss-*--*.json
+
+# BEGIN swamp managed section - DO NOT EDIT
+
+# Runtime data (not needed in version control)
+.swamp/
+
+# Local extension sources (developer-specific, not shared)
+.swamp-sources.yaml
+
+# Claude Code configuration (managed by swamp)
+.claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json
+# END swamp managed section
