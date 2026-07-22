@@ -492,6 +492,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dict"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "hidden_string",
+ "inverted_index",
+ "workspace_hack",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,13 +719,19 @@ dependencies = [
 name = "fork_gc"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "dict",
  "ffi",
+ "fork_gc",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "rmp-serde",
  "rqe_core",
  "serde",
@@ -1052,6 +1068,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field_spec",
