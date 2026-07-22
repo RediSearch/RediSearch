@@ -12,7 +12,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 source "$SCRIPT_DIR/version_compare.sh"
 
-# Integration hook for the monorepo `make bootstrap check-deps` union: when the
+# Integration hook for the monorepo `make bootstrap list` union: when the
 # outer bootstrap sets DEPS_REPORT_FILE, record each dependency's result as a
 # machine-readable "ok|missing <name>" line (a below/above-version dep counts
 # as missing). Purely additive — no effect on standalone `make verify-deps`.
