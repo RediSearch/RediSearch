@@ -2363,7 +2363,8 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags) {
+static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
+                              bool takeVecSimLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2402,11 +2403,12 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
       RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(f->vectorOpts.diskCtx.storage);
 
-      const bool vecSimWithData = f->vectorOpts.vecSimIndex &&
-                               VecSimIndex_IndexSize(f->vectorOpts.vecSimIndex) > 0;
+      const bool vecSimWithData =
+          f->vectorOpts.vecSimIndex &&
+          SearchDisk_VectorIndexHasData(f->vectorOpts.vecSimIndex, takeVecSimLocks);
       RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
       if (vecSimWithData) {
-        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb);
+        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb, takeVecSimLocks);
         RS_LOG_ASSERT_ALWAYS(ok, "Failed to stream vector index to RDB");
       }
     }
@@ -2959,7 +2961,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
