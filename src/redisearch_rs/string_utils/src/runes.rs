@@ -97,3 +97,94 @@ pub fn runes_to_utf8(runes: &[u16]) -> Option<Vec<u8>> {
 pub fn runes_to_string(runes: &[u16]) -> Option<String> {
     String::from_utf8(runes_to_utf8(runes)?).ok()
 }
+
+/// Decode a byte string into the runes ([`u16`]) a term was indexed under,
+/// reproducing the C `strToRunesN` conversion the trie is built with.
+///
+/// Two kinds of input reach this decoder and both must map to the same rune key
+/// the term was stored under:
+/// - A **rune-encoded (WTF-8) key** — the inverse of [`runes_to_utf8`] — whose
+///   codepoints are all `0x0000..=0xFFFF`, so it is at most three bytes per rune,
+///   **including lone surrogates** (`0xD800..=0xDFFF`, which valid UTF-8 forbids
+///   but which appear when a non-BMP codepoint was truncated to [`u16`] at index
+///   time).
+/// - A **raw query token** typed by the user, which may contain a genuine
+///   four-byte (non-BMP) sequence — e.g. an emoji. The index stored such a term
+///   by truncating each codepoint to [`u16`] (`strToRunesN` does `(rune)cp`), so
+///   this decoder truncates the four-byte codepoint the same way, letting the
+///   query resolve to the same key instead of silently missing it.
+///
+/// Unlike a UTF-8-validating decode, this recovers the same runes the term was
+/// stored under, so a surrogate-bearing key still matches.
+///
+/// The sequence width is classified from the lead byte by the same ranges C's
+/// `nu_utf8_read` uses — `0x00..=0x7F` → 1 byte, `0x80..=0xDF` → 2, `0xE0..=0xEF`
+/// → 3, `0xF0..=0xFF` → 4 — **not** by the stricter `110xxxxx`/`11110xxx` bit
+/// prefixes. So a byte the strict tests reject (a bare continuation byte or an
+/// `0xF8..=0xFF` lead) is still consumed as a multi-byte sequence, matching how
+/// the C indexer decoded it; classifying it as malformed here would make such a
+/// key unlookable.
+///
+/// Continuation bytes are likewise **not** validated to be of the `10xxxxxx`
+/// form: each is masked (`& 0x3F`) and folded into the codepoint unconditionally,
+/// exactly as `nu_utf8_read` does. So `[0xC3, b'(']` decodes to the same rune the
+/// C indexer would have produced (`0x00E8`) rather than stopping. Validating
+/// either the lead or the continuation bytes would diverge from how terms are
+/// actually stored.
+///
+/// Decoding stops only at the first NUL codepoint (keys are NUL-terminated) and
+/// at a *truncated* sequence — a lead byte whose continuation bytes run past the
+/// end of `bytes` (the one place this is stricter than the C decoder, which would
+/// read past its buffer); no read ever crosses that end.
+pub fn utf8_to_runes(bytes: &[u8]) -> Vec<u16> {
+    let mut runes = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        // Classify the width from the lead byte using C `nu_utf8_read`'s ranges.
+        let width = if b < 0x80 {
+            1
+        } else if b < 0xE0 {
+            2
+        } else if b < 0xF0 {
+            3
+        } else {
+            4
+        };
+        // A sequence whose continuation bytes run past the end of `bytes` is
+        // truncated: stop rather than read out of bounds (C would read past its
+        // buffer here).
+        if i + width > bytes.len() {
+            break;
+        }
+        // Decode the codepoint, masking continuation bytes with `& 0x3F` exactly
+        // as `nu_utf8_read` does, then truncate to `u16` as `strToRunesN`'s
+        // `(rune)cp` does — so the recovered runes match the key the trie was
+        // built under (a non-BMP codepoint folds to its low 16 bits).
+        let codepoint: u32 = match width {
+            1 => u32::from(b),
+            2 => (u32::from(b) & 0x1F) << 6 | (u32::from(bytes[i + 1]) & 0x3F),
+            3 => {
+                (u32::from(b) & 0x0F) << 12
+                    | (u32::from(bytes[i + 1]) & 0x3F) << 6
+                    | (u32::from(bytes[i + 2]) & 0x3F)
+            }
+            _ => {
+                (u32::from(b) & 0x07) << 18
+                    | (u32::from(bytes[i + 1]) & 0x3F) << 12
+                    | (u32::from(bytes[i + 2]) & 0x3F) << 6
+                    | (u32::from(bytes[i + 3]) & 0x3F)
+            }
+        };
+        // Keys are NUL-terminated; a `0` codepoint marks the end of the string.
+        // Test the full codepoint before truncating, as `strToRunesN` does — a
+        // four-byte codepoint is never `0`, so it is never mistaken for a
+        // terminator.
+        if codepoint == 0 {
+            break;
+        }
+        runes.push(codepoint as u16);
+        i += width;
+    }
+    runes
+}
