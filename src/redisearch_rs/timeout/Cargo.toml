@@ -11,5 +11,3 @@ bench = false
 
 [lints]
 workspace = true
-
-[dependencies]
