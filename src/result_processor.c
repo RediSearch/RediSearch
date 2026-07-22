@@ -1038,7 +1038,6 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->loadopts.nkeys = nkeys;
     if (withProfile) {
       self->loadopts.profileFields = rm_calloc(nkeys, sizeof(*self->loadopts.profileFields));
-      self->loadopts.profileFieldsCount = nkeys;
     }
     self->load_all = false;
   } else {
@@ -1442,12 +1441,12 @@ static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
   const RPLoader *loader = RPLoader_GetProfileSource(base);
   const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
-  if (!fields || loader->loadopts.profileFieldsCount == 0) {
+  if (!fields || loader->loadopts.nkeys == 0) {
     return;
   }
 
   RedisModule_ReplyKV_Array(reply, "Field loads profile");
-  for (size_t ii = 0; ii < loader->loadopts.profileFieldsCount; ++ii) {
+  for (size_t ii = 0; ii < loader->loadopts.nkeys; ++ii) {
     const RLookupKey *key = loader->loadopts.keys[ii];
     const RLookupLoadFieldProfile *field = &fields[ii];
     const char *fieldName = RLookupKey_GetPath(key);

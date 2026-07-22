@@ -64,7 +64,6 @@ typedef struct {
   bool forceString;
 
   RLookupLoadFieldProfile *profileFields;
-  size_t profileFieldsCount;
 
   struct QueryError *status;
 } RLookupLoadOptions;
