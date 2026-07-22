@@ -74,10 +74,15 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
         // For optimized builds, we only check the deadline
         // once every `self.limit` iterations. In development,
         // we're checking each iteration.
-        if (self.counter >= self.limit || cfg!(debug_assertions))
-            && Instant::now() >= self.deadline
-        {
-            return TimeoutCheckResult::TimedOut;
+        if self.counter >= self.limit || cfg!(debug_assertions) {
+            // Reset the counter whenever we probe the clock so the next
+            // `limit` calls are amortized again. Without this reset the
+            // counter would stay `>= limit` forever, turning every
+            // subsequent call into a real clock check.
+            self.counter = 0;
+            if Instant::now() >= self.deadline {
+                return TimeoutCheckResult::TimedOut;
+            }
         }
 
         TimeoutCheckResult::Ok
@@ -184,6 +189,25 @@ mod tests {
         for _ in 0..99 {
             assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
         }
+    }
+
+    #[test]
+    fn clock_context_amortizes_repeatedly_after_first_probe() {
+        // Deadline is effectively unreachable, so the checker must always
+        // report Ok. With `limit = 100`, the clock is probed on calls
+        // 100, 200, 300, ... and the counter must reset each time. The
+        // calls in between (never a multiple of `limit`) must not probe
+        // the clock. Regression test for a counter that was left `>= limit`
+        // after the first probe, which turned every later call into a
+        // clock check.
+        let limit = 100;
+        let mut ctx = DeadlineTimeoutChecker::new(Duration::from_secs(3600), limit);
+        for _ in 0..(limit as usize * 5) {
+            assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
+        }
+        // After probing on the last multiple of `limit`, the counter must
+        // have been reset rather than left at `limit`.
+        assert!(ctx.counter < limit);
     }
 
     #[test]
