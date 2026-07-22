@@ -273,6 +273,7 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
         self.last_limit_estimate = self.initial_limit;
         self.num_iterations = 0;
         self.heap_old_size = 0;
+        self.ranges.forget_emitted();
         self.ranges.refind(&self.filter);
     }
 

@@ -16,6 +16,8 @@
 //! Each chunk is materialized into a doc-id-ordered [`NumericScoreBatch`], so a
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
+use std::collections::HashSet;
+
 use index_result::RSIndexResult;
 use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
 use numeric_range_tree::{NumericRange, NumericRangeTree};
@@ -33,6 +35,14 @@ pub struct NumericRangeIterator<'index> {
     pos: usize,
     /// Value predicate applied to each record as a batch is materialized.
     filter: NumericFilter,
+    /// Doc ids already handed out by an earlier batch or window.
+    ///
+    /// A multivalue field indexes one entry per value, so a doc's values can
+    /// fall in different range chunks and be split across `next_n` batches — or
+    /// even across expanded windows. Ranges are strictly value-ordered and
+    /// disjoint, so a doc's first emission is on its best value; later, worse
+    /// occurrences are dropped to keep it scored exactly once.
+    emitted: HashSet<DocId>,
 }
 
 impl<'index> NumericRangeIterator<'index> {
@@ -44,15 +54,27 @@ impl<'index> NumericRangeIterator<'index> {
             ranges: tree.find(filter),
             pos: 0,
             filter: *filter,
+            emitted: HashSet::new(),
         }
     }
 
     /// Re-resolve the (typically expanded) `filter` and restart from the first
     /// matching range.
+    ///
+    /// The emitted-doc set is kept: expansion moves to a strictly worse,
+    /// disjoint value window, so a doc already scored on a better value must
+    /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
+    /// when restarting the whole query.
     pub fn refind(&mut self, filter: &NumericFilter) {
         self.ranges = self.tree.find(filter);
         self.pos = 0;
         self.filter = *filter;
+    }
+
+    /// Drop the record of already-emitted doc ids, so a full rewind can score
+    /// every doc afresh.
+    pub fn forget_emitted(&mut self) {
+        self.emitted.clear();
     }
 
     /// Sum of `num_docs` across every range in the current window.
@@ -78,7 +100,7 @@ impl<'index> NumericRangeIterator<'index> {
             return Ok(None);
         }
         let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter)?;
+        let batch = merge_ranges(&self.ranges[self.pos..end], self.filter, &mut self.emitted)?;
         self.pos = end;
         Ok(Some(batch))
     }
@@ -94,18 +116,23 @@ impl<'index> NumericRangeIterator<'index> {
 /// [`NumericScoreBatch`] requires for its `skip_to` `partition_point`.
 ///
 /// A multivalue field indexes one entry per value, so a doc id can occur several
-/// times with different scores. Such runs are coalesced to a single entry
-/// carrying the doc's best score for the sort direction — the value that decides
-/// its rank in a top-k over this batch's ranges.
+/// times with different scores. Occurrences within this batch's ranges are
+/// coalesced to a single entry carrying the doc's best score for the sort
+/// direction; occurrences already handed out by an earlier batch (tracked in
+/// `emitted`) are dropped, since their better value was scored there.
 fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
+    emitted: &mut HashSet<DocId>,
 ) -> std::io::Result<NumericScoreBatch> {
     let mut items: Vec<(DocId, f64)> = Vec::new();
     let mut record = RSIndexResult::build_numeric(0.0).build();
     for range in ranges {
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
+            if emitted.contains(&record.doc_id) {
+                continue;
+            }
             let score = record
                 .as_numeric()
                 .expect("numeric range yields numeric records");
@@ -114,6 +141,7 @@ fn merge_ranges(
     }
     items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
     coalesce_by_doc_id(&mut items, filter.ascending);
+    emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
     Ok(NumericScoreBatch::new(items))
 }
 
@@ -155,16 +183,44 @@ mod tests {
             .collect()
     }
 
-    /// Drain every window into the `(doc_id, score)` pairs it yields.
-    fn drain_pairs(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<(DocId, f64)> {
+    /// Drain every window into the `(doc_id, score)` pairs it yields, taking
+    /// `per_batch` ranges at a time so tests can force multi-batch behavior.
+    fn drain_pairs_in_chunks(
+        tree: &NumericRangeTree,
+        filter: &NumericFilter,
+        per_batch: usize,
+    ) -> Vec<(DocId, f64)> {
         let mut it = NumericRangeIterator::new(tree, filter);
         let mut pairs = Vec::new();
-        while let Some(mut batch) = it.next_n(8).unwrap() {
+        while let Some(mut batch) = it.next_n(per_batch).unwrap() {
             while let Some(pair) = batch.next() {
                 pairs.push(pair);
             }
         }
         pairs
+    }
+
+    /// Drain every window into the `(doc_id, score)` pairs it yields.
+    fn drain_pairs(tree: &NumericRangeTree, filter: &NumericFilter) -> Vec<(DocId, f64)> {
+        drain_pairs_in_chunks(tree, filter, 8)
+    }
+
+    /// Build a two-leaf tree, then index `doc_id` as a multivalue doc with one
+    /// value in each leaf so its occurrences span a range (and hence batch)
+    /// boundary.
+    fn tree_with_multivalue_doc_spanning_two_ranges(doc_id: DocId) -> NumericRangeTree {
+        let mut tree = NumericRangeTree::new(false);
+        // Enough distinct values to force a split into two value-disjoint leaves.
+        for value in 1..=20u64 {
+            tree.add(value, value as f64, false, 0);
+        }
+        assert!(
+            tree.find(&NumericFilter::default()).len() >= 2,
+            "expected a split"
+        );
+        tree.add(doc_id, 1.0, true, 0);
+        tree.add(doc_id, 20.0, true, 0);
+        tree
     }
 
     #[test]
@@ -240,6 +296,50 @@ mod tests {
             pairs,
             [(1, 90.0)],
             "descending keeps the doc's largest value"
+        );
+    }
+
+    #[test]
+    fn multivalue_doc_spanning_batches_is_scored_once_on_its_best_value() {
+        let doc = 1000;
+        let tree = tree_with_multivalue_doc_spanning_two_ranges(doc);
+
+        // One range per batch: the doc's two values land in different batches,
+        // which per-batch coalescing alone cannot reconcile.
+        let pairs = drain_pairs_in_chunks(&tree, &NumericFilter::default(), 1);
+
+        let occurrences: Vec<f64> = pairs
+            .iter()
+            .filter(|(id, _)| *id == doc)
+            .map(|(_, score)| *score)
+            .collect();
+        assert_eq!(
+            occurrences,
+            [1.0],
+            "ascending must emit the doc once, on its smallest value"
+        );
+    }
+
+    #[test]
+    fn multivalue_doc_spanning_batches_is_scored_once_descending() {
+        let doc = 1000;
+        let tree = tree_with_multivalue_doc_spanning_two_ranges(doc);
+        let filter = NumericFilter {
+            ascending: false,
+            ..NumericFilter::default()
+        };
+
+        let pairs = drain_pairs_in_chunks(&tree, &filter, 1);
+
+        let occurrences: Vec<f64> = pairs
+            .iter()
+            .filter(|(id, _)| *id == doc)
+            .map(|(_, score)| *score)
+            .collect();
+        assert_eq!(
+            occurrences,
+            [20.0],
+            "descending must emit the doc once, on its largest value"
         );
     }
 }
