@@ -25,10 +25,10 @@
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
-// COLLECT option keywords, in their normalized (lowercase) spelling.
+// COLLECT option keywords, in their normalized (uppercase) spelling.
 #define COLLECT_NUM_KEYWORDS 6
 static const char *const collectKeywords[COLLECT_NUM_KEYWORDS] = {
-    "fields", "sortby", "asc", "desc", "limit", "distinct"};
+    "FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC, "LIMIT", "DISTINCT"};
 
 typedef struct {
   CollectArgs *args;

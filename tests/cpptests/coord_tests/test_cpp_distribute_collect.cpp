@@ -18,8 +18,8 @@
 // The key invariants asserted:
 //   - LIMIT on the remote is always rewritten to `0 (offset + count)`.
 //   - LIMIT on the local keeps the user's original offset/count.
-//   - All other tokens (FIELDS, SORTBY, `FIELDS *`) are forwarded verbatim
-//     from the original argv, with no normalization.
+//   - Option keywords are normalized to uppercase on the remote side; all
+//     other tokens — and the entire local argv — are forwarded verbatim.
 //   - The local reducer's `inputAlias` matches the remote reducer's `alias`,
 //     wiring the merge step to its shard payload source.
 
@@ -168,7 +168,7 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_NoLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "1", "@name"}));
+            (std::vector<std::string>{"FIELDS", "1", "@name"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "1", "@name"}));
 
@@ -183,7 +183,7 @@ TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   AGGPlan *plan = nullptr;
   // The user omits the per-key direction (`SORTBY 1 @price`, not
   // `SORTBY 2 @price ASC`). SORTBY is forwarded as-is (keywords normalized to
-  // lowercase on the remote side only), so the omitted direction stays omitted
+  // uppercase on the remote side only), so the omitted direction stays omitted
   // on both sides.
   AREQ *r = compileAndDistribute(
       {"FIELDS", "1", "@name", "SORTBY", "1", "@price"}, &plan);
@@ -194,8 +194,8 @@ TEST_F(DistributeCollectTest, FieldsList_SortByOnly_NoLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "1", "@name",
-                                      "sortby", "1", "@price"}));
+            (std::vector<std::string>{"FIELDS", "1", "@name",
+                                      "SORTBY", "1", "@price"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "1", "@name",
                                       "SORTBY", "1", "@price"}));
@@ -215,8 +215,8 @@ TEST_F(DistributeCollectTest, FieldsList_NoSortBy_Limit_RewritesRemoteLimit) {
 
   // Remote: offset=0, count=2+3=5
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "1", "@name",
-                                      "limit", "0", "5"}));
+            (std::vector<std::string>{"FIELDS", "1", "@name",
+                                      "LIMIT", "0", "5"}));
   // Local: original offset=2, count=3
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "1", "@name",
@@ -238,9 +238,9 @@ TEST_F(DistributeCollectTest, FieldsList_SortBy_Limit_RewritesRemoteLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "1", "@name",
-                                      "sortby", "2", "@price", "asc",
-                                      "limit", "0", "5"}));
+            (std::vector<std::string>{"FIELDS", "1", "@name",
+                                      "SORTBY", "2", "@price", "ASC",
+                                      "LIMIT", "0", "5"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "1", "@name",
                                       "SORTBY", "2", "@price", "ASC",
@@ -263,7 +263,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_NoLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "*"}));
+            (std::vector<std::string>{"FIELDS", "*"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*"}));
 
@@ -281,8 +281,8 @@ TEST_F(DistributeCollectTest, FieldsStar_SortByOnly_NoLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "*",
-                                      "sortby", "2", "@price", "asc"}));
+            (std::vector<std::string>{"FIELDS", "*",
+                                      "SORTBY", "2", "@price", "ASC"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*",
                                       "SORTBY", "2", "@price", "ASC"}));
@@ -300,7 +300,7 @@ TEST_F(DistributeCollectTest, FieldsStar_NoSortBy_Limit_RewritesRemoteLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "*", "limit", "0", "5"}));
+            (std::vector<std::string>{"FIELDS", "*", "LIMIT", "0", "5"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*", "LIMIT", "1", "4"}));
 
@@ -320,13 +320,35 @@ TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
   ASSERT_NE(pair.local, nullptr);
 
   EXPECT_EQ(argsAsStrings(pair.remote),
-            (std::vector<std::string>{"fields", "*",
-                                      "sortby", "2", "@price", "desc",
-                                      "limit", "0", "15"}));
+            (std::vector<std::string>{"FIELDS", "*",
+                                      "SORTBY", "2", "@price", "DESC",
+                                      "LIMIT", "0", "15"}));
   EXPECT_EQ(argsAsStrings(pair.local),
             (std::vector<std::string>{"FIELDS", "*",
                                       "SORTBY", "2", "@price", "DESC",
                                       "LIMIT", "5", "10"}));
+
+  AREQ_DecrRef(r);
+}
+
+
+// ----------------------------------------------------------------------------
+// Keyword case normalization
+// ----------------------------------------------------------------------------
+
+TEST_F(DistributeCollectTest, KeywordCase_NormalizedOnRemote_VerbatimOnLocal) {
+  AGGPlan *plan = nullptr;
+  AREQ *r = compileAndDistribute({"fields", "1", "@name"}, &plan);
+  ASSERT_NE(r, nullptr);
+
+  auto pair = locateCollectPair(plan);
+  ASSERT_NE(pair.remote, nullptr);
+  ASSERT_NE(pair.local, nullptr);
+
+  EXPECT_EQ(argsAsStrings(pair.remote),
+            (std::vector<std::string>{"FIELDS", "1", "@name"}));
+  EXPECT_EQ(argsAsStrings(pair.local),
+            (std::vector<std::string>{"fields", "1", "@name"}));
 
   AREQ_DecrRef(r);
 }
