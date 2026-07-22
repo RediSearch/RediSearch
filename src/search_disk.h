@@ -634,6 +634,15 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
+ * @brief Check whether a disk vector index contains data.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param takeLocks Whether to synchronize with concurrent index mutations
+ * @return true when the index contains data, false otherwise
+ */
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks);
+
+/**
  * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
  *        the field's RedisModuleIO RDB stream.
  *
@@ -642,9 +651,10 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  *
  * @param vecIndex VecSimIndex* handle
  * @param rdb RedisModuleIO stream to write into
+ * @param takeLocks Whether to synchronize with concurrent index mutations
  * @return true on success, false otherwise
  */
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
 /**
  * @brief Create a VecSimIndex with no SpeedB storage bound.
