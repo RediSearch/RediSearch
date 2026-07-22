@@ -54,9 +54,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_LOADER:
         printProfileType(RPTypeToString(rp->type));
-        if (printProfileClock) {
-          RPLoader_ReplyProfileFields(reply, rp);
-        }
         break;
 
       case RP_PROJECTOR:
@@ -67,9 +64,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_SAFE_LOADER:
         printProfileType(RPTypeToString(rp->type));
         printProfileGILTime(rs_wall_clock_convert_ns_to_ms_d(rp->rpGILTime));
-        if (printProfileClock) {
-          RPLoader_ReplyProfileFields(reply, rp);
-        }
         break;
 
       default: // LCOV_EXCL_START — defensive: all valid RPType values are handled above
@@ -87,6 +81,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  if (printProfileClock && rp->upstream &&
+      (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
+    RPLoader_ReplyProfileFields(reply, rp->upstream);
+  }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
