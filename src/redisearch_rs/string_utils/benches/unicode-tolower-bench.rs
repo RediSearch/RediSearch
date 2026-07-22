@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Compare the owned [`unicode_tolower`] against the borrowing
-//! [`unicode_tolower_cow`].
+//! Compare the owned [`unicode::tolower`](string_utils::unicode::tolower)
+//! against the borrowing
+//! [`unicode::tolower_cow`](string_utils::unicode::tolower_cow).
 //!
 //! The `Cow` variant only pays off when the input is already lowercase: it
 //! borrows and skips the allocation entirely. When a fold is required it does
@@ -19,7 +20,7 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use string_utils::{unicode_tolower, unicode_tolower_cow};
+use string_utils::unicode;
 
 /// Representative inputs, one per (case, script) quadrant.
 const INPUTS: &[(&str, &str)] = &[
@@ -40,10 +41,10 @@ fn bench_tolower(c: &mut Criterion) {
     let mut group = c.benchmark_group("unicode_tolower");
     for &(name, input) in INPUTS {
         group.bench_with_input(BenchmarkId::new("owned", name), input, |b, s| {
-            b.iter(|| unicode_tolower(black_box(s)));
+            b.iter(|| unicode::tolower(black_box(s)));
         });
         group.bench_with_input(BenchmarkId::new("cow", name), input, |b, s| {
-            b.iter(|| unicode_tolower_cow(black_box(s)));
+            b.iter(|| unicode::tolower_cow(black_box(s)));
         });
     }
     group.finish();
