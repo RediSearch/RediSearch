@@ -31,14 +31,19 @@ pub struct RuneStrTooLong {
 /// Returns [`Err(`[`RuneStrTooLong`]`)`] if the resulting rune count exceeds
 /// [`MAX_RUNE_STR_LEN`].
 pub fn str_to_lower_runes(s: &str) -> Result<Vec<u16>, RuneStrTooLong> {
-    let runes: Vec<u16> = s
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| c as u16)
-        .collect();
-    if runes.len() > MAX_RUNE_STR_LEN {
-        return Err(RuneStrTooLong { len: runes.len() });
+    // Measure the folded length first, in a single non-allocating pass, and
+    // reject an over-limit string before allocating a buffer proportional to it.
+    // A caller-supplied wildcard token can be arbitrarily long, so allocating
+    // the full rune vector just to discover it exceeds the limit would waste
+    // memory proportional to the input. This mirrors the C `strToLowerRunes`,
+    // which measures with `nu_strtransformnlen` before allocating.
+    let len = s.chars().flat_map(char::to_lowercase).count();
+    if len > MAX_RUNE_STR_LEN {
+        return Err(RuneStrTooLong { len });
     }
+    // The measured length is exact, so the buffer is sized once and never grown.
+    let mut runes = Vec::with_capacity(len);
+    runes.extend(s.chars().flat_map(char::to_lowercase).map(|c| c as u16));
     Ok(runes)
 }
 
