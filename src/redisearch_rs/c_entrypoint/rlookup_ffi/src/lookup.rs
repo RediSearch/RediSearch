@@ -19,6 +19,7 @@ use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
     RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
+use std::ffi::CString;
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char, c_int},
@@ -649,7 +650,10 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
                 "rlookup::load_rule_fields failed with {err:?}"
             );
 
-            status.set_code(err.to_query_error_code());
+            status.set_code_and_message(
+                err.to_query_error_code(),
+                CString::new(err.to_string()).ok(),
+            );
 
             ffi::REDISMODULE_ERR as i32
         }
@@ -724,7 +728,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
         DocumentType::Hash => {
             let format = HashDocumentFormat::new(ctx, opts.force_string);
 
-            DocumentLoader::new(lookup, dst_row, ctx, dmd, format).load_all()
+            DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
         DocumentType::Json => {
             // Safety: this function will be called long after module initialization
@@ -737,7 +741,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
 
-            DocumentLoader::new(lookup, dst_row, ctx, dmd, format).load_all()
+            DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
         DocumentType::Unsupported => unimplemented!("unsupported document type"),
     };
@@ -788,8 +792,10 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     opts: Option<NonNull<LoadIndividualKeysOptions>>,
 ) -> c_int {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+    // Safety: ensured by caller (1.). Only shared access is needed here (key
+    // selection reads the lookup), and taking a shared reference avoids a
+    // mutable borrow that would alias the key references materialized below.
+    let lookup = unsafe { RLookup::from_opaque_ptr_unchecked(lookup.unwrap().as_ptr()) };
 
     // Safety: ensured by caller (2.)
     let dst_row = unsafe { RLookupRow::from_opaque_non_null(dst_row.unwrap()) };
@@ -811,10 +817,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
 
     // Build the list of keys to load, then take it as raw pointers to release
-    // the borrow on `lookup` before constructing the `DocumentLoader` (which
-    // needs `&mut lookup` for the load_all path). The pointees stay valid for
-    // the duration of this call: the lookup outlives us, and `load_specific`
-    // does not mutate the key list.
+    // the borrow on `lookup` before materializing the key references. The
+    // pointees stay valid for the duration of this call: the lookup outlives
+    // us, and `load_specific` does not mutate the key list.
     let key_ptrs: Vec<*const RLookupKey<'_>> = if opts.nkeys > 0 {
         debug_assert!(!opts.keys.is_null(), "keys must be non-null when nkeys > 0");
         // SAFETY: caller (5.) — `opts.keys` points to `nkeys` valid
@@ -836,7 +841,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
         DocumentType::Hash => {
             let format = HashDocumentFormat::new(ctx, opts.force_string);
 
-            DocumentLoader::new(lookup, dst_row, ctx, dmd, format)
+            DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
                 .load_specific(keys)
         }
@@ -851,7 +856,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
 
-            DocumentLoader::new(lookup, dst_row, ctx, dmd, format)
+            DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
                 .load_specific(keys)
         }

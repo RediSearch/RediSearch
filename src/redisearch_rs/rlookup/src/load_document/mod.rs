@@ -108,7 +108,6 @@ impl LoadAllError {
 }
 
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
-    rlookup: &'env mut RLookup<'a>,
     dst_row: &'env mut RLookupRow<'a>,
     ctx: NonNull<ffi::RedisModuleCtx>,
     force_load: bool,
@@ -157,7 +156,6 @@ pub trait FieldLoader {
 
 impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     pub fn new(
-        rlookup: &'env mut RLookup<'a>,
         dst_row: &'env mut RLookupRow<'a>,
         ctx: NonNull<ffi::RedisModuleCtx>,
         dmd: &'a DocumentMetadata,
@@ -173,7 +171,6 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
         dst_row.set_sorting_vector(Some(sorting_vector));
 
         Self {
-            rlookup,
             dst_row,
             ctx,
             force_load: false,
@@ -211,12 +208,14 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     /// be preferred if you need to load all keys in an rlookup.
     ///
     /// `Self::force_load` has **no effect** on this method, all keys are always loaded anyways.
-    pub fn load_all(self) -> Result<(), LoadAllError> {
-        self.format.load_all(
-            self.rlookup,
-            self.dst_row,
-            &self.dmd.key_name(Some(self.ctx)),
-        )
+    ///
+    /// Unlike [`Self::load_specific`], this needs `&mut RLookup` because it may create new keys on
+    /// the fly. It is taken here rather than held by the loader so the per-field
+    /// [`Self::load_specific`] path never carries a mutable borrow that could alias caller-supplied
+    /// key references.
+    pub fn load_all(self, rlookup: &mut RLookup) -> Result<(), LoadAllError> {
+        self.format
+            .load_all(rlookup, self.dst_row, &self.dmd.key_name(Some(self.ctx)))
     }
 }
 
