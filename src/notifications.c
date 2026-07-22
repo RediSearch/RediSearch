@@ -920,7 +920,7 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     g_hotRestartSave = false;
     // Async (fork child) save: BGSAVE / replication. This can never be a hot
     // restart (those only happen in the foreground, main-process SYNC_ variant)
-    RedisModule_Log(ctx, "notice", "SAVE start mode=%s scope=background sst=%s",
+    RedisModule_Log(ctx, "notice", "SAVE start mode=%s proc=fork sst=%s",
                     useSst ? "PARTIAL_RDB" : "FULL_RDB", useSst ? "true" : "false");
     if (!useSst) {
       DocIdMeta_SetForgetDocIdMetadata(true);
@@ -929,14 +929,14 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   case REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START:
     vecsimdisk_sst_consistency_lock_held = false;
     if (!useSst) {
-      RedisModule_Log(ctx, "notice", "SAVE start mode=FULL_RDB scope=foreground sst=false");
+      RedisModule_Log(ctx, "notice", "SAVE start mode=FULL_RDB proc=main sst=false");
       DocIdMeta_SetForgetDocIdMetadata(true);
     } else {
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
       // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
       // so open the consistency window here instead (flushing via PreCheckpoint).
-      RedisModule_Log(ctx, "notice", "SAVE start mode=HOT_RESTART scope=foreground sst=true disk_index=preserved");
+      RedisModule_Log(ctx, "notice", "SAVE start mode=HOT_RESTART proc=main sst=true disk_index=preserved");
       // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
       g_hotRestartSave = true;
       DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
@@ -947,10 +947,10 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
       // re-enabling compactions via PostFork on success.
       DiskConsistencyWindow_End(SearchDisk_PostFork);
-      RedisModule_Log(ctx, "notice", "SAVE end mode=%s ok=true",
+      RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB ok=true");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB sst=false ok=true");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
@@ -962,14 +962,14 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // The window may have been opened by a foreground hot-restart save
       // (g_hotRestartSave) or by an SST-replication fork (child observing the
       // COW-inherited flag) — log the actual mode before clearing the latch.
-      RedisModule_Log(ctx, "warning", "SAVE end mode=%s ok=false",
+      RedisModule_Log(ctx, "warning", "SAVE end mode=%s sst=true ok=false",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
       // Clear the latch: the save failed, so the process keeps running and a
       // later ordinary shutdown must still delete the on-disk indexes rather
       // than treat this as a successful hot restart (see ShutdownDiskClose).
       g_hotRestartSave = false;
     } else if (!useSst) {
-      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB ok=false");
+      RedisModule_Log(ctx, "notice", "SAVE end mode=FULL_RDB sst=false ok=false");
       DocIdMeta_SetForgetDocIdMetadata(false);
     }
     break;
