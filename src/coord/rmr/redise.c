@@ -10,6 +10,7 @@
 #include "rmalloc.h"
 #include "rmutil/args.h"
 #include "slot_ranges.h"
+#include "config.h"
 #include <strings.h>
 
 typedef struct {
@@ -122,6 +123,9 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   uint32_t numRanges = 0;                  // Mandatory. No default.
   uint32_t numSlots = 16384;               // Default.
 
+  // Assume all ports are TLS ports according to the `tls-cluster` config.
+  bool is_tls = getRedisConfigBool(ctx, "tls-cluster", false);
+
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {
     if (AC_AdvanceIfMatch(&ac, "MYID")) {
@@ -227,6 +231,7 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
           ERROR_BADVAL("ADDR", addr);
           goto error;
         }
+        sh->node.endpoint.isTls = is_tls;
 
       } else if (AC_AdvanceIfMatch(&ac, "UNIXADDR")) {
         /* Optional UNIXADDR <unix_addr> */
