@@ -192,23 +192,27 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   // (success could also be when no value is found and nothing is loaded into `dst`,
   //  for example, with a JSONPath with no matches)
   if (options->nkeys) {
-    for (size_t ii = 0; ii < options->nkeys; ++ii) {
-      const RLookupKey *kk = options->keys[ii];
-      RLookupLoadFieldProfile *profile = NULL;
-      if (options->profileFields && ii < options->profileFieldsCount) {
-        profile = &options->profileFields[ii];
-      }
-      rs_wall_clock start;
-      if (profile) {
+    if (options->profileFields) {
+      RS_LOG_ASSERT(options->profileFieldsCount == options->nkeys,
+                    "profileFields must match explicit LOAD keys");
+      for (size_t ii = 0; ii < options->nkeys; ++ii) {
+        const RLookupKey *kk = options->keys[ii];
+        RLookupLoadFieldProfile *profile = &options->profileFields[ii];
+        rs_wall_clock start;
         rs_wall_clock_init(&start);
-      }
-      int loadRc = getKey(kk, dst, options, &key);
-      if (profile) {
+        int loadRc = getKey(kk, dst, options, &key);
         profile->loadTimeNs += rs_wall_clock_elapsed_ns(&start);
         profile->loadCount++;
+        if (loadRc != REDISMODULE_OK) {
+          goto done;
+        }
       }
-      if (loadRc != REDISMODULE_OK) {
-        goto done;
+    } else {
+      for (size_t ii = 0; ii < options->nkeys; ++ii) {
+        const RLookupKey *kk = options->keys[ii];
+        if (getKey(kk, dst, options, &key) != REDISMODULE_OK) {
+          goto done;
+        }
       }
     }
   } else { // If we called load to perform IF operation with FT.ADD command

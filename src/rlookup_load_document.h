@@ -16,7 +16,8 @@ extern "C" {
 #endif
 
 typedef struct {
-  const RLookupKey *key;
+  /* Per explicit LOAD key counters. Loader cost can differ by field source,
+   * value size, conversion, and JSON path materialization. */
   uint64_t loadTimeNs;
   uint64_t loadCount;
 } RLookupLoadFieldProfile;

@@ -35,6 +35,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     switch (rp->type) {
       case RP_INDEX:
       case RP_METRICS:
+      case RP_LOADER:
       case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
@@ -49,10 +50,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_HYBRID_MERGER:
       case RP_DEPLETER:
       case RP_DISK_ASYNC_LOADER:
-        printProfileType(RPTypeToString(rp->type));
-        break;
-
-      case RP_LOADER:
         printProfileType(RPTypeToString(rp->type));
         break;
 
@@ -81,6 +78,8 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
+  // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
   if (printProfileClock && rp->upstream &&
       (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
     RPLoader_ReplyProfileFields(reply, rp->upstream);

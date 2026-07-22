@@ -1039,9 +1039,6 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->loadopts.profileFields = rm_calloc(nkeys, sizeof(*self->loadopts.profileFields));
       self->loadopts.profileFieldsCount = nkeys;
-      for (size_t ii = 0; ii < nkeys; ++ii) {
-        self->loadopts.profileFields[ii].key = keys[ii];
-      }
     }
     self->load_all = false;
   } else {
@@ -1434,14 +1431,12 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
 }
 
 static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
-  switch (base->type) {
-    case RP_LOADER:
-      return (const RPLoader *)base;
-    case RP_SAFE_LOADER:
-      return &((const RPSafeLoader *)base)->base_loader;
-    default:
-      RS_ABORT("RPLoader profile requested for non-loader RP");
+  RS_LOG_ASSERT(base->type == RP_LOADER || base->type == RP_SAFE_LOADER,
+                "RPLoader profile requested for non-loader RP");
+  if (base->type == RP_SAFE_LOADER) {
+    return &((const RPSafeLoader *)base)->base_loader;
   }
+  return (const RPLoader *)base;
 }
 
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
@@ -1453,10 +1448,11 @@ void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor
 
   RedisModule_ReplyKV_Array(reply, "Field loads profile");
   for (size_t ii = 0; ii < loader->loadopts.profileFieldsCount; ++ii) {
+    const RLookupKey *key = loader->loadopts.keys[ii];
     const RLookupLoadFieldProfile *field = &fields[ii];
-    const char *fieldName = RLookupKey_GetPath(field->key);
+    const char *fieldName = RLookupKey_GetPath(key);
     if (!fieldName) {
-      fieldName = RLookupKey_GetName(field->key);
+      fieldName = RLookupKey_GetName(key);
     }
     if (!fieldName) {
       fieldName = "";
