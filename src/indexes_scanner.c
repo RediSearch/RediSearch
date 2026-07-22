@@ -76,14 +76,11 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
     if (oom) {
       sp->scan_failed_OOM = true;
       // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
-      // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and
-      // hide the incomplete build. The scanner is still alive here, so this reads
-      // its live scannedKeys/DbSize fraction. Cap strictly below 1.0: an OOM-aborted
-      // build is by definition incomplete, but duplicate SCAN deliveries can push
-      // scannedKeys to (or past) DbSize, which IndexesScanner_IndexedPercent clamps to
-      // a complete-looking 1.0 — that must never be reported for a failed build.
-      double pct = IndexesScanner_IndexedPercent(ctx, scanner, sp);
-      sp->scan_failed_OOM_percent = pct < 1.0 ? pct : 1.0;
+      // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and hide
+      // the incomplete build. Store the raw scanned-key count (the scanner is still
+      // alive here); IndexesScanner_IndexedPercent divides it by the live DbSize so the
+      // partial build is not reported as complete.
+      sp->scan_failed_OOM_scanned_keys = scanner->scannedKeys;
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
     }
     StrongRef_Release(curr_run_ref);
@@ -138,23 +135,23 @@ bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
 }
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      size_t totalKeys = RedisModule_DbSize(ctx);
-      // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
-      // at-least-once) can push it past totalKeys; clamp so the reported percent never
-      // exceeds 100%.
-      double pct = totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
-      return pct > 1.0 ? 1.0 : pct;
-    } else {
-      return 0;
-    }
+  // Pick the scanned-key count to measure against the current DbSize:
+  size_t scannedKeys;
+  if (scanner) {
+    scannedKeys = scanner->scannedKeys;             // active scan: live progress
+  } else if (sp->scan_in_progress) {
+    return 0.0;                                     // scan pending, no scanner yet: 0%
+  } else if (sp->scan_failed_OOM) {
+    scannedKeys = sp->scan_failed_OOM_scanned_keys; // last build OOM-aborted: frozen progress
   } else {
-    // No active scanner: the build completed (1.0), unless the last background
-    // build aborted on OOM — then report the fraction it reached, frozen in
-    // scan_failed_OOM_percent, so a partial index isn't shown as complete.
-    return sp->scan_failed_OOM ? sp->scan_failed_OOM_percent : 1.0;
+    return 1.0;                                     // no scan pending: build completed
   }
+  size_t totalKeys = RedisModule_DbSize(ctx);
+  // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
+  // at-least-once) can push it past totalKeys; clamp so the reported percent never
+  // exceeds 100%.
+  double pct = totalKeys > 0 ? (double)scannedKeys / totalKeys : 0.0;
+  return pct > 1.0 ? 1.0 : pct;
 }
 
 IndexesScanner *IndexesScanner_NewGlobal() {

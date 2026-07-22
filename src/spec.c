@@ -2190,7 +2190,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->scan_failed_OOM = false;
-  sp->scan_failed_OOM_percent = 0;
+  sp->scan_failed_OOM_scanned_keys = 0;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;
