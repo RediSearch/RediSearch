@@ -21,12 +21,6 @@
 
 class TagIndexTest : public ::testing::Test {};
 
-static bool indexTags(TagIndex *idx, std::vector<const char *> &values, t_docId docId,
-                      IndexStats *stats) {
-  TagIndexIndexCtx ctx = {NULL, values.data(), values.size(), docId, false, stats};
-  return TagIndex_Index(NULL, idx, &ctx);
-}
-
 // Build a minimal stack FieldSpec for a TAG field. `tokenizeTagString` /
 // `TagIndex_Preprocess` only read `tagOpts.tagSep`, `tagOpts.tagFlags` and
 // `options` (via FieldSpec_IndexesEmpty), so no full IndexSpec is required.
@@ -62,113 +56,6 @@ static void checkPreprocessCStr(char sep, TagFieldFlags flags, FieldSpecOptions 
   df.strval = (char *)value;
   df.strlen = strlen(value);
   checkPreprocess(fs, df, /*expectedRet=*/1, expected, nExpected);
-}
-
-TEST_F(TagIndexTest, testCreate) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  ASSERT_FALSE(idx == NULL);
-  // ASSERT_STRING_EQ(idx->)
-  const size_t N = 100000;
-  std::vector<const char *> v{"hello", "world", "foo"};
-  // for (auto s : v) {
-  //   printf("V[n]: %s\n", s);
-  // }
-  t_docId d;
-  IndexStats stats = {0};
-  for (d = 1; d <= N; d++) {
-    indexTags(idx, v, d, &stats);
-    const size_t sz = stats.invertedSize;
-    const size_t numRecords = stats.numRecords;
-    // make sure repeating push of the same vector doesn't get indexed
-    indexTags(idx, v, d, &stats);
-    ASSERT_EQ(sz, stats.invertedSize);
-    ASSERT_EQ(numRecords, stats.numRecords);
-  }
-
-  ASSERT_EQ(v.size(), TagIndex_NUniqueValues(idx));
-  ASSERT_EQ(N * v.size(), stats.numRecords);
-
-  // expectedTotalSZ should include the memory occupied by the inverted index
-  // structure and its blocks.
-
-  // Buffer grows up to 1106 bytes trying to store 1000 bytes - it doubles each time
-  size_t buffer_cap = 1106;
-  size_t num_blocks = N / 1000;
-
-  // The size of the inverted index structure is 24 bytes
-  size_t iv_index_size = 24;
-  size_t index_block_size = 56;
-
-  // Each index block is 56 bytes + its buffer capacity + the header of the block vector
-  size_t expectedTotalSZ =
-      v.size() * (iv_index_size + (8 + (buffer_cap + index_block_size) * num_blocks));
-  ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
-
-  // Add a new entry to and check the last block size
-  std::vector<const char *> v2{"bye"};
-  indexTags(idx, v2, ++d, &stats);
-  // A base inverted index is 24 bytes
-  // The header of the block vector is 8 bytes
-  // An index block is 56 bytes
-  // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 24 + 8 + index_block_size + 1;
-  ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
-  ASSERT_EQ(N * v.size() + v2.size(), stats.numRecords);
-
-  MockQueryEvalCtx mockQctx(N, N);
-  QueryIterator *it = TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
-  ASSERT_TRUE(it != NULL);
-  t_docId n = 1;
-
-  // TimeSample ts;
-  // TimeSampler_Start(&ts);
-  while (ITERATOR_EOF != it->Read(it)) {
-    // printf("DocId: %d\n", r->docId);
-    ASSERT_EQ(n++, it->lastDocId);
-    // TimeSampler_Tick(&ts);
-  }
-
-  // TimeSampler_End(&ts);
-  // printf("%d iterations in %lldns, rate %fns/iter\n", N, ts.durationNS,
-  //        TimeSampler_IterationMS(&ts) * 1000000);
-  ASSERT_EQ(N + 1, n);
-  it->Free(it);
-  TagIndex_Free(idx);
-}
-
-TEST_F(TagIndexTest, testDuplicateTagValuesCountOnce) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  const char *v[] = {"foo", "foo", "bar"};
-  IndexStats stats = {0};
-
-  TagIndexIndexCtx ctx = {NULL, &v[0], 3, 1, false, &stats};
-  TagIndex_Index(NULL, idx, &ctx);
-  TagIndex_Commit(idx, &v[0], 3, &stats);
-
-  ASSERT_EQ(2u, stats.numRecords);
-  ASSERT_EQ(2u, TagIndex_NUniqueValues(idx));
-
-  TagIndex_Free(idx);
-}
-
-TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  ASSERT_FALSE(idx == NULL);
-  std::vector<const char *> v{"hello"};
-  t_docId docId = 1;
-  IndexStats stats = {0};
-  indexTags(idx, v, docId, &stats);
-  MockQueryEvalCtx mockQctx(1, 1);
-  QueryIterator *it =
-      TagIndex_OpenReader(idx, &mockQctx.sctx, "hello", 5, 1, RS_INVALID_FIELD_INDEX, NULL);
-  IteratorStatus rc = it->Read(it);
-  ASSERT_EQ(rc, ITERATOR_OK);
-  ASSERT_EQ(it->lastDocId, docId);
-  rc = it->SkipTo(it, docId + 1);
-  ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_GE(it->lastDocId, docId);
-  it->Free(it);
-  TagIndex_Free(idx);
 }
 
 #define TEST_MY_SEP(sep, str)                            \
@@ -313,52 +200,4 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     ASSERT_EQ(array_len(fdata.tags), 0u);
     TagIndex_FreePreprocessedData(fdata.tags);
   }
-}
-
-TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
-  MockQueryEvalCtx mockQctx(1, 1);
-
-  // NULL index -> NULL reader
-  {
-    ASSERT_TRUE(
-        TagIndex_OpenReader(NULL, &mockQctx.sctx, "x", 1, 1, RS_INVALID_FIELD_INDEX, NULL) == NULL);
-  }
-
-  // Absent tag -> NULL reader
-  {
-    TagIndex *idx = NewTagIndex(NULL, 0, false);
-    const char *v[] = {"hello"};
-    IndexStats stats = {0};
-    TagIndexIndexCtx ctx = {NULL, &v[0], 1, 1, false, &stats};
-    TagIndex_Index(NULL, idx, &ctx);
-
-    ASSERT_TRUE(TagIndex_OpenReader(idx, &mockQctx.sctx, "missing", 7, 1, RS_INVALID_FIELD_INDEX,
-                                    NULL) == NULL);
-    TagIndex_Free(idx);
-  }
-}
-
-TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  idx->suffix = NewTrieMap();
-
-  const char *v[] = {"hello", "world"};
-  IndexStats stats = {0};
-  TagIndex_Commit(idx, &v[0], 1, &stats);
-  ASSERT_EQ(stats.numRecords, 0u);
-
-  // Overhead with a live index that has a populated suffix trie.
-  FieldSpec fs{};
-  fs.types = INDEXFLD_T_TAG;
-  fs.tagOpts.tagIndex = idx;
-  size_t overhead = TagIndex_GetOverhead(&fs);
-  ASSERT_GT(overhead, 0u);
-
-  TagIndex_Free(idx);
-
-  // No tag index -> zero overhead.
-  FieldSpec emptyFs{};
-  emptyFs.types = INDEXFLD_T_TAG;
-  emptyFs.tagOpts.tagIndex = NULL;
-  ASSERT_EQ(TagIndex_GetOverhead(&emptyFs), 0u);
 }

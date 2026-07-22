@@ -12,6 +12,7 @@ use std::ptr::NonNull;
 use ffi::{QueryEvalCtx, RedisSearchCtx, SchemaRule};
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
+use tag_index::TagIndex;
 
 /// Mock search context creating fake objects for testing.
 /// It can be used to test expiration but not validation.
@@ -28,7 +29,7 @@ pub struct MockContext {
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
-    tag_index: *mut ffi::TagIndex,
+    tag_index: *mut TagIndex,
 }
 
 impl Drop for MockContext {
@@ -55,10 +56,9 @@ impl Drop for MockContext {
                 std::alloc::Layout::new::<QueryEvalCtx>(),
             );
             let _ = Box::from_raw(self.numeric_range_tree);
-            std::alloc::dealloc(
-                self.tag_index as *mut u8,
-                std::alloc::Layout::new::<ffi::TagIndex>(),
-            );
+            // The Rust `TagIndex` is a real (non-C) value with heap-owned
+            // internals, so free it through `Box` rather than a raw `dealloc`.
+            let _ = Box::from_raw(self.tag_index);
         }
     }
 }
@@ -76,12 +76,12 @@ impl MockContext {
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));
         let numeric_range_tree_ptr = Box::into_raw(Box::new(NumericRangeTree::new(false)));
-        // SAFETY: TagIndex is a C struct where all-zeros is a valid representation.
-        let tag_index_ptr: *mut ffi::TagIndex = unsafe {
-            let ptr = std::alloc::alloc_zeroed(std::alloc::Layout::new::<ffi::TagIndex>());
-            assert!(!ptr.is_null(), "allocation failed");
-            ptr.cast()
-        };
+        // An empty, in-memory Rust `TagIndex`. The basic (non-revalidation) tag
+        // tests never index anything into it — its lookup simply resolves no
+        // tags — so an empty index is all they need. Unlike the C structs the
+        // library dereferences through pointer chains, this value is only ever
+        // touched by Rust, so a `Box` is fine (no Stacked-Borrows concern).
+        let tag_index_ptr: *mut TagIndex = Box::into_raw(Box::new(TagIndex::new(0, None, false)));
 
         // Initialize all structs through raw pointers
         unsafe {
@@ -166,8 +166,8 @@ impl MockContext {
         NonNull::new(self.qctx).expect("QueryEvalCtx should not be null")
     }
 
-    /// Get a zeroed [`TagIndex`](ffi::TagIndex) pointer for basic (non-revalidation) tests.
-    pub const fn tag_index(&self) -> NonNull<ffi::TagIndex> {
+    /// Get a pointer to the empty [`TagIndex`] for basic (non-revalidation) tests.
+    pub const fn tag_index(&self) -> NonNull<TagIndex> {
         NonNull::new(self.tag_index).expect("TagIndex should not be null")
     }
 

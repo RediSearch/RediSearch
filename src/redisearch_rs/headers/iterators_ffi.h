@@ -107,6 +107,11 @@ typedef struct NumericRangeTree NumericRangeTree;
 
 typedef struct RLookupKey RLookupKey;
 
+/**
+ * See the [crate documentation](self) for an overview.
+ */
+typedef struct TagIndex TagIndex;
+
 typedef struct RedisModuleCtx RedisModuleCtx;
 
 /**

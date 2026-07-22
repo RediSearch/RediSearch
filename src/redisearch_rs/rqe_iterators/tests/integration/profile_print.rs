@@ -383,12 +383,12 @@ fn tag_with_query_term() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(1, 1);
     let reader = ii.reader();
     // SAFETY: mock_ctx provides a valid RedisSearchCtx. The TagIndex
-    // pointer points to a zeroed struct, fine with NoOpChecker.
+    // is an empty index, fine with NoOpChecker.
     let mut iter = unsafe {
         rqe_iterators::inverted_index::Tag::new(
             reader,
             mock_ctx.sctx(),
-            iterators_ffi::inverted_index::CTagIndexLookup::new(mock_ctx.tag_index()),
+            tag_index::TrieLookup::new(mock_ctx.tag_index()),
             RSQueryTerm::new("my_tag", 0, 0),
             0.0,
             rqe_iterators::NoOpChecker,

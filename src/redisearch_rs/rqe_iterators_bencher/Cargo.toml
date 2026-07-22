@@ -36,6 +36,7 @@ redis_mock.workspace = true
 rqe_core.workspace = true
 rqe_iterators = { workspace = true }
 rqe_iterators_test_utils = { workspace = true }
+tag_index.workspace = true
 workspace_hack.workspace = true
 
 # Crate required to invoke C symbols

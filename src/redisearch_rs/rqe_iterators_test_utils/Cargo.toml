@@ -31,6 +31,7 @@ redis-module.workspace = true
 redis_mock.workspace = true
 rqe_core.workspace = true
 rqe_iterators = { path = "../rqe_iterators" }
+tag_index = { workspace = true, features = ["test-utils"] }
 ttl_table.workspace = true
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 workspace_hack.workspace = true
