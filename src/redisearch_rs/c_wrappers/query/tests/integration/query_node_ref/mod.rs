@@ -155,7 +155,7 @@ fn as_enum_token() {
     let QueryNode::Token { tok } = node.as_enum() else {
         panic!("expected Token");
     };
-    assert!(tok.str_.is_null());
+    assert!(tok.as_bytes().is_none());
 }
 
 #[test]

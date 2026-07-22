@@ -27,6 +27,7 @@ query_term.workspace = true
 query_types.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
+rs_token.workspace = true
 search_disk.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
