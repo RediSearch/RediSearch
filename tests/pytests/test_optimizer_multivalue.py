@@ -72,3 +72,31 @@ def testMultivalueOptimizerMatchesNonOptimized(env):
             # plain carries the real count; compare id lists only.
             env.assertEqual(opt[1:], plain[1:],
                             message=f'{idx} {direction} optimized vs plain')
+
+
+@skip(cluster=True, no_json=True)
+def testFilteredRetryReachesMatchPastMultivalueInflatedRanges(env):
+    """The retry window is sized from document entries, not unique documents.
+
+    A multivalue field counts a doc once per value range, so capping the retry
+    at the unique doc count would stop short of a selective filter's only match
+    in a low range past the inflated high ranges.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA',
+               '$.vals[*]', 'AS', 'v', 'NUMERIC',
+               '$.tag', 'AS', 'tag', 'TAG').ok()
+
+    conn.execute_command('JSON.SET', 'doc:match', '$',
+                         json.dumps({'vals': [0.5], 'tag': 'want'}))
+    # Each filler holds 100 high values interleaved across the high span, so
+    # every high leaf holds all four fillers.
+    for d in range(1, 5):
+        vals = [1000 + 100 * j + d for j in range(100)]
+        conn.execute_command('JSON.SET', f'doc:f{d}', '$',
+                             json.dumps({'vals': vals, 'tag': 'other'}))
+
+    res = env.cmd('FT.SEARCH', 'idx', '@tag:{want}',
+                  'SORTBY', 'v', 'DESC', 'LIMIT', '0', '1',
+                  'NOCONTENT', 'DIALECT', '4')
+    env.assertEqual(res, [1, 'doc:match'])
