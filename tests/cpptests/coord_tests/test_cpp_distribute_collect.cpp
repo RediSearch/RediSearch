@@ -327,7 +327,6 @@ TEST_F(DistributeCollectTest, FieldsStar_SortBy_Limit_RewritesRemoteLimit) {
   AREQ_DecrRef(r);
 }
 
-
 // ----------------------------------------------------------------------------
 // Keyword case normalization
 // ----------------------------------------------------------------------------

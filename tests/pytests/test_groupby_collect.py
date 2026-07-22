@@ -1535,6 +1535,7 @@ def test_two_collect_reducers_case_variant_keywords():
         'red':    [{'name': 'apple'},  {'name': 'strawberry'}],
         'yellow': [{'name': 'banana'}, {'name': 'lemon'}],
     }
+    env.assertEqual(len(res['results']), len(expected))
     for g in res['results']:
         attrs = g['extra_attributes']
         env.assertEqual(_sort_collected(attrs['names_a'], 'name'), expected[attrs['color']])
