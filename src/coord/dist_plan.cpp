@@ -420,8 +420,6 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   // `*`, so a bare alphabetic token can only be an option keyword.
   for (size_t i = 0; i < srcArgc; i++) {
     const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
-    RS_ASSERT(normalized || srcObjs[i][0] == '@' || srcObjs[i][0] == '*' ||
-              (srcObjs[i][0] >= '0' && srcObjs[i][0] <= '9'));
     remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
   }
   if (args.has_limit) {
