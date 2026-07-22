@@ -1,63 +1,16 @@
 #!/usr/bin/env bash
+#
+# macOS build-dependency checks. Sourced by verify_build_deps.sh on Darwin, and
+# NOT meant to run standalone: it relies on the colors, version pins
+# (LLVM_VERSION / PINNED_RUST_VERSION), report helpers (emit_result /
+# emit_deps_report / report_mode / get_llvm_tool / get_llvm_major),
+# should_check_cheadergen and REQUIRED_CHEADERGEN_VERSION that the parent
+# defines before sourcing this file.
 
-# Set colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
-
-# Normally sourced by verify_build_deps.sh (which sources these first); source
-# them defensively so this script also works if invoked on its own. All are
-# idempotent.
-source "$SCRIPT_DIR/version_compare.sh"
-source "$SCRIPT_DIR/LLVM_VERSION.sh"
-PINNED_RUST_VERSION=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
-  "$REPO_ROOT/rust-toolchain.toml" | head -1)
-
-# The report state and helpers (record_ok / record_missing / emit_result /
-# emit_deps_report / is_optional_dep / report_mode / missing_deps) come from
-# verify_build_deps.sh. Provide minimal fallbacks so standalone use still works.
-: "${missing_deps:=false}"
 if ! declare -F emit_result >/dev/null 2>&1; then
-  DEPS_OK="" DEPS_MISSING="" DEPS_OPT_OK="" DEPS_OPT_MISSING=""
-  report_mode() { [ -n "${DEPS_REPORT_FILE:-}" ]; }
-  is_optional_dep() { return 1; }
-  record_ok() { DEPS_OK="$DEPS_OK $1"; }
-  record_missing() { local t=$1; [ -n "${2:-}" ] && t="$1:$2"; DEPS_MISSING="$DEPS_MISSING $t"; missing_deps=true; }
-  emit_result() {
-    local dep=$1 status=$2 msg=${3:-} vtag=${4:-}
-    if ! report_mode; then
-      printf "%-20s" "$dep"
-      [ "$status" = ok ] && echo -e "${GREEN}✓${NC}" || echo -e "${msg:-${RED}✗${NC}}"
-    fi
-    [ "$status" = ok ] && record_ok "$dep" || record_missing "$dep" "$vtag"
-  }
-  emit_deps_report() {
-    report_mode || return 1
-    local p
-    for p in $DEPS_OK;         do echo "ok $p"          >> "$DEPS_REPORT_FILE"; done
-    for p in $DEPS_MISSING;    do echo "missing $p"     >> "$DEPS_REPORT_FILE"; done
-    for p in $DEPS_OPT_OK;     do echo "opt_ok $p"      >> "$DEPS_REPORT_FILE"; done
-    for p in $DEPS_OPT_MISSING;do echo "opt_missing $p" >> "$DEPS_REPORT_FILE"; done
-    return 0
-  }
+  echo "verify_build_deps_macos.sh must be sourced by verify_build_deps.sh" >&2
+  return 1 2>/dev/null || exit 1
 fi
-
-should_check_cheadergen() {
-  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
-    0|OFF|off|false|FALSE|False|NO|no)
-      return 1
-      ;;
-    *)
-      return 0
-      ;;
-  esac
-}
 
 # ============================================
 # Checkers
@@ -75,20 +28,15 @@ check_cmd_dep() {
 # same major Rust uses. Apple's system clang has a different versioning scheme
 # and won't report LLVM_VERSION, so it's correctly rejected.
 check_clang() {
-  local tool=""
-  if command -v "clang-${LLVM_VERSION}" &>/dev/null; then
-    tool="clang-${LLVM_VERSION}"
-  elif command -v clang &>/dev/null; then
-    tool="clang"
-  fi
-
+  local tool
+  tool=$(get_llvm_tool clang)
   if [[ -z "$tool" ]]; then
     emit_result clang missing "${RED}✗${NC}" "$LLVM_VERSION"
     return
   fi
 
   local major
-  major=$("$tool" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | cut -d. -f1)
+  major=$(get_llvm_major "$tool")
   if [[ "$major" == "$LLVM_VERSION" ]]; then
     emit_result clang ok
   elif [[ "$(command -v "$tool")" == *"/llvm"* ]]; then

@@ -53,27 +53,11 @@ is_optional_dep() { case " $OPTIONAL_DEPS " in *" $1 "*) return 0 ;; *) return 1
 
 report_mode() { [ -n "${DEPS_REPORT_FILE:-}" ]; }
 
-record_ok() {
-  if is_optional_dep "$1"; then DEPS_OPT_OK="$DEPS_OPT_OK $1"; else DEPS_OK="$DEPS_OK $1"; fi
-}
-
-# record_missing <name> [version]. Optional deps are bucketed separately and do
-# NOT flip missing_deps (they can't fail the check).
-record_missing() {
-  local tag=$1
-  [ -n "${2:-}" ] && tag="$1:$2"
-  if is_optional_dep "$1"; then
-    DEPS_OPT_MISSING="$DEPS_OPT_MISSING $tag"
-  else
-    DEPS_MISSING="$DEPS_MISSING $tag"
-    missing_deps=true
-  fi
-}
-
 # emit_result <name> ok
 # emit_result <name> missing [human_message] [report_version]
 # Prints one aligned human line (skipped in aggregate mode) and records the
-# outcome. human_message defaults to a red ✗; pass a yellow message for
+# outcome. Optional deps (OPTIONAL_DEPS) go to their own bucket and never flip
+# missing_deps. human_message defaults to a red ✗; pass a yellow message for
 # present-but-wrong-version failures.
 emit_result() {
   local dep=$1 status=$2 msg=${3:-} vtag=${4:-}
@@ -86,9 +70,11 @@ emit_result() {
     fi
   fi
   if [ "$status" = ok ]; then
-    record_ok "$dep"
+    if is_optional_dep "$dep"; then DEPS_OPT_OK="$DEPS_OPT_OK $dep"; else DEPS_OK="$DEPS_OK $dep"; fi
   else
-    record_missing "$dep" "$vtag"
+    local tag=$dep
+    [ -n "$vtag" ] && tag="$dep:$vtag"
+    if is_optional_dep "$dep"; then DEPS_OPT_MISSING="$DEPS_OPT_MISSING $tag"; else DEPS_MISSING="$DEPS_MISSING $tag"; missing_deps=true; fi
   fi
 }
 
@@ -102,6 +88,30 @@ emit_deps_report() {
   for p in $DEPS_OPT_OK;      do echo "opt_ok $p"       >> "$DEPS_REPORT_FILE"; done
   for p in $DEPS_OPT_MISSING; do echo "opt_missing $p"  >> "$DEPS_REPORT_FILE"; done
   return 0
+}
+
+# ============================================
+# LLVM toolchain resolution (shared by the Linux loop and the macOS clang check)
+# ============================================
+
+# Extract the major version from an LLVM tool's --version output. clang prints
+# "clang version 21.1.8", lld prints "LLD 21.1.8" (no "version" word), so match
+# the first X.Y[.Z] token rather than keying off a label.
+get_llvm_major() {
+  "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | cut -d. -f1
+}
+
+# Resolve the LLVM-toolchain binary the build uses: build.sh prefers the
+# version-suffixed name (clang-$LLVM_VERSION), falling back to the unversioned
+# one whose major must match. Uses `command -v` directly (not check_command) so
+# it also works when sourced on macOS, where check_command is never defined.
+get_llvm_tool() {
+  local base=$1
+  if command -v "${base}-${LLVM_VERSION}" &>/dev/null; then
+    echo "${base}-${LLVM_VERSION}"
+  elif command -v "$base" &>/dev/null; then
+    echo "$base"
+  fi
 }
 
 # ============================================
@@ -228,25 +238,6 @@ get_cmake_version() {
 
 get_cheadergen_version() {
   cheadergen --version 2>/dev/null | awk '{print $NF}' || echo "unknown"
-}
-
-# Extract the major version from an LLVM tool's --version output. clang prints
-# "clang version 21.1.8", lld prints "LLD 21.1.8" (no "version" word), so match
-# the first X.Y[.Z] token rather than keying off a label.
-get_llvm_major() {
-  "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | cut -d. -f1
-}
-
-# Resolve the LLVM-toolchain binary the build actually uses: build.sh prefers
-# the version-suffixed name (clang-$LLVM_VERSION) and falls back to the
-# unversioned one whose major must match. Echoes the resolved binary or nothing.
-get_llvm_tool() {
-  local base=$1
-  if check_command "${base}-${LLVM_VERSION}"; then
-    echo "${base}-${LLVM_VERSION}"
-  elif check_command "$base"; then
-    echo "$base"
-  fi
 }
 
 # ==== Version Checkers ====
