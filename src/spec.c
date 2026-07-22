@@ -15,6 +15,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
+#include <string.h>
 
 #include "triemap_ffi.h"
 #include "util/logging.h"
@@ -1397,6 +1398,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->numSortableFields;
   const IndexFlags prevFlags = sp->flags;
+  Trie *prevSuffix = sp->suffix;
+  const t_fieldMask prevSuffixMask = sp->suffixMask;
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
@@ -1422,11 +1425,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fieldPath = NULL;
     }
 
-    // An empty field name is unqueryable and, once persisted, crashes fork-GC when
-    // its entries are collected (the GC pipe serializes the name as a zero-length
-    // buffer that the parent decodes as NULL) - see MOD-17034 / MOD-16960.
+    // An empty field name is unsupported.
     if (namelen == 0) {
       QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot be empty");
+      goto reset;
+    }
+    if (memchr(fieldName, '\0', namelen) != NULL) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot contain null bytes");
       goto reset;
     }
 
@@ -1562,8 +1567,12 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
-  // TODO: Why is this masking performed?
-  sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
+  if (sp->suffix && sp->suffix != prevSuffix) {
+    TrieType_Free(sp->suffix);
+  }
+  sp->suffix = prevSuffix;
+  sp->suffixMask = prevSuffixMask;
+  sp->flags = prevFlags;
   return 0;
 }
 

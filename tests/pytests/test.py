@@ -2280,10 +2280,7 @@ def testDuplicateSpec(env):
                 'SCHEMA', 'f1', 'text', 'n1', 'numeric', 'f1', 'text')
 
 def testEmptyFieldNameRejected(env):
-    # An empty field name is unqueryable and, once persisted, crashes fork-GC when its
-    # entries are collected (the GC pipe serializes the name as a zero-length buffer that
-    # the parent decodes as NULL). It must be rejected at schema parse time.
-    # MOD-17034 / MOD-16960.
+    # An empty field name is unsupported.
     for field_type in ('TAG', 'TEXT', 'NUMERIC'):
         env.expect('FT.CREATE', 'idx', 'SCHEMA', '', field_type) \
             .error().contains('Field name cannot be empty')
@@ -2294,6 +2291,29 @@ def testEmptyFieldNameRejected(env):
     env.cmd('FT.CREATE', 'idx_alter', 'SCHEMA', 't', 'TAG')
     env.expect('FT.ALTER', 'idx_alter', 'SCHEMA', 'ADD', '', 'TAG') \
         .error().contains('Field name cannot be empty')
+
+def testFieldNameWithNullByteRejected(env):
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_prefix', 'SCHEMA', b'\x00tag', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_embedded', 'SCHEMA', b'tag\x00name', 'TAG')
+    with env.assertResponseError(contained='Field name cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_nul_alias', 'SCHEMA', 'tag', 'AS', b'\x00alias', 'TAG')
+
+def testAlterFailureDoesNotLeaveSuffixTrie(env):
+    env.cmd('FT.CREATE', 'idx_suffix_rollback', 'SCHEMA', 't', 'TEXT')
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc:1', 't', 'hello')
+    waitForIndex(env, 'idx_suffix_rollback')
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
+
+    env.expect('FT.ALTER', 'idx_suffix_rollback', 'SCHEMA', 'ADD',
+               'suffix', 'TEXT', 'WITHSUFFIXTRIE',
+               '', 'TEXT') \
+        .error().contains('Field name cannot be empty')
+
+    env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
 
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
