@@ -427,7 +427,7 @@ TEST_F(ParseHybridTest, testRRFCountedAndPositionalYieldScoreError) {
       "COMBINE", "RRF", "4", "CONSTANT", "60", "YIELD_SCORE_AS", "a",
       "YIELD_SCORE_AS", "b",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS specified more than once");
+  testErrorCode(args, QUERY_EPARSEARGS, "YIELD_SCORE_AS specified more than once");
 }
 
 TEST_F(ParseHybridTest, testLinearCountedAndPositionalYieldScoreError) {
@@ -437,7 +437,7 @@ TEST_F(ParseHybridTest, testLinearCountedAndPositionalYieldScoreError) {
       "COMBINE", "LINEAR", "6", "ALPHA", "0.7", "BETA", "0.3", "YIELD_SCORE_AS", "a",
       "YIELD_SCORE_AS", "b",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS specified more than once");
+  testErrorCode(args, QUERY_EPARSEARGS, "YIELD_SCORE_AS specified more than once");
 }
 
 TEST_F(ParseHybridTest, testCombineCount0AndPositionalYieldScoreSpecifiedTwiceError) {
@@ -446,7 +446,7 @@ TEST_F(ParseHybridTest, testCombineCount0AndPositionalYieldScoreSpecifiedTwiceEr
       "COMBINE", "RRF", "0",
       "YIELD_SCORE_AS", "a", "YIELD_SCORE_AS", "b",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_EPARSEARGS, "YIELD_SCORE_AS: Unknown argument");
 }
 
 TEST_F(ParseHybridTest, testCombineLinearCount0AndPositionalYieldScoreSpecifiedTwiceError) {
@@ -455,7 +455,7 @@ TEST_F(ParseHybridTest, testCombineLinearCount0AndPositionalYieldScoreSpecifiedT
       "COMBINE", "LINEAR", "0",
       "YIELD_SCORE_AS", "a", "YIELD_SCORE_AS", "b",
       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_EPARSEARGS, "YIELD_SCORE_AS: Unknown argument");
 }
 
 TEST_F(ParseHybridTest, testYieldScoreWithoutCombineError) {
@@ -464,7 +464,7 @@ TEST_F(ParseHybridTest, testYieldScoreWithoutCombineError) {
     "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
     "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
     "YIELD_SCORE_AS", "fused_score");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "YIELD_SCORE_AS: Unknown argument");
+  testErrorCode(args, QUERY_EPARSEARGS, "YIELD_SCORE_AS: Unknown argument");
 }
 
 TEST_F(ParseHybridTest, testCombineRRFWithoutArgument) {
@@ -1551,7 +1551,7 @@ TEST_F(ParseHybridTest, testCombineRRFWithOddArgumentCountAfterParams) {
     "SEARCH", "hello", "VSIM", "@vector",
     "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
     "COMBINE", "RRF", "1", "WINDOW");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
+  testErrorCode(args, QUERY_EPARSEARGS, "RRF expects pairs of key value arguments, argument count must be an even number");
 }
 
 // ============================================================================

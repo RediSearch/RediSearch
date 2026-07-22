@@ -151,11 +151,11 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 //                                         ^
 static void parseCombineYieldScoreClause(ArgsCursor *ac, HybridParseContext *ctx, QueryError *status) {
   if (AC_IsAtEnd(ac)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for YIELD_SCORE_AS");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
     return;
   }
   if (AC_GetString(ac, &ctx->searchopts->scoreAlias, NULL, 0) != AC_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid YIELD_SCORE_AS value");
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
     return;
   }
   // Mirror the SEARCH subquery path so the combined score is emitted as a field
@@ -227,7 +227,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     // Positional form B. Reject if the alias was already given in the counted
     // form A (specified more than once).
     if (yieldParsedInBlock) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+      QueryError_SetError(status, QUERY_EPARSEARGS,
                           "YIELD_SCORE_AS specified more than once");
       return;
     }
