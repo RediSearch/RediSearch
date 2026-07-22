@@ -267,10 +267,18 @@ def testTagCompleteGCAndRepopulation(env):
     for i in range(InitialDocs):
         env.assertEqual(env.cmd('del', 'doc%d' % i), 1)
 
-    forceInvokeGC(env, 'idx')
+    # forceInvokeGC waits for any in-progress save, but an Enterprise auto-bgsave
+    # can start in the gap before the fork, making RedisModule_Fork fail with
+    # EEXIST so the cycle collects nothing; retry until the tag index is emptied.
+    # On OSS this collects on the first pass (no autosave races the fork).
+    res = None
+    for _ in range(100):
+        forceInvokeGC(env, 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        if res == []:
+            break
 
     # Verify tag index is empty
-    res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
     env.assertEqual(res, [])
 
     # Verify search returns no results
