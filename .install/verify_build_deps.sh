@@ -46,9 +46,9 @@ DEPS_OPT_OK=""
 DEPS_OPT_MISSING=""
 
 # Optional = installed by bootstrap but NOT needed for the default (non-LTO)
-# build/run, so their absence must not fail the check. lld is only used as the
-# LTO linker; a plain `make build` uses the system linker.
-OPTIONAL_DEPS="lld"
+# build/run, so their absence must not fail the check. ld.lld is only used as
+# the LTO linker; a plain `make build` uses the system linker.
+OPTIONAL_DEPS="ld.lld"
 is_optional_dep() { case " $OPTIONAL_DEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 report_mode() { [ -n "${DEPS_REPORT_FILE:-}" ]; }
@@ -282,8 +282,8 @@ declare -A common_dependencies=(
   ["python3"]="command"
   ["cmake"]="command"
   ["cargo"]="rust"
-  ["clang"]="llvm"   # required: bindgen/libclang need it, LTO uses it as CC
-  ["lld"]="llvm"     # LTO linker only -> optional (see OPTIONAL_DEPS)
+  ["clang"]="llvm"    # required: bindgen/libclang need it, LTO uses it as CC
+  ["ld.lld"]="llvm"   # LTO linker only -> optional (see OPTIONAL_DEPS)
 )
 
 # cheadergen is only needed when regenerating Rust C headers.
@@ -398,7 +398,13 @@ for dep in "${!dependencies[@]}"; do
     tool=$(get_llvm_tool "$dep")
     if [[ -z "$tool" ]]; then
       emit_result "$dep" missing "${RED}✗ (LLVM $LLVM_VERSION toolchain not found)${NC}" "$LLVM_VERSION"
+    elif [[ "$tool" == "${dep}-${LLVM_VERSION}" ]]; then
+      # A version-suffixed binary (clang-21, ld.lld-21) is the pinned major by
+      # name — trust it without running --version. Matters for ld.lld: the
+      # bare `lld` driver prints no version, so probing it reports "unknown".
+      emit_result "$dep" ok
     else
+      # Fell back to the unversioned binary; confirm its major.
       actual_major=$(get_llvm_major "$tool")
       if [[ "$actual_major" == "$LLVM_VERSION" ]]; then
         emit_result "$dep" ok

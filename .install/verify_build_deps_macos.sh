@@ -35,6 +35,12 @@ check_clang() {
     return
   fi
 
+  # clang-<major> is the pinned major by name — trust it without --version.
+  if [[ "$tool" == "clang-${LLVM_VERSION}" ]]; then
+    emit_result clang ok
+    return
+  fi
+
   local major
   major=$(get_llvm_major "$tool")
   if [[ "$major" == "$LLVM_VERSION" ]]; then
