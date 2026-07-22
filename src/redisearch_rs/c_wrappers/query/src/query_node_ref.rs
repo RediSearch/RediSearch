@@ -14,6 +14,7 @@ use std::{marker::PhantomData, ops::Deref, ptr::NonNull};
 use inverted_index::NumericFilter;
 use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::{DocId, FieldMask};
+use rs_token::{RSTokenRef, RSTokenRefNulTerminated};
 
 /// The wildcard expansion mode for a [`QueryNode::Prefix`] node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,8 +35,9 @@ pub enum WildcardMode {
 /// (`Union`, `Not`, `Optional`, `Wildcard`, `Null`) are unit variants —
 /// their semantics come entirely from the shared header and child list.
 ///
-/// Fields that embed an [`ffi::RSToken`] are exposed as references because
-/// the token struct contains bitfields that cannot be cleanly inlined.
+/// Fields that embed an [`ffi::RSToken`] are exposed as [`Copy`] [`RSTokenRef`]
+/// handles because the token struct contains bitfields that cannot be cleanly
+/// inlined.
 pub enum QueryNode<'a> {
     /// A list of child nodes with intersection semantics, or a literal phrase
     /// when the children are token nodes.
@@ -50,8 +52,9 @@ pub enum QueryNode<'a> {
     /// A terminal, single-term node.
     Token {
         /// The token string, length, and associated metadata (stemming,
-        /// phonetic flags, etc.).
-        tok: &'a ffi::RSToken,
+        /// phonetic flags, etc.). Not guaranteed to be NUL-terminated: an
+        /// expanded token may come from the length-delimited `ExpandToken` API.
+        tok: RSTokenRef<'a>,
     },
     /// A numeric range filter.
     Numeric {
@@ -76,7 +79,7 @@ pub enum QueryNode<'a> {
     /// A prefix (and/or suffix) wildcard expansion node.
     Prefix {
         /// The base token to expand.
-        tok: &'a ffi::RSToken,
+        tok: RSTokenRefNulTerminated<'a>,
         /// The wildcard mode for this prefix node.
         mode: WildcardMode,
     },
@@ -98,7 +101,7 @@ pub enum QueryNode<'a> {
     /// A fuzzy (Levenshtein distance) match node.
     Fuzzy {
         /// The base token to fuzzy-match.
-        tok: &'a ffi::RSToken,
+        tok: RSTokenRefNulTerminated<'a>,
         /// Maximum edit distance (1, 2, or 3).
         max_dist: i32,
     },
@@ -110,7 +113,7 @@ pub enum QueryNode<'a> {
     /// A verbatim wildcard-pattern query (e.g. `w'hel*o'`).
     WildcardQuery {
         /// The raw pattern token.
-        tok: &'a ffi::RSToken,
+        tok: RSTokenRefNulTerminated<'a>,
     },
     /// A null/no-op node produced when the query contains only stopwords.
     Null,
@@ -229,7 +232,14 @@ impl QueryNodeRef {
 
     /// Convert the C tagged union into a [`QueryNode`] enum.
     pub fn as_enum(&self) -> QueryNode<'_> {
-        let inner = self.as_ffi_ref();
+        // Root the union access in the *raw* node pointer rather than a
+        // `&ffi::RSQueryNode`. The token handles built below ([`RSTokenRef`]) must
+        // carry raw provenance: a query node's token is mutated in place during C
+        // evaluation, and a handle derived from a shared reference would be
+        // invalidated by that write, making a later accessor call undefined
+        // behaviour. Reading `type_` and taking the union address through the raw
+        // pointer forms no reference to the node.
+        let node = self.as_non_null().as_ptr();
         // Each arm has its own `unsafe` block so that every union access
         // is individually justified, satisfying `multiple_unsafe_ops_per_block`.
         //
@@ -240,12 +250,15 @@ impl QueryNodeRef {
         // active variant type.  This avoids `__BindgenUnionField::as_ref()`
         // which uses `transmute` from a ZST reference — UB under Stacked
         // Borrows (and flagged by miri).
-        let union_ptr = &raw const inner.__bindgen_anon_1;
+        // SAFETY: `node` points to an initialised node (invariant 1 of `new`).
+        let node_type = unsafe { (*node).type_ };
+        // SAFETY: as above; `&raw const` forms no reference to the node.
+        let union_ptr = unsafe { &raw const (*node).__bindgen_anon_1 };
 
         // SAFETY (all arms): the caller (transitively, invariant 1 of `new`)
         // guarantees the node is properly initialised, so `type_` matches the
         // active union variant and the cast is sound.
-        match inner.type_ {
+        match node_type {
             QueryNodeType::Phrase => {
                 // SAFETY: `type_` is `Phrase`, so the union holds a `QueryPhraseNode`.
                 let pn = unsafe { &*union_ptr.cast::<ffi::QueryPhraseNode>() };
@@ -255,8 +268,12 @@ impl QueryNodeRef {
             }
             QueryNodeType::Union => QueryNode::Union,
             QueryNodeType::Token => QueryNode::Token {
-                // SAFETY: `type_` is `Token`, so the union holds an `RSToken`.
-                tok: unsafe { &*union_ptr.cast::<ffi::RSToken>() },
+                // SAFETY: `type_` is `Token`, so the union holds an `RSToken` whose
+                // `str_`/`len` describe a valid byte range for the node's lifetime,
+                // satisfying `from_ffi`. The pointer is raw (not reference-derived),
+                // as `from_ffi` requires. Token strings may come from the
+                // length-delimited `ExpandToken` API, so no NUL-termination.
+                tok: unsafe { RSTokenRef::from_ffi(union_ptr.cast::<ffi::RSToken>()) },
             },
             QueryNodeType::Numeric => {
                 // SAFETY: `type_` is `Numeric`, so the union holds a `QueryNumericNode`.
@@ -284,11 +301,21 @@ impl QueryNodeRef {
                 QueryNode::Geometry { geomq: gmn.geomq }
             }
             QueryNodeType::Prefix => {
-                // SAFETY: `type_` is `Prefix`, so the union holds a `QueryPrefixNode`.
-                let pfx = unsafe { &*union_ptr.cast::<ffi::QueryPrefixNode>() };
+                let pfx = union_ptr.cast::<ffi::QueryPrefixNode>();
+                // SAFETY: `type_` is `Prefix`, so `pfx` points to a valid
+                // `QueryPrefixNode`; `&raw const` takes the token address, keeping
+                // it raw (not reference-derived).
+                let tok = unsafe { &raw const (*pfx).tok };
+                // SAFETY: as above; read the prefix flag.
+                let prefix = unsafe { (*pfx).prefix };
+                // SAFETY: as above; read the suffix flag.
+                let suffix = unsafe { (*pfx).suffix };
                 QueryNode::Prefix {
-                    tok: &pfx.tok,
-                    mode: match (pfx.prefix, pfx.suffix) {
+                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
+                    // token owned by the node, and is raw (not reference-derived),
+                    // as `from_nul_terminated_ffi` requires.
+                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
+                    mode: match (prefix, suffix) {
                         (true, false) => WildcardMode::Prefix,
                         (false, true) => WildcardMode::Suffix,
                         (true, true) => WildcardMode::Contains,
@@ -331,11 +358,19 @@ impl QueryNodeRef {
                 }
             }
             QueryNodeType::Fuzzy => {
-                // SAFETY: `type_` is `Fuzzy`, so the union holds a `QueryFuzzyNode`.
-                let fz = unsafe { &*union_ptr.cast::<ffi::QueryFuzzyNode>() };
+                let fz = union_ptr.cast::<ffi::QueryFuzzyNode>();
+                // SAFETY: `type_` is `Fuzzy`, so `fz` points to a valid
+                // `QueryFuzzyNode`; `&raw const` takes the token address, keeping
+                // it raw (not reference-derived).
+                let tok = unsafe { &raw const (*fz).tok };
+                // SAFETY: as above; read `maxDist`.
+                let max_dist = unsafe { (*fz).maxDist };
                 QueryNode::Fuzzy {
-                    tok: &fz.tok,
-                    max_dist: fz.maxDist,
+                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
+                    // token owned by the node, and is raw, as
+                    // `from_nul_terminated_ffi` requires.
+                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
+                    max_dist,
                 }
             }
             QueryNodeType::Vector => {
@@ -344,9 +379,17 @@ impl QueryNodeRef {
                 QueryNode::Vector { vq: vn.vq }
             }
             QueryNodeType::WildcardQuery => {
-                // SAFETY: `type_` is `WildcardQuery`, so the union holds a `QueryVerbatimNode`.
-                let verb = unsafe { &*union_ptr.cast::<ffi::QueryVerbatimNode>() };
-                QueryNode::WildcardQuery { tok: &verb.tok }
+                let verb = union_ptr.cast::<ffi::QueryVerbatimNode>();
+                // SAFETY: `type_` is `WildcardQuery`, so `verb` points to a valid
+                // `QueryVerbatimNode`; `&raw const` takes the token address,
+                // keeping it raw (not reference-derived).
+                let tok = unsafe { &raw const (*verb).tok };
+                QueryNode::WildcardQuery {
+                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
+                    // token owned by the node, and is raw, as
+                    // `from_nul_terminated_ffi` requires.
+                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
+                }
             }
             QueryNodeType::Null => QueryNode::Null,
             QueryNodeType::Missing => {
