@@ -3067,11 +3067,13 @@ name = "top_k"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "ffi",
  "index_result",
  "index_spec",
  "inverted_index",
  "redis_mock",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
