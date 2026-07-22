@@ -2364,7 +2364,7 @@ fail:
 }
 
 static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
-                              bool takeVecSimLocks) {
+                              bool takeLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2405,10 +2405,10 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
 
       const bool vecSimWithData =
           f->vectorOpts.vecSimIndex &&
-          SearchDisk_VectorIndexHasData(f->vectorOpts.vecSimIndex, takeVecSimLocks);
+          SearchDisk_VectorIndexHasData(f->vectorOpts.vecSimIndex, takeLocks);
       RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
       if (vecSimWithData) {
-        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb, takeVecSimLocks);
+        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb, takeLocks);
         RS_LOG_ASSERT_ALWAYS(ok, "Failed to stream vector index to RDB");
       }
     }
