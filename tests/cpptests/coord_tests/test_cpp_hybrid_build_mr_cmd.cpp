@@ -123,6 +123,7 @@ static int verifyArgsPreservedWithReconstructedCombine(
     ii++;
   }
   return oi;
+}
 
 class HybridBuildMRCommandTest : public ::testing::Test {
 protected:
@@ -228,7 +229,7 @@ protected:
         HybridCombineWireParams combineParams{hybridParams.scoringCtx,
                                               hybridParams.aggregationParams.common.scoreAlias};
 
-        // Build MR command while retaining the 8.8 SHARD_K_RATIO behavior.
+        // Build MR command
         MRCommand xcmd;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
                                      &combineParams, &xcmd, nullptr, testIndexSpec,
@@ -292,6 +293,8 @@ protected:
                                    hybridParams.aggregationParams.common.scoreAlias};
 
         MRCommand xcmd;
+        // Access the global NumShards variable for testing
+        extern size_t NumShards;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
                                      &cp, &xcmd, nullptr, testIndexSpec,
                                      nullptr, NumShards);
