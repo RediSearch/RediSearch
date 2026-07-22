@@ -76,3 +76,22 @@ fn any_timeout_context_dispatches_to_clock_variant() {
     ctx.reset_counter();
     assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
 }
+
+#[test]
+fn any_timeout_context_dispatches_to_no_timeout_variant() {
+    let mut ctx = AnyTimeoutChecker::NoTimeout(NoTimeoutChecker);
+    // The no-timeout variant must always report Ok, both before and
+    // after a counter reset, and the reset itself must be a no-op that
+    // never changes that behavior.
+    assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
+    ctx.reset_counter();
+    assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
+}
+
+#[test]
+fn no_timeout_reset_counter_is_a_noop() {
+    let mut ctx = NoTimeoutChecker;
+    ctx.reset_counter();
+    // Resetting must not affect the always-Ok result.
+    assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
+}
