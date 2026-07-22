@@ -342,7 +342,17 @@ for dep in "${!dependencies[@]}"; do
     echo -e "${YELLOW} (no method defined)${NC}"
     missing_deps=true; dep_ok=0
   fi
-  [ "$dep_ok" = 1 ] && _emit ok "$dep" || _emit missing "$dep"
+  # Emit for the monorepo union. A version-gated dep that's absent OR too old
+  # is tagged "dep:need" (same pkg:need format as the other modules), so the
+  # union can show "dep (>= need)" and take the MAX need across modules.
+  if [ "$dep_ok" = 1 ]; then
+    _emit ok "$dep"
+  else
+    # Generic: a dep is tagged "dep:need" iff it declares a minimum in
+    # version_checks (3rd field). No per-package special-casing.
+    _need=$(set -- ${version_checks[$dep]:-}; echo "${3:-}")
+    if [ -n "$_need" ]; then _emit missing "$dep:$_need"; else _emit missing "$dep"; fi
+  fi
 done
 
 # ============================================
