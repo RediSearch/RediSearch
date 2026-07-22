@@ -4016,6 +4016,33 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     if (!info.found) {
       return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
     }
+    // Parse COUNT on the main thread (mirrors RSCursorReadCommand), before
+    // taking the cursor so argument errors reply inline with nothing to
+    // undo.
+    long long count = 0;
+    if (argc > 5) {
+      const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+      if (strcasecmp(count_str, "count") != 0) {
+        return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+      }
+      if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+        const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
+        return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
+      }
+    }
+    // Take the cursor for execution here, on the main thread — same shape as
+    // the shard path for every timeout policy: the parked request's wrapper
+    // becomes the blocked client's privdata and a slim read job is dispatched
+    // to the coord pool.
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    if (!cursor) {
+      // Taken by a concurrent READ, or reaped between the peek and here.
+      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
+    }
+    // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
+    // reset it to QUEUE for the queued re-read; the BG job advances it back
+    // to PIPELINE at pickup.
+    AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
     if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
 #ifdef ENABLE_ASSERT
       // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
@@ -4035,42 +4062,21 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
           "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
           info.queryTimeoutMS, capped);
       }
-      // Parse COUNT on the main thread (mirrors RSCursorReadCommand), before
-      // taking the cursor so argument errors reply inline with nothing to
-      // undo.
-      long long count = 0;
-      if (argc > 5) {
-        const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
-        if (strcasecmp(count_str, "count") != 0) {
-          return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
-        }
-        if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
-          const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
-          return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
-        }
-      }
-      // Take the cursor for execution here, on the main thread — same shape
-      // as the shard path: the parked request's wrapper becomes the blocked
-      // client's privdata and a slim read job is dispatched to the coord
-      // pool.
-      Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-      if (!cursor) {
-        // Taken by a concurrent READ, or reaped between the peek and here.
-        return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
-      }
-      cursor->execState->useReplyCallback = true;
-      // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
-      // reset it to QUEUE for the queued re-read; the BG job advances it back
-      // to PIPELINE at pickup.
-      AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
       RedisModuleCmdFunc timeoutCallback = (info.queryTimeoutPolicy == TimeoutPolicy_Fail)
           ? DistAggregateTimeoutFailCallback
           : DistCursorReadTimeoutReturnStrictCallback;
       return RSCursorReadDispatchTaken(ctx, cursor, count, DistAggregateReplyCallback,
                                        timeoutCallback, (size_t)capped, DIST_THREADPOOL);
     }
+    // RETURN: same main-thread take and slim job, with no timer and no
+    // callbacks — the BG job replies inline through a thread-safe ctx and
+    // unblocking only runs the wrapper's OnFree.
+    return RSCursorReadDispatchTaken(ctx, cursor, count, NULL, NULL, 0, DIST_THREADPOOL);
   }
 
+  // DEL / GC. READ always returns above, so a dist re-entry callback is
+  // required here.
+  RS_ASSERT(dist_callback != NULL);
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
@@ -4084,7 +4090,11 @@ int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
+// READ takes the cursor on the main thread for every policy and never uses
+// the dist re-entry callback.
+int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return CursorCommand(ctx, argv, argc, RSCursorReadCommand, NULL, CURSOR_SUBCMD_READ);
+}
 
 CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
 CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
