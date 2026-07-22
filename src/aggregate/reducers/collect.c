@@ -27,7 +27,7 @@
 
 // COLLECT option keywords, in their normalized (lowercase) spelling.
 #define COLLECT_NUM_KEYWORDS 6
-static const char *const COLLECT_KEYWORDS[COLLECT_NUM_KEYWORDS] = {
+static const char *const collectKeywords[COLLECT_NUM_KEYWORDS] = {
     "fields", "sortby", "asc", "desc", "limit", "distinct"};
 
 typedef struct {
@@ -293,8 +293,8 @@ void CollectArgs_Free(CollectArgs *args) {
 
 const char *CollectArgs_NormalizedKeyword(const char *tok) {
   for (size_t i = 0; i < COLLECT_NUM_KEYWORDS; i++) {
-    if (!strcasecmp(tok, COLLECT_KEYWORDS[i])) {
-      return COLLECT_KEYWORDS[i];
+    if (!strcasecmp(tok, collectKeywords[i])) {
+      return collectKeywords[i];
     }
   }
   return NULL;
