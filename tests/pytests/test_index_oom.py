@@ -76,6 +76,54 @@ def test_stop_background_indexing_on_low_mem(env):
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
 @skip(cluster=True)
+def test_oom_state_cleared_on_successful_rescan(env):
+  # An OOM-aborted build persists scan_failed_OOM / scan_failed_OOM_scanned_keys on the
+  # spec. A later scan that completes (e.g. triggered by FT.ALTER once memory recovers)
+  # must clear that state: percent_indexed back to 1.0, background indexing status OK,
+  # and all docs indexed. Otherwise a fully-rebuilt index keeps reporting the old partial
+  # progress and "OOM failure" forever.
+  oom_test_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  # Drive a partial, OOM-cancelled initial scan (same recipe as
+  # test_stop_background_indexing_on_low_mem): pause after a quarter of the docs, then
+  # tighten memory so resuming trips the OOM guard and cancels the build.
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  num_docs_scanned = num_docs // 4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
+  set_tight_maxmemory_for_oom(env, 0.85)
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexFinishScan(env, 'idx')
+
+  # Precondition: the aborted build is reported as incomplete.
+  env.assertEqual(get_index_num_docs(env), num_docs_scanned)
+  env.assertLess(float(index_info(env)['percent_indexed']), 1.0)
+  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], OOMfailureStr)
+
+  # Memory recovers, and the debug pauses that shaped the aborted scan are lifted so the
+  # next scan runs to completion.
+  set_unlimited_maxmemory_for_oom(env)
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+
+  # FT.ALTER schedules a fresh full scan over all keys.
+  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'age', 'NUMERIC').ok()
+  waitForIndexFinishScan(env, 'idx')
+
+  # The successful rescan must have cleared the OOM state.
+  env.assertEqual(get_index_num_docs(env), num_docs)
+  env.assertEqual(float(index_info(env)['percent_indexed']), 1.0)
+  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], 'OK')
+
+@skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity():
   # Change to resp3
   env = Env(protocol=3)
