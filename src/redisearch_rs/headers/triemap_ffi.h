@@ -34,8 +34,8 @@ typedef enum tm_iter_mode {
 typedef struct TrieMap TrieMap;
 
 /**
- * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`] or
- * [`TrieMap_IterateWithFilter`].
+ * Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`],
+ * [`TrieMap_IterateWithFilter`], or `TrieMapIterator::from_*` methods.
  */
 typedef struct TrieMapIterator TrieMapIterator;
 
@@ -144,19 +144,6 @@ struct TrieMap *NewTrieMap(void);
 void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
 
 /**
- * Iterate over all the entries stored in the trie.
- *
- * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
- * the first call to next will return 0.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- */
-struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
-
-/**
  * Free the [`TrieMapResultBuf`] and its contents.
  */
 void TrieMapResultBuf_Free(TrieMapResultBuf buf);
@@ -194,28 +181,6 @@ int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, T
  * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
  */
 void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
-
-/**
- * Iterate over the trie entries that match the given predicate.
- *
- * Depending on `iter_mode`, they can either be:
- * - All entries with a given key prefix;
- * - All entries with a given key suffix;
- * - All entries with a key that contains the specified string;
- * - All entries with a key matching the specified wildcard pattern.
- *
- * This method returns an iterator object. Invoke [`TrieMapIterator_Next`]
- * to get the results from the iteration. If no entry is found,
- * the first call to next will return 0.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
- *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
- */
-struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
 /**
  * Get the length of the TrieMapResultBuf.
@@ -265,29 +230,17 @@ void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
 void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
 
 /**
- * Free a trie iterator
+ * Iterate over all the entries stored in the trie.
+ *
+ * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
+ * the first call to next will return 0.
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
- *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
  */
-void TrieMapIterator_Free(struct TrieMapIterator *it);
-
-/**
- * Iterate to the next matching entry in the trie. Returns 1 if we can continue,
- * or 0 if we're done and should exit
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
- *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
- * - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
- *   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
- * - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
- * - `value` must point to a valid pointer, which will be set to the value of the current key.
- */
-int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
+struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
 
 /**
  * Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -305,6 +258,28 @@ int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len,
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
+ * Iterate over the trie entries that match the given predicate.
+ *
+ * Depending on `iter_mode`, they can either be:
+ * - All entries with a given key prefix;
+ * - All entries with a given key suffix;
+ * - All entries with a key that contains the specified string;
+ * - All entries with a key matching the specified wildcard pattern.
+ *
+ * This method returns an iterator object. Invoke [`TrieMapIterator_Next`]
+ * to get the results from the iteration. If no entry is found,
+ * the first call to next will return 0.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
+ * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
+ *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ */
+struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
+
+/**
  * Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values (not the nodes). If not, free() is used instead.
  *
@@ -317,6 +292,19 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
 /**
+ * Set timeout limit used for affix queries. This timeout is checked in
+ * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
+ *
+ * If the provided timeout is 0, it's interpreted as unlimited.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ */
+void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
+
+/**
  * Determines the amount of memory used by the trie in bytes.
  *
  * # Safety
@@ -324,6 +312,16 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_MemUsage(struct TrieMap *t);
+
+/**
+ * Free a trie iterator
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ */
+void TrieMapIterator_Free(struct TrieMapIterator *it);
 
 /**
  * The number of unique keys stored in the provided triemap.
@@ -334,6 +332,26 @@ size_t TrieMap_MemUsage(struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
+
+/**
+ * Iterate to the next matching entry in the trie. Returns 1 if we can continue,
+ * or 0 if we're done and should exit
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ * - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
+ *   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
+ * - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
+ * - `value` must point to a valid pointer, which will be set to the value of the current key.
+ *
+ * For iterators over a trie whose values are stored inline (created via the
+ * `from_inline_*` constructors), the written `value` points into trie-internal
+ * storage and must be treated as **read-only**, so writing through it is undefined
+ * behavior.
+ */
+int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
 
 /**
  * The number of nodes stored in the provided triemap.

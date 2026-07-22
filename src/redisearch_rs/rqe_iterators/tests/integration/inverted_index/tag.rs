@@ -19,7 +19,7 @@ use rqe_iterators_test_utils::MockContext;
 
 use crate::inverted_index::utils::BaseTest;
 
-use iterators_ffi::inverted_index::CTagIndexLookup;
+use tag_index::TrieLookup;
 
 struct TagBaseTest {
     test: BaseTest<DocIdsOnly>,
@@ -47,18 +47,18 @@ impl TagBaseTest {
         RSQueryTerm::new("test_tag", 0, 0)
     }
 
-    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
+    fn create_iterator(&self) -> Tag<'_, DocIdsOnly, TrieLookup, NoOpChecker> {
         let reader = self.test.ii.reader();
         let term = Self::create_term();
         // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
-        // that outlives the returned iterator. The TagIndex pointer points to a
-        // zeroed struct which is fine since NoOpChecker doesn't trigger revalidation
+        // that outlives the returned iterator. The TagIndex is an empty index
+        // which is fine since NoOpChecker doesn't trigger revalidation
         // lookups, and `should_abort` is not called in basic tests.
         unsafe {
             Tag::new(
                 reader,
                 self.test.mock_ctx.sctx(),
-                CTagIndexLookup::new(self.test.mock_ctx.tag_index()),
+                TrieLookup::new(self.test.mock_ctx.tag_index()),
                 term,
                 0.0,
                 NoOpChecker,
@@ -101,7 +101,7 @@ fn tag_empty_index() {
         Tag::new(
             reader,
             mock_ctx.sctx(),
-            CTagIndexLookup::new(mock_ctx.tag_index()),
+            TrieLookup::new(mock_ctx.tag_index()),
             term,
             0.0,
             NoOpChecker,
@@ -118,9 +118,7 @@ fn tag_empty_index() {
 mod not_miri {
     use super::*;
     use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
-    use inverted_index::opaque::OpaqueEncoding;
     use rqe_iterators::RQEValidateStatus;
-    use std::ffi::c_void;
 
     struct TagRevalidateTest {
         test: RevalidateTest,
@@ -144,8 +142,8 @@ mod not_miri {
             }
         }
 
-        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, CTagIndexLookup, NoOpChecker> {
-            let ii = DocIdsOnly::from_opaque(self.test.context.tag_inverted_index());
+        fn create_iterator(&self) -> Tag<'_, DocIdsOnly, TrieLookup, NoOpChecker> {
+            let ii = self.test.context.tag_inverted_index();
             let tag_index = self.test.context.tag_index();
             let term = RSQueryTerm::new("test_tag", 0, 0);
             // SAFETY: `self.test.context` provides a valid `RedisSearchCtx` with a valid
@@ -154,7 +152,7 @@ mod not_miri {
                 Tag::new(
                     ii.reader(),
                     self.test.context.sctx,
-                    CTagIndexLookup::new(tag_index),
+                    TrieLookup::new(tag_index),
                     term,
                     0.0,
                     NoOpChecker,
@@ -194,29 +192,16 @@ mod not_miri {
         assert_eq!(status, RQEValidateStatus::Ok);
 
         // Simulate the tag's inverted index being garbage collected and
-        // recreated by replacing the TrieMap entry with a new inverted index.
-        let new_ii = Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-            inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-        )));
-
-        // Save the old II pointer so we can free it after the test.
-        let old_ii: *mut inverted_index::opaque::InvertedIndex =
-            (test.test.context.tag_inverted_index() as *mut inverted_index::opaque::InvertedIndex)
-                .cast();
-
-        let tag_index = test.test.context.tag_index();
-
-        // Delete the old entry then add the new one.
-        // The iterator's reader holds a (now-dangling) raw pointer to the
-        // original II, but `should_abort` only compares pointers via
-        // `points_to_ii` (`std::ptr::eq`) without dereferencing it.
-        // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-        // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
-        let old_val = trie.remove(b"test_tag");
-        assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
-        let prev = trie.insert(b"test_tag", new_ii as *mut c_void);
-        assert!(prev.is_none(), "insert should return None for new entry");
+        // recreated by replacing the value stored for "test_tag" with a new,
+        // empty inverted index. `insert_empty_tag` drops the old inverted
+        // index; the iterator's reader holds a (now-dangling) raw pointer to it,
+        // but `should_abort` only compares pointers via `points_to_ii`
+        // (`std::ptr::eq`) without dereferencing it.
+        let mut tag_index = test.test.context.tag_index();
+        // SAFETY: `tag_index` points to the `TagIndex` owned by `context`, which
+        // outlives this call. The iterator is not read between here and the
+        // revalidation below, per the revalidation protocol.
+        unsafe { tag_index.as_mut() }.insert_empty_tag(b"test_tag");
 
         // Revalidate should return Aborted because the tag II no longer
         // points to the same index the reader was created from.
@@ -224,18 +209,19 @@ mod not_miri {
             .revalidate(&*test.test.context.spec_read())
             .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
-
-        // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
-        // and has not been freed. We are the sole owner after removing it from the TrieMap.
-        // The new II will be freed when the TrieMap is freed during TagIndex cleanup.
-        unsafe { drop(Box::from_raw(old_ii)) };
     }
 
     #[test]
     fn tag_revalidate_after_document_deleted() {
         let test = TagRevalidateTest::new(10);
         let mut it = test.create_iterator();
-        let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
+        let mut tag_index = test.test.context.tag_index();
+        // SAFETY: `tag_index` points to the `TagIndex` owned by `context`, which
+        // outlives this borrow; the iterator only reads it between revalidations,
+        // per the revalidation protocol driven by the helper below.
+        let ii = unsafe { tag_index.as_mut() }
+            .find_value_mut(b"test_tag")
+            .expect("test_tag should be indexed");
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
     }
@@ -255,29 +241,22 @@ mod not_miri {
             .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Ok);
 
-        // Save the old II pointer so we can free it after the test.
-        let old_ii: *mut inverted_index::opaque::InvertedIndex =
-            (test.test.context.tag_inverted_index() as *mut inverted_index::opaque::InvertedIndex)
-                .cast();
-
         // Simulate the garbage collector removing the tag's inverted index
-        // by deleting the TrieMap entry.
-        let tag_index = test.test.context.tag_index();
-        // SAFETY: `tag_index` is valid (created by `TagIndex_Ensure`), `values`
-        // is a valid TrieMap.
-        let trie = unsafe { &mut *tag_index.as_ref().values.cast::<trie_rs::TrieMapOpaque>() };
-        let old_val = trie.remove(b"test_tag");
-        assert!(old_val.is_some(), "test_tag should exist in the TrieMap");
+        // by deleting the value stored for "test_tag". `delete_tag_value` drops
+        // the inverted index; the iterator's reader holds a (now-dangling) raw
+        // pointer to it, but `should_abort` sees the tag is missing and returns
+        // true without dereferencing the reader.
+        let mut tag_index = test.test.context.tag_index();
+        // SAFETY: `tag_index` points to the `TagIndex` owned by `context`, which
+        // outlives this call. The iterator is not read during the mutation, per
+        // the revalidation protocol.
+        unsafe { tag_index.as_mut() }.delete_tag_value(b"test_tag");
 
         // `should_abort` sees the tag value is missing and returns true.
         let status = it
             .revalidate(&*test.test.context.spec_read())
             .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
-
-        // SAFETY: `old_ii` was allocated by `NewInvertedIndex_Ex` (via `Box::new`)
-        // and has not been freed. We are the sole owner after removing it from the TrieMap.
-        unsafe { drop(Box::from_raw(old_ii)) };
     }
 
     /// Test that `reader()` returns a reference to the underlying reader.
@@ -287,7 +266,7 @@ mod not_miri {
         let it = test.create_iterator();
 
         let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.tag_inverted_index());
+        let ii = test.test.context.tag_inverted_index();
         assert!(reader.points_to_ii(ii));
     }
 }

@@ -25,6 +25,8 @@
 #include "search_disk.h"
 #include "spec.h"
 
+#include "redisearch_rs/headers/tag_index.h"
+
 extern RedisModuleCtx *RSDummyContext;
 
 static uint32_t tagUniqueId = 0;
@@ -34,13 +36,12 @@ static uint32_t tagUniqueId = 0;
 /* See tag_index.h for documentation  */
 TagIndex *NewTagIndex(RedisSearchDiskIndexSpec *diskSpec, t_fieldIndex fieldIndex,
                       bool withSuffix) {
-  TagIndex *idx = rm_new(TagIndex);
-  idx->values = NewTrieMap();
-  idx->uniqueId = tagUniqueId++;
-  idx->suffix = withSuffix ? NewTrieMap() : NULL;
-  idx->diskSpec = diskSpec;
-  idx->fieldIndex = fieldIndex;
-  return idx;
+  return TagIndex2_New(
+    tagUniqueId++,
+    diskSpec,
+    fieldIndex,
+    withSuffix
+  );
 }
 
 /* read the next token from the string */
@@ -151,9 +152,10 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   // If the field indexes empty fields, index the case of an empty field, or a
   // field that ends with a separator as well.
   if (indexEmpty) {
-    if (p == pp || last_is_sep)
-    tok = rm_strdup("");
-    array_append(*resArray, tok);
+    if (p == pp || last_is_sep) {
+      tok = rm_strdup("");
+      array_append(*resArray, tok);
+    }
   }
 
   rm_free(pp);
@@ -192,86 +194,26 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   return ret;
 }
 
-struct InvertedIndex *TagIndex_OpenIndex(const TagIndex *idx, const char *value,
-                                          size_t len, int create_if_missing, size_t *sz) {
-  *sz = 0;
-  InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
-  if (iv == TRIEMAP_NOTFOUND) {
-    if (create_if_missing) {
-      iv = NewInvertedIndex(Index_DocIdsOnly, sz);
-      TrieMap_Add(idx->values, value, len, iv, NULL);
-    }
-  }
-  return iv;
-}
-
-// Encode a single docId into a specific tag value
-// Returns the number of bytes occupied by the encoded entry plus the size of
-// the inverted index (if a new inverted index was created)
-static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId,
-                                  IndexStats *stats, size_t *numRecords) {
-  size_t sz;
-  RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .metrics = MetricsVec_New()};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  uint32_t numDocs = InvertedIndex_NumDocs(iv);
-  AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);
-  if (InvertedIndex_NumDocs(iv) > numDocs) {
-    (*numRecords)++;
-  }
-  IndexStats_BlockCountAdd(stats, r.blocks_added);
-  return r.mem_growth + sz;
-}
-
-/* Memory-mode helper: write the per-tag inverted-index postings for `docId`.
- * `tagIndex_Put` also inserts the matching `InvertedIndex*` into `idx->values`
- * if it is not already there. */
-static void TagIndex_WritePostings(TagIndex *idx, const char **values, size_t n,
-                                     t_docId docId, IndexStats *stats) {
-  if (!values) return;
-  size_t numRecords = 0;
-  for (size_t ii = 0; ii < n; ++ii) {
-    const char *tok = values[ii];
-    if (tok) {
-      stats->invertedSize += tagIndex_Put(idx, tok, strlen(tok), docId, stats, &numRecords);
-    }
-  }
-  stats->numRecords += numRecords;
-}
-
 /* Apply the in-memory tag-trie updates for a vector of tag tokens (Phase 3).
  *
  * Called from `tagApplier` in both modes:
  *   - Disk mode: runs after a successful batch commit. Inserts NULL sentinels
  *     into `idx->values` (postings live on disk).
- *   - Memory mode: the trie already holds `InvertedIndex*` pointers from
- *     `TagIndex_WritePostings`, so the trie insert is skipped to preserve
- *     them.
+ *   - Memory mode: the trie already holds `InvertedIndex*` pointers written by
+ *     `TagIndex_Index` (via `TagIndex2_Index`), so the trie insert is skipped
+ *     to preserve them.
  *
  * Record accounting follows the phase that writes the posting:
- *   - Memory mode writes postings inline in `TagIndex_WritePostings` and counts
- *     only records accepted by the inverted index.
+ *   - Memory mode writes postings inline in `TagIndex_Index` and counts only
+ *     records accepted by the inverted index.
  *   - Disk mode reaches this function after the batch commit, so committed tag
  *     values are counted here while applying the matching in-memory metadata.
  * Infallible. */
 void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *stats) {
-  if (!values) return;
-  size_t numRecords = 0;
-  for (size_t ii = 0; ii < n; ++ii) {
-    const char *tok = values[ii];
-    if (!tok) continue;
-    numRecords++;
-    size_t len = strlen(tok);
-    if (idx->diskSpec) {
-      TrieMap_Add(idx->values, tok, len, NULL, NULL);
-    }
-    if (idx->suffix && (*tok != '\0')) {
-      addSuffixTrieMap(idx->suffix, tok, len);
-    }
-  }
-  if (idx->diskSpec) {
-    stats->numRecords += numRecords;
-  }
+  // In disk mode the postings are written during this phase, so the committed
+  // tag values are counted here; in memory mode they were already counted in
+  // `TagIndex_Index` and `TagIndex2_Commit` returns 0.
+  stats->numRecords += TagIndex2_Commit(idx, values, n);
 }
 
 /* Phase 1 (index) for a vector of pre-processed tags. Writes the per-tag
@@ -283,12 +225,20 @@ void TagIndex_Commit(TagIndex *idx, const char **values, size_t n, IndexStats *s
  * `InvertedIndex` and `batch` is ignored. */
 bool TagIndex_Index(RedisModuleCtx *ctx, TagIndex *idx, SearchDiskWriteBatchHandle *batch,
                     const char **values, size_t n, t_docId docId, IndexStats *stats) {
-  if (idx->diskSpec) {
-    if (!values) return true;
-    return SearchDisk_IndexTags(ctx, idx->diskSpec, batch, values, n, docId, idx->fieldIndex);
-  }
-  TagIndex_WritePostings(idx, values, n, docId, stats);
-  return true;
+  TagIndexWriteResult r = TagIndex2_Index(
+    idx,
+    ctx,
+    batch,
+    values,
+    n,
+    docId
+  );
+  stats->numRecords += r.num_records;
+  stats->invertedSize += r.size_delta;
+  IndexStats_BlockCountAdd(stats, (int64_t)r.blocks_added);
+  // In disk mode `ok` reflects whether `SearchDisk_IndexTags` succeeded; in
+  // memory mode it is always true.
+  return r.ok;
 }
 
 static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchCtx *sctx, InvertedIndex *iv,
@@ -297,6 +247,16 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   RSQueryTerm *t = NewQueryTerm(&tok, 0);
   FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = fieldIndex};
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
+}
+
+// Helper: Get iterator from TrieMap iterator value
+// In disk mode: ptr is ignored, calls disk API with tag string
+// In memory mode: ptr is InvertedIndex*, uses it directly
+QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
+                                                    const char *tag, size_t len, void *ptr,
+                                                    double weight, t_fieldIndex fieldIndex,
+                                                    QueryError *status) {
+  return TagIndex2_GetIteratorFromTrieMapValue(idx, sctx, tag, len, ptr, weight, fieldIndex, status);
 }
 
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
@@ -308,18 +268,9 @@ QueryIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
     return NULL;
   }
 
-  if (idx->diskSpec) {
-    // DISK MODE: Direct disk API call
-    RSToken tok = {.str = (char *)value, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
-  }
-
-  // MEMORY MODE: Look up in TrieMap
-  InvertedIndex *iv = TrieMap_Find(idx->values, (char *)value, len);
-  if (iv == TRIEMAP_NOTFOUND || !iv || InvertedIndex_NumDocs(iv) == 0) {
-    return NULL;
-  }
-  return TagIndex_GetReader(idx, sctx, iv, value, len, weight, fieldIndex);
+  // TagIndex2_OpenReader only reads `sctx`; the const cast matches the query
+  // paths elsewhere that hand a read-only search context to the reader.
+  return TagIndex2_OpenReader(idx, (RedisSearchCtx *)sctx, value, len, weight, fieldIndex, status);
 }
 
 /* Open the tag index, returning NULL if it doesn't exist. */
@@ -338,91 +289,83 @@ TagIndex *TagIndex_Ensure(FieldSpec *spec, RedisSearchDiskIndexSpec *diskSpec, b
 }
 
 uint32_t TagIndex_GetId(const TagIndex *idx) {
-  return idx->uniqueId;
+  return TagIndex2_GetId(idx);
 }
 
 bool TagIndex_HasSuffix(const TagIndex *idx) {
-  return idx->suffix != NULL;
+  return TagIndex2_HasSuffix(idx);
 }
 
 bool TagIndex_HasDiskSpec(const TagIndex *idx) {
-  return idx->diskSpec != NULL;
-}
-
-TrieMapIterator *TagIndex_IterateValues(const TagIndex *idx) {
-  return TrieMap_Iterate(idx->values);
+  return TagIndex2_HasDiskSpec(idx);
 }
 
 size_t TagIndex_NUniqueValues(const TagIndex *idx) {
-  return TrieMap_NUniqueKeys(idx->values);
+  return TagIndex2_NUniqueValues(idx);
 }
 
-int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen) {
-  return TrieMap_Delete(idx->values, tagVal, tagValLen, (void (*)(void *))InvertedIndex_Free);
-}
-
-void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen) {
-  deleteSuffixTrieMap(idx->suffix, tagVal, tagValLen);
-}
-
-TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
+ValueIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
                                                  size_t tagValLen, tag_iter_mode mode) {
-  return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
+  return TagIndex2_IterateValuesWithFilter(idx, tagVal, tagValLen, (enum tm_iter_mode)mode);
 }
 
-TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
-  return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
+void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
+                                 const char *max, int maxlen, bool includeMax,
+                                 TrieMapRangeCallback callback, void *ctx) {
+  TagIndex2_IterateRange(idx, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
 }
 
-/* Return a list of list of terms which match the suffix or contains term or NULL */
-arrayof(char **)
+ValueIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
+  return TagIndex2_IterateSuffix(idx);
+}
+
+/* Return a list of terms which match the suffix or contains term or NULL */
+arrayof(char *)
     TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
                            struct timespec timeout, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, timeout, skipTimeoutChecks) : NULL;
+  if (!TagIndex_HasSuffix(idx)) {
+    return NULL;
+  }
+  return TagIndex2_GetSuffixMatches(idx, str, len, prefix, timeout, skipTimeoutChecks);
 }
 
 arrayof(char *)
     TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
                                                struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks) : NULL;
+  if (!TagIndex_HasSuffix(idx)) {
+    return NULL;
+  }
+  return TagIndex2_GetSuffixWildcardMatches(idx, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks);
 }
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TagIndex_IterateValues(idx);
+  ValueIterator *it = TagIndex2_IterateValues(idx);
 
   char *str;
   tm_len_t slen;
-  void *ptr;
+  TagIndexValue *tiv;
   RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
-  while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
+  while (TagIndex2_ValueIterator_Next(it, &str, &slen, &tiv)) {
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 
   RedisModule_ReplySetSetLength(ctx, count);
 
-  TrieMapIterator_Free(it);
+  TagIndex2_ValueIterator_Free(it);
 }
 
-void TagIndex_Free(TagIndex *idx) {
-  // In disk mode, values are NULL sentinels - pass NULL to use RedisModule_Free (no-op on NULL)
-  // In memory mode, values are InvertedIndex pointers
-  freeCB valueFree = idx->diskSpec ? NULL : (freeCB)InvertedIndex_Free;
-  TrieMap_Free(idx->values, valueFree);
-  TrieMap_Free(idx->suffix, suffixTrieMap_freeCallback);
-  rm_free(idx);
+void TagIndex_Free(TagIndex **idx) {
+  TagIndex2_Free(idx);
 }
 
 size_t TagIndex_GetOverhead(const FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = TagIndex_Open(fs);
   if (idx) {
-    overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize
-    if (idx->suffix) {
-      overhead += TrieMap_MemUsage(idx->suffix);
-    }
+    overhead = TagIndex2_GetOverhead(idx);
   }
   return overhead;
 }

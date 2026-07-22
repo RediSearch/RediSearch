@@ -44,9 +44,11 @@ fn unique_index_name(prefix: &str) -> String {
 }
 use field::FieldMaskOrIndex;
 use index_result::RSIndexResult;
+use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly};
 use numeric_range_tree::{NumericIndex, NumericRangeTree};
 use query_error::QueryError;
 use rqe_iterators::IteratorsConfig;
+use tag_index::TagIndex;
 use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
@@ -124,8 +126,12 @@ enum TestContextInner {
     },
     Tag {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
-        tag_index: ptr::NonNull<ffi::TagIndex>,
-        inverted_index: ptr::NonNull<ffi::InvertedIndex>,
+        /// Owned Rust [`TagIndex`], stored behind a raw pointer so that the tag
+        /// iterator's [`TrieLookup`](tag_index::TrieLookup) back-pointer and the
+        /// test's mutation path (GC simulation) don't alias as Rust borrows —
+        /// mirroring how the C code owns the index across GC cycles. Freed in
+        /// [`TestContext`]'s `Drop`.
+        tag_index: ptr::NonNull<TagIndex>,
     },
     Geometry {
         field_spec: ptr::NonNull<ffi::FieldSpec>,
@@ -689,42 +695,19 @@ impl TestContext {
         let field_spec: ptr::NonNull<ffi::FieldSpec> =
             ptr::NonNull::new(fs as _).expect("FieldSpec should not be null");
 
-        // Create TagIndex via the C API (uses Redis allocator for proper cleanup)
-        let tag_index_raw =
-            unsafe { ffi::TagIndex_Ensure(field_spec.as_ptr(), ptr::null_mut(), false) };
-        let tag_index = ptr::NonNull::new(tag_index_raw).expect("TagIndex should not be null");
-
-        // Create the tag inverted index for "test_tag" via TagIndex_OpenIndex
-        // (CREATE_INDEX = 1 creates a new DocIdsOnly inverted index in the TrieMap)
-        let tag_key = CString::new("test_tag").unwrap();
-        let mut sz: usize = 0;
-        let ii_ptr = unsafe {
-            ffi::TagIndex_OpenIndex(
-                tag_index_raw,
-                tag_key.as_ptr(),
-                tag_key.as_bytes().len(),
-                1, // CREATE_INDEX
-                &mut sz,
-            )
-        };
-        assert!(!ii_ptr.is_null(), "TagIndex_OpenIndex returned null");
-        let ii = ptr::NonNull::new(ii_ptr.cast()).expect("InvertedIndex should not be null");
-
-        // Populate with virtual records for each document ID.
-        // TagIndex_OpenIndex internally calls NewInvertedIndex_Ex, so the
-        // pointer is actually a Rust opaque InvertedIndex despite the C type.
-        let ii_opaque: *mut inverted_index::opaque::InvertedIndex = ii_ptr.cast();
+        // Build a pure-Rust in-memory TagIndex and index each document under
+        // the tag value `"test_tag"`. The tag value is deliberately NUL-free:
+        // the query term used by the tag iterator is `"test_tag"` (no NUL), and
+        // the lookup compares against those same bytes.
+        let mut tag_index = TagIndex::new(0, None, false);
         for doc_id in doc_ids {
-            let record: RSIndexResult = RSIndexResult::build_virt().doc_id(doc_id).build();
-            // SAFETY: ii_opaque is a valid pointer created via TagIndex_OpenIndex
-            // which delegates to NewInvertedIndex_Ex (Rust FFI).
-            unsafe {
-                inverted_index_ffi::InvertedIndex_WriteEntryGeneric(
-                    ii_opaque,
-                    &record as *const _ as *mut _,
-                );
-            }
+            tag_index.index(ptr::null(), ptr::null(), &[b"test_tag"], doc_id);
         }
+
+        // Store behind a raw pointer so the iterator's lookup back-pointer and
+        // the test's mutation path don't alias as Rust borrows. Freed in `Drop`.
+        let tag_index = ptr::NonNull::new(Box::into_raw(Box::new(tag_index)))
+            .expect("Box::into_raw never returns null");
 
         Self {
             _ctx: ctx,
@@ -734,7 +717,6 @@ impl TestContext {
             inner: TestContextInner::Tag {
                 field_spec,
                 tag_index,
-                inverted_index: ii,
             },
         }
     }
@@ -908,33 +890,25 @@ impl TestContext {
         }
     }
 
-    /// Get the tag (doc-ids-only) inverted index for this context.
-    /// Returns a reference to the FFI inverted index wrapper.
-    /// Panics if this is not a tag context.
-    #[expect(clippy::mut_from_ref)] // need to get a mut for the revalidate_after_document_deleted test
-    pub fn tag_inverted_index(&self) -> &mut inverted_index_ffi::InvertedIndex {
-        match &self.inner {
-            TestContextInner::Tag { inverted_index, .. } => {
-                // SAFETY: inverted_index is a valid pointer created via NewInvertedIndex_Ex
-                let ii: *mut inverted_index_ffi::InvertedIndex = inverted_index.as_ptr().cast();
-                unsafe { &mut *ii }
-            }
-            _ => panic!("TestContext is not a Tag context"),
-        }
+    /// Get the tag's (doc-ids-only) inverted index for this context.
+    ///
+    /// Returns the [`InvertedIndex`] currently stored under the `"test_tag"`
+    /// value in the Rust [`TagIndex`]. Panics if this is not a tag context.
+    pub fn tag_inverted_index(&self) -> &InvertedIndex<DocIdsOnly> {
+        // SAFETY: `tag_index` points to the boxed `TagIndex` owned by this
+        // context, which outlives the returned reference.
+        unsafe { self.tag_index().as_ref() }
+            .find_value(b"test_tag")
+            .expect("test_tag should be indexed in a Tag context")
     }
 
-    /// Get a raw pointer to the tag inverted index suitable for FFI.
-    /// Panics if this is not a tag context.
-    pub fn tag_index_ptr(&self) -> *const ffi::InvertedIndex {
-        match &self.inner {
-            TestContextInner::Tag { inverted_index, .. } => inverted_index.as_ptr(),
-            _ => panic!("TestContext is not a Tag context"),
-        }
-    }
-
-    /// Get the tag index for this context.
-    /// Panics if this is not a tag context.
-    pub fn tag_index(&self) -> ptr::NonNull<ffi::TagIndex> {
+    /// Get a raw pointer to the Rust [`TagIndex`] for this context.
+    ///
+    /// The pointer is used both to build the tag iterator's
+    /// [`TrieLookup`](tag_index::TrieLookup) and to mutate the index while
+    /// simulating garbage collection in revalidation tests. Panics if this is
+    /// not a tag context.
+    pub fn tag_index(&self) -> ptr::NonNull<TagIndex> {
         match self.inner {
             TestContextInner::Tag { tag_index, .. } => tag_index,
             _ => panic!("TestContext is not a Tag context"),
@@ -1102,6 +1076,15 @@ impl Drop for TestContext {
 
         // Note: the wildcard inverted index is freed by IndexSpec_RemoveFromGlobals
         // below, via spec->existingDocs. No explicit free needed here.
+
+        // The Rust `TagIndex` is owned by this context (not the C spec globals),
+        // so free it here.
+        if let TestContextInner::Tag { tag_index, .. } = self.inner {
+            // SAFETY: `tag_index` was allocated via `Box::into_raw` in `tag()`
+            // and has not been freed. Any tag iterator borrowing it has already
+            // been dropped (it cannot outlive this `TestContext`).
+            unsafe { drop(Box::from_raw(tag_index.as_ptr())) };
+        }
 
         unsafe {
             ffi::SearchCtx_Free(self.sctx.as_ptr());

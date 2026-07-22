@@ -982,21 +982,20 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
         iter_mode = TAG_SUFFIX_MODE;
       }
     }
-    TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
-    // TrieMap_IterateWithFilter only returns NULL on allocation failure
+    ValueIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
+    // TagIndex_IterateValuesWithFilter only returns NULL on allocation failure
     RS_ASSERT(it);
     if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+      TagIndex2_ValueIterator_SetTimeout(it, q->sctx->time.timeout);
     }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
     tm_len_t sl;
-    void *ptr;
 
     // Find all completions of the prefix
     int hasNext;
-    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
+    while ((hasNext = TagIndex2_ValueIterator_NextKey(it, &s, &sl)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
       QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex, q->status);
       if (!ret) continue;
@@ -1013,34 +1012,32 @@ static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
       QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
-    TrieMapIterator_Free(it);
+    TagIndex2_ValueIterator_Free(it);
   } else {  // TAG field has suffix triemap
-    arrayof(char **) arr =
+    arrayof(char *) arr =
         TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix, q->sctx->time.timeout,
                                q->sctx->time.skipTimeoutChecks);
     if (!arr) {
       rm_free(its);
       return NULL;
     }
-    for (int i = 0; i < array_len(arr) && itsSz < q->config->maxPrefixExpansions; ++i) {
-      size_t iarrlen = array_len(arr);
-      for (int j = 0; j < array_len(arr[i]); ++j) {
-        size_t jarrlen = array_len(arr[i]);
-        if (itsSz >= q->config->maxPrefixExpansions) {
-          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-          break;
-        }
-        QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1, fieldIndex, q->status);
-        if (!ret) continue;
+    for (int i = 0; i < array_len(arr); ++i) {
+      if (itsSz >= q->config->maxPrefixExpansions) {
+        QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
+        break;
+      }
+      QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1, fieldIndex, q->status);
+      if (!ret) continue;
 
-        // Add the reader to the iterator array
-        its[itsSz++] = ret;
-        if (itsSz == itsCap) {
-          itsCap *= 2;
-          its = rm_realloc(its, itsCap * sizeof(*its));
-        }
+      // Add the reader to the iterator array
+      its[itsSz++] = ret;
+      if (itsSz == itsCap) {
+        itsCap *= 2;
+        its = rm_realloc(its, itsCap * sizeof(*its));
       }
     }
+    // The term strings are borrowed from the suffix trie and must not be freed
+    // here; only the array itself is owned by the caller.
     array_free(arr);
   }
 
@@ -1066,6 +1063,8 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
     // with suffix
+
+    //// QUIIIIIII
     arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
         idx, tok->str, tok->len, q->sctx->time.timeout, q->config->maxPrefixExpansions,
         q->sctx->time.skipTimeoutChecks);
@@ -1098,19 +1097,18 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   if (!TagIndex_HasSuffix(idx) || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it =
+    ValueIterator *it =
         TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
     if (!q->sctx->time.skipTimeoutChecks) {
-      TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
+      TagIndex2_ValueIterator_SetTimeout(it, q->sctx->time.timeout);
     }
 
     char *s;
     tm_len_t sl;
-    void *ptr;
 
     // Find all completions of the prefix
     int hasNext;
-    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
+    while ((hasNext = TagIndex2_ValueIterator_NextKey(it, &s, &sl)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
       QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex, q->status);
       if (!ret) continue;
@@ -1127,7 +1125,7 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
       QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
     }
 
-    TrieMapIterator_Free(it);
+    TagIndex2_ValueIterator_Free(it);
   }
 
   return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);

@@ -13,10 +13,9 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use index_result::RSQueryTerm;
-use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
-use iterators_ffi::inverted_index::CTagIndexLookup;
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Tag};
 use rqe_iterators_test_utils::TestContext;
+use tag_index::TrieLookup;
 
 use super::{INDEX_SIZE, SKIP_TO_STEP, SPARSE_DELTA, benchmark_group};
 
@@ -64,18 +63,18 @@ impl TagBencher {
 
     fn rust_read<M: Measurement>(&self, group: &mut BenchmarkGroup<'_, M>, context: &TestContext) {
         group.bench_function("Rust", |b| {
-            let ii = DocIdsOnly::from_opaque(context.tag_inverted_index());
+            let ii = context.tag_inverted_index();
             b.iter(|| {
                 let term = RSQueryTerm::new("test_tag", 0, 0);
                 // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec`, `TagIndex` (with valid `values` TrieMap), and a
-                // `DocIdsOnly`-encoded inverted index. All pointers remain valid
-                // for the lifetime of the iterator as `context` outlives it.
+                // `spec`, `TagIndex`, and a `DocIdsOnly`-encoded inverted index.
+                // All pointers remain valid for the lifetime of the iterator as
+                // `context` outlives it.
                 let mut it = unsafe {
                     Tag::new(
                         ii.reader(),
                         context.sctx,
-                        CTagIndexLookup::new(context.tag_index()),
+                        TrieLookup::new(context.tag_index()),
                         term,
                         0.0,
                         rqe_iterators::NoOpChecker,
@@ -94,18 +93,18 @@ impl TagBencher {
         context: &TestContext,
     ) {
         group.bench_function("Rust", |b| {
-            let ii = DocIdsOnly::from_opaque(context.tag_inverted_index());
+            let ii = context.tag_inverted_index();
             b.iter(|| {
                 let term = RSQueryTerm::new("test_tag", 0, 0);
                 // SAFETY: `context` provides a valid `RedisSearchCtx` with a valid
-                // `spec`, `TagIndex` (with valid `values` TrieMap), and a
-                // `DocIdsOnly`-encoded inverted index. All pointers remain valid
-                // for the lifetime of the iterator as `context` outlives it.
+                // `spec`, `TagIndex`, and a `DocIdsOnly`-encoded inverted index.
+                // All pointers remain valid for the lifetime of the iterator as
+                // `context` outlives it.
                 let mut it = unsafe {
                     Tag::new(
                         ii.reader(),
                         context.sctx,
-                        CTagIndexLookup::new(context.tag_index()),
+                        TrieLookup::new(context.tag_index()),
                         term,
                         0.0,
                         rqe_iterators::NoOpChecker,

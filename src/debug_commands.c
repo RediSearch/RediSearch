@@ -473,6 +473,22 @@ static void ReplyReaderResultsIDs(IndexReader *reader, RSIndexResult *res, Redis
   IndexResult_Free(res);
 }
 
+
+static void ReplyReaderResultsOnlyDocIdIDs(TagIndexValue *tiv, RSIndexResult *res, RedisModuleCtx *ctx) {
+  size_t resultSize = 0;
+
+  TagIndexValueIter* tivi = TagIndexValue_Iter(tiv);
+
+  RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+  while (TagIndexValueIter_Next(tivi, res)) {
+      RedisModule_ReplyWithLongLong(ctx, res->docId);
+      ++resultSize;
+  }
+  RedisModule_ReplySetArrayLength(ctx, resultSize);
+  TagIndexValueIter_Free(tivi);
+  IndexResult_Free(res);
+}
+
 static FieldSpec *getFieldByNameAndType(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   size_t len;
@@ -768,10 +784,10 @@ DEBUG_COMMAND(SpecInvertedIndexesInfo) {
 DEBUG_COMMAND(DumpTagIndex) {
   FieldSpec *fs = NULL;
   const TagIndex *tagIndex = NULL;
-  TrieMapIterator *iter = NULL;
   char *tag = NULL;
   tm_len_t len = 0;
-  InvertedIndex *iv = NULL;
+  TagIndexValue *tiv = NULL;
+  ValueIterator *tivi = NULL;
   size_t resultSize = 0;
 
   if (!debugCommandsEnabled(ctx)) {
@@ -800,21 +816,20 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  iter = TagIndex_IterateValues(tagIndex);
+  tivi = TagIndex2_IterateValues(tagIndex);
   RedisModule_ReplyWithArray(sctx->redisCtx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
+  while (TagIndex2_ValueIterator_Next(tivi, &tag, &len, &tiv)) {
     RedisModule_ReplyWithArray(sctx->redisCtx, 2);
     RedisModule_ReplyWithStringBuffer(sctx->redisCtx, tag, len);
     IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
-    IndexReader *reader = NewIndexReader(iv, decoderCtx);
     RSIndexResult *res = NewTokenRecord(NULL, 1);
     res->freq = 1;
     res->fieldMask = RS_FIELDMASK_ALL;
-    ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
+    ReplyReaderResultsOnlyDocIdIDs(tiv, res, sctx->redisCtx);
     ++resultSize;
   }
   RedisModule_ReplySetArrayLength(sctx->redisCtx, resultSize);
-  TrieMapIterator_Free(iter);
+  TagIndex2_ValueIterator_Free(tivi);
 
 end:
   SearchCtx_Free(sctx);
@@ -871,7 +886,7 @@ DEBUG_COMMAND(DumpSuffix) {
       goto end;
     }
 
-    TrieMapIterator *it = TagIndex_IterateSuffix(idx);
+    ValueIterator *it = TagIndex_IterateSuffix(idx);
     if (!it) {
       RedisModule_ReplyWithError(sctx->redisCtx, "tag field does have suffix trie");
       goto end;
@@ -882,14 +897,13 @@ DEBUG_COMMAND(DumpSuffix) {
 
     char *str;
     tm_len_t len;
-    void *value;
-    while (TrieMapIterator_Next(it, &str, &len, &value)) {
+    while (TagIndex2_ValueIterator_NextKey(it, &str, &len)) {
       str[len] = '\0';
       RedisModule_ReplyWithStringBuffer(ctx, str, len);
       ++resultSize;
     }
 
-    TrieMapIterator_Free(it);
+    TagIndex2_ValueIterator_Free(it);
 
     RedisModule_ReplySetArrayLength(ctx, resultSize);
   }
@@ -1349,13 +1363,13 @@ typedef struct {
   const char *prefix;
 } DumpOptions;
 
-static void seekTagIterator(TrieMapIterator *it, size_t offset) {
+static void seekTagIterator(ValueIterator *it, size_t offset) {
   char *tag;
   tm_len_t len;
-  InvertedIndex *iv;
+  TagIndexValue *tiv;
 
   for (size_t n = 0; n < offset; n++) {
-    if (!TrieMapIterator_Next(it, &tag, &len, (void **)&iv)) {
+    if (!TagIndex2_ValueIterator_Next(it, &tag, &len, &tiv)) {
       break;
     }
   }
@@ -1383,10 +1397,10 @@ DEBUG_COMMAND(InfoTagIndex) {
   size_t nelem = 0;
   int shouldDescend;
   size_t limit;
-  TrieMapIterator *iter;
+  ValueIterator *iter;
   char *tag;
   tm_len_t len;
-  InvertedIndex *iv;
+  TagIndexValue *tiv = NULL;
   size_t nvalues = 0;
 
   if (!debugCommandsEnabled(ctx)) {
@@ -1437,14 +1451,14 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   limit = options.limit ? options.limit : 0;
-  iter = TagIndex_IterateValues(idx);
+  iter = TagIndex2_IterateValues(idx);
 
   nelem += 2;
   RedisModule_ReplyWithLiteral(ctx, "values");
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
 
   seekTagIterator(iter, options.offset);
-  while (nvalues++ < limit && TrieMapIterator_Next(iter, &tag, &len, (void **)&iv)) {
+  while (nvalues++ < limit && TagIndex2_ValueIterator_Next(iter, &tag, &len, &tiv)) {
     size_t nsubelem = 8;
     if (!options.dumpIdEntries) {
       nsubelem -= 2;
@@ -1455,24 +1469,23 @@ DEBUG_COMMAND(InfoTagIndex) {
     RedisModule_ReplyWithStringBuffer(ctx, tag, len);
 
     RedisModule_ReplyWithLiteral(ctx, "num_entries");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumDocs(iv));
+    RedisModule_ReplyWithLongLong(ctx, TagIndexValue_NumDocs(tiv));
 
     RedisModule_ReplyWithLiteral(ctx, "num_blocks");
-    RedisModule_ReplyWithLongLong(ctx, InvertedIndex_NumBlocks(iv));
+    RedisModule_ReplyWithLongLong(ctx, TagIndexValue_NumBlocks(tiv));
 
     if (options.dumpIdEntries) {
       RedisModule_ReplyWithLiteral(ctx, "entries");
       IndexDecoderCtx decoderCtx = {.fieldmask_tag = IndexDecoderCtx_FieldMask, .fieldmask = RS_FIELDMASK_ALL};
-      IndexReader *reader = NewIndexReader(iv, decoderCtx);
       RSIndexResult *res = NewTokenRecord(NULL, 1);
       res->freq = 1;
       res->fieldMask = RS_FIELDMASK_ALL;
-      ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
+      ReplyReaderResultsOnlyDocIdIDs(tiv, res, sctx->redisCtx);
     }
 
     RedisModule_ReplySetArrayLength(ctx, nsubelem);
   }
-  TrieMapIterator_Free(iter);
+  TagIndex2_ValueIterator_Free(iter);
   RedisModule_ReplySetArrayLength(ctx, nvalues - 1);
 
 reply_done:
