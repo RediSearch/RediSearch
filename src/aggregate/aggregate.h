@@ -674,15 +674,13 @@ void AREQ_CleanUpStoredCursor(AREQ *req);
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *status, bool coord);
 
 int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-/* Like RSCursorReadCommand, but for the coordinator's blocking FT.CURSOR READ
- * path (FAIL / RETURN_STRICT): `takenCursor` was taken for execution on the
- * main thread at dispatch and its wrapper is the blocked client's privdata.
- * Pass NULL for every other path (the cursor is then taken here by id).
- * TRANSITIONAL(MOD-16691): exists because the coord path still runs this whole
- * command body on the coord pool; retiring ConcurrentSearch_HandleRedisCommandEx
- * replaces it with a slim BG read job like the shard path's cursorRead_ctx. */
-int RSCursorReadCommandEx(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                          struct Cursor *takenCursor);
+/* Coordinator blocking FT.CURSOR READ (FAIL / RETURN_STRICT), mirroring the
+ * shard shape: `cursor` was taken for execution on the main thread (COUNT
+ * already parsed there); this blocks the client with the cursor's wrapper as
+ * privdata and dispatches a slim read job to `poolType`. */
+int RSCursorReadDispatchTaken(RedisModuleCtx *ctx, struct Cursor *cursor, long long count,
+                              RedisModuleCmdFunc reply_cb, RedisModuleCmdFunc timeout_cb,
+                              rs_wall_clock_ms_t timeout_ms, int poolType);
 int RSCursorProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

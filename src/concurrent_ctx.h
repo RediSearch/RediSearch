@@ -71,12 +71,6 @@ typedef struct ConcurrentSearchHandlerCtx {
   WeakRef spec_ref;                   // Weak reference to the index spec
   bool isProfile;                     // Whether this is an FT.PROFILE command
   size_t numShards;                   // Number of shards in the cluster (captured from main thread)
-  // Cursor taken for execution on the main thread (coord FT.CURSOR READ with a
-  // blocking policy); NULL otherwise. The BG handler reads it back via
-  // ConcurrentCmdCtx_GetCursor instead of re-taking by id.
-  // TRANSITIONAL(MOD-16691): folds into the wrapper's per-cycle cursor state
-  // once the cursor-ownership step lands.
-  struct Cursor *cursor;
   ConcurrentSearchBlockClientCtx bcCtx; // Context for blocking client
 } ConcurrentSearchHandlerCtx;
 
@@ -126,10 +120,6 @@ RedisModuleBlockedClient *ConcurrentCmdCtx_GetBlockedClient(struct ConcurrentCmd
 
 // Returns the thread pool ID the command was dispatched on.
 int ConcurrentCmdCtx_GetPoolId(const struct ConcurrentCmdCtx *cctx);
-
-/* Cursor taken for execution on the main thread at dispatch (coord FT.CURSOR
- * READ with a blocking policy); NULL otherwise. */
-struct Cursor *ConcurrentCmdCtx_GetCursor(const struct ConcurrentCmdCtx *cctx);
 
 /* Same as handleRedis command, but set flags for the concurrent context */
 int ConcurrentSearch_HandleRedisCommandEx(int poolType, ConcurrentCmdHandler handler,

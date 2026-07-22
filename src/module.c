@@ -4035,11 +4035,24 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
           "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
           info.queryTimeoutMS, capped);
       }
-      // Take the cursor for execution here, on the main thread: the parked
-      // request's wrapper becomes the blocked client's privdata, and the BG
-      // handler receives the cursor through the ConcurrentCmdCtx. BeginCycle
-      // performs the per-read RETURN_STRICT reset — safe because taking the
-      // cursor proves the previous read cycle's BG work is done with it.
+      // Parse COUNT on the main thread (mirrors RSCursorReadCommand), before
+      // taking the cursor so argument errors reply inline with nothing to
+      // undo.
+      long long count = 0;
+      if (argc > 5) {
+        const char *count_str = RedisModule_StringPtrLen(argv[4], NULL);
+        if (strcasecmp(count_str, "count") != 0) {
+          return RedisModule_ReplyWithErrorFormat(ctx, "Unknown argument `%s`", count_str);
+        }
+        if (RedisModule_StringToLongLong(argv[5], &count) != REDISMODULE_OK) {
+          const char *bad = RedisModule_StringPtrLen(argv[5], NULL);
+          return RedisModule_ReplyWithErrorFormat(ctx, "Bad value for COUNT: `%s`", bad);
+        }
+      }
+      // Take the cursor for execution here, on the main thread — same shape
+      // as the shard path: the parked request's wrapper becomes the blocked
+      // client's privdata and a slim read job is dispatched to the coord
+      // pool.
       Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
       if (!cursor) {
         // Taken by a concurrent READ, or reaped between the peek and here.
@@ -4047,16 +4060,14 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
       }
       cursor->execState->useReplyCallback = true;
       // Reused cursor AREQ: a prior read left the marker at PIPELINE/REPLY, so
-      // reset it to QUEUE for the queued re-read; the BG handler advances it
-      // back to PIPELINE at pickup.
+      // reset it to QUEUE for the queued re-read; the BG job advances it back
+      // to PIPELINE at pickup.
       AREQ_SetExecutionStage(cursor->execState, QUERY_TIMEOUT_STAGE_QUEUE);
-      handlerCtx.cursor = cursor;
-      handlerCtx.bcCtx.brc = cursor->execState->brc;
-      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
-      handlerCtx.bcCtx.timeout_callback = (info.queryTimeoutPolicy == TimeoutPolicy_Fail)
+      RedisModuleCmdFunc timeoutCallback = (info.queryTimeoutPolicy == TimeoutPolicy_Fail)
           ? DistAggregateTimeoutFailCallback
           : DistCursorReadTimeoutReturnStrictCallback;
+      return RSCursorReadDispatchTaken(ctx, cursor, count, DistAggregateReplyCallback,
+                                       timeoutCallback, (size_t)capped, DIST_THREADPOOL);
     }
   }
 
@@ -4073,15 +4084,7 @@ int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-// READ is hand-rolled (not CURSOR_SUBCOMMAND): the coord blocking path takes
-// the cursor for execution on the main thread and hands it to the BG handler
-// through the ConcurrentCmdCtx.
-static void CursorReadCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) {
-  RSCursorReadCommandEx(ctx, argv, argc, ConcurrentCmdCtx_GetCursor(cmdCtx));
-}
-int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return CursorCommand(ctx, argv, argc, RSCursorReadCommand, CursorReadCommandInternal, (CURSOR_SUBCMD_READ));
-}
+CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
 
 CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
 CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
