@@ -256,6 +256,19 @@ jobs:
           export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
           make bootstrap redisearch
 
+      # Assert the dependency check follows the install path: on the environment
+      # `make bootstrap` just produced, RediSearch's check-deps must report green
+      # (no drift between what bootstrap installs and what the check verifies).
+      # Runs RediSearch's own Makefile against this ref's checkout under
+      # modules/redisearch/<SRC_DIR> (default `src`); the outer make has no
+      # bootstrap target to forward CHECK_DEPS through, so invoke it directly.
+      - name: Verify RediSearch build deps match the bootstrap (check-deps)
+        timeout-minutes: ${{ inputs.test-timeout }}
+        working-directory: redis/modules/redisearch/src
+        run: |
+          export PATH="${PATH:-}:$REDISEARCH_CI_SYSTEM_PATH"
+          make bootstrap CHECK_DEPS=1
+
       - name: Run make build redisearch
         timeout-minutes: ${{ inputs.test-timeout }}
         working-directory: redis
