@@ -1603,13 +1603,9 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryTimeoutFailCallback: no blocked-request ctx");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    return REDISMODULE_OK;
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
   // Signal timeout to background thread (will notice and skip storing results)
@@ -1654,13 +1650,9 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
 //     then drain anything still buffered (RPSorter heap) and reply.
 static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryTimeoutReturnStrictCallback: no blocked-request ctx");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    return REDISMODULE_OK;
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
 
@@ -1767,12 +1759,9 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "QueryReplyCallback: no blocked-request ctx");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
-    return REDISMODULE_OK;
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
 
@@ -1804,13 +1793,9 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "CursorReadTimeoutFailCallback: no blocked-request ctx");
-    QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, true);
-    RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
-    return REDISMODULE_OK;
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
   // Signal timeout to background thread so it skips storing results.
@@ -1829,10 +1814,9 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    RedisModule_Log(ctx, "warning", "CursorReadTimeoutReturnStrictCallback: no blocked-request ctx");
-    return shard_cursor_read_empty_reply_timeout(ctx, 0);
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
   AREQ_SetTimedOut(req);
@@ -1878,12 +1862,9 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   UNUSED(argc);
 
   BlockedRequestCtx *brc = RedisModule_GetBlockedClientPrivateData(ctx);
-  if (!brc) {
-    // Shouldn't happen, but handle gracefully
-    RedisModule_Log(ctx, "warning", "CursorReadReplyCallback: no blocked-request ctx");
-    RedisModule_ReplyWithError(ctx, "ERR Internal error: no request context");
-    return REDISMODULE_OK;
-  }
+  // Installed by BeginCycle on the main thread before the command returned,
+  // so no callback can observe missing privdata.
+  RS_ASSERT(brc != NULL);
 
   AREQ *req = brc->query.areq;
 
@@ -1946,8 +1927,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread(ctx)) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // Capture the timeout policy on the main thread; BeginCycle stores it on
-    // the wrapper for the cycle.
+    // reqConfig was captured at request construction, so a concurrent
+    // FT.CONFIG SET cannot desync the callbacks chosen here from the policy
+    // the BG thread and the timeout callback act on.
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
@@ -1967,7 +1949,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
 
     RedisModuleBlockedClient* blockedClient = BlockQueryClientWithTimeout(
-        ctx, spec_ref, r->brc, replyCallback, timeoutCallback, policy, timeoutMS);
+        ctx, spec_ref, r->brc, replyCallback, timeoutCallback, timeoutMS);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     AREQ_AddRequestFlags(r, QEXEC_F_RUN_IN_BACKGROUND);
@@ -2505,8 +2487,7 @@ int RSCursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
     CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
     cr_ctx->bc = BlockCursorClientWithTimeout(ctx, cursor, count, req->brc, replyCallback,
-                                              timeoutCallback, cursor->queryTimeoutPolicy,
-                                              timeoutMS);
+                                              timeoutCallback, timeoutMS);
     cr_ctx->cursor = cursor;
     cr_ctx->count = count;
     workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);

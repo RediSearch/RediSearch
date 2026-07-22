@@ -18,10 +18,10 @@
 #include "info/info_redis/block_client.h"
 
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
-                                  RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy,
-                                  void *coord_ctx) {
+                                  RedisModuleCmdFunc reply_cb) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
-  // new cycle may begin on the same wrapper. Until Step 2b moves cursor
+  // new cycle may begin on the same wrapper.
+  // TRANSITIONAL(MOD-16691): until the cursor-ownership step moves cursor
   // park/free from the BG thread to OnFree, there is a narrow window where a
   // concurrent FT.CURSOR READ can reach a paused cursor before the previous
   // cycle's OnFree ran — this assert makes that overlap loud in debug builds.
@@ -29,13 +29,12 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   // The cycle's hold on the wrapper: keeps the wrapper (and the owned request)
   // alive until OnFree, so the reply/timeout callbacks may dereference the
   // privdata even if the BG worker released its own hold (e.g. a cursor freed
-  // on ITERDONE) before the client was unblocked. Refcount bridge until Step 2b
-  // makes the cycle the single owner.
+  // on ITERDONE) before the client was unblocked.
+  // TRANSITIONAL(MOD-16691): expressed through the refcount bridge until the
+  // cursor-ownership step makes the cycle the single owner.
   BlockedRequestCtx_IncrRef(brc);
   brc->bc = bc;
-  brc->reply_cb = reply_cb;
-  brc->timeout_policy = policy;
-  brc->coord_ctx = coord_ctx;
+  brc->deferred_reply = (reply_cb != NULL);
   RedisModule_BlockClientSetPrivateData(bc, brc);
   // Cursor cycles reuse the wrapper across reads: reset the per-read
   // RETURN_STRICT claim/latch state so the new cycle starts from a clean
@@ -62,19 +61,17 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   // reference (it deliberately clears execState first — correct only in the
   // refcount==0 context of BlockedRequestCtx_Free). Disposing the stash here is
   // also what prevents the RETURN_STRICT preempt path from leaking the cursor
-  // reserved by an initial WITHCURSOR query (MOD-8477 / PR #10085).
+  // reserved by an initial WITHCURSOR query.
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_CleanUpStoredCursor(brc->query.areq);
   }
   // Per-cycle reply-state teardown: dispose whatever the reply callback did
   // not consume (unconsumed stored results when the timeout replied first).
-  // Idempotent; runs again in BlockedRequestCtx_Free for coordinator cycles
-  // that skip EndCycle (until Step 5).
+  // Idempotent; also runs in BlockedRequestCtx_Free as a safety net.
   ChunkReplyState_Destroy(&brc->reply);
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;
-  brc->reply_cb = NULL;
-  brc->coord_ctx = NULL;
+  brc->deferred_reply = false;
 }
 
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -87,7 +84,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
                                                       BlockedRequestCtx *brc,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
-                                                      RSTimeoutPolicy policy,
                                                       rs_wall_clock_ms_t timeout_ms) {
   // If a timeout is armed, both callbacks must be provided.
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
@@ -97,12 +93,12 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
   // Registry bookkeeping only (FT.INFO / crash reports). The callbacks reach
   // the request through the blocked client's privdata (the BlockedRequestCtx),
   // so the node carries no privdata and holds no reference. Unlinked in
-  // EndCycle; Step 3 links the wrapper itself instead.
+  // EndCycle; TRANSITIONAL(MOD-16691): Step 3 links the wrapper itself instead.
   BlockedQueryNode *node = BlockedQueries_AddQuery(blockedQueries, spec_ref, NULL, NULL);
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
-  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb, policy, NULL);
+  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
   brc->registry_node = node;
   brc->registry_node_is_cursor = false;
   // report block client start time
@@ -115,7 +111,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                        BlockedRequestCtx *brc,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
-                                                       RSTimeoutPolicy policy,
                                                        rs_wall_clock_ms_t timeout_ms) {
   RS_ASSERT(cursor->execState != NULL);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
@@ -129,7 +124,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
 
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
-  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb, policy, NULL);
+  BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
   brc->registry_node = node;
   brc->registry_node_is_cursor = true;
   // report block client start time

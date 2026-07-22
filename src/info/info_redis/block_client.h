@@ -29,7 +29,7 @@ struct BlockedRequestCtx;
  * query-shaped call site is:
  *
  *   bc = BlockQueryClientWithTimeout(ctx, spec_ref, brc, reply_cb, timeout_cb,
- *                                    policy, timeout_ms);
+ *                                    timeout_ms);
  *   <dispatch to worker pool>;
  *
  * (BlockCursorClientWithTimeout for cursor reads.) Both helpers call
@@ -39,12 +39,13 @@ struct BlockedRequestCtx;
 /* Bind the per-cycle fields on `brc`. Called on the main thread after
  * RedisModule_BlockClient returned `bc` (with BlockedRequestCtx_OnFree
  * registered as free_privdata) and before dispatching BG work. Takes the
- * cycle's reference on the wrapper (refcount bridge until Step 2b), sets `brc`
- * as the blocked client's privdata, captures the timeout policy for the cycle,
- * and performs the per-read RETURN_STRICT reset for AREQ cursor cycles. */
+ * cycle's reference on the wrapper (TRANSITIONAL(MOD-16691) refcount bridge
+ * until the cursor-ownership step), sets `brc` as the blocked client's
+ * privdata, records the cycle's reply mode (`reply_cb` must be the value that
+ * was passed to RedisModule_BlockClient), and performs the per-read
+ * RETURN_STRICT reset for AREQ cursor cycles. */
 void BlockedRequestCtx_BeginCycle(struct BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
-                                  RedisModuleCmdFunc reply_cb, RSTimeoutPolicy policy,
-                                  void *coord_ctx);
+                                  RedisModuleCmdFunc reply_cb);
 
 /* Unlink the cycle's registry node and clear the per-cycle fields. Called from
  * OnFree; callable directly only in tests. */
@@ -65,7 +66,6 @@ RedisModuleBlockedClient *BlockQueryClientWithTimeout(RedisModuleCtx *ctx, Stron
                                                       struct BlockedRequestCtx *brc,
                                                       RedisModuleCmdFunc reply_cb,
                                                       RedisModuleCmdFunc timeout_cb,
-                                                      RSTimeoutPolicy policy,
                                                       rs_wall_clock_ms_t timeout_ms);
 
 /* Same as BlockQueryClientWithTimeout for one cursor-read cycle. */
@@ -74,7 +74,6 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, stru
                                                        struct BlockedRequestCtx *brc,
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
-                                                       RSTimeoutPolicy policy,
                                                        rs_wall_clock_ms_t timeout_ms);
 
 #ifdef __cplusplus
