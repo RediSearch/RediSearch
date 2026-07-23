@@ -293,6 +293,7 @@ protected:
                                    hybridParams.aggregationParams.common.scoreAlias};
 
         MRCommand xcmd;
+        extern size_t NumShards;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
                                      &cp, &xcmd, nullptr, testIndexSpec, nullptr,
                                      NumShards);
