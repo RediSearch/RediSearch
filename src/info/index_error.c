@@ -81,6 +81,11 @@ void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
     error->background_indexing_OOM_failure = true;
 }
 
+void IndexError_ClearBackgroundIndexFailureFlag(IndexError *error) {
+    // Change the background_indexing_OOM_failure flag to false.
+    error->background_indexing_OOM_failure = false;
+}
+
 void IndexError_Clear(IndexError error) {
     RS_ASSERT(error.last_error_without_user_data && error.last_error_with_user_data);
     if (!NA_rstr) initDefaultKey();

@@ -114,8 +114,15 @@ def test_oom_state_cleared_on_successful_rescan(env):
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
 
-  # FT.ALTER schedules a fresh full scan over all keys.
+  # FT.ALTER schedules a fresh full scan over all keys. Gate it with SET_PAUSE_BEFORE_SCAN
+  # and wait for the 'NEW' status before resuming: the scan is scheduled asynchronously, so
+  # without this waitForIndexFinishScan could observe 'indexing'=0 (the scan hasn't started
+  # yet) and return before the rescan runs, especially under load.
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
   env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'age', 'NUMERIC').ok()
+  waitForIndexStatus(env, 'NEW', 'idx')
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   waitForIndexFinishScan(env, 'idx')
 
   # The successful rescan must have cleared the OOM state.

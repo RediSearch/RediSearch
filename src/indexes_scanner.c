@@ -187,6 +187,9 @@ IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
+  spec->scan_failed_OOM = false;
+  spec->scan_failed_OOM_scanned_keys = 0;
+  IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
 
   return scanner;
 }
