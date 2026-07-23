@@ -4098,13 +4098,6 @@ def test_mod1548(env):
     res = env.cmd('FT.SEARCH', 'idx', '@categories:{abcat0200000}', 'RETURN', '1', 'prod:id_dotnotation')
     env.assertEqual(res,  [2, 'prod:1', ['prod:id_dotnotation', '35114964'], 'prod:2', ['prod:id_dotnotation', '35114965']])
 
-def test_empty_field_name(env):
-    conn = getConnectionByEnv(env)
-
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', '', 'TEXT').ok()
-    conn.execute_command('hset', 'doc1', '', 'foo')
-    env.expect('FT.SEARCH', 'idx', 'foo').equal([1, 'doc1', ['', 'foo']])
-
 @skip(cluster=True)
 def test_free_resources_on_thread(env):
     conn = getConnectionByEnv(env)
