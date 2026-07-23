@@ -17,4 +17,4 @@ fi
 echo "# compile db: $DB"
 
 iwyu_tool -p "$DB" "${@:-src}" \
-  | fix_include --nocomments --ignore_re '.h$|query_parser/v2'
+  | fix_include --nocomments --ignore_re '\.h$|query_parser/'

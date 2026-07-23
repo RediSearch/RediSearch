@@ -52,7 +52,7 @@
 #include <sys/time.h>
 
 #pragma GCC visibility push(default)
-#include "siphash.c.inc"
+#include "siphash.c.inc" // IWYU pragma: keep
 #pragma GCC visibility pop
 
 #include "dict.h"
