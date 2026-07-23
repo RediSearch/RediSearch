@@ -123,8 +123,10 @@ MRClusterTopology *RedisEnterprise_ParseTopology(RedisModuleCtx *ctx, RedisModul
   uint32_t numRanges = 0;                  // Mandatory. No default.
   uint32_t numSlots = 16384;               // Default.
 
-  // Assume all ports are TLS ports according to the `tls-cluster` config.
-  bool is_tls = getRedisConfigBool(ctx, "tls-cluster", false);
+  // Determine if we should use TLS ports based on the `tls-cluster` config, and whether our `tls-port` is set.
+  // This is the legacy logic on enterprise, even though `tls-cluster` should always be `yes` if the `tls-port` is set.
+  // Dual port is not expected in legacy enterprise, so `tls-port` indicates that the cluster ports should be TLS.
+  bool is_tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
 
   // Parse general arguments. No allocation is done here, so we can just return on error
   while (!AC_IsAtEnd(&ac)) {

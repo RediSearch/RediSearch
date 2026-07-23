@@ -71,7 +71,8 @@ MRClusterTopology *MRClusterTopology_FromAPI(RedisModuleCtx *ctx, const char *au
 
   bool saw_myself = false;
 
-  // Assume all ports are TLS ports according to the `tls-cluster` config.
+  // The port RedisModule_GetClusterNodeInfo is a TLS/TCP port depending on the `tls-cluster` config.
+  // TODO: Improve the API to return the endpoint type (TLS/TCP) instead of relying on this logic mirroring
   bool is_tls = getRedisConfigBool(ctx, "tls-cluster", false);
 
   // Topology can contain at most one entry per node; replicas and slot-less
