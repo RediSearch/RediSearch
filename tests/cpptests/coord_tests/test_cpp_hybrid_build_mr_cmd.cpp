@@ -15,12 +15,115 @@
 
 #include "dist_hybrid.h"
 #include "hybrid/hybrid_scoring.h"
+#include "param.h"
 
 #include <string>
 #include <string_view>
 #include <vector>
+#include <set>
+#include <utility>
 
 #define TEST_BLOB_DATA "AQIDBAUGBwgJCg=="
+
+using ParamList = std::vector<std::pair<std::string, std::string>>;
+using PairSet = std::set<std::pair<std::string, std::string>>;
+
+// Copy an MRCommand's args into a binary-safe token vector (each token carries
+// its explicit length, so embedded NULs survive).
+static std::vector<std::string> toTokens(const MRCommand *cmd) {
+  std::vector<std::string> toks;
+  toks.reserve(cmd->num);
+  for (int i = 0; i < cmd->num; i++) toks.emplace_back(cmd->strs[i], cmd->lens[i]);
+  return toks;
+}
+
+// Count output tokens exactly matching `tok` (case-insensitive).
+static int countTok(const std::vector<std::string> &toks, std::string_view tok) {
+  int n = 0;
+  for (const auto &t : toks) {
+    if (t.size() == tok.size() && strncasecmp(t.data(), tok.data(), t.size()) == 0) n++;
+  }
+  return n;
+}
+
+// Collect the {name, value} pairs of the PARAMS clause whose "PARAMS" keyword is
+// at toks[start]; toks[start + 1] is the declared token count (2 * #pairs).
+// *outCount, when non-NULL, receives that count. Values are copied verbatim, so
+// a token vector built from length-delimited wire data stays binary-safe.
+// Centralizes the "PARAMS n k v k v ..." decoding shared by the assertions below.
+static PairSet collectParamsPairs(const std::vector<std::string> &toks, size_t start,
+                                  long *outCount) {
+  long count = (start + 1 < toks.size()) ? atol(toks[start + 1].c_str()) : 0;
+  if (outCount) *outCount = count;
+  PairSet pairs;
+  for (long j = 0; j + 1 < count && start + 3 + (size_t)j < toks.size(); j += 2) {
+    pairs.insert({toks[start + 2 + j], toks[start + 3 + j]});
+  }
+  return pairs;
+}
+
+// Assert the built command carries exactly the PARAMS clause described by
+// `expected` (as an order-independent set of pairs, with count == 2*N), or no
+// PARAMS clause at all when `expected` is empty.
+static void expectParamsBlock(const std::vector<std::string> &toks, const ParamList &expected) {
+  bool found = false;
+  long count = -1;
+  PairSet got;
+  for (size_t i = 0; i + 1 < toks.size(); i++) {
+    if (toks[i] == "PARAMS") {
+      found = true;
+      got = collectParamsPairs(toks, i, &count);
+      break;
+    }
+  }
+  if (expected.empty()) {
+    EXPECT_FALSE(found) << "expected no PARAMS clause";
+    return;
+  }
+  EXPECT_TRUE(found) << "expected a PARAMS clause";
+  EXPECT_EQ(count, (long)expected.size() * 2) << "PARAMS count must be 2 * number of pairs";
+  PairSet want(expected.begin(), expected.end());
+  EXPECT_EQ(got, want);
+}
+
+// Return the token following the first occurrence of `clause`, or "" if absent.
+static std::string valueAfter(const std::vector<std::string> &toks, const char *clause) {
+  for (size_t i = 0; i + 1 < toks.size(); i++) {
+    if (toks[i] == clause) return toks[i + 1];
+  }
+  return "";
+}
+
+// Verify the reconstructed PARAMS and TIMEOUT clauses on an output token stream.
+// A parameter value may itself spell "TIMEOUT"; such occurrences live inside the
+// PARAMS block and must not be counted as the top-level clause, so the expected
+// TIMEOUT token count is (forwarded ? 1 : 0) + (# param values == TIMEOUT).
+static void expectParamsAndTimeout(const std::vector<std::string> &toks,
+                                   const ParamList &expectedPairs,
+                                   bool forwardTimeout, long long timeoutMS) {
+  expectParamsBlock(toks, expectedPairs);
+  int timeoutInParams = 0;
+  for (const auto &kv : expectedPairs) {
+    if (strcasecmp(kv.second.c_str(), "TIMEOUT") == 0) timeoutInParams++;
+  }
+  EXPECT_EQ(countTok(toks, "TIMEOUT"), (forwardTimeout ? 1 : 0) + timeoutInParams);
+  if (forwardTimeout && timeoutInParams == 0) {
+    EXPECT_EQ(valueAfter(toks, "TIMEOUT"), std::to_string(timeoutMS));
+  }
+}
+
+// Build a parameter dict from a flat name,value,... list, recording the
+// expected pairs. Returns NULL for an empty list (the no-PARAMS case). The
+// returned dict is owned by the caller (free with Param_DictFree).
+dict *makeParamsDict(const std::vector<const char*>& paramsKV, ParamList &expectedPairs) {
+  dict *params = paramsKV.empty() ? nullptr : Param_DictCreate();
+  QueryError status = QueryError_Default();
+  for (size_t i = 0; i + 1 < paramsKV.size(); i += 2) {
+    Param_DictAdd(params, paramsKV[i], paramsKV[i + 1], strlen(paramsKV[i + 1]), &status);
+    expectedPairs.push_back({paramsKV[i], paramsKV[i + 1]});
+  }
+  return params;
+}
 
 // Format a double exactly as MRCommand_appendCombine does for the wire
 // (round-trip-safe "%.17g"). Tests use this so expectations can be written
@@ -87,7 +190,9 @@ static HybridCombineWireParams linearWireParams(HybridScoringContext *sc, double
 // block; the oracle spots it in the output (COMBINE followed by a scoring
 // method - a PARAMS-value COMBINE never is) and, if the client supplied its own
 // COMBINE clause, drops that clause from the input side since the reconstructed
-// form replaces it. Returns the output index just past the matched prefix.
+// form replaces it. The PARAMS clause is reconstructed from the parsed dict, so
+// it is compared as an order-independent {name, value} set rather than by
+// position. Returns the output index just past the matched prefix.
 static int verifyArgsPreservedWithReconstructedCombine(
     const MRCommand *xcmd, const std::vector<const char *> &inputArgs,
     const HybridCombineWireParams *cp) {
@@ -117,6 +222,34 @@ static int verifyArgsPreservedWithReconstructedCombine(
           ii += 2;                        // positional YIELD_SCORE_AS <alias>
         }
       }
+      continue;
+    }
+    // PARAMS is reconstructed from the parsed dictionary, so the pair order on
+    // the wire need not match the client's input order. Slice each PARAMS clause
+    // into tokens and compare them as order-independent {name, value} sets via
+    // the shared collectParamsPairs (binary-safe on the length-delimited output).
+    if (strcasecmp(inputArgs[ii], "PARAMS") == 0) {
+      const long inCount = atol(inputArgs[ii + 1]);
+      std::vector<std::string> inToks;
+      for (long k = 0; k < 2 + inCount && ii + (size_t)k < inputArgs.size(); k++) {
+        inToks.emplace_back(inputArgs[ii + k]);
+      }
+      PairSet want = collectParamsPairs(inToks, 0, nullptr);
+      ii += 2 + (size_t)inCount;
+
+      EXPECT_LT(oi + 1, xcmd->num) << "output should carry a reconstructed PARAMS clause";
+      EXPECT_STREQ(xcmd->strs[oi], "PARAMS") << "PARAMS clause expected at output index " << oi;
+      const long outDeclared = (oi + 1 < xcmd->num) ? atol(xcmd->strs[oi + 1]) : 0;
+      std::vector<std::string> outToks;
+      for (int k = 0; k < 2 + (int)outDeclared && oi + k < xcmd->num; k++) {
+        outToks.emplace_back(xcmd->strs[oi + k], xcmd->lens[oi + k]);
+      }
+      long outCount = 0;
+      PairSet got = collectParamsPairs(outToks, 0, &outCount);
+      EXPECT_EQ(outCount, inCount) << "PARAMS count must equal 2 * number of parsed params";
+      EXPECT_EQ(got, want)
+          << "reconstructed PARAMS pairs must match the client's (order-independent)";
+      oi += 2 + (size_t)outCount;
       continue;
     }
     EXPECT_STREQ(xcmd->strs[oi], inputArgs[ii])
@@ -233,8 +366,10 @@ protected:
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &combineParams, &xcmd,
-                                     nullptr, testIndexSpec, &kArgIndex);
+                                     /*sendExplainScore=*/false, &combineParams,
+                                     cmd.search->searchopts.params,
+                                     cmd.timeoutSpecified, cmd.clientTimeoutMS,
+                                     &xcmd, nullptr, testIndexSpec, &kArgIndex);
 
         // Verify the command was built correctly
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
@@ -316,8 +451,10 @@ protected:
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, &cp, &xcmd,
-                                     nullptr, testIndexSpec, &kArgIndex);
+                                     /*sendExplainScore=*/false, &cp,
+                                     cmd.search->searchopts.params,
+                                     cmd.timeoutSpecified, cmd.clientTimeoutMS,
+                                     &xcmd, nullptr, testIndexSpec, &kArgIndex);
 
         // Assert the parse-driven path also preserves every non-COMBINE arg by
         // position (this is what verifies the PARAMS block - including any
@@ -365,75 +502,99 @@ protected:
     // Helper function to test command transformation
     void testCommandTransformationWithoutIndexSpec(const std::vector<const char*>& inputArgs,
                                                    const HybridCombineWireParams *combineParams = nullptr) {
-        // Access the global NumShards variable
-        extern size_t NumShards;
-
-        // Convert vector to array for ArgvList constructor
-        std::vector<const char*> argsWithNull = inputArgs;
-        argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
-
-        // Create ArgvList from input
-        RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
-
-        // Build MR command
-        MRCommand xcmd;
-        int kArgIndex = -1;
-        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, combineParams, &xcmd,
-                                     nullptr, nullptr, &kArgIndex);
-
-        // Verify transformation: FT.HYBRID -> _FT.HYBRID
-        EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-
-        // Verify original args are preserved, with the COMBINE clause replaced by
-        // its reconstructed (old-shard-compatible) form.
-        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, combineParams);
-
-        // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, _COORD_DISPATCH_TIME are added at the end
-        // Note: _COORD_DISPATCH_TIME and its placeholder value (2 args) are added after _NUM_SSTRING
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be sixth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "_COORD_DISPATCH_TIME") << "_COORD_DISPATCH_TIME should be second to last";
-        EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "") << "Dispatch time placeholder should be last (empty)";
-
-        MRCommand_Free(&xcmd);
+        testCommandTransformationWithoutIndexSpecWithParams(inputArgs, /*paramsKV=*/{},
+                                                            /*timeoutMS=*/-1, combineParams);
     }
 
     // Helper function to test command transformation
     void testCommandTransformationWithIndexSpec(const std::vector<const char*>& inputArgs,
                                                 const HybridCombineWireParams *combineParams = nullptr) {
-      // Access the global NumShards variable
-      extern size_t NumShards;
+        testCommandTransformationWithIndexSpecAndParams(inputArgs, /*paramsKV=*/{},
+                                                        /*timeoutMS=*/-1, combineParams);
+    }
 
-      // Convert vector to array for ArgvList constructor
-      std::vector<const char*> argsWithNull = inputArgs;
-      argsWithNull.push_back(nullptr);  // ArgvList expects null-terminated
+  void testCommandTransformationWithoutIndexSpecWithParams(
+          const std::vector<const char*>& baseArgs,
+          const std::vector<const char*>& paramsKV,
+          long long timeoutMS,
+          const HybridCombineWireParams *combineParams = nullptr) {
+      ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
 
-      // Create ArgvList from input
-      RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+      ParamList expectedPairs;
+      dict *params = makeParamsDict(paramsKV, expectedPairs);
+      const bool forwardTimeout = timeoutMS >= 0;
+
+      std::vector<const char*> argsWithNull = baseArgs;
+      argsWithNull.push_back(nullptr);
+      RMCK::ArgvList args(ctx, argsWithNull.data(), baseArgs.size());
+
+      MRCommand xcmd;
+      int kArgIndex = -1;
+      HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                   /*sendExplainScore=*/false, combineParams,
+                                   params, forwardTimeout, forwardTimeout ? timeoutMS : 0,
+                                   &xcmd, nullptr, nullptr, &kArgIndex);
+      if (params) Param_DictFree(params);
+
+      // FT.HYBRID -> _FT.HYBRID, and the base args (no PARAMS/TIMEOUT) preserved
+      // with the COMBINE clause reconstructed.
+      EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+      verifyArgsPreservedWithReconstructedCombine(&xcmd, baseArgs, combineParams);
+
+      // Check the reconstructed PARAMS/TIMEOUT clauses on the token stream.
+      std::vector<std::string> toks = toTokens(&xcmd);
+      expectParamsAndTimeout(toks, expectedPairs, forwardTimeout, timeoutMS);
+
+      // The fixed trailing block is unaffected by PARAMS/TIMEOUT length.
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 7], "WITHCURSOR") << "WITHCURSOR should be seventh to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 6], "WITHSCORES") << "WITHSCORES should be sixth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 5], "_NUM_SSTRING") << "_NUM_SSTRING should be fifth to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "_COORD_DISPATCH_TIME") << "_COORD_DISPATCH_TIME should be second to last";
+      EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "") << "Dispatch time placeholder should be last (empty)";
+
+      MRCommand_Free(&xcmd);
+  }
+
+  void testCommandTransformationWithIndexSpecAndParams(
+          const std::vector<const char*>& baseArgs,
+          const std::vector<const char*>& paramsKV,
+          long long timeoutMS,
+          const HybridCombineWireParams *combineParams = nullptr) {
+      ASSERT_EQ(paramsKV.size() % 2, 0u) << "paramsKV must be name,value pairs";
+
+      ParamList expectedPairs;
+      dict *params = makeParamsDict(paramsKV, expectedPairs);
+      const bool forwardTimeout = timeoutMS >= 0;
+
+      std::vector<const char*> argsWithNull = baseArgs;
+      argsWithNull.push_back(nullptr);
+      RMCK::ArgvList args(ctx, argsWithNull.data(), baseArgs.size());
       RefManager *ism = createSpec(ctx, {"prefix1", "prefix2"});
-
-      // Get the IndexSpec from the RefManager
       IndexSpec *sp = get_spec(ism);
       ASSERT_NE(sp, nullptr) << "IndexSpec should be accessible from RefManager";
       ASSERT_NE(sp->rule, nullptr) << "IndexSpec should have a rule";
       ASSERT_NE(sp->rule->prefixes, nullptr) << "IndexSpec rule should have prefixes";
       ASSERT_EQ(array_len(sp->rule->prefixes), 2) << "IndexSpec rule should have 2 prefixes";
 
-      // Build MR command (not testing SHARD_K_RATIO here)
       MRCommand xcmd;
       int kArgIndex = -1;
       HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                   /*sendExplainScore=*/false, combineParams, &xcmd,
-                                   nullptr, sp, &kArgIndex);
-      // Verify transformation: FT.HYBRID -> _FT.HYBRID
+                                   /*sendExplainScore=*/false, combineParams,
+                                   params, forwardTimeout, forwardTimeout ? timeoutMS : 0,
+                                   &xcmd, nullptr, sp, &kArgIndex);
+      if (params) Param_DictFree(params);
+
+      // FT.HYBRID -> _FT.HYBRID, base args preserved, COMBINE reconstructed.
       EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
-      // Verify original args are preserved, with the COMBINE clause replaced by
-      // its reconstructed (old-shard-compatible) form.
-      verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, combineParams);
-      // Verify WITHCURSOR, WITHSCORES, _NUM_SSTRING, SLOTS, _COORD_DISPATCH_TIME, _INDEX_PREFIXES, and prefixes are added at the end
-      // Order: ... WITHCURSOR WITHSCORES _NUM_SSTRING _SLOTS <slots_blob> _COORD_DISPATCH_TIME <placeholder> _INDEX_PREFIXES 2 prefix1 prefix2
+      verifyArgsPreservedWithReconstructedCombine(&xcmd, baseArgs, combineParams);
+
+      // PARAMS/TIMEOUT are emitted before the spec trailing block, so they are
+      // asserted the same way regardless of the spec.
+      std::vector<std::string> toks = toTokens(&xcmd);
+      expectParamsAndTimeout(toks, expectedPairs, forwardTimeout, timeoutMS);
+
+      // Spec-dependent trailing block:
+      // ... WITHCURSOR WITHSCORES _NUM_SSTRING _SLOTS <blob> _COORD_DISPATCH_TIME <placeholder> _INDEX_PREFIXES 2 prefix1 prefix2
       EXPECT_STREQ(xcmd.strs[xcmd.num - 11], "WITHCURSOR") << "WITHCURSOR should be 11th to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 10], "WITHSCORES") << "WITHSCORES should be 10th to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 9], "_NUM_SSTRING") << "_NUM_SSTRING should be 9th to last";
@@ -446,7 +607,6 @@ protected:
       EXPECT_STREQ(xcmd.strs[xcmd.num - 2], "prefix1") << "First prefix should be 2nd to last";
       EXPECT_STREQ(xcmd.strs[xcmd.num - 1], "prefix2") << "Second prefix should be last";
 
-      // Clean up
       MRCommand_Free(&xcmd);
       freeSpec(ism);
   }
@@ -462,44 +622,27 @@ TEST_F(HybridBuildMRCommandTest, testBasicCommandTransformation) {
     });
 }
 
-// Test command with PARAMS
+// Test command with PARAMS (supplied separately, as parse would produce them).
 TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
-    testCommandTransformationWithoutIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-        "VSIM", "@vector_field", "$BLOB",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA
-    });
-    testCommandTransformationWithIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-        "VSIM", "@vector_field", "$BLOB",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA
-    });
+    const std::vector<const char*> baseArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)", "VSIM", "@vector_field", "$BLOB"};
+    const std::vector<const char*> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }
 
-// Test command with TIMEOUT
+// Test command with TIMEOUT (no params).
 TEST_F(HybridBuildMRCommandTest, testCommandWithTimeout) {
-    testCommandTransformationWithoutIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "hello",
-        "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "TIMEOUT", "5000"
-    });
-    testCommandTransformationWithIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "hello",
-        "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "TIMEOUT", "5000"
-    });
+    const std::vector<const char*> baseArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, /*paramsKV=*/{}, /*timeoutMS=*/5000);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, /*paramsKV=*/{}, /*timeoutMS=*/5000);
 }
 
-// Test command with DIALECT
-TEST_F(HybridBuildMRCommandTest, testCommandWithDialect) {
-    testCommandTransformationWithoutIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "hello",
-        "VSIM", "@vector_field", TEST_BLOB_DATA,
-        "DIALECT", "2"
-    });
-}
+// Note: there is no DIALECT test - FT.HYBRID rejects DIALECT at parse time, so
+// it is never forwarded to shards
 
-// Test command with DIALECT
+// Test command with COMBINE
 TEST_F(HybridBuildMRCommandTest, testCommandWithCombine) {
     HybridScoringContext sc = {};
     double w[2];
@@ -507,14 +650,12 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithCombine) {
     testCommandTransformationWithoutIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "DIALECT", "2"
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"
     }, &cp);
     testCommandTransformationWithIndexSpec({
         "FT.HYBRID", "test_idx", "SEARCH", "hello",
         "VSIM", "@vector_field", TEST_BLOB_DATA, "FILTER", "@tag:{invalid_tag}",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "DIALECT", "2"
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"
     }, &cp);
 }
 
@@ -568,48 +709,28 @@ TEST_F(HybridBuildMRCommandTest, testFilterWithPolicyBatchSizeAndCombine) {
     }, &cp);
 }
 
-// Test complex command with all optional parameters
+// Test complex command with COMBINE + PARAMS + TIMEOUT together.
 TEST_F(HybridBuildMRCommandTest, testComplexCommandWithAllParams) {
     HybridScoringContext sc = {};
     double w[2];
     HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
-    testCommandTransformationWithoutIndexSpec({
+    const std::vector<const char*> baseArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
         "VSIM", "@vector_field", "$BLOB",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
-        "TIMEOUT", "3000", "DIALECT", "2"
-    }, &cp);
-    testCommandTransformationWithIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-        "VSIM", "@vector_field", "$BLOB",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
-        "TIMEOUT", "3000", "DIALECT", "2"
-    }, &cp);
+        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3"};
+    const std::vector<const char*> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/3000, &cp);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/3000, &cp);
 }
 
-// Test complex command with all optional parameters
-TEST_F(HybridBuildMRCommandTest, testComplexCommandParamsAfterTimeout) {
-    HybridScoringContext sc = {};
-    double w[2];
-    HybridCombineWireParams cp = linearWireParams(&sc, w, 0.7, 0.3, HYBRID_DEFAULT_WINDOW);
-    testCommandTransformationWithoutIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-        "VSIM", "@vector_field", "$BLOB",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
-        "TIMEOUT", "3000",
-        "DIALECT", "2"
-    }, &cp);
-    testCommandTransformationWithIndexSpec({
-        "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-        "VSIM", "@vector_field", "$BLOB",
-        "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3",
-        "PARAMS", "4", "param1", "hello", "BLOB", TEST_BLOB_DATA,
-        "TIMEOUT", "3000",
-        "DIALECT", "2"
-    }, &cp);
+// A parameter *value* that spells a top-level keyword is carried inside the PARAMS
+// block, never mistaken for that clause (the value happens to be "TIMEOUT" here).
+TEST_F(HybridBuildMRCommandTest, testCommandWithParamValueSpellingKeyword) {
+    const std::vector<const char*> baseArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "@title:($p)", "VSIM", "@vector_field", "$BLOB"};
+    const std::vector<const char*> paramsKV = {"p", "TIMEOUT", "BLOB", TEST_BLOB_DATA};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }
 
 // Test minimal command
@@ -626,17 +747,6 @@ TEST_F(HybridBuildMRCommandTest, testMinimalCommand) {
 // option, not by argv text. A SEARCH query token or PARAMS value equal to
 // "EXPLAINSCORE" must not trigger forwarding; sendExplainScore=true must.
 TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
-    auto countToken = [](const MRCommand *cmd, std::string_view tok) {
-        int n = 0;
-        for (int i = 0; i < cmd->num; i++) {
-            if (cmd->lens[i] == tok.size() &&
-                strncasecmp(cmd->strs[i], tok.data(), tok.size()) == 0) {
-                n++;
-            }
-        }
-        return n;
-    };
-
     {
         std::vector<const char *> input = {
             "FT.HYBRID", "test_idx", "SEARCH", "EXPLAINSCORE",
@@ -646,30 +756,40 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr, &xcmd,
-                                     nullptr, nullptr, &kArgIndex);
+                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr,
+                                     /*params=*/nullptr,
+                                     /*forwardTimeout=*/false, /*timeoutMS=*/0,
+                                     &xcmd, nullptr, nullptr, &kArgIndex);
 
-        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+        EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE in the search query must not be re-appended as a "
                "top-level shard option";
         MRCommand_Free(&xcmd);
     }
 
+    // A PARAMS *value* equal to "EXPLAINSCORE" is carried inside the PARAMS
+    // block (reconstructed from the parsed dict) and must not be re-appended as
+    // a top-level shard option when the parsed flag is unset. It therefore
+    // appears exactly once - as the param value.
     {
         std::vector<const char *> input = {
             "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)",
-            "VSIM", "@vector_field", "$BLOB",
-            "PARAMS", "4", "param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA,
-            nullptr};
+            "VSIM", "@vector_field", "$BLOB", nullptr};
         RMCK::ArgvList args(ctx, input.data(), input.size() - 1);
+
+        ParamList expectedPairs;
+        dict *params = makeParamsDict({"param1", "EXPLAINSCORE", "BLOB", TEST_BLOB_DATA},
+                                      expectedPairs);
 
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr, &xcmd,
-                                     nullptr, nullptr, &kArgIndex);
+                                     /*sendExplainScore=*/false, /*combineParams=*/nullptr,
+                                     params, /*forwardTimeout=*/false, /*timeoutMS=*/0,
+                                     &xcmd, nullptr, nullptr, &kArgIndex);
+        Param_DictFree(params);
 
-        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+        EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE as a PARAMS value must not be re-appended as a "
                "top-level shard option";
         MRCommand_Free(&xcmd);
@@ -684,10 +804,11 @@ TEST_F(HybridBuildMRCommandTest, testExplainScoreNotForwardedFromArgvText) {
         MRCommand xcmd;
         int kArgIndex = -1;
         HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
-                                     /*sendExplainScore=*/true, /*combineParams=*/nullptr, &xcmd,
-                                     nullptr, nullptr, &kArgIndex);
+                                     /*sendExplainScore=*/true, /*combineParams=*/nullptr,
+                                     /*params=*/nullptr, /*forwardTimeout=*/false, /*timeoutMS=*/0,
+                                     &xcmd, nullptr, nullptr, &kArgIndex);
 
-        EXPECT_EQ(countToken(&xcmd, "EXPLAINSCORE"), 1)
+        EXPECT_EQ(countTok(toTokens(&xcmd), "EXPLAINSCORE"), 1)
             << "EXPLAINSCORE should be appended exactly once when the parsed "
                "flag is set";
         MRCommand_Free(&xcmd);
