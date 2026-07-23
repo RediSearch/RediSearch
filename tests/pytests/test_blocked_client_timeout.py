@@ -81,9 +81,9 @@ def _setup_return_strict_cursor_state(env, chunk_size=10, agg_steps=None):
     baseline_cursor_total = _coord_cursor_total(env)
     return prev_on_timeout_policy, cursor_id, baseline_cursor_total, before_info, base_warn_coord, res
 
-def _get_coord_req_ctx_free_count(env):
-    """Read the coordinator CoordRequestCtx_Free invocation counter (debug builds)."""
-    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_COORD_REQ_CTX_FREE_COUNT'))
+def _get_blocked_request_onfree_count(env):
+    """Read the coordinator BlockedRequestCtx_OnFree invocation counter (debug builds)."""
+    return int(env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT'))
 
 def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
                                                expected_results,
@@ -4444,18 +4444,19 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_return_strict_timeout_after_set_request_cursor_read(self):
-        """Scenario 2: RETURN_STRICT timeout fires after the BG worker has taken
-        the cursor and published the AREQ via ``SetRequest`` but before the
-        pipeline has started.
+        """Scenario 2: RETURN_STRICT timeout fires after the BG worker has
+        dequeued the read (and so won the ``strictReadOwner`` latch) but
+        before the pipeline has started.
 
-        The BG worker is pinned at ``BeforeCursorReadSendChunk`` (in ``runCursor``
-        after ``Cursors_TakeForExecution`` + ``CoordRequestCtx_SetRequest``,
-        before ``sendChunk``). The timer callback observes ``req != NULL``,
-        sets the ``TimedOut`` atomic, wakes the abort channel and waits on the
-        aggregate-results condition. BG early bails on the
-        ``TimedOut`` leg before entring the pipeline, stores empty results with ``rc=RS_RESULT_TIMEDOUT``
-        and signals completion. The timer wakes, drains the (possibly empty)
-        channel and replies cursor-shaped + TIMEOUT warning + depleted cid.
+        The BG worker is pinned at ``BeforeCursorReadSendChunk`` (in
+        ``runCursor``, before ``sendChunk``). The timer callback sets the
+        ``TimedOut`` atomic, loses the owner latch to the already-started
+        worker, wakes the abort channel and waits on the aggregate-results
+        condition. BG (auto-released from the pin by the timeout flag) claims
+        the pipeline, sees ``TimedOut``, stores empty results with
+        ``rc=RS_RESULT_TIMEDOUT`` and signals completion. The timer wakes,
+        drains the buffered shard replies from the channel and replies
+        cursor-shaped + TIMEOUT warning + depleted cid.
         """
         env = self.env
         skipIfNoEnableAssert(env)
@@ -4599,7 +4600,7 @@ class TestCoordinatorTimeout:
         run after the timeout reply. The cursor must still be gone because the
         timeout reply advertises cursor id 0.
 
-        Polled with the ``GET_COORD_REQ_CTX_FREE_COUNT`` debug counter to
+        Polled with the ``GET_BLOCKED_REQUEST_ONFREE_COUNT`` debug counter to
         deterministically witness the free callback running before checking the
         old cursor id, without blocking the main-thread dispatcher.
         """
@@ -4609,7 +4610,7 @@ class TestCoordinatorTimeout:
         prev_policy, cursor_id, baseline, before_info, base_warn, _ = \
             _setup_return_strict_cursor_state(env)
 
-        free_count_before = _get_coord_req_ctx_free_count(env)
+        free_count_before = _get_blocked_request_onfree_count(env)
 
         # Trigger the simplest timeout scenario (pre-pickup) for read 1.
         env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
@@ -4634,15 +4635,15 @@ class TestCoordinatorTimeout:
             env, result[0], cursor_id, expected_results=0,
             message_prefix='RETURN_STRICT no-stale-free read 1 timeout')
 
-        # Wait until CoordRequestCtx_Free has fired for read 1's BC privdata.
+        # Wait until BlockedRequestCtx_OnFree has fired for read 1's BC privdata.
         # The counter is bumped by the BC tear-down on the main thread after
         # the worker job completes; polling avoids a deadlock that a sync-point
-        # in CoordRequestCtx_Free would cause.
+        # in the free callback would cause.
         wait_for_condition(
-            lambda: (_get_coord_req_ctx_free_count(env) > free_count_before,
+            lambda: (_get_blocked_request_onfree_count(env) > free_count_before,
                      {'before': free_count_before,
-                      'now': _get_coord_req_ctx_free_count(env)}),
-            'Timeout waiting for CoordRequestCtx_Free counter to bump after read 1',
+                      'now': _get_blocked_request_onfree_count(env)}),
+            'Timeout waiting for the OnFree counter to bump after read 1',
             timeout=10,
         )
 
@@ -4655,22 +4656,19 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_return_strict_cursor_read_deleted_before_pickup(self):
-        """RETURN_STRICT cursor read after the coord-side cursor is purged
-        while the BG worker is still queued (no timeout).
+        """RETURN_STRICT cursor read where the coord-side cursor list is
+        emptied while the BG worker is still queued (no timeout).
 
-        The cursor exists when ``CursorCommand`` validates ``cid`` on the main
-        thread and arms the BC; the coord threadpool is paused so the BG
-        worker is queued. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned
-        out per-shard to empty ``g_CursorsListCoord`` synchronously on each
-        shard's main thread (it does not use ``DIST_THREADPOOL``), purging
-        the still-idle coord cursor (odd cid -> ``g_CursorsListCoord``).
-        When the coord threadpool resumes, ``coordCursorReadReturnStrict``
-        enters under ``LockSetRequest``, observes ``!TimedOut``, then
-        ``Cursors_TakeForExecution`` returns ``NULL`` and the worker bails
-        through ``CoordRequestCtx_ReplyOrStoreError`` with
-        ``"Cursor not found, id: <cid>"``. The reply callback flushes that
-        stored error on unblock, so the client sees the standard cursor-gone
-        error rather than a cursor-shaped reply.
+        ``CursorCommand`` takes the cursor for execution on the main thread at
+        dispatch (before arming the BC), so by the time
+        ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` empties ``g_CursorsListCoord``
+        the cursor is no longer idle: ``CursorList_Empty`` marks it with
+        ``delete_mark`` instead of freeing it. The queued read then runs
+        normally when the pool resumes — a delete landing between dispatch and
+        pickup behaves exactly like a delete landing mid-read — and the cursor
+        is freed when the read tries to park it (``Cursor_Pause`` honors
+        ``delete_mark``). The client gets a normal cursor-shaped reply; the
+        advertised cid is stale, and a follow-up read reports it missing.
         """
         env = self.env
 
@@ -4682,32 +4680,18 @@ class TestCoordinatorTimeout:
             lambda: (env.cmd(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
             'Timeout while waiting for coordinator threads to pause', timeout=30)
 
-        expected_err = f'Cursor not found, id: {cursor_id}'
+        result = []
         try:
-            # Use `env.expect(...).error().contains(...)` directly in the
-            # thread (rather than `_start_collecting_cursor_read` /
-            # `call_and_store`) so the error reply is asserted in-thread:
-            # `call_and_store` does not catch exceptions, and the BG worker's
-            # "Cursor not found" reply surfaces as a `ResponseError` raised
-            # by `env.cmd`, which would leave the result list empty.
-            t_query = threading.Thread(
-                target=lambda: env.expect(
-                    'FT.CURSOR', 'READ', 'idx', str(cursor_id)
-                ).error().contains(expected_err),
-                daemon=True,
-            )
-            t_query.start()
-            wait_for_blocked_query_client(
-                env, 'FT.CURSOR|READ', 'Client for FT.CURSOR|READ not found')
-            # Cursor is still idle on the coord (BG hasn't taken it). Purge
-            # it via the wholesale debug command rather than `FT.CURSOR DEL
-            # idx <cid>`: DEL routes through the same paused DIST_THREADPOOL
-            # via `ConcurrentSearch_HandleRedisCommandEx` in `CursorCommand`,
-            # so the DEL would itself block forever waiting for the pool.
-            # `DELETE_LOCAL_COORD_CURSORS` calls `CursorList_Empty` on
-            # `g_CursorsListCoord` synchronously on the Redis main thread,
-            # bypassing the pool. Fanned out per-shard since the coord-side
-            # cursor lives on whichever shard handled the AGGREGATE.
+            t_query, _ = _start_collecting_cursor_read(env, cursor_id, result)
+            # The cursor was already taken by the dispatcher on the main
+            # thread; emptying the coord cursor list now only marks it for
+            # deletion. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather than
+            # `FT.CURSOR DEL idx <cid>`: DEL routes through the same paused
+            # DIST_THREADPOOL via `ConcurrentSearch_HandleRedisCommandEx` in
+            # `CursorCommand`, so the DEL would itself block forever waiting
+            # for the pool. The debug command runs synchronously on the Redis
+            # main thread, bypassing the pool; fanned out per-shard since the
+            # coord-side cursor lives on whichever shard handled the AGGREGATE.
             run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
         finally:
             env.expect(debug_cmd(), 'COORD_THREADS', 'RESUME').ok()
@@ -4717,11 +4701,15 @@ class TestCoordinatorTimeout:
 
         t_query.join(timeout=10)
         env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
+        # The read itself completes normally (the delete arrived after the
+        # main-thread take, so it applies to the in-flight read).
+        env.assertEqual(len(result), 1,
+                        message="Cursor read should have produced a reply")
 
         # No timeout fired: coord-side timeout warning metric must be unchanged.
         _verify_metrics_not_changed(env, env, before_info, [])
-        # Cursor is gone: a follow-up read confirms the main-thread validation
-        # also reports the now-missing cid.
+        # The delete_mark freed the cursor when the read parked it: a follow-up
+        # read on the stale cid reports it missing.
         env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
         _wait_for_cursor_cleanup(
             env, baseline, 'RETURN_STRICT cursor-deleted-before-pickup')
@@ -4729,23 +4717,26 @@ class TestCoordinatorTimeout:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
     def test_return_strict_cursor_read_deleted_then_timeout_before_pickup(self):
-        """RETURN_STRICT cursor read where the cursor is purged *and* the BC
-        timeout fires before the BG worker dequeues. The timer replies with a
-        depleted cursor regardless of whether the old cursor was already purged.
+        """RETURN_STRICT cursor read where the cursor list is emptied *and*
+        the BC timeout fires before the BG worker dequeues. The timer replies
+        with a depleted cursor.
 
         Sequence:
-          1. Coord threadpool is paused; BG worker is queued.
+          1. Coord threadpool is paused; the read was dispatched, so the main
+             thread already took the cursor for execution and armed the BC
+             with the parked request's wrapper as privdata. The BG worker is
+             queued.
           2. ``FT.DEBUG DELETE_LOCAL_COORD_CURSORS`` is fanned out per-shard
-             and synchronously empties ``g_CursorsListCoord``, freeing the
-             still-idle coord cursor without touching ``DIST_THREADPOOL``.
+             and synchronously empties ``g_CursorsListCoord``; the taken
+             cursor is only marked with ``delete_mark``.
           3. ``CLIENT UNBLOCK ... TIMEOUT`` fires the BC timeout callback.
-             The timer holds ``LockSetRequest``, observes ``req == NULL``
-             (BG never called ``SetRequest``), attempts to purge the old cid,
-             and replies via ``coord_cursor_read_empty_reply_timeout`` with
-             cursor id 0.
-          4. Coord threadpool is resumed. The BG worker runs, takes
-             ``LockSetRequest``, sees ``TimedOut`` and returns without
-             touching the (already-gone) cursor or the reply.
+             The timer sets the request's timeout flag, wins the
+             ``strictReadOwner`` latch (the worker never dequeued), and
+             replies via ``coord_cursor_read_empty_reply_timeout`` with cursor
+             id 0 — without waiting on BG progress (the pool is paused;
+             waiting would deadlock the main thread).
+          4. Coord threadpool is resumed. The BG worker loses the latch at its
+             entry and frees the taken cursor without storing a reply.
 
         The client therefore sees a normal RETURN_STRICT timeout reply
         ``({empty results, TIMEOUT warning}, 0)``, and a follow-up

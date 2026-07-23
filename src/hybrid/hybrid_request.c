@@ -265,7 +265,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request

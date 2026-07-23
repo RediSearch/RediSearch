@@ -1153,9 +1153,9 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
-  // Idempotent after EndCycle; still required for cycles that do not run
-  // EndCycle yet (coordinator paths until Step 5). Must run while the owned
-  // request is alive: disposing a stashed cursor clears its execState.
+  // Idempotent after EndCycle; kept as a safety net for wrappers freed
+  // outside a cycle. Must run while the owned request is alive: disposing a
+  // stashed cursor clears its execState.
   ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
@@ -1170,6 +1170,14 @@ bool AREQ_TryClaimAggregateResults(AREQ *req) {
   bool expected = false;
   return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
+}
+
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner) {
+  int expected = BRC_READ_OWNER_NONE;
+  // acq_rel: the winner's subsequent actions (BG running the read / the timer
+  // replying depleted) must be ordered against the loser's observation.
+  return atomic_compare_exchange_strong_explicit(&brc->strictReadOwner, &expected, (int)owner,
+                                                 memory_order_acq_rel, memory_order_acquire);
 }
 
 void AREQ_SignalAggregateResultsComplete(AREQ *req) {

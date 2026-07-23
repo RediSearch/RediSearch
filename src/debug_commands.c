@@ -397,14 +397,14 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause) {
   atomic_store(&globalHybridStoreCursorsDebugCtx.pause, pause);
 }
 
-static atomic_uint_fast64_t g_coordReqCtxFreeCount = 0;
+static atomic_uint_fast64_t g_blockedRequestOnFreeCount = 0;
 
-void CoordReqCtxFreeDebug_Increment(void) {
-  atomic_fetch_add_explicit(&g_coordReqCtxFreeCount, 1, memory_order_relaxed);
+void BlockedRequestOnFreeDebug_Increment(void) {
+  atomic_fetch_add_explicit(&g_blockedRequestOnFreeCount, 1, memory_order_relaxed);
 }
 
-uint64_t CoordReqCtxFreeDebug_GetCount(void) {
-  return atomic_load_explicit(&g_coordReqCtxFreeCount, memory_order_relaxed);
+uint64_t BlockedRequestOnFreeDebug_GetCount(void) {
+  return atomic_load_explicit(&g_blockedRequestOnFreeCount, memory_order_relaxed);
 }
 #endif
 
@@ -2714,9 +2714,9 @@ DEBUG_COMMAND(getCoordReduceCount) {
 }
 
 /**
- * FT.DEBUG QUERY_CONTROLLER GET_COORD_REQ_CTX_FREE_COUNT
+ * FT.DEBUG QUERY_CONTROLLER GET_BLOCKED_REQUEST_ONFREE_COUNT
  */
-DEBUG_COMMAND(getCoordReqCtxFreeCount) {
+DEBUG_COMMAND(getBlockedRequestOnFreeCount) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -2724,7 +2724,7 @@ DEBUG_COMMAND(getCoordReqCtxFreeCount) {
     return RedisModule_WrongArity(ctx);
   }
 
-  return RedisModule_ReplyWithLongLong(ctx, (long long)CoordReqCtxFreeDebug_GetCount());
+  return RedisModule_ReplyWithLongLong(ctx, (long long)BlockedRequestOnFreeDebug_GetCount());
 }
 
 /**
@@ -3198,8 +3198,8 @@ DEBUG_COMMAND(queryController) {
   if (!strcmp("GET_COORD_REDUCE_COUNT", op)) {
     return getCoordReduceCount(ctx, argv + 1, argc - 1);
   }
-  if (!strcmp("GET_COORD_REQ_CTX_FREE_COUNT", op)) {
-    return getCoordReqCtxFreeCount(ctx, argv + 1, argc - 1);
+  if (!strcmp("GET_BLOCKED_REQUEST_ONFREE_COUNT", op)) {
+    return getBlockedRequestOnFreeCount(ctx, argv + 1, argc - 1);
   }
   // AggregateResults loop pause commands
   if (!strcmp("SET_PAUSE_AFTER_AGGREGATE_RESULT", op)) {

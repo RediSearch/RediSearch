@@ -79,7 +79,6 @@
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
-#include "coord/coord_request_ctx.h"
 #include "coord/hybrid/dist_hybrid.h"
 #include "util/redis_mem_info.h"
 #include "notifications.h"
@@ -3721,13 +3720,6 @@ int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-
-// Free privdata callback for distributed aggregate and hybrid query
-static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
-  UNUSED(ctx);
-  CoordRequestCtx_Free((CoordRequestCtx *)privdata);
-}
 
 // Forward declaration for initQueryTimeout (defined later in file)
 static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
@@ -3812,7 +3804,22 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
+  // Allocate the request shell and its owning wrapper here, on the main
+  // thread, so the timeout callback always reaches an installed request
+  // through the blocked client's privdata. Parsing happens on the BG thread.
+  AREQ *r;
+  if (isDebug) {
+    AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
+    if (!debug_req) {
+      // Malformed debug params: reply inline, nothing was dispatched.
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
+      return QueryError_ReplyAndClear(ctx, &status);
+    }
+    r = &debug_req->r;
+  } else {
+    r = AREQ_New();
+    BlockedRequestCtx_NewAREQ(r);
+  }
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3821,20 +3828,20 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-
   // Capture the policy on the main thread so BG and the timeout callback agree
   // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
-  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
+  handlerCtx.bcCtx.brc = r->brc;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    r->useReplyCallback = true;
+    if (policy == TimeoutPolicy_ReturnStrict) {
+      r->brc->requiresAggregateResultsSync = true;
+    }
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3906,12 +3913,22 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_HYBRID);
+  // Allocate the hybrid request shell and its owning wrapper here, on the
+  // main thread, so the timeout callback always reaches an installed request
+  // through the blocked client's privdata. Parsing happens on the BG thread;
+  // the sub-AREQ contexts are detached thread-safe contexts.
+  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  // The tail sctx aliased this handler's ctx, which dies when the handler
+  // returns. The BG executor re-points it at its own thread-safe ctx.
+  sctx->redisCtx = NULL;
 
   // Capture the policy on the main thread so BG and the timeout callback agree
   // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
   RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
-  CoordRequestCtx_SetTimeoutPolicy(reqCtx, policy);
+  hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3920,8 +3937,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  handlerCtx.bcCtx.privdata = reqCtx;
-  handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
+  handlerCtx.bcCtx.brc = hreq->brc;
 
   if (policy != TimeoutPolicy_Return) {
     handlerCtx.bcCtx.reply_callback = DistHybridReplyCallback;
@@ -3929,7 +3945,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ? DistHybridTimeoutFailCallback
         : DistHybridTimeoutReturnStrictCallback;
     handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
-    CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
+    hreq->useReplyCallback = true;
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
@@ -3980,59 +3996,19 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
+  // READ is handled by the same handler on every path: RSCursorReadCommand
+  // parses COUNT and takes the cursor on the main thread, then dispatches
+  // coordinator-list cursors to the coordinator pool.
+  if (sub == CURSOR_SUBCMD_READ) {
+    return subcmd(ctx, argv, argc);
+  }
+
+  // DEL / GC: generic dist re-entry on the coordinator pool.
+  RS_ASSERT(dist_callback != NULL);
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
 
   handlerCtx.spec_ref = (WeakRef){0};
-
-  // On coord+READ, peek the cursor's cached timeout config so coord and shard
-  // stay aligned across changes to the `search-on-timeout` config. Reject
-  // malformed/unknown CIDs on the main thread so the RETURN_STRICT timer can
-  // later trust argv[3] without re-peeking.
-  if (sub == CURSOR_SUBCMD_READ) {
-    long long cid;
-    if (RedisModule_StringToLongLong(argv[3], &cid) != REDISMODULE_OK) {
-      return RedisModule_ReplyWithError(ctx, "Bad cursor ID");
-    }
-    CursorTimeoutInfo info =
-        Cursors_PeekTimeoutInfo(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
-    if (!info.found) {
-      return RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %lld", cid);
-    }
-    if (info.queryTimeoutPolicy != TimeoutPolicy_Return) {
-#ifdef ENABLE_ASSERT
-      // _FT.HYBRID WITHCURSOR is read via _FT.CURSOR READ, bypassing CursorCommand.
-      RS_ASSERT(!info.isHybrid);
-#endif
-      // Apply the foreground cap to the blocked-client timer budget. The cursor
-      // cached its queryTimeoutMS at WITHCURSOR time; tightening
-      // search-_max-foreground-timeout-limit (or disabling workers) between
-      // cursor open and this READ must shrink both the execution deadline
-      // (capped in runCursor) and the coordinator-side timer here.
-      long long capped = info.queryTimeoutMS > (size_t)LLONG_MAX
-                           ? LLONG_MAX
-                           : (long long)info.queryTimeoutMS;
-      if (RSConfig_CapQueryTimeoutToForegroundLimit(&capped)) {
-        RedisModule_Log(ctx, "verbose",
-          "FT.CURSOR READ: coordinator blocked-client timer capped by "
-          "_MAX_FOREGROUND_TIMEOUT_LIMIT (from %zu ms to %lld ms)",
-          info.queryTimeoutMS, capped);
-      }
-      CoordRequestCtx *reqCtx = CoordRequestCtx_New(COMMAND_AGGREGATE);
-      handlerCtx.bcCtx.privdata = reqCtx;
-      handlerCtx.bcCtx.free_privdata = DistCoordReqFreePrivData;
-      handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
-      handlerCtx.bcCtx.timeoutMS = (size_t)capped;
-      CoordRequestCtx_SetUseReplyCallback(reqCtx, true);
-      if (info.queryTimeoutPolicy == TimeoutPolicy_Fail) {
-        handlerCtx.bcCtx.timeout_callback = DistAggregateTimeoutFailCallback;
-      } else {
-        handlerCtx.bcCtx.timeout_callback = DistCursorReadTimeoutReturnStrictCallback;
-        CoordRequestCtx_SetCursorReadReturnStrict(reqCtx, true);
-      }
-    }
-  }
-
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
 }
@@ -4046,7 +4022,12 @@ int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
 }
 
-CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
+// READ takes the cursor on the main thread for every policy and never uses
+// the dist re-entry callback.
+int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return CursorCommand(ctx, argv, argc, RSCursorReadCommand, NULL, CURSOR_SUBCMD_READ);
+}
+
 CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
 CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 
