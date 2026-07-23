@@ -7,9 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "stemmer.h"
+
 #include <string.h>
 #include <stdio.h>
-#include <sys/param.h>
+#include <strings.h>
+
 #include "snowball/include/libstemmer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"

@@ -8,6 +8,10 @@
  */
 
 #include "hybrid_debug.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "debug_commands.h"
 #include "config.h"
 #include "hybrid_exec.h"
@@ -17,6 +21,12 @@
 #include "rmutil/args.h"
 #include "rmalloc.h"
 #include "search_disk_utils.h"
+#include "aggregate/aggregate.h"
+#include "pipeline/pipeline.h"
+#include "profile/options.h"
+#include "query_error_ffi.h"
+#include "rmutil/rm_assert.h"
+#include "search_ctx.h"
 
 // Wrapper structure for hybrid request with debug capabilities
 typedef struct {

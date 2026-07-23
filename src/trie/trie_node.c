@@ -7,15 +7,27 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <sys/param.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
 #include "trie_node_internal.h"
 #include "util/bsearch.h"
-#include "sparse_vector.h"
 #include "redisearch.h"
-#include "rmutil/rm_assert.h"
-#include "util/arr.h"
 #include "util/timeout.h"
-#include "wildcard.h"
 #include "trie/levenshtein.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/arr/arr.h"
+#include "wildcard/wildcard.h"
+#include "trie_node.h"
+
+struct timespec;
 
 static const rune *runenchr(const rune *r, size_t len, rune c) {
   size_t i = 0;

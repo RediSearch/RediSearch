@@ -7,7 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <sys/param.h>
+
 #include "value_ffi.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
 
 typedef struct {
   Reducer base;

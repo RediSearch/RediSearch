@@ -7,15 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "suffix.h"
+
+#include <string.h>
+#include <time.h>
+
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "rmutil/rm_assert.h"
-#include "config.h"
 #include "util/strconv.h"
-#include "wildcard.h"
-
-#include <string.h>
-#include <strings.h>
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "wildcard/wildcard.h"
 
 static inline suffixData *Suffix_GetData(const TrieNode *node) {
   return (suffixData *)TrieNode_GetPayloadData(node);

@@ -7,6 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "vector_index.h"
+
+#include <features.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <strings.h>
+#include <time.h>
+
 #include "VecSim/query_results.h"
 #include "iterators/hybrid_reader.h"
 #include "iterators_ffi.h"
@@ -16,11 +23,24 @@
 #include "util/threadpool_api.h"
 #include "redis_index.h"
 #include "search_disk.h"
-
-#include <string.h>
+#include "config.h"
+#include "field.h"
+#include "geometry/geometry_types.h"
+#include "param.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rqe_iterators.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/timeout.h"
 
 #if defined(__x86_64__) && defined(__GLIBC__)
-#include <cpuid.h>
 #define CPUID_AVAILABLE 1
 #endif
 

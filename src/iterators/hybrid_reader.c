@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
@@ -15,6 +18,17 @@
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
 #include "query.h"
+#include "doc_table.h"
+#include "field.h"
+#include "index_result_rs.h"
+#include "iterator_api.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "search_result_rs.h"
+
+struct IndexSpec;
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 

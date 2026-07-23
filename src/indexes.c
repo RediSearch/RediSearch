@@ -18,40 +18,54 @@
 // indexes.c -> indexes_scan.h (RDB-load events trigger full rescans). The
 // scanner only reads specDict_g as a data dependency; it never calls back here.
 
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "module.h" // IWYU pragma: keep
+#endif
+
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "document.h"
-#include "inverted_index_ffi.h"
-#include "rlookup_load_document.h"
-
-#include "util/logging.h"
 #include "util/likely.h"
 #include "util/misc.h"
 #include "triemap_ffi.h"
 #include "commands.h"
 #include "dictionary.h"
-#include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "cursor.h"
-#include "redis_index.h"
 #include "indexer.h"
 #include "alias.h"
-#include "module.h"
 #include "rules.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"
 #include "rdb.h"
-#include "obfuscation/obfuscation_api.h"
-#include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "reply_macros.h"
 #include "notifications.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "aggregate/expr/expression.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "indexes_scanner.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rqe_core.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/arr/arr.h"
 
 // The global index registry, keyed by name and by spec id. Other translation
 // units read these as externs (declared in indexes.h).

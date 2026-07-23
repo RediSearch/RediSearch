@@ -8,9 +8,14 @@
  */
 
 #include "coord_request_ctx.h"
+
+#include <stdatomic.h>
+#include <stddef.h>
+
 #include "rmalloc.h"
 #include "info/global_stats.h"
-#include "cursor.h"
+#include "query_error_ffi.h"
+#include "rmutil/rm_assert.h"
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
 #endif

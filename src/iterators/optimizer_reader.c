@@ -7,9 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "iterators/optimizer_reader.h"
+
+#include <math.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "iterators_ffi.h"
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
+#include "doc_table.h"
+#include "field.h"
+#include "field_spec.h"
+#include "index_result_rs.h"
+#include "inverted_index.h"
+#include "iterator_api.h"
+#include "numeric_filter.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
 
 int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;

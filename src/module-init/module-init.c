@@ -7,31 +7,38 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "redismodule.h"
+#include <dlfcn.h>
+#include <features.h>
+#include <stdbool.h>
+#include <string.h>
 
+#include "redismodule.h"
 #include "module.h"
 #include "indexes.h"
 #include "config.h"
-#include <assert.h>
-#include <dlfcn.h>
-#include "concurrent_ctx.h"
 #include "cursor.h"
 #include "extension.h"
 #include "alias.h"
 #include "notifications.h"
-#include "aggregate/aggregate.h"
 #include "ext/default.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
 #include "util/workers.h"
-#include "util/array.h"
-#include "cursor.h"
-#include "fork_gc.h"
-#include "info/info_command.h"
-#include "profile/profile.h"
 #include "info/info_redis/info_redis.h"
 #include "util/logging.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/functions/function.h"
+#include "gc.h"
+#include "hiredis/sds.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "util/timeout.h"
+#include "vector_index.h"
+#include "version.h"
 
 #define DEPLETER_POOL_SIZE 4
 

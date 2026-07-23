@@ -6,9 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <pthread.h>
-#include <assert.h>
-#include <unistd.h>
+#include <stdlib.h>
 
 #include "gc.h"
 #include "fork_gc.h"
@@ -17,10 +15,10 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "module.h"
-#include "spec.h"
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
 #include "util/logging.h"
+#include "redisearch.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 

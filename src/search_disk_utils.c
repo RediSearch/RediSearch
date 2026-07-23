@@ -8,7 +8,11 @@
 */
 
 #include "search_disk_utils.h"
+
 #include "search_disk.h"
+#include "document.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
 
 bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes) {
   if (!SearchDisk_IsEnabledForValidation()) {

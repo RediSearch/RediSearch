@@ -6,13 +6,20 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <util/minmax_heap.h>
+#include <stdatomic.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "aggregate/aggregate.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
-#include "query.h"
 #include "extension.h"
-#include <util/minmax_heap.h>
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
@@ -22,10 +29,6 @@
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "rs_wall_clock.h"
-#include <stdatomic.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <time.h>
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_search_result.h"
@@ -38,6 +41,25 @@
 #include "redisearch.h"
 #include "asm_state_machine.h"
 #include "index_result_async_read.h"
+#include "doc_table.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "index_result_rs.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "score_explain.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "shard_window_ratio.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "spec.h"
+#include "util/dict/dict.h"
+#include "util/dllist.h"
 
 // Maximum number of concurrent async disk reads
 #define MAX_ONGOING_READ_SIZE 16

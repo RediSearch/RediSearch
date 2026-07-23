@@ -6,25 +6,26 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <cursor.h>
+#include <query.h>
+#include <result_processor.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "aggregate.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
-#include "reducer.h"
-
-#include <cursor.h>
-#include <query.h>
-#include <extension.h>
-#include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
-#include "ext/default.h"
 #include "extension.h"
 #include "profile/profile.h"
 #include "config.h"
-#include "util/timeout.h"
 #include "query_optimizer.h"
-#include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
@@ -36,6 +37,44 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/expr/expression.h"
+#include "field_spec.h"
+#include "geo_index.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_cursor_mappings.h"
+#include "language.h"
+#include "numeric_filter.h"
+#include "param.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_param.h"
+#include "query_parser/tokenizer.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "spec.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
+#include "util/rs_atomic.h"
+
+struct MRChannel;
 
 extern RSConfig RSGlobalConfig;
 

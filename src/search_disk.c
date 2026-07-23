@@ -8,14 +8,23 @@
 */
 
 #include "search_disk.h"
+
+#include <stdatomic.h>
+#include <string.h>
+
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
-#include <stdatomic.h>
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;

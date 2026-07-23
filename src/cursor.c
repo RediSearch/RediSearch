@@ -7,12 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cursor.h"
-#include "module.h"
-#include "resp3.h"
+
 #include <time.h>
-#include <assert.h>
+#include <stdlib.h>
+
+#include "module.h"
 #include "rmutil/rm_assert.h"
-#include <err.h>
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "shard_window_ratio.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 

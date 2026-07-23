@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "sparse_vector.h"
-#include <stdio.h>
+
 #include "rmalloc.h"
 
 inline size_t sv_sizeof(size_t cap) {

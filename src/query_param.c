@@ -7,10 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "query_param.h"
+
+#include <assert.h>
+#include <math.h>
+#include <string.h>
+
 #include "query_error_ffi.h"
 #include "geo_index.h"
 #include "numeric_filter.h"
 #include "query_internal.h"
+#include "query_error.h"
+#include "redismodule.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "util/strconv.h"
 
 QueryParam *NewQueryParam(QueryParamType type) {
   QueryParam *ret = rm_calloc(1, sizeof(*ret));

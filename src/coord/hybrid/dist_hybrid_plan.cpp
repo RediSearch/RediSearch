@@ -8,9 +8,27 @@
 */
 
 #include "dist_hybrid_plan.h"
+
+#include <stddef.h>
+#include <vector>
+
 #include "hybrid/hybrid_request.h"
-#include "hybrid/hybrid_lookup_context.h"
 #include "concurrent_ctx.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "dist_plan.h"
+#include "profile/profile.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/references.h"
 
 
 static void pushResultProcessor(QueryProcessingCtx *qctx, ResultProcessor *rp) {

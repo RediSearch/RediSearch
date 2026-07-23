@@ -7,13 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "reply.h"
+
+#include <stdarg.h>
+#include <stdint.h>
+#include <sys/types.h> // for ssize_t
+
 #include "resp3.h"
 #include "query_error_ffi.h"
 #include "value_ffi.h"
-
 #include "rmutil/rm_assert.h"
-
-#include <math.h>
+#include "rmalloc.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

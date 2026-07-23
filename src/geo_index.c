@@ -8,12 +8,17 @@
 */
 
 #include "geo_index.h"
+
+#include <string.h>
+#include <strings.h>
+
 #include "numeric_filter.h"
-#include "rmutil/util.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "query_param.h"
-#include "iterators_ffi.h"
+#include "geo_ffi.h"
+#include "query.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
 
 static double extractUnitFactor(GeoDistance unit);
 

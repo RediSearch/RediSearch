@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "commands.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+
 #include "types_ffi.h"
 #include "debug_commands.h"
 #include "indexes.h"
@@ -28,26 +32,50 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
-#include "suffix.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
-#include "module.h"
-#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
-#include "reply_macros.h"
-#include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
-#include <limits.h>
+#include "VecSim/info_iterator.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "concurrent_ctx.h"
+#include "config.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "geometry/geometry_types.h"
+#include "iterators/iterator_api.h"
+#include "profile/options.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/timeout.h"
+#include "vector_index.h"
 
 DebugCTX globalDebugCtx = {0};
 

@@ -6,14 +6,8 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-#include <stdlib.h>
 #include <stdio.h>
-#include "rmutil/rm_assert.h"
-#include "libnu/libnu.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmalloc.h"
-#include "buffer.h"
+
 #include "sortable.h"
 #include "value_ffi.h"
 #include "sorting_vector_ffi.h"

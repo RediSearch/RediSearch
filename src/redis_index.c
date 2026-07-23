@@ -7,23 +7,34 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 #include "redis_index.h"
+
+#include <pthread.h>
+#include <stdint.h>
+#include <string.h>
+#include <time.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
-#include "inverted_index.h"
 #include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "query_error_ffi.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
-#include "util/logging.h"
 #include "util/misc.h"
-#include "tag_index.h"
 #include "rmalloc.h"
-#include "debug_commands.h"
-#include <stdio.h>
+#include "field.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "rmutil/rm_assert.h"
+#include "types_ffi.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/timeout.h"
 
 static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
   if (RS_IsMock) return;

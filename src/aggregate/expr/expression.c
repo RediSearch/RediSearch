@@ -7,11 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "expression.h"
+
+#include <math.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "value_ffi.h"
 #include "search_result_ffi.h"
 #include "result_processor.h"
 #include "rlookup.h"
 #include "profile/profile.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rmalloc.h"
+#include "search_result.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

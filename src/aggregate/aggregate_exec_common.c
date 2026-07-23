@@ -7,13 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
  #include "aggregate_exec_common.h"
+
+#include <stddef.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
  #include "search_result_ffi.h"
  #include "aggregate.h"
  #include "util/timeout.h"
- #include "info/global_stats.h"
  #include "rmalloc.h"
- #include "util/array.h"
- #include "debug_commands.h"
+#include "query_error_ffi.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // usleep, used by debugCheckAndPauseAfterAggregateResult

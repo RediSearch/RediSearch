@@ -7,6 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rmr.h"
+
+#include <stdio.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "reply.h"
 #include "reply_macros.h"
 #include "redismodule.h"
@@ -15,30 +27,24 @@
 #include "chan.h"
 #include "rq.h"
 #include "rmutil/rm_assert.h"
-#include "resp3.h"
 #include "coord/config.h"
-#include "rs_wall_clock.h"
-#include "debug_commands.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <time.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sys/param.h>
-#include <stddef.h>
-#include <stdatomic.h>
-#include <stdbool.h>
-
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 #include "io_runtime_ctx.h"
-
 #include "coord/hybrid/hybrid_cursor_mappings.h"
 #include "asm_state_machine.h"
+#include "VecSim/vec_sim_common.h"
+#include "hiredis/read.h"
+#include "query_error_ffi.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/conn.h"
+#include "rmr/node.h"
+#include "slots_tracker_ffi.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+
+struct timespec;
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount)

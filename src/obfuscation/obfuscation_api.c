@@ -8,12 +8,14 @@
 */
 
 #include "obfuscation_api.h"
-#include "rmalloc.h"
-
-#include "query_node.h"
 
 #include <inttypes.h>
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
+
+#include "query_node.h"
+#include "query_types.h"
 
 void Obfuscate_Index(const Sha1 *hash, char* buffer) {
   const char prefix[] = "Index@";
