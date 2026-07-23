@@ -787,9 +787,9 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   ApplyProfileFlags(mergeReqflags, profileOptions);
-  // reqConfig was captured at request construction (the main thread for
-  // coordinator requests) — do not re-read RSGlobalConfig here: this may run
-  // on a BG thread and would race a concurrent FT.CONFIG SET.
+  // reqConfig was already captured at request construction; re-reading
+  // RSGlobalConfig here (possibly on a BG thread) would race a concurrent
+  // FT.CONFIG SET.
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
