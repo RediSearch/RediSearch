@@ -1050,7 +1050,7 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     // This thread parses into the shell in place.
     BlockedRequestCtx *brc =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = brc->query.hybrid;
+    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
     // The tail sctx's redisCtx was cleared at dispatch (it aliased the main
     // thread's command ctx); re-point it at this thread's ctx before any use.
     hreq->sctx->redisCtx = ctx;
@@ -1120,7 +1120,7 @@ void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     // See RSExecDistHybrid: the shell + wrapper come from the main thread.
     BlockedRequestCtx *brc =
         RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-    HybridRequest *hreq = brc->query.hybrid;
+    HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
     hreq->sctx->redisCtx = ctx;
 
     if (HybridRequest_TimedOut(hreq)) {
@@ -1220,7 +1220,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1248,7 +1248,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Signal timeout to the background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1300,7 +1300,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Check if results were stored (background thread completed successfully)
   if (!hreq->brc->reply.hasStoredResults) {

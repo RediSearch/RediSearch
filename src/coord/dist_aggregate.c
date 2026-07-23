@@ -911,7 +911,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // fills the request in place.
   BlockedRequestCtx *brc =
       RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-  AREQ *r = brc->query.areq;
+  AREQ *r = BlockedRequestCtx_GetAREQ(brc);
 
   if (AREQ_TimedOut(r)) {
     // Query timed out while this job was queued; the timeout callback already
@@ -995,10 +995,10 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
   // Signal timeout to the background thread
-  AREQ_SetTimedOut(brc->query.areq);
+  AREQ_SetTimedOut(BlockedRequestCtx_GetAREQ(brc));
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
-  recordCoordAREQTimeoutStage(brc->query.areq, /*isError=*/true);
+  recordCoordAREQTimeoutStage(BlockedRequestCtx_GetAREQ(brc), /*isError=*/true);
 
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
@@ -1033,7 +1033,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
 
   // Signal timeout to the background thread
   AREQ_SetTimedOut(req);
@@ -1084,7 +1084,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   RS_ASSERT(brc != NULL);
 
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->brc->reply.hasStoredResults) {
@@ -1124,7 +1124,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   RS_ASSERT(brc != NULL);
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
   AREQ_SetTimedOut(req);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
@@ -1175,7 +1175,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // main thread by the dispatcher; the wrapper is the blocked client's privdata.
   BlockedRequestCtx *brc =
       RedisModule_BlockClientGetPrivateData(ConcurrentCmdCtx_GetBlockedClient(cmdCtx));
-  AREQ *r = brc->query.areq;
+  AREQ *r = BlockedRequestCtx_GetAREQ(brc);
   AREQ_Debug *debug_req = (AREQ_Debug *)r;
 
   if (AREQ_TimedOut(r)) {

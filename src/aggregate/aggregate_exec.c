@@ -2331,7 +2331,7 @@ static void coordCursorRead_ctx(void *p) {
   // Picked up from the job queue: a timeout from here on is attributed to
   // PIPELINE (no-op if already timed out while queued, via the freeze).
   AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
-  // The per-read RETURN_STRICT reset already ran on the main thread (BeginCycle).
+  // The per-read RETURN_STRICT reset already ran on the main thread at dispatch.
   if (AREQ_RequiresThreadsSyncResults(req) &&
       !BlockedRequestCtx_TryOwnStrictRead(req->brc, BRC_READ_OWNER_BG)) {
     // RETURN_STRICT: the timeout callback fired before this job was dequeued,
@@ -2373,10 +2373,15 @@ static int cursorReadDispatchTaken(RedisModuleCtx *ctx, Cursor *cursor, long lon
   RedisModuleBlockedClient *bc =
       RedisModule_BlockClient(ctx, reply_cb, timeout_cb, BlockedRequestCtx_OnFree, timeout_ms);
   // Safe against the just-armed timer: the timeout callback runs on this same
-  // thread. BeginCycle performs the per-read RETURN_STRICT reset — safe
-  // because taking the cursor proves the previous read cycle's BG work is
-  // done with it.
+  // thread.
   BlockedRequestCtx_BeginCycle(req->brc, bc, reply_cb);
+  // Cursor cycles reuse the wrapper across reads: reset the per-read
+  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
+  // slate — safe because taking the cursor proves the previous read cycle's
+  // BG work is done with it.
+  if (req->brc->requiresAggregateResultsSync) {
+    AREQ_ResetForCursorReadReturnStrict(req);
+  }
   RedisModule_BlockedClientMeasureTimeStart(bc);
   CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
   cr_ctx->bc = bc;
