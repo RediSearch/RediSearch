@@ -735,6 +735,7 @@ dependencies = [
  "rmp-serde",
  "rqe_core",
  "serde",
+ "thiserror",
  "tracing",
  "workspace_hack",
 ]
