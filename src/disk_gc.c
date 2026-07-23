@@ -7,16 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "disk_gc.h"
-#include "config.h"
-#include "spec.h"
-#include "search_disk.h"
-#include "module.h"
-#include "redismodule.h"
-#include "rmalloc.h"
-#include "info/global_stats.h"
+
 #include <stdatomic.h>
 #include <pthread.h>
 #include <time.h>
+#include <stdbool.h>
+
+#include "config.h"
+#include "spec.h"
+#include "search_disk.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "info/global_stats.h"
+#include "reply.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
 
 // Explicit handshake between disk GC runs (background GC thread pool) and disk-index
 // teardown (main thread, on shutdown), implemented as a readers-writer lock so it does

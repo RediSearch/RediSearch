@@ -7,9 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "libnu/libnu.h"
-#include "rmutil/strings.h"
-#include "rmutil/util.h"
+#include <math.h>
+#include <sys/param.h>
+#include <string.h>
+#include <limits.h>
+#include <stdint.h>
+#include <stdlib.h>
+
 #include "util/heap.h"
 #include "util/misc.h"
 #include "rune_util.h"
@@ -17,12 +21,11 @@
 #include "trie_node_internal.h"
 #include "rmalloc.h"
 #include "rdb.h"
+#include "rmutil/rm_assert.h"
+#include "trie/levenshtein.h"
+#include "trie/trie_node.h"
 
-#include <math.h>
-#include <sys/param.h>
-#include <time.h>
-#include <string.h>
-#include <limits.h>
+struct timespec;
 
 struct Trie {
   TrieNode *root;

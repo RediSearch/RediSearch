@@ -7,13 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info/info_redis/types/blocked_queries.h"
+
+#include <inttypes.h>
+
 #include "config.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
-#include "rmutil/rm_assert.h"
 #include "spec.h"
-#include <inttypes.h>
 
 BlockedQueries *BlockedQueries_Init() {
   BlockedQueries* blockedQueries = rm_calloc(1, sizeof(BlockedQueries));

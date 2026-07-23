@@ -6,9 +6,13 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "function.h"
 #include <aggregate/expr/expression.h>
 #include <math.h>
+#include <stddef.h>
+
+#include "function.h"
+#include "rlookup_ffi.h"
+#include "value_ffi.h"
 
 /* Template for single argument double to double math function */
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                               \

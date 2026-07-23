@@ -7,13 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spell_check.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "types_ffi.h"
-#include "util/arr.h"
 #include "dictionary.h"
 #include "reply.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
-#include <stdbool.h>
+#include "query_node.h"
+#include "query_types.h"
+#include "redis_index.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/arr/arr.h"
 
 /** Forward declaration **/
 static bool SpellCheck_IsTermExistsInTrie(Trie *t, const char *term, size_t len, double *outScore);

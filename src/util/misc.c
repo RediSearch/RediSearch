@@ -7,10 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "misc.h"
-#include "query_error_ffi.h"
+
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
+
+#include "query_error_ffi.h"
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",

@@ -7,22 +7,33 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "pipe.h"
-#include "time_sample.h"
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <poll.h>
+#include <errno.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <time.h>
+
+#include "pipe.h"
+#include "time_sample.h"
 #include "module.h"
-#include "rmutil/rm_assert.h"
-#include "resp3.h"
 #include "info/global_stats.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
-#include "obfuscation/hidden.h"
 #include "util/redis_mem_info.h"
 #include "util/timeout.h"
+#include "config.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "gc.h"
+#include "redismodule.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/references.h"
+#include "vector_index.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0

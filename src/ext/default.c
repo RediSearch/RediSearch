@@ -8,24 +8,37 @@
 */
 
 #include <string.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <sys/param.h>
+#include <math.h>
+#include <stdint.h>
 
 #include "redisearch.h"
 #include "spec.h"
 #include "types_ffi.h"
 #include "query_term_ffi.h"
-#include "query.h"
 #include "synonym_map.h"
 #include "snowball/include/libstemmer.h"
-#include "default.h"
 #include "tokenize.h"
 #include "rmutil/vector.h"
 #include "stemmer.h"
 #include "phonetic_manager.h"
 #include "score_explain.h"
-#include "extension.h"
+#include "ext/default.h"
+#include "field_spec.h"
+#include "index_result_rs.h"
+#include "language.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "search_ctx.h"
+#include "search_result_rs.h"
+#include "util/arr/arr.h"
 
 /******************************************************************************************
  *

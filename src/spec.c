@@ -7,20 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+
+#include <math.h>
+#include <limits.h>
+#include <features.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "document.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
-#include "rlookup_load_document.h"
-
-#include <math.h>
-#include <ctype.h>
-#include <limits.h>
-
 #include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
-#include "util/misc.h"
-#include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
 #include "trie/trie.h"
@@ -33,28 +34,37 @@
 #include "suffix.h"
 #include "alias.h"
 #include "module.h"
-#include "aggregate/expr/expression.h"
 #include "rules.h"
-#include "dictionary.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"
 #include "rdb.h"
 #include "commands.h"
 #include "obfuscation/obfuscation_api.h"
-#include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
 #include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
-#include "reply_macros.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
-#include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
+#include "VecSim/vec_sim.h"
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "json.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error_ffi.h"
+#include "rejson_api.h"
+#include "search_ctx.h"
+#include "search_result_rs.h"
+#include "thpool/thpool.h"
+#include "trie/trie_node.h"
+#include "util/strconv.h"
+#include "vector_index.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

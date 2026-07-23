@@ -7,10 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_plan.h"
-#include "reducer.h"
-#include "expr/expression.h"
-#include <util/arr.h>
-#include <ctype.h>
+
+#include <stdio.h>
+#include <string.h>
+
+#include "obfuscation/hidden.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dllist.h"
 
 static const char *steptypeToString(PLN_StepType type) {
   switch (type) {

@@ -8,14 +8,13 @@
 */
 
 #include "redismodule.h"
-#include "spec.h"
 #include "util/references.h"
-#include "query.h"
-#include "aggregate/aggregate.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
   BlockedQueryNode *queryNode = node;

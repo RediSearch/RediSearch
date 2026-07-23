@@ -6,15 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdlib.h>
 #include <math.h>
 #include <string.h>
-
 #include <stdio.h>
 
 #include "fnv_ffi.h"
 #include "hll.h"
-
 #include "rmalloc.h"
 
 #define INVALID_CACHE_CARDINALITY SIZE_MAX

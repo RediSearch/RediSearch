@@ -7,12 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "concurrent_ctx.h"
+
 #include "thpool/thpool.h"
-#include <util/arr.h>
 #include "rmutil/rm_assert.h"
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
+#include "rmalloc.h"
+#include "util/arr/arr.h"
 
 static arrayof(redisearch_thpool_t *) threadpools_g = NULL;
 

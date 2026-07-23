@@ -7,15 +7,27 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "conn.h"
+
+#include <uv.h>
+#include <openssl/types.h>
+#include <string.h>
+#include <sys/time.h>
+#include <openssl/ssl.h>
+
 #include "reply.h"
 #include "coord/config.h"
 #include "module.h"
 #include "hiredis/adapters/libuv.h"
-
-#include <uv.h>
-
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+#include "config.h"
+#include "hiredis/hiredis.h"
+#include "hiredis/hiredis_ssl.h"
+#include "hiredis/read.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/endpoint.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 // Hot path first: callbacks read conn+state+protocol on every entry, so
 // they share the head of the first cache line. ep/loop are warm (init and

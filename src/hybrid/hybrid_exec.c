@@ -8,14 +8,15 @@
  */
 
 #include "hybrid_exec.h"
+
+#include <stdio.h>
+#include <string.h>
+
 #include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
 #include "aggregate/aggregate_exec_common.h"
-#include "debug_commands.h"
-
 #include "redismodule.h"
-#include "redisearch.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
 #include "query_error_ffi.h"
@@ -23,7 +24,6 @@
 #include "rmalloc.h"
 #include "cursor.h"
 #include "score_explain.h"
-#include "util/timeout.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "info/info_redis/block_client.h"
@@ -31,14 +31,25 @@
 #include "info/info_redis/types/blocked_queries.h"
 #include "pipeline/pipeline.h"
 #include "result_processor.h"
-#include "util/units.h"
 #include "value_ffi.h"
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
 #include "search_disk_utils.h"
-
-#include <time.h>
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate_plan.h"
+#include "config.h"
+#include "query_flags.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_result.h"
+#include "search_result_rs.h"
+#include "thpool/thpool.h"
+#include "util/references.h"
 
 typedef uint8_t HybridWarningMask;
 

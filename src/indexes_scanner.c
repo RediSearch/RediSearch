@@ -14,12 +14,13 @@
 #include <assert.h>
 
 #include "indexes_scanner.h"
-
 #include "spec.h"
 #include "config.h"
 #include "rmalloc.h"
 #include "debug_commands.h"
 #include "util/redis_mem_info.h"
+#include "info/index_error.h"
+#include "rmutil/rm_assert.h"
 
 extern DebugCTX globalDebugCtx;
 

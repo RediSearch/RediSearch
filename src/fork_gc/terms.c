@@ -7,15 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+#include <sys/uio.h>
+
 #include "pipe.h"
 #include "inverted_index_ffi.h"
 #include "trie/trie.h"
 #include "trie/trie_node.h"
 #include "redis_index.h"
 #include "suffix.h"
-#include "rmutil/rm_assert.h"
 #include "obfuscation/obfuscation_api.h"
-#include "obfuscation/hidden.h"
+#include "config.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "trie/rune_util.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   TrieIterator *iter = Trie_IterateAll(sctx->spec->terms);

@@ -7,14 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
-#include "types_ffi.h"
-#include "iterators/iterator_api.h"
+
 #include "iterators_ffi.h"
-#include "query_term_ffi.h"
-#include "reply_macros.h"
-#include "util/units.h"
 #include "coord/rmr/rmr.h"
 #include "hybrid/hybrid_request.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/expr/expression.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "result_processor_ffi.h"
+#include "search_disk_api.h"
 
 static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
   if (rp == NULL) {

@@ -6,13 +6,23 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stddef.h>
+#include <strings.h>
+
 #include "redisearch.h"
-#include "module.h"
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "trie/trie.h"
 #include "query_error_ffi.h"
 #include "util/likely.h"
+#include "aggregate/reducer.h"
+#include "query_error.h"
+#include "redismodule.h"
+#include "rmutil/vector.h"
+#include "trie/levenshtein.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
 
 extern bool isCrdt;
 

@@ -1,20 +1,19 @@
 #include "hybrid/hybrid_request.h"
+
 #include <stdatomic.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
-#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_search_result.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
-#include "util/workers.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
@@ -22,6 +21,14 @@
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "result_processor_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "shard_window_ratio.h"
 
 #ifdef __cplusplus
 extern "C" {

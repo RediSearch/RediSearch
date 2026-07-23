@@ -6,6 +6,12 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "redismodule.h"
 #include "value_ffi.h"
 #include "search_result_ffi.h"
@@ -14,7 +20,6 @@
 #include "aggregate.h"
 #include "aggregate_exec_common.h"
 #include "cursor.h"
-#include "rmutil/util.h"
 #include "util/timeout.h"
 #include "util/workers.h"
 #include "score_explain.h"
@@ -25,12 +30,9 @@
 #include "query_eval_ffi.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
-#include "debug_commands.h"
 #include "info/info_redis/block_client.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "info/info_redis/threads/current_thread.h"
-#include "pipeline/pipeline.h"
-#include "util/units.h"
 #include "hybrid/hybrid_request.h"
 #include "module.h"
 #include "result_processor.h"
@@ -39,8 +41,31 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
-
 #include "coord/coord_request_ctx.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate_plan.h"
+#include "config.h"
+#include "doc_table.h"
+#include "inverted_index.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_flags.h"
+#include "reply.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_disk_api.h"
+#include "search_options.h"
+#include "search_result.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 // Multi threading data structure for background query execution.
 // This context is created on the main thread and passed to the background worker.

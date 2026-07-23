@@ -7,18 +7,39 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid_callbacks.h"
-#include "config.h"
-#include "param.h"
-#include "util/arr.h"
-#include "result_processor.h"
+
 #include <string.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <strings.h>
+
+#include "config.h"
+#include "param.h"
+#include "result_processor.h"
 #include "util/misc.h"
 #include "slot_ranges.h"
 #include "slots_tracker_ffi.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
 #include "rmalloc.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "hiredis/sds.h"
+#include "hybrid/parse/hybrid_optional_args.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "redismodule.h"
+#include "rmutil/args.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 // Helper function to append a sort entry - extracted from original code
 static void appendSortEntry(PLN_ArrangeStep *arng, const char *field, bool ascending) {

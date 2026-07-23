@@ -8,27 +8,48 @@
 */
 #include <math.h>
 #include <limits.h>
+#include <stdbool.h>
+#include <string.h>
+#include <strings.h>
 
 #include "triemap_ffi.h"
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scanner.h"
-#include "inverted_index_ffi.h"
 #include "vector_index.h"
 #include "cursor.h"
-#include "resp3.h"
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "module.h"
 #include "reply_macros.h"
 #include "info/global_stats.h"
-#include "util/units.h"
 #include "field_spec_info.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "query_error_ffi.h"
 #include "search_disk.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "geometry/geometry_types.h"
+#include "info/index_error.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error.h"
+#include "redis_index.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 

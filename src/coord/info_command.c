@@ -7,9 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_command.h"
-#include "resp3.h"
+
+#include <stdbool.h>
+#include <string.h>
+
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "info/index_error.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "reply.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/rmr.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
+
+struct MRCtx;
 
 // Type of field returned in INFO
 typedef enum {

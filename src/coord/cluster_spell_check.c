@@ -7,13 +7,23 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "cluster_spell_check.h"
-#include "redismodule.h"
-#include "spell_check.h"
-#include "util/arr.h"
-#include "query_error_ffi.h"
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "redismodule.h"
+#include "spell_check.h"
+#include "query_error_ffi.h"
+#include "query.h"
+#include "query_error.h"
+#include "reply.h"
+#include "rmalloc.h"
+#include "rmr/rmr.h"
+#include "util/arr/arr.h"
+
+struct MRCtx;
 
 typedef struct {
   char* term;

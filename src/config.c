@@ -7,26 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "thpool/thpool.h"
-#include "err.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
+
 #include <string.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
-#include "util/minmax.h"
+#include <strings.h>
+#include <sys/param.h>
+
+#include "thpool/thpool.h"
+#include "rmutil/args.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
 #include "indexes.h"
 #include "extension.h"
-#include "util/dict.h"
-#include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "doc_table.h"
+#include "obfuscation/hidden.h"
+#include "query_error_ffi.h"
+#include "query_types.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "util/config_macros.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 

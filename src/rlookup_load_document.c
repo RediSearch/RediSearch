@@ -7,13 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rlookup_load_document.h"
+
+#include <string.h>
+
 #include "json.h"
-#include "module.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "doc_types.h"
 #include "value_ffi.h"
-#include "util/arr.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rejson_api.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
 
 typedef enum {
   RLOOKUP_C_STR = 0,
