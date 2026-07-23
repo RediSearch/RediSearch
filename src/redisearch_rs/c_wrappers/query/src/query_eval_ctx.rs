@@ -266,7 +266,7 @@ impl QueryEvalContext {
     ///
     /// When a Blocked Client Timeout request is wired into the context
     /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
-    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
+    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
     /// checks are skipped or no deadline is set) is derived from `sctx.time`.
     ///
     /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
@@ -288,7 +288,7 @@ impl QueryEvalContext {
     /// caller discharges the precondition simply by not retaining the returned
     /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
     ///
-    /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
+    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         match NonNull::new(self.as_ref().bcTimeoutAreq) {
             Some(areq) => {
@@ -302,7 +302,7 @@ impl QueryEvalContext {
                 AnyTimeoutContext::BlockedClient(timeout)
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeout`) from `sctx.time`.
+            // (or `NoTimeoutChecker`) from `sctx.time`.
             None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
         }
     }

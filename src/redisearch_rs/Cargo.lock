@@ -2359,6 +2359,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "timeout",
  "tracing",
  "trie_rs",
  "ttl_table",
@@ -3037,6 +3038,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "timeout"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3237,6 +3245,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "timeout",
  "trie_rs",
  "utf8parse",
  "workspace_hack",

@@ -41,6 +41,7 @@ members = [
     "string_utils",
     "tag_index",
     "term_suffix_index",
+    "timeout",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -158,6 +159,7 @@ sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
+timeout = { path = "timeout" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
