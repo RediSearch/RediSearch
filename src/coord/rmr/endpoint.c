@@ -95,6 +95,7 @@ bool MREndpoint_Equal(const MREndpoint *a, const MREndpoint *b) {
   if (a == b) return true;
   if (!a || !b) return false;
   return a->port == b->port
+      && a->isTls == b->isTls
       && strEqOrBothNull(a->host, b->host)
       && strEqOrBothNull(a->unixSock, b->unixSock)
       && strEqOrBothNull(a->password, b->password);
