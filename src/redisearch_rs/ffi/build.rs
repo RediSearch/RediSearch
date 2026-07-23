@@ -454,7 +454,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
-        fns: &["TagIndex_Ensure", "TagIndex_OpenIndex"],
+        fns: &["TagIndex_Ensure"],
         types: &[],
         vars: &[],
     },

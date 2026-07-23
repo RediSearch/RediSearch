@@ -27,6 +27,12 @@ header_name = "index_result_rs"
 # Avoid a name conflict with the pre-existing `search_result.h` header file.
 header_name = "search_result_rs"
 
+[package.tag_index]
+header_name = "tag_index_rs"
+
+[package.tag_index_ffi]
+header_name = "tag_index"
+
 [package.ttl_table]
 header_name = "ttl_table_rs"
 
@@ -433,3 +439,6 @@ after_includes = """
 // `TimeToLiveTable` is opaque on the C side — only passed by pointer.
 typedef struct TimeToLiveTable TimeToLiveTable;
 """
+
+[header.tag_index]
+includes = ["redis_index.h", "search_disk.h", "spec.h"]

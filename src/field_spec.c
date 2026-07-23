@@ -58,8 +58,7 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   }
   if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
     if (fs->tagOpts.tagIndex) {
-      TagIndex_Free(fs->tagOpts.tagIndex);
-      fs->tagOpts.tagIndex = NULL;
+      TagIndex_Free(&(fs->tagOpts.tagIndex));
     }
   }
   if (FIELD_IS(fs, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO)) {

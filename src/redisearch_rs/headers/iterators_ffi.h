@@ -108,6 +108,11 @@ typedef struct NumericRangeTree NumericRangeTree;
 typedef struct RLookupKey RLookupKey;
 
 /**
+ * See the [crate documentation](self) for an overview.
+ */
+typedef struct TagIndex TagIndex;
+
+/**
  * Results returned by a [`ProduceResultsFn`].
  *
  * The `ids` and `metrics` arrays are allocated by the C producer using the Redis allocator;

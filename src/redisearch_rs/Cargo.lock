@@ -2059,6 +2059,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "syn 2.0.118",
+ "tag_index_ffi",
  "term_suffix_index_ffi",
  "toml",
  "triemap_ffi",
@@ -2323,6 +2324,7 @@ dependencies = [
  "rqe_iterators_test_utils",
  "rstest",
  "rstest_reuse",
+ "tag_index",
  "thiserror",
  "timeout",
  "tracing",
@@ -2356,6 +2358,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
+ "tag_index",
  "workspace_hack",
 ]
 
@@ -2378,6 +2381,7 @@ dependencies = [
  "redis_mock",
  "rqe_core",
  "rqe_iterators",
+ "tag_index",
  "ttl_table",
  "varint_ffi",
  "workspace_hack",
@@ -2931,6 +2935,27 @@ dependencies = [
  "tag_index",
  "thin_vec",
  "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "tag_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "inverted_index",
+ "inverted_index_ffi",
+ "lending-iterator",
+ "redis-module",
+ "redis_mock",
+ "ref_mode",
+ "rmp-serde",
+ "rqe_core",
+ "serde",
+ "tag_index",
+ "trie_rs",
+ "triemap_ffi",
  "workspace_hack",
 ]
 
