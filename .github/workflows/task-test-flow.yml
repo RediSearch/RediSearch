@@ -1,0 +1,538 @@
+name: Common Flow for Python Flow Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that runs the Python flow tests (`make pytest`) against a
+# pre-built RediSearch module produced by `task-build.yml`. The build artifact
+# is downloaded into `bin/` and exactly one mode (`standalone` or `coordinator`)
+# is exercised per job invocation. No C/C++ or Rust compilation happens here.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Platform name (e.g., ubuntu:noble, macos-15)'
+        type: string
+        required: true
+      architecture:
+        description: 'Architecture (x86_64, aarch64)'
+        type: string
+        required: true
+      san:
+        type: string
+      coverage:
+        type: boolean
+        default: false
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
+        type: string
+        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+      test-config:
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
+        required: true
+        type: string
+      test-mode:
+        description: 'Which flow tests to run: standalone or coordinator'
+        type: string
+        required: true
+      rejson:
+        type: boolean
+        default: true
+        description: "Enable tests with RedisJSON"
+      rejson-branch:
+        type: string
+        default: master
+        description: "Branch to use when building RedisJSON for tests"
+      test-timeout:
+        type: number
+        default: 120
+      fail-fast:
+        type: boolean
+        default: false
+      shard-index:
+        description: '1-based shard index for file-level test splitting.'
+        type: number
+        default: 1
+      shard-total:
+        description: 'Total number of shards. 1 (default) runs all test files.'
+        type: number
+        default: 1
+      artifact-name:
+        description: 'Workflow artifact name to download (produced by task-build.yml).'
+        type: string
+        required: true
+      # Resolved platform config — produced by task-get-config.yml at the
+      # pipeline level so this workflow doesn't redo it. Caller must supply.
+      name:
+        type: string
+        default: ''
+      container:
+        type: string
+        default: ''
+      env:
+        type: string
+        default: ''
+      install-mode:
+        type: string
+        default: ''
+      setup-script:
+        type: string
+        default: ''
+      post-setup-script:
+        type: string
+        default: ''
+      # Prebuilt container image (task-build-cached-container.yml outputs).
+      image:
+        type: string
+        default: ''
+      image-built:
+        description: "'true' when the prebuilt image is available; falls back to inputs.container otherwise."
+        type: string
+        default: 'false'
+
+env:
+  REJSON: ${{ inputs.rejson && 1 || 0 }}
+  COV: ${{ inputs.coverage && 1 || 0 }}
+  RUST_BACKTRACE: "full"
+  # The module is built with Intel SVS optimizations (task-build.yml sets this),
+  # so the flow tests must see the same flag: test_vecsim_svs derives the
+  # expected SVS compression from BUILD_INTEL_SVS_OPT + the test runner's CPU.
+  # Without it the test assumes the fallback (GlobalSQ8) and fails whenever the
+  # test job lands on an Intel runner (build and test run on separate machines).
+  BUILD_INTEL_SVS_OPT: "yes"
+  SETUP_RETRY_LOOP: |
+    SUCCESS=0
+    for i in 1 2 3 4 5; do
+      echo "Attempt $i of 5"
+      if {0}; then
+        echo "Setup succeeded"
+        SUCCESS=1
+        break
+      fi
+      if [ $i -lt 5 ]; then
+        echo "Setup failed, retrying in 30 seconds..."
+        sleep 30
+      fi
+    done
+    [ $SUCCESS -eq 1 ] || exit 1
+
+jobs:
+  common-flow:
+    name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    container: ${{
+      inputs.container
+        && fromJSON(
+          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+            inputs.image-built == 'true' && inputs.image || inputs.container,
+            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+        )
+      || null }}
+
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+      actions: read  # download artifact from the build job's workflow run
+
+    env:
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Install bash
+        if: startsWith(inputs.container, 'alpine:')
+        shell: sh -l -eo pipefail {0}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
+
+      - name: Free up disk space (container)
+        if: ${{ inputs.container }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          rm -rf /host_usr/dotnet/* 2>/dev/null || true
+          rm -rf /host_usr/android/* 2>/dev/null || true
+          rm -rf /host_opt/ghc/* 2>/dev/null || true
+          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Free up disk space (non-container)
+        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
+        run: |
+          echo "Before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af 2>/dev/null || true
+          echo "After cleanup:"
+          df -h
+      - name: Fix HOME Directory
+        if: ${{ inputs.image-built == 'true' && inputs.container }}
+        shell: bash
+        run: |
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$HOME was broken. Setting it to $h"
+          ls -ld "$HOME"
+          ls -ld "$h"
+          echo "USER: $USER"
+          echo "id: $(id)"
+          echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Setup Dependencies
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+      - name: Free up disk space
+        env:
+          INSTALL_MODE: ${{ inputs.install-mode }}
+        run: |
+          df -h
+          $INSTALL_MODE rm -rf /usr/share/dotnet || true
+          $INSTALL_MODE rm -rf /usr/local/lib/android || true
+          $INSTALL_MODE rm -rf /opt/ghc || true
+          $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h
+      - name: Full checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-mode: ${{ inputs.install-mode }}
+          image-built: ${{ inputs.image-built }}
+          san: ${{ inputs.san }}
+          install-script: 'true'
+          python-test-deps: 'true'
+          sanitizer-setup: 'true'
+          # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
+          llvm-full-config: 'false'
+          build-redis: 'true'
+          redis-ref: ${{ inputs.redis-ref }}
+          coverage: ${{ inputs.coverage }}
+          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
+
+      - name: Set Artifact Names
+        id: artifact-names
+        env:
+          SAN_LABEL: ${{ inputs.san == 'address' && 'sanitizer' || '' }}
+          COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
+          PLATFORM: ${{ inputs.container || inputs.env }}
+          ARCH: ${{ runner.arch }}
+          REDIS_VERSION: ${{ inputs.redis-ref }}
+          TEST_MODE: ${{ inputs.test-mode }}
+        run: |
+          UNIQUE_ID="$RANDOM$RANDOM"
+          ARTIFACT_NAME=$(echo "${SAN_LABEL} ${COV_LABEL} ${PLATFORM} ${ARCH} ${TEST_MODE} - Redis ${REDIS_VERSION} - ${UNIQUE_ID}" | \
+                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
+          echo "Artifact name: ${ARTIFACT_NAME}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          # bin.tar.gz lands in the working directory; unpacked in the next step.
+
+      - name: Unpack build artifact
+        # Untar instead of relying on the artifact's zip layout so executable
+        # bits are preserved (rstest etc. need to run from inside RLTest).
+        # gzip rather than zstd so the zstd CLI isn't required.
+        run: |
+          set -euo pipefail
+          tar -xzf bin.tar.gz
+          rm bin.tar.gz
+          echo "Restored bin/ size:"
+          du -sh bin
+          echo "Module binaries:"
+          find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
+
+      # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
+      # spec per line). Needed to shard and as the input to flaky filtering.
+      # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a
+      # fork PR with a single shard skips it and lets RLTest discover the suite.
+      - name: Enumerate tests
+        id: enumerate
+        if: ${{ inputs.shard-total > 1 || env.IS_FORK_PR != 'true' }}
+        env:
+          SAN: ${{ inputs.san }}
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          # rejson.so was prebuilt and restored from the artifact; point
+          # setup_rejson.sh at it so enumeration doesn't clone+build RedisJSON.
+          REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
+          # Enumerate in the same mode the shard runs in, so collection matches.
+          REDIS_STANDALONE: ${{ inputs.test-mode == 'standalone' && '1' || '0' }}
+          TEST_CONFIG: ${{ inputs.test-config }}
+          # bin/ was restored from the build artifact; skip build.sh's build step.
+          SKIP_BUILD: 1
+          CLEAR_LOGS: 0
+        run: |
+          set -euo pipefail
+          LIST_RAW="$RUNNER_TEMP/all-tests.raw"
+          ALL_SPECS="$RUNNER_TEMP/all-specs.txt"
+          # `make pytest` output is noisy; keep only lines shaped like an RLTest
+          # spec id ("<file>:<test>", optional "[variant]", no .py) — the same
+          # shape as _TEST_ID_RE in .github/scripts/flaky_db.py.
+          LIST=1 make pytest $TEST_CONFIG > "$LIST_RAW" 2>&1 \
+            || { echo "LIST=1 enumeration failed:"; cat "$LIST_RAW"; exit 1; }
+          # runtests.sh can exit 0 in LIST mode even when RLTest hit a
+          # collection/import error, which would silently shard a partial list
+          # (and drop the un-collected tests from every shard). Fail explicitly
+          # if the raw output shows a collection failure.
+          if grep -qiE 'Traceback \(most recent call last\)|ImportError|ModuleNotFoundError|ERROR collecting|INTERNALERROR' "$LIST_RAW"; then
+            echo "Test collection failed during LIST=1 enumeration:"; cat "$LIST_RAW"; exit 1
+          fi
+          grep -E '^[A-Za-z0-9_-]+:[A-Za-z_][A-Za-z0-9_.]*(\[[^]]+\])?[[:space:]]*$' "$LIST_RAW" \
+            | LC_ALL=C sort > "$ALL_SPECS" || true
+          total=$(wc -l < "$ALL_SPECS")
+          [ "$total" -gt 0 ] || { echo "No test specs enumerated from LIST=1 output:"; tail -50 "$LIST_RAW"; exit 1; }
+          echo "Enumerated $total test spec(s)."
+          echo "specs=$ALL_SPECS" >> "$GITHUB_OUTPUT"
+
+      # Drop known-flaky tests (active marks in the flaky DB) for internal PRs so
+      # they don't fail otherwise-good PRs. continue-on-error + an empty result
+      # means "run everything" if the DB is unreachable. Forks lack the secret
+      # and skip this (they run the full enumerated/discovered suite).
+      - name: Filter out flaky tests
+        id: flaky
+        if: ${{ env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs }}
+        continue-on-error: true
+        # Pinned to the full commit SHA that the `v1` tag points to (external
+        # actions must be pinned to a commit hash, not a moving tag).
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          tests: ${{ steps.enumerate.outputs.specs }}
+          output: ${{ runner.temp }}/run-specs.txt
+          ci-common-ref: 47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+
+      # Pick the run list (flaky-filtered if available, else the full
+      # enumeration) and, when sharded, hand this job its round-robin slice via
+      # TESTFILE (read by runtests.sh, passed to RLTest as -f). Leaving TESTFILE
+      # unset makes RLTest discover the full suite (unsharded fork fallback).
+      - name: Select test list
+        if: ${{ inputs.shard-total > 1 || (env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs) }}
+        env:
+          SHARD_INDEX: ${{ inputs.shard-index }}
+          SHARD_TOTAL: ${{ inputs.shard-total }}
+          FILTERED: ${{ steps.flaky.outputs.testfile }}
+          ENUMERATED: ${{ steps.enumerate.outputs.specs }}
+        run: |
+          set -euo pipefail
+          SOURCE=""
+          if [ -n "$FILTERED" ] && [ -s "$FILTERED" ]; then
+            SOURCE="$FILTERED"; echo "Using flaky-filtered test list."
+          elif [ -n "$ENUMERATED" ] && [ -s "$ENUMERATED" ]; then
+            SOURCE="$ENUMERATED"; echo "Using full enumerated test list (no flaky filtering)."
+          fi
+          if [ -z "$SOURCE" ]; then
+            echo "No explicit test list; RLTest will discover the full suite."
+            exit 0
+          fi
+          if [ "$SHARD_TOTAL" -gt 1 ]; then
+            SHARD_FILE="$RUNNER_TEMP/shard-tests.txt"
+            awk -v n="$SHARD_TOTAL" -v k="$SHARD_INDEX" '(NR-1) % n == (k-1)' "$SOURCE" > "$SHARD_FILE"
+            count=$(wc -l < "$SHARD_FILE")
+            echo "Shard $SHARD_INDEX/$SHARD_TOTAL selected $count of $(wc -l < "$SOURCE") test(s):"
+            cat "$SHARD_FILE"
+            [ "$count" -gt 0 ] || { echo "Empty shard — check shard-index/shard-total"; exit 1; }
+            # TESTFILE is read by runtests.sh and passed to RLTest as `-f`.
+            echo "TESTFILE=$SHARD_FILE" >> "$GITHUB_ENV"
+          else
+            echo "TESTFILE=$SOURCE" >> "$GITHUB_ENV"
+          fi
+
+      - name: Flow tests (standalone)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: standalone_tests
+        if: ${{ inputs.test-mode == 'standalone' }}
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 1
+          # RLTest writes failed test ids here (relative -> runtests.sh resolves
+          # under $ROOT); consumed by the flaky-record + focused-log steps below.
+          FAILEDFILE: .failed_standalone.txt
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          # rejson.so was prebuilt by the build job and restored from the artifact.
+          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
+          ENABLE_ASSERT: 1
+          TEST_CONFIG: ${{ inputs.test-config }}
+          # bin/ was restored from the build artifact; skip build.sh's CMake/make step.
+          SKIP_BUILD: 1
+        run: make pytest $TEST_CONFIG
+
+      - name: Flow tests (coordinator)
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests
+        if: ${{ inputs.test-mode == 'coordinator' }}
+        continue-on-error: ${{ !inputs.fail-fast }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          # RLTest writes failed test ids here (relative -> runtests.sh resolves
+          # under $ROOT); consumed by the flaky-record + focused-log steps below.
+          FAILEDFILE: .failed_coordinator.txt
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          # rejson.so was prebuilt by the build job and restored from the artifact.
+          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
+          ENABLE_ASSERT: 1
+          TEST_CONFIG: ${{ inputs.test-config }}
+          SKIP_BUILD: 1
+        run: make pytest $TEST_CONFIG
+
+      # Record this run's failures to the flaky DB (internal PRs only) so flaky
+      # marks stay current. always() so failures are recorded even when the test
+      # step failed; continue-on-error so a DB outage never fails the job.
+      - name: Record failures to flaky DB
+        if: ${{ always() && env.IS_FORK_PR != 'true' }}
+        continue-on-error: true
+        # Pinned to the full commit SHA that the `v1` tag points to (external
+        # actions must be pinned to a commit hash, not a moving tag).
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        with:
+          redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
+          failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+          job-name: ${{ inputs.name }} ${{ inputs.test-mode }}
+
+      - name: Check test logs folder size
+        if: always()
+        run: |
+          echo "=== Total Repo Size ==="
+          du -sh . 2>/dev/null || echo "Failed to get repo size"
+          echo "=== Test Logs Folder Size ==="
+          if [ -d "tests" ]; then
+            du -sh tests/ 2>/dev/null || echo "tests/ directory not found"
+            find tests -type d -name "logs" -exec du -sh {} \; 2>/dev/null || echo "No logs directories found"
+          fi
+          echo "=========================="
+
+      - name: Check coverage files size
+        if: inputs.coverage
+        run: |
+          echo "=== Coverage Files Size ==="
+          if [ -d "bin" ]; then
+            ls -lh bin/*.info 2>/dev/null || echo "No .info files found in bin/"
+            du -ch bin/*.info 2>/dev/null | tail -1 || echo "No coverage files to measure"
+          fi
+          echo "=========================="
+
+      - name: Upload Test Logs (failure)
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: |
+            tests/**/logs/*.log*
+          if-no-files-found: ignore
+
+      - name: Collect failed-test-only logs
+        # Focused bundle with only the logs of tests that actually failed, for
+        # the PR triage workflow (it downloads "Failed Test Logs *"). RLTest
+        # names log files per test class/function — `<uuid>.<role>-<file>_<class-
+        # or-func>-<env>.log` — so key the glob on `<file>_<class-or-func>` and
+        # drop any `.method` suffix from the failed id.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        env:
+          FAILEDFILE: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+        run: |
+          set +e
+          DEST="failed-test-logs"
+          mkdir -p "$DEST"
+          [ -f "$FAILEDFILE" ] || { echo "No $FAILEDFILE; nothing to bundle."; exit 0; }
+          while IFS= read -r test_id; do
+            [ -z "$test_id" ] && continue
+            file_part="${test_id%%:*}"
+            test_part="${test_id#*:}"
+            file_no_py="${file_part%.py}"
+            class_part="${test_part%%.*}"
+            pattern="*-${file_no_py}_${class_part}-*.log*"
+            find tests -path '*/logs/*' -name "$pattern" -type f 2>/dev/null | while read -r log; do
+              mkdir -p "$DEST/$(dirname "$log")"
+              cp "$log" "$DEST/$log"
+            done
+          done < "$FAILEDFILE"
+          # Stash the failed-test list under a non-hidden name (upload-artifact
+          # drops dot-prefixed files); triage treats failed-tests-*.txt as the
+          # authoritative failure list.
+          cp "$FAILEDFILE" "$DEST/failed-tests-${{ inputs.test-mode }}.txt" 2>/dev/null || true
+          echo "Failed-test logs bundled: $(find "$DEST" -type f | wc -l)"
+          exit 0
+
+      - name: Upload Failed-Only Test Logs
+        # Guard kept in lockstep with "Collect failed-test-only logs" above.
+        if: >
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        uses: actions/upload-artifact@v4
+        with:
+          name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
+          path: failed-test-logs/
+          if-no-files-found: ignore
+
+      - name: Fail flow if tests failed
+        if: |
+          failure() || (
+            steps.standalone_tests.outcome == 'failure' ||
+            steps.coordinator_tests.outcome == 'failure'
+          )
+        run: |
+          echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
+          echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
+          exit 1
+      - name: Import Codecov GPG public key
+        if: inputs.coverage
+        run: gpg --import .github/codecov_gpg.pub
+      - name: Upload flow coverage (standalone)
+        if: inputs.coverage && inputs.test-mode == 'standalone'
+        uses: codecov/codecov-action@v6 # NOSONAR
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload flow coverage (coordinator)
+        if: inputs.coverage && inputs.test-mode == 'coordinator'
+        uses: codecov/codecov-action@v6 # NOSONAR
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
+          token: ${{ secrets.CODECOV_TOKEN }}

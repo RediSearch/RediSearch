@@ -1,0 +1,210 @@
+name: PR Pipeline (one job-type)
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Reusable workflow that encapsulates the full build → test fan-out for a
+# single job-type (basic-test / coverage / sanitize) on the Linux PR matrix.
+# Platform configuration and the prebuilt container image are resolved ONCE
+# here (get-config + build-image) and passed down to the build / test-unit /
+# test-flow jobs as inputs — so the per-task workflows don't redo that setup.
+#
+# MIRI is NOT part of this pipeline. It's dispatched as its own top-level job
+# (task-miri.yml) from event-pull_request.yml because it can't share the
+# nextest archive and would otherwise gate the other test jobs.
+
+on:
+  workflow_call:
+    inputs:
+      job-type:
+        description: 'One of: basic-test, coverage, sanitize.'
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+      architecture:
+        type: string
+        required: true
+      redis-ref:
+        type: string
+        required: true
+      test-config:
+        description: 'Test configuration env var (e.g. "QUICK=1").'
+        type: string
+        required: true
+      rejson-branch:
+        type: string
+        default: master
+      test-timeout:
+        type: number
+        default: 120
+
+jobs:
+  get-config:
+    name: Get build configurations for platform
+    uses: ./.github/workflows/task-get-config.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+
+  build-image:
+    needs: get-config
+    if: ${{ needs.get-config.outputs.container }}
+    name: Build container for platform
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ${{ needs.get-config.outputs.container }}
+      runner-env: ${{ needs.get-config.outputs.env }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || 'none' }}
+
+  build:
+    name: Build (${{ inputs.job-type }})
+    needs: [get-config, build-image]
+    # build-image is skipped for non-container platforms; without this guard a
+    # skipped need would skip this job (and the whole pipeline) instead of
+    # falling back to the non-container runner.
+    if: ${{ !cancelled() && needs.get-config.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: write
+    uses: ./.github/workflows/task-build.yml
+    secrets: inherit
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      redis-ref: ${{ inputs.redis-ref }}
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      # run_attempt keeps the name unique on a *full* re-run (where build does
+      # rerun and would otherwise collide with the existing artifact). Test
+      # jobs below consume needs.build.outputs.artifact-name, not this literal.
+      artifact-name: pr-build-${{ inputs.job-type }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # Resolved platform config — task-build.yml no longer reruns get-config.
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
+      enable-lto: ${{ needs.get-config.outputs.enable_lto }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}
+
+  test-unit:
+    name: ${{ inputs.job-type }} (Unit)
+    needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: read
+    uses: ./.github/workflows/task-test-unit.yml
+    secrets: inherit
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      redis-ref: ${{ inputs.redis-ref }}
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      test-timeout: ${{ inputs.test-timeout }}
+      # Read the name the build job actually produced rather than
+      # reconstructing it. On "re-run failed jobs", github.run_attempt is
+      # bumped but the (successful) build job is NOT rerun, so its uploaded
+      # artifact keeps the original attempt's name. Reconstructing here would
+      # look for an artifact that was never produced.
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}
+
+  test-flow-standalone:
+    name: ${{ inputs.job-type }} (Standalone)
+    needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: read
+    uses: ./.github/workflows/task-test-flow.yml
+    secrets: inherit
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      redis-ref: ${{ inputs.redis-ref }}
+      test-config: ${{ inputs.test-config }}
+      test-mode: standalone
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      test-timeout: ${{ inputs.test-timeout }}
+      # Read the name the build job actually produced rather than
+      # reconstructing it. On "re-run failed jobs", github.run_attempt is
+      # bumped but the (successful) build job is NOT rerun, so its uploaded
+      # artifact keeps the original attempt's name. Reconstructing here would
+      # look for an artifact that was never produced.
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}
+
+  test-flow-coordinator:
+    name: ${{ inputs.job-type }} (Coordinator ${{ matrix.shard }}/${{ inputs.job-type == 'basic-test' && 3 || 4 }})
+    needs: [get-config, build-image, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') }}
+    # Coordinator tests are the slowest flow suite (cluster setup, inter-shard
+    # PINGs, 5-min timeouts), so split them across file-level shards. The
+    # instrumented builds (coverage, sanitize) run noticeably slower, so give
+    # them an extra shard (4) to keep per-shard wall time down; basic-test
+    # stays at 3.
+    strategy:
+      matrix:
+        shard: ${{ fromJSON(inputs.job-type == 'basic-test' && '[1, 2, 3]' || '[1, 2, 3, 4]') }}
+      fail-fast: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      actions: read
+    uses: ./.github/workflows/task-test-flow.yml
+    secrets: inherit
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      redis-ref: ${{ inputs.redis-ref }}
+      test-config: ${{ inputs.test-config }}
+      test-mode: coordinator
+      shard-index: ${{ matrix.shard }}
+      shard-total: ${{ inputs.job-type == 'basic-test' && 3 || 4 }}
+      coverage: ${{ inputs.job-type == 'coverage' }}
+      san: ${{ inputs.job-type == 'sanitize' && 'address' || '' }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      test-timeout: ${{ inputs.test-timeout }}
+      # Read the name the build job actually produced rather than
+      # reconstructing it. On "re-run failed jobs", github.run_attempt is
+      # bumped but the (successful) build job is NOT rerun, so its uploaded
+      # artifact keeps the original attempt's name. Reconstructing here would
+      # look for an artifact that was never produced.
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      name: ${{ needs.get-config.outputs.name }}
+      container: ${{ needs.get-config.outputs.container }}
+      env: ${{ needs.get-config.outputs.env }}
+      install-mode: ${{ needs.get-config.outputs.install_mode }}
+      setup-script: ${{ needs.get-config.outputs.setup_script }}
+      post-setup-script: ${{ needs.get-config.outputs.post_setup_script }}
+      image: ${{ needs.build-image.outputs.image }}
+      image-built: ${{ needs.build-image.outputs.succeeded }}

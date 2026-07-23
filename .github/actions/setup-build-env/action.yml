@@ -1,0 +1,253 @@
+name: Setup build environment
+description: |
+  Post-checkout environment setup shared by the RediSearch CI task workflows
+  (task-build, task-test, task-test-unit, task-test-flow, task-miri).
+
+  This action MUST run after `actions/checkout` (its own `uses:` references and
+  the local nested actions it calls only exist on disk once the repo is checked
+  out). Every step is individually gated by an input toggle, so each caller runs
+  exactly the subset it needs. Steps execute in a fixed canonical order (the
+  order used by task-test.yml, the merge-queue / master-validation flow); when a
+  caller enables only a subset, the enabled steps run in that same relative
+  order.
+
+  Steps that are NOT shared across callers (pre-checkout host/disk cleanup, the
+  checkout itself, artifact download/unpack, RedisJSON builds, the module build,
+  the test steps, and all upload/coverage steps) stay inline in the calling
+  workflow.
+
+inputs:
+  # --- shared context (passed through to the gated steps) ---------------------
+  install-mode:
+    description: "Privilege-escalation prefix for install scripts (e.g. 'sudo' or empty), from get-config's install_mode."
+    required: false
+    default: ""
+  image-built:
+    description: "'true' when running inside a prebuilt container image; install steps are skipped because the image already carries the toolchain."
+    required: false
+    default: "false"
+  is-fork-pr:
+    description: "'true' on pull requests from forks; sccache S3 (OIDC) setup is skipped when true."
+    required: false
+    default: "false"
+  san:
+    description: "Sanitizer ('' or 'address'). Gates the LLVM steps and is forwarded to build-redis."
+    required: false
+    default: ""
+
+  # --- Print CPU information ---------------------------------------------------
+  print-cpu-info:
+    description: "'true' to print CPU / runner information."
+    required: false
+    default: "false"
+
+  # --- Setup sccache -----------------------------------------------------------
+  setup-sccache:
+    description: "'true' to install sccache and configure the S3 remote cache (skipped on fork PRs). The caller must forward the sccache-* values below — composite actions have no `vars` context, so they cannot read vars.SCCACHE_* directly."
+    required: false
+    default: "false"
+  sccache-aws-role:
+    description: "vars.SCCACHE_AWS_ROLE_TO_ASSUME, forwarded by the caller (composite actions cannot read the vars context)."
+    required: false
+    default: ""
+  sccache-s3-bucket:
+    description: "vars.SCCACHE_S3_BUCKET, forwarded by the caller."
+    required: false
+    default: ""
+  sccache-s3-region:
+    description: "vars.SCCACHE_S3_REGION, forwarded by the caller."
+    required: false
+    default: ""
+  sccache-s3-key-prefix:
+    description: "vars.SCCACHE_S3_KEY_PREFIX, forwarded by the caller."
+    required: false
+    default: ""
+
+  # --- Setup (./install_script.sh) --------------------------------------------
+  install-script:
+    description: "'true' to run .install/install_script.sh (skipped when image-built == 'true')."
+    required: false
+    default: "false"
+
+  # --- Swatinem/rust-cache -----------------------------------------------------
+  rust-cache:
+    description: "'true' to restore/save the cargo cache via Swatinem/rust-cache."
+    required: false
+    default: "false"
+  rust-cache-prefix-key:
+    description: "prefix-key for Swatinem/rust-cache."
+    required: false
+    default: "v2-rust"
+  rust-cache-key:
+    description: "key for Swatinem/rust-cache (caller-computed so miri can key differently from build/test)."
+    required: false
+    default: ""
+
+  # --- Setup Rust test dependencies -------------------------------------------
+  rust-test-deps:
+    description: "'true' to install Rust test dependencies via .install/test_deps/install_rust_deps.sh (skipped when image-built == 'true')."
+    required: false
+    default: "false"
+  github-token:
+    description: "Token exposed to the Rust test-deps install as GITHUB_TOKEN (authenticated cargo-binstall API calls). Pass github.token."
+    required: false
+    default: ""
+
+  # --- Setup Python test dependencies -----------------------------------------
+  python-test-deps:
+    description: "'true' to install Python test dependencies via .install/test_deps/install_python_deps.sh."
+    required: false
+    default: "false"
+
+  # --- LLVM for sanitizer ------------------------------------------------------
+  sanitizer-setup:
+    description: "'true' to enable the LLVM install + configure steps (they additionally require san == 'address')."
+    required: false
+    default: "false"
+  llvm-full-config:
+    description: "'true' exports CC/CXX/LD and ASAN_SYMBOLIZER_PATH (build/test/unit); 'false' exports only ASAN_SYMBOLIZER_PATH (flow)."
+    required: false
+    default: "true"
+
+  # --- Build Redis (cached) ----------------------------------------------------
+  build-redis:
+    description: "'true' to build/restore Redis via the build-redis action."
+    required: false
+    default: "false"
+  redis-ref:
+    description: "Redis git ref forwarded to build-redis."
+    required: false
+    default: ""
+  coverage:
+    description: "'true'/'false' coverage flag forwarded to build-redis."
+    required: false
+    default: "false"
+  redis-cache-platform-id:
+    description: "Opaque platform id forwarded to build-redis as cache_platform_id (container || env)."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Print CPU information
+      if: ${{ inputs.print-cpu-info == 'true' }}
+      shell: bash -l -eo pipefail {0}
+      env:
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        echo "=== CPU Information ==="
+        if command -v lscpu >/dev/null 2>&1; then
+          echo "--- lscpu output ---"
+          lscpu
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          echo "--- macOS CPU info ---"
+          echo "CPU brand: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "N/A")"
+          echo "Core count: $(sysctl -n machdep.cpu.core_count 2>/dev/null || echo "N/A")"
+          echo "Thread count: $(sysctl -n machdep.cpu.thread_count 2>/dev/null || echo "N/A")"
+          echo "CPU vendor: $(sysctl -n machdep.cpu.vendor 2>/dev/null || echo "N/A")"
+          echo "CPU features: $(sysctl -n machdep.cpu.features 2>/dev/null || echo "N/A")"
+        else
+          echo "--- Fallback CPU info ---"
+          cat /proc/cpuinfo 2>/dev/null || echo "CPU info not available"
+        fi
+        echo "Runner OS: $RUNNER_OS"
+        echo "Runner Architecture: $RUNNER_ARCH"
+        echo "========================"
+
+    - name: Setup sccache
+      if: ${{ inputs.setup-sccache == 'true' && inputs.is-fork-pr != 'true' }}
+      uses: ./.github/actions/setup-sccache
+      with:
+        aws-role: ${{ inputs.sccache-aws-role }}
+        s3-bucket: ${{ inputs.sccache-s3-bucket }}
+        s3-region: ${{ inputs.sccache-s3-region }}
+        s3-key-prefix: ${{ inputs.sccache-s3-key-prefix }}
+
+    - name: Setup
+      if: ${{ inputs.install-script == 'true' && inputs.image-built != 'true' }}
+      env:
+        INSTALL_MODE: ${{ inputs.install-mode }}
+      uses: ./.github/actions/retry-command
+      with:
+        command: ./install_script.sh $INSTALL_MODE
+        working_directory: .install
+
+    # Cache Rust packages
+    - name: Cache Rust packages
+      if: ${{ inputs.rust-cache == 'true' }}
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: ${{ inputs.rust-cache-prefix-key }}
+        key: ${{ inputs.rust-cache-key }}
+        # The cargo workspaces and target directory configuration.
+        # These entries are separated by newlines and have the form
+        # `$workspace -> $target`. The `$target` part is treated as a directory
+        # relative to the `$workspace` and defaults to "target" if not explicitly given.
+        # default: ". -> target"
+        workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
+        # Save cache even when the job fails, so subsequent runs can reuse
+        # compiled artifacts. Without this, cache is never populated on
+        # platforms with high failure rates (e.g. macOS x86_64).
+        cache-on-failure: true
+
+    - name: Setup Rust test dependencies
+      # Wrapped in retry-command (5 attempts) to survive cargo-binstall's
+      # GitHub API rate-limits. github_token gives cargo-binstall authenticated
+      # API calls (5000 req/hr vs 60/hr unauthenticated), avoiding 403s that
+      # force ~18 min source compilations on macOS Intel runners.
+      if: ${{ inputs.rust-test-deps == 'true' && inputs.image-built != 'true' }}
+      env:
+        INSTALL_MODE: ${{ inputs.install-mode }}
+      uses: ./.github/actions/retry-command
+      with:
+        command: .install/test_deps/install_rust_deps.sh $INSTALL_MODE
+        github_token: ${{ inputs.github-token }}
+
+    - name: Setup Python test dependencies
+      if: ${{ inputs.python-test-deps == 'true' }}
+      env:
+        INSTALL_MODE: ${{ inputs.install-mode }}
+      uses: ./.github/actions/retry-command
+      with:
+        command: .install/test_deps/install_python_deps.sh $INSTALL_MODE
+
+    - name: Install LLVM for sanitizer
+      if: ${{ inputs.sanitizer-setup == 'true' && inputs.san == 'address' && inputs.image-built != 'true' }}
+      env:
+        INSTALL_MODE: ${{ inputs.install-mode }}
+      uses: ./.github/actions/retry-command
+      with:
+        command: ./install_llvm.sh $INSTALL_MODE
+        working_directory: .install
+
+    - name: Configure LLVM for sanitizer
+      if: ${{ inputs.sanitizer-setup == 'true' && inputs.san == 'address' }}
+      shell: bash -l -eo pipefail {0}
+      env:
+        LLVM_FULL_CONFIG: ${{ inputs.llvm-full-config }}
+      run: |
+        CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+        if [[ -z "$CLANG_BIN" ]]; then
+          echo "Failed to locate clang after sanitizer setup"
+          exit 1
+        fi
+        CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+        echo "Using LLVM version: $CLANG_VERSION"
+        # task-build / task-test / task-test-unit pin the C/C++ compiler to the
+        # sanitizer-enabled clang; task-test-flow only needs the symbolizer.
+        if [[ "$LLVM_FULL_CONFIG" == "true" ]]; then
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
+        fi
+        echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
+
+    - name: Build Redis (cached)
+      if: ${{ inputs.build-redis == 'true' }}
+      uses: ./.github/actions/build-redis
+      with:
+        ref: ${{ inputs.redis-ref }}
+        san: ${{ inputs.san }}
+        coverage: ${{ inputs.coverage }}
+        cache_platform_id: ${{ inputs.redis-cache-platform-id }}
