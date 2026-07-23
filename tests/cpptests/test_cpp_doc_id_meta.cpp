@@ -177,6 +177,16 @@ protected:
     EXPECT_EQ(DocIdMeta_Get(ctx, keyName, specId, &retrieved), REDISMODULE_ERR);
   }
 
+  // Helper: read the raw metadata uint64 for a key, allowing 0 (i.e. no dict
+  // attached / detached after the last entry was removed).
+  uint64_t readKeyMetaAllowZero(RedisModuleString *keyName) {
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    uint64_t meta = 0;
+    EXPECT_EQ(RedisModule_GetKeyMeta(getDocIdMetaClassId(), key, &meta), REDISMODULE_OK);
+    RedisModule_CloseKey(key);
+    return meta;
+  }
+
   RedisModuleCtx *ctx;
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
@@ -334,6 +344,48 @@ TEST_F(DocIdMetaTest, TestDeleteAndReget) {
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+}
+
+// Deleting the last entry must detach and free the now-empty per-key dict, so a
+// surviving-but-de-indexed key does not retain an empty allocation. After detach
+// the raw meta reads back as 0 (reset_value); freeing without detaching would
+// leave a dangling pointer for the free callback to double-free at key deletion.
+TEST_F(DocIdMetaTest, TestDeleteLastEntryDetachesMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  // The per-key dict was the last holder of an entry, so it is detached (0).
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+}
+
+// Deleting a non-last entry must keep the dict attached (other specs still use
+// it), so the remaining entry is still resolvable.
+TEST_F(DocIdMetaTest, TestDeleteNonLastEntryKeepsMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  // Dict still holds SPEC2, so it stays attached.
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
+
+  // Removing the last remaining entry now detaches the dict.
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+}
+
+// After the dict is detached, a subsequent Set must transparently recreate it.
+TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocId(testKeyName, SPEC1_ID, 3003);
 }
 
 // Simple test to check if basic setup works

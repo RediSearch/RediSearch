@@ -1967,6 +1967,54 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   removePendingIndexDrop();
 }
 
+// Number of keys pruned per GIL acquisition in IndexSpec_PruneDocIdMeta. Bounds
+// how long a single lock hold blocks the main thread, mirroring the
+// concurrent-search / fork-GC yield pattern.
+#define DOCID_META_PRUNE_GIL_BATCH 500
+
+// Reclaim this spec's key->docId metadata (DocIdMeta) from Redis keys that
+// outlive the index. A KEEPDOCS drop (the FT.DROPINDEX default) leaves the keys
+// and their per-key DocIdMeta entries in place; nothing else ever removes this
+// spec's entries, so the drop marks `pruneKeyMetaOnFree` and we prune them here
+// before the DocTable (our source of key names) is freed. A delete-docs drop
+// leaves the flag clear: those keys - and their attached metadata - are removed
+// as the keys themselves are deleted.
+//
+// Runs on the cleanPool worker, which does not hold the GIL, so it opens keys
+// under the GIL in bounded batches to keep the event loop responsive. Memory
+// mode only: disk mode GCs stale DocIdMeta entries through its RDB save/load
+// cycle, and its DMDs carry no in-memory key name to open. specId is monotonic
+// and never reused, so any entry not pruned here is inert (never aliases a live
+// index) and is reclaimed when its key is eventually deleted.
+static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
+  if (!sp->pruneKeyMetaOnFree || SearchDisk_IsEnabled() || sp->docs.size == 0) {
+    return;
+  }
+  RedisModuleCtx *ctx = RSDummyContext;
+  DocTable *dt = &sp->docs;
+  size_t inBatch = 0;
+  RedisModule_ThreadSafeContextLock(ctx);
+  DOCTABLE_FOREACH(dt, {
+    RedisModuleString *keyName = DMD_CreateKeyString(dmd, ctx);
+    DocIdMeta_Delete(ctx, keyName, sp->specId);
+    RedisModule_FreeString(ctx, keyName);
+    if (++inBatch >= DOCID_META_PRUNE_GIL_BATCH) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      inBatch = 0;
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
+  });
+  RedisModule_ThreadSafeContextUnlock(ctx);
+}
+
+// cleanPool entry point: reclaim key metadata (needs the DocTable's key names)
+// before the shared teardown frees the DocTable.
+static void IndexSpec_FreeUnlinkedDataBg(void *p) {
+  IndexSpec *spec = p;
+  IndexSpec_PruneDocIdMeta(spec);
+  IndexSpec_FreeUnlinkedData(spec);
+}
+
 /*
  * This function unlinks the index spec from any global structures and frees
  * all struct that requires acquiring the GIL.
@@ -2008,7 +2056,8 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false || SearchDisk_IsEnabled()) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedDataBg,
+                               spec, THPOOL_PRIORITY_HIGH);
   }
 }
 

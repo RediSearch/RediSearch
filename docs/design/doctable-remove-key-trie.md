@@ -34,6 +34,34 @@ These record where the implementation refined the plan below:
   `GetKeyMeta`.
 - **INFO/stats:** `key_table_size`(`_mb`) now report 0 (no in-memory trie; the
   mapping lives in Redis key-metadata, not module-tracked memory).
+- **DocIdMeta reclamation in memory mode (MOD-17109 review).** Disk mode GCs
+  stale DocIdMeta entries through its RDB save/load cycle (the save skips
+  entries whose specId is no longer live, and skips a key whose dict is empty).
+  Memory mode registers no rdb_save/load, so two paths that leave the Redis key
+  in place needed explicit reclamation. `specId` is monotonic and never reused
+  (`nextSpecId_g++`), so a stale entry is always inert — it can never alias a
+  live index — which makes deferred/partial reclamation safe by construction.
+  - *Logical de-index* (surviving key stops matching: FILTER change, rename out
+    of prefix, REPLACE) — `DocIdMeta_DeleteWithOpenKey` now detaches
+    (`SetKeyMeta(key, 0)`) and frees the per-key dict when its last entry is
+    removed, so a de-indexed-but-surviving key retains no empty allocation.
+    `SetKeyMeta` does not free the previous value and Redis skips the free
+    callback once `meta == reset_value(0)`, so the order is detach-then-free.
+  - *KEEPDOCS drop* (the `FT.DROPINDEX` default: index gone, keys kept) —
+    nothing else ever removes the dropped spec's entries. `DropIndexCommand`
+    marks `sp->pruneKeyMetaOnFree`, and background teardown
+    (`IndexSpec_PruneDocIdMeta`, on the `cleanPool` worker before `DocTable_Free`)
+    walks the still-intact DocTable and drops this spec's entry from each key,
+    reusing the retained `DMD->keyPtr` as the key list. It opens keys under the
+    GIL in bounded batches (`DOCID_META_PRUNE_GIL_BATCH`) — the concurrent-search
+    / fork-GC yield pattern — so `FT.DROPINDEX` itself stays O(1) on the main
+    thread. A delete-docs drop leaves the flag clear (those keys and their
+    metadata are removed as the keys are deleted). Disk mode skips this.
+  - *Caveat — `_FREE_RESOURCE_ON_THREAD false`:* the eager KEEPDOCS-drop prune
+    runs only on the background (`cleanPool`) free path, which needs no GIL held.
+    Under the non-default `freeResourcesThread=false` (spec freed inline on an
+    unknown thread), the prune is skipped; those entries are reclaimed lazily
+    when their keys are eventually deleted (safe — the entries are inert).
 
 ### Verification (local, community build)
 
@@ -50,6 +78,14 @@ These record where the implementation refined the plan below:
 - **Flex/disk mode not validated locally** (needs the closed-source enterprise
   disk build). Disk-path changes are behavior-preserving (disk already used
   DocIdMeta + `unlink`); validate in CI.
+- **Reclamation follow-up (MOD-17109 review):** `test_cpp_doc_id_meta` extended
+  with free-on-empty coverage (`TestDeleteLastEntryDetachesMeta`,
+  `TestDeleteNonLastEntryKeepsMeta`, `TestSetAfterLastDeleteRecreatesMeta`) — 28
+  DocIdMeta tests pass, no double-free at teardown. `query_eval` still 49 passed
+  (the two `optional.rs` IDS fixtures now carry pre-resolved docIds). The
+  `key_table_size_mb` expectations that assumed a non-zero trie were updated to 0
+  (`test.py::testInfoCommand`, `test_coordinator.py::testInfo`,
+  `test_issues.py::testMemAllocated`, `test_resp3.py`).
 
 ## 1. Summary
 

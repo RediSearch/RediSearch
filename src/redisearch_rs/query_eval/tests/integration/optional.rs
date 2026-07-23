@@ -104,10 +104,13 @@ mod optional {
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // QN_IDS child resolving to the two known documents.
+        // QN_IDS child resolving to the two known documents. Ids are resolved on
+        // the main thread during query construction, so the node carries the
+        // pre-resolved docIds positionally matching the keys.
         let keys: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_a, id_b];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
 
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;
@@ -195,10 +198,11 @@ mod optional {
 
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
-        // optimized constructor.
+        // optimized constructor. The node carries the pre-resolved docId.
         let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_a];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
 
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;

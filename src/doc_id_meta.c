@@ -239,8 +239,13 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
     .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
-    .copy = NULL, // If NULL, meta is not copied during copy operations
-    .rename = NULL, // If NULL, meta is kept during rename
+    // NULL callbacks are valid per the KeyMeta API and are the behavior we want:
+    // COPY (copy=NULL => not copied) must not carry the docId — the copy is a
+    // distinct document that gets its own docId when indexed; RENAME
+    // (rename=NULL => kept) keeps it — same document, same docId. MOVE needs an
+    // explicit handler to drop it (the docId is meaningless in the target DB).
+    .copy = NULL,
+    .rename = NULL,
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
@@ -318,7 +323,18 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   dict *specIdToDocId = (dict *)meta;
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
-  return dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  // If that was the last entry, detach and free the now-empty per-key dict so a
+  // surviving-but-de-indexed key (FILTER no longer matches, rename out of the
+  // prefix, ...) does not retain an empty allocation. SetKeyMeta does not free
+  // the previous value (it is caller-owned), and Redis skips the free callback
+  // once meta == reset_value (0), so detach first, then release.
+  if (rc == DICT_OK && dictSize(specIdToDocId) == 0) {
+    if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) == REDISMODULE_OK) {
+      dictRelease(specIdToDocId);
+    }
+  }
+  return rc;
 }
 
 // Set docId using key name and spec incarnation ID.
