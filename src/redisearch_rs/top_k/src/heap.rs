@@ -37,7 +37,7 @@ pub struct ScoredResult {
 struct HeapEntry {
     result: ScoredResult,
     /// Cached comparison function so [`Ord`] can be implemented without extra state.
-    compare: fn(f64, f64) -> Ordering,
+    compare: fn(&f64, &f64) -> Ordering,
 }
 
 impl PartialEq for HeapEntry {
@@ -58,7 +58,7 @@ impl Ord for HeapEntry {
     fn cmp(&self, other: &Self) -> Ordering {
         // We want the worst element at the top of the heap so eviction is O(log k).
         // `compare(self, other) == Greater` means self is worse.
-        let score_ord = (self.compare)(self.result.score, other.result.score);
+        let score_ord = (self.compare)(&self.result.score, &other.result.score);
         match score_ord {
             Ordering::Less => Ordering::Less,
             Ordering::Greater => Ordering::Greater,
@@ -88,13 +88,13 @@ impl Ord for HeapEntry {
 pub struct TopKHeap {
     inner: BinaryHeap<HeapEntry>,
     capacity: usize,
-    compare: fn(f64, f64) -> Ordering,
+    compare: fn(&f64, &f64) -> Ordering,
 }
 
 impl TopKHeap {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using the supplied `compare` function to determine score order.
-    pub fn new(capacity: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(capacity: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         let capacity = capacity.into();
         Self {
             inner: BinaryHeap::with_capacity(capacity),
@@ -206,13 +206,13 @@ mod tests {
     }
 
     /// Ascending comparator: lower score is better (e.g. vector distance).
-    fn asc(a: f64, b: f64) -> Ordering {
-        a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+    fn asc(a: &f64, b: &f64) -> Ordering {
+        a.total_cmp(b)
     }
 
     /// Descending comparator: higher score is better (e.g. numeric SORTBY).
-    fn desc(a: f64, b: f64) -> Ordering {
-        b.partial_cmp(&a).unwrap_or(Ordering::Equal)
+    fn desc(a: &f64, b: &f64) -> Ordering {
+        b.total_cmp(&a)
     }
 
     #[test]

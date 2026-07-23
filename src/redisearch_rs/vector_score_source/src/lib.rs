@@ -49,8 +49,8 @@ pub type VectorTopKIterator<'index, E = FieldExpirationChecker> =
     TopKIterator<'index, VectorScoreSource<'index, E>>;
 
 /// Ascending comparator — lower distance score is better (vector L2/IP/Cosine).
-fn asc_cmp(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
+    f64::total_cmp
 }
 
 /// Construct a pure KNN [`VectorTopKIterator`] (no filter child).
@@ -61,7 +61,7 @@ pub fn new_vector_top_k_unfiltered<'index, E: ExpirationChecker + 'index>(
     source: VectorScoreSource<'index, E>,
     k: NonZeroUsize,
 ) -> VectorTopKIterator<'index, E> {
-    TopKIterator::new_with_mode(source, None, k, asc_cmp, TopKMode::Unfiltered)
+    TopKIterator::new_with_mode(source, None, k, asc(), TopKMode::Unfiltered)
 }
 
 /// Construct a hybrid [`VectorTopKIterator`] with a filter child.
@@ -118,5 +118,5 @@ pub fn new_vector_top_k_filtered_boxed<'index, E: ExpirationChecker + 'index>(
             TopKMode::Batches
         }
     };
-    TopKIterator::new_with_mode(source, Some(child), k, asc_cmp, mode)
+    TopKIterator::new_with_mode(source, Some(child), k, asc(), mode)
 }
