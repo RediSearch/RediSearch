@@ -8,7 +8,6 @@
 */
 #include "rules.h"
 #include "triemap_ffi.h"
-#include "rlookup_load_document.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"

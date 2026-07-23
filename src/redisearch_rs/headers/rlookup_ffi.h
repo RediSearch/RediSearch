@@ -67,6 +67,28 @@ typedef struct RSSortingVectorSlice {
   size_t len;
 } RSSortingVectorSlice;
 
+typedef struct LoadAllKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  bool force_string;
+  struct QueryError *status;
+} LoadAllKeysOptions;
+
+typedef struct LoadIndividualKeysOptions {
+  RedisSearchCtx *sctx;
+  const RSDocumentMetadata *dmd;
+  /**
+   * Explicit list of keys to load. If `nkeys == 0`, every loadable schema
+   * key in the lookup is considered (subject to `force_load` / `cached_only`).
+   */
+  const RLookupKey *const *keys;
+  size_t nkeys;
+  bool force_string;
+  bool force_load;
+  bool cached_only;
+  struct QueryError *status;
+} LoadIndividualKeysOptions;
+
 /**
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
  */
@@ -91,6 +113,19 @@ extern "C" {
 struct RLookupRow RLookupRow_New(void);
 
 /**
+ * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
+ *
+ * # Safety
+ *
+ * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
+ * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_WriteKey(const RLookupKey *key, struct RLookupRow *row, struct RSValue *value);
+
+/**
  * Add all non-overridden keys from `src` to `dest`.
  *
  * For each key in `src`, check if it already exists *by name*.
@@ -112,19 +147,6 @@ struct RLookupRow RLookupRow_New(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32_t flags);
-
-/**
- * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.
- *
- * # Safety
- *
- * 1. `key` must be a [valid], non-null pointer to an [`RLookupKey`].
- * 2. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookup_WriteKey(const RLookupKey *key, struct RLookupRow *row, struct RSValue *value);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -188,6 +210,20 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
+ * Move data from the source row to the destination row. The source row is cleared.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 4. `src` and `dst` must not be the same lookup row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, struct RLookupRow *src_row, struct RLookupRow *dst_row);
+
+/**
  * Find a field in the index spec cache of the lookup.
  *
  * # Safety
@@ -204,20 +240,6 @@ void RLookupRow_Reset(struct RLookupRow *row);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
-
-/**
- * Move data from the source row to the destination row. The source row is cleared.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. `src` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 3. `dst` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 4. `src` and `dst` must not be the same lookup row.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, struct RLookupRow *src_row, struct RLookupRow *dst_row);
 
 /**
  * Get an RLookup key for a given name.
@@ -453,6 +475,19 @@ RLookupKey *RLookup_GetKey_Load(struct RLookup *lookup, const char *name, const 
 struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow *row);
 
 /**
+ * Sets the sorting vector for the row.
+ *
+ * # Safety
+ *
+ * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
+ *    The pointed-to vector must remain valid for the lifetime of the row.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
+
+/**
  * Get an RLookup key for a given name.
  *
  * A key is created and returned only if it's NOT in the lookup table (unless the
@@ -478,19 +513,6 @@ struct RSSortingVectorSlice RLookupRow_GetSortingVector(const struct RLookupRow 
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RLookupKey *RLookup_GetKey_LoadEx(struct RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
-
-/**
- * Sets the sorting vector for the row.
- *
- * # Safety
- *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
- *    The pointed-to vector must remain valid for the lifetime of the row.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
 
 /**
  * Compares two search results by the given sort keys, returning a negative, zero, or positive
@@ -600,7 +622,42 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, RedisModuleKey *open_key, QueryError *status);
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, RedisModuleKey *open_key, struct QueryError *status);
+
+/**
+ * Load values from the document `dmd` into `dst_row`
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
+ * 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
+ * 3. `opts` must be a [valid], non-null pointer to an [`LoadAllKeysOptions`] whose `sctx`,
+ *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
+ * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
+ *    be a valid [`DocumentType`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadAllKeysOptions *opts);
+
+/**
+ * Load values for all non-present and loadable keys in `rlookup` from the document `dmd` into `dst_row`
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`] that is properly initialized.
+ * 2. `dst_row` must be a [valid], non-null pointer to an [`RLookupRow`] that is properly initialized.
+ * 3. `opts` must be a [valid], non-null pointer to an [`LoadIndividualKeysOptions`] whose
+ *    `sctx`, `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
+ * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
+ *    be a valid [`DocumentType`].
+ * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
+ *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
+ *    pointer to a properly initialized key that outlives this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *dst_row, struct LoadIndividualKeysOptions *opts);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list.

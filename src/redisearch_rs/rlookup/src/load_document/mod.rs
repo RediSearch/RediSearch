@@ -53,6 +53,9 @@ pub enum LoadFieldError {
     /// Failed to open the underlying redis key.
     #[error("Redis API error: {0}")]
     Redis(redis_module::RedisError),
+
+    #[error("attempted to load JSON document, but JSON extension was not loaded.")]
+    JsonUnsupported,
 }
 
 // TODO remove once upstream redis_module::RedisError implements std::error::Error
@@ -70,7 +73,14 @@ impl LoadFieldError {
             Self::WrongKeyType => QueryErrorCode::RedisKeyType,
             Self::JsonSerialization(_) => QueryErrorCode::Generic,
             Self::Redis(_) => QueryErrorCode::Generic,
+            Self::JsonUnsupported => QueryErrorCode::UnsuppType,
         }
+    }
+
+    /// Whether this error is the expected outcome of a document being deleted,
+    /// expiring, or changing type between the iterator and the loader.
+    pub const fn is_stale_document(&self) -> bool {
+        matches!(self, Self::KeyNotFound | Self::WrongKeyType)
     }
 }
 
@@ -89,8 +99,15 @@ pub enum LoadAllError {
     JsonSerialization(#[from] redis_json_api::SerializeError),
 }
 
+impl LoadAllError {
+    /// Whether this error is the expected outcome of a document being deleted,
+    /// expiring, or changing type between the iterator and the loader.
+    pub const fn is_stale_document(&self) -> bool {
+        matches!(self, Self::OpenKeyFailed | Self::JsonRootMissing)
+    }
+}
+
 pub struct DocumentLoader<'env, 'a, F: DocumentFormat> {
-    rlookup: &'env mut RLookup<'a>,
     dst_row: &'env mut RLookupRow<'a>,
     ctx: NonNull<ffi::RedisModuleCtx>,
     force_load: bool,
@@ -139,7 +156,6 @@ pub trait FieldLoader {
 
 impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     pub fn new(
-        rlookup: &'env mut RLookup<'a>,
         dst_row: &'env mut RLookupRow<'a>,
         ctx: NonNull<ffi::RedisModuleCtx>,
         dmd: &'a DocumentMetadata,
@@ -155,7 +171,6 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
         dst_row.set_sorting_vector(Some(sorting_vector));
 
         Self {
-            rlookup,
             dst_row,
             ctx,
             force_load: false,
@@ -193,12 +208,14 @@ impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
     /// be preferred if you need to load all keys in an rlookup.
     ///
     /// `Self::force_load` has **no effect** on this method, all keys are always loaded anyways.
-    pub fn load_all(self) -> Result<(), LoadAllError> {
-        self.format.load_all(
-            self.rlookup,
-            self.dst_row,
-            &self.dmd.key_name(Some(self.ctx)),
-        )
+    ///
+    /// Unlike [`Self::load_specific`], this needs `&mut RLookup` because it may create new keys on
+    /// the fly. It is taken here rather than held by the loader so the per-field
+    /// [`Self::load_specific`] path never carries a mutable borrow that could alias caller-supplied
+    /// key references.
+    pub fn load_all(self, rlookup: &mut RLookup) -> Result<(), LoadAllError> {
+        self.format
+            .load_all(rlookup, self.dst_row, &self.dmd.key_name(Some(self.ctx)))
     }
 }
 
