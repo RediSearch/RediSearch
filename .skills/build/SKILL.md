@@ -23,7 +23,15 @@ if command -v sccache >/dev/null 2>&1; then
   repo_parent="$(cd "$repo_root/.." && pwd)"
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-30G}"
   export SCCACHE_BASEDIRS="${SCCACHE_BASEDIRS:-$repo_parent}"
-  export RUSTC_WRAPPER="${RUSTC_WRAPPER:-sccache}"
+  if SCCACHE_PROBE_OUTPUT="$(sccache --show-stats 2>&1)"; then
+    export RUSTC_WRAPPER="${RUSTC_WRAPPER:-sccache}"
+  else
+    echo "WARNING: sccache server failed to start; building Rust without sccache" >&2
+    echo "$SCCACHE_PROBE_OUTPUT" >&2
+    case "${RUSTC_WRAPPER-}" in
+      sccache|*/sccache) unset RUSTC_WRAPPER ;;
+    esac
+  fi
 fi
 ```
 `build.sh` already configures CMake to use `sccache` for C/C++ when it is available.
