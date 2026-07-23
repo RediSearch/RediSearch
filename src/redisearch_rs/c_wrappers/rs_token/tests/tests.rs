@@ -84,7 +84,7 @@ fn null_string_yields_none() {
     with_nul_token(None, 0, |tok| {
         assert!(tok.is_empty());
         assert_eq!(tok.as_bytes(), None);
-        assert!(tok.as_lower_runes_lossy().is_none());
+        assert!(tok.as_lower_runes().is_none());
         // The token carries no string, so `as_c_str` returns `None`.
         assert!(tok.as_c_str().is_none());
     });
@@ -102,18 +102,32 @@ fn exposes_nul_terminated_c_str() {
 #[test]
 fn lower_runes_lowercases() {
     with_token(Some(b"HeLLo"), 0, |tok| {
-        let runes = tok.as_lower_runes_lossy().unwrap().unwrap();
+        let runes = tok.as_lower_runes().unwrap().unwrap();
         let expected: Vec<u16> = "hello".encode_utf16().collect();
         assert_eq!(runes, expected);
     });
 }
 
 #[test]
-fn lower_runes_replaces_invalid_utf8() {
-    // A lone `0xFF` byte is invalid UTF-8 and is replaced by U+FFFD.
-    with_token(Some(b"a\xFFb"), 0, |tok| {
-        let runes = tok.as_lower_runes_lossy().unwrap().unwrap();
-        assert_eq!(runes, vec![u16::from(b'a'), 0xFFFD, u16::from(b'b')]);
+fn lower_runes_decodes_invalid_utf8_leniently() {
+    // A token is a byte string, and a term is indexed under the runes its bytes
+    // decode to without validation: `[0xC3, b'(']` must resolve 0x00E8, the rune
+    // the index stored it as. Validating would build a key from replacement
+    // characters that was never stored.
+    with_token(Some(b"\xC3("), 0, |tok| {
+        let runes = tok.as_lower_runes().unwrap().unwrap();
+        assert_eq!(runes, vec![0x00E8]);
+    });
+}
+
+#[test]
+fn lower_runes_preserves_surrogate_bytes() {
+    // The three-byte form of a lone surrogate — what a non-BMP codepoint
+    // truncated to a rune re-encodes to — survives the conversion instead of
+    // being replaced.
+    with_token(Some(b"\xED\xA0\x80"), 0, |tok| {
+        let runes = tok.as_lower_runes().unwrap().unwrap();
+        assert_eq!(runes, vec![0xD800]);
     });
 }
 
@@ -123,7 +137,7 @@ fn lower_runes_too_long_errors() {
     let content = vec![b'a'; string_utils::runes::MAX_RUNE_STR_LEN + 1];
     with_token(Some(&content), 0, |tok| {
         let err = tok
-            .as_lower_runes_lossy()
+            .as_lower_runes()
             .expect("token carries a string")
             .expect_err("string exceeds the maximum rune length");
         assert_eq!(err.len, string_utils::runes::MAX_RUNE_STR_LEN + 1);

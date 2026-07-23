@@ -12,7 +12,7 @@
 use std::{ffi::CStr, ptr::NonNull};
 
 use query_term::RSTokenFlags;
-use string_utils::runes::{RuneStrTooLong, str_to_lower_runes};
+use string_utils::runes::{RuneStrTooLong, utf8_to_lower_runes};
 
 /// Safe, read-only, [`Copy`] handle borrowing a query-node's [`ffi::RSToken`].
 ///
@@ -84,13 +84,18 @@ impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
     /// Lowercase the token string and convert it to runes, e.g. for a trie
     /// lookup.
     ///
+    /// A token is a byte string and need not be valid UTF-8, so the bytes are
+    /// decoded by [`utf8_to_lower_runes`] — the same decoding a term is indexed
+    /// under — rather than validated. A token carrying malformed bytes therefore
+    /// resolves the runes the index stored them as, instead of a key built from
+    /// replacement characters that was never stored.
+    ///
     /// Returns `None` when the token carries no string (a null `str_` pointer),
     /// and `Some(Err(_))` when the lowercased string exceeds the maximum
-    /// rune-string length. Invalid UTF-8 bytes are replaced with the Unicode
-    /// replacement character (U+FFFD) before conversion.
-    pub fn as_lower_runes_lossy(&self) -> Option<Result<Vec<u16>, RuneStrTooLong>> {
+    /// rune-string length.
+    pub fn as_lower_runes(&self) -> Option<Result<Vec<u16>, RuneStrTooLong>> {
         let bytes = self.as_bytes()?;
-        Some(str_to_lower_runes(&String::from_utf8_lossy(bytes)))
+        Some(utf8_to_lower_runes(bytes))
     }
 }
 
