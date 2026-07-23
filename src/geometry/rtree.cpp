@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rtree.hpp"
+#include "search_ctx.h"
+#include "iterators_ffi.h"  // NewGeometryQueryIterator
+#include "rmalloc.h"        // rm_malloc
 
-#include <bits/std_abs.h>
-#include <math.h>
-#include <pstl/glue_numeric_impl.h>
 #include <string>     // std::string, std::char_traits
 #include <sstream>    // std::stringstream
 #include <memory>     // std::unique_ptr
@@ -18,37 +18,7 @@
 #include <ranges>     // ranges::subrange, views::transform
 #include <exception>  // std::exception
 #include <execution>  // std::unseq
-#include <cstring>
-#include <iterator>
-#include <limits>
-#include <stdexcept>
-
-#include "search_ctx.h"
-#include "iterators_ffi.h"  // NewGeometryQueryIterator
-#include "rmalloc.h"        // rm_malloc
-#include "boost/geometry/algorithms/correct.hpp"
-#include "boost/geometry/algorithms/detail/envelope/interface.hpp"
-#include "boost/geometry/algorithms/detail/intersects/interface.hpp"
-#include "boost/geometry/algorithms/detail/is_valid/interface.hpp"
-#include "boost/geometry/algorithms/detail/overlay/overlay_type.hpp"
-#include "boost/geometry/algorithms/detail/within/interface.hpp"
-#include "boost/geometry/core/access.hpp"
-#include "boost/geometry/core/point_order.hpp"
-#include "boost/geometry/index/detail/predicates.hpp"
-#include "boost/geometry/index/detail/rtree/iterators.hpp"
-#include "boost/geometry/index/detail/rtree/query_iterators.hpp"
-#include "boost/geometry/index/predicates.hpp"
-#include "boost/geometry/io/wkt/read.hpp"
-#include "boost/geometry/io/wkt/write.hpp"
-#include "boost/geometry/util/type_traits_std.hpp"
-#include "boost/none.hpp"
-#include "boost/optional/optional.hpp"
-#include "boost/unordered/detail/foa/flat_map_types.hpp"
-#include "boost/unordered/detail/foa/table.hpp"
-#include "geometry/allocator/allocator.hpp"
-#include "geometry/allocator/tracking_allocator.hpp"
-#include "geometry/geometry_types.h"
-#include "search_disk_api.h"
+#include <numeric>    // std::transform_reduce
 
 namespace RediSearch {
 namespace GeoShape {

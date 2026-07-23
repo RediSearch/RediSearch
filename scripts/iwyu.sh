@@ -17,4 +17,4 @@ fi
 echo "# compile db: $DB"
 
 iwyu_tool -p "$DB" "${@:-src}" \
-  | fix_include --nocomments --ignore_re '\.h$|query_parser/'
+  | fix_include --nocomments --ignore_re '\.h$|query_parser/|src/geometry/rtree.cpp'
