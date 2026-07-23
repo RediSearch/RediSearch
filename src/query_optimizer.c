@@ -8,9 +8,28 @@
 */
 
 #include "query_optimizer.h"
+
+#include <string.h>
+
 #include "iterators/optimizer_reader.h"
-#include "ext/default.h"
 #include "iterators_ffi.h"
+#include "aggregate/aggregate_plan.h"
+#include "field.h"
+#include "field_spec.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_internal.h"
+#include "query_types.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_iterator_type.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "vector_index.h"
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));

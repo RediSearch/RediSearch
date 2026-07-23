@@ -6,8 +6,10 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <stdatomic.h>
-#include "search_result_ffi.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -16,13 +18,10 @@
 #include "dist_plan.h"
 #include "module.h"
 #include "profile/profile.h"
-#include "util/timeout.h"
 #include "resp3.h"
-#include "coord/config.h"
 #include "config.h"
 #include "dist_profile.h"
 #include "shard_window_ratio.h"
-#include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "rpnet.h"
@@ -30,11 +29,40 @@
 #include "info/global_stats.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "debug_commands.h"
 #include "coord_request_ctx.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
 #include "cursor.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate_plan.h"
+#include "concurrent_ctx.h"
+#include "obfuscation/hidden_unicode.h"
+#include "pipeline/pipeline.h"
+#include "profile/options.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "redismodule.h"
+#include "reply.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/command.h"
+#include "rmr/reply.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "special_case_ctx.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
+#include "vector_index.h"
+
+struct ConcurrentCmdCtx;
 
 static const RLookupKey *keyForField(RPNet *nc, const char *s) {
   RLOOKUP_FOREACH(kk, nc->lookup, {

@@ -7,14 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fragmenter.h"
+
+#include <sys/uio.h>
+#include <string.h>
+
 #include "query_term_ffi.h"
 #include "toksep.h"
 #include "tokenize.h"
 #include "util/minmax.h"
-#include <ctype.h>
-#include <float.h>
-#include <sys/uio.h>
 #include "rmutil/rm_assert.h"
+#include "rmalloc.h"
+
+struct iovec;
 
 // Estimated characters per token
 #define EST_CHARS_PER_TOK 6

@@ -7,17 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+
 #include <sys/param.h>
 #include <string.h>
-#include <stdio.h>
+
 #include "redismodule.h"
-#include "fnv_ffi.h"
 #include "triemap_ffi.h"
 #include "sortable.h"
 #include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "buffer.h"
+#include "rules.h"
+
+struct timespec;
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {

@@ -47,17 +47,20 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <stdbool.h>
 
 #pragma GCC visibility push(default)
 #include "siphash.c.inc" // IWYU pragma: keep
+#include "util/arr/arr.h"
+
 #pragma GCC visibility pop
+
+#include <assert.h>
 
 #include "dict.h"
 #include "redismodule.h"
-#include <assert.h>
 #include "rmalloc.h"
 #include "obfuscation/hidden.h"
 

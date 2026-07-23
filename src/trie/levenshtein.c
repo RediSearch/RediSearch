@@ -7,12 +7,15 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <stdlib.h>
-#include <stdio.h>
 #include <sys/param.h>
-#include <string.h>
+#include <stdint.h>
+
 #include "levenshtein.h"
 #include "rune_util.h"
 #include "rmalloc.h"
+#include "libnu/casemap.h"
+#include "trie/sparse_vector.h"
+#include "trie/trie_node.h"
 
 static rune runeLower(rune r) {
   uint32_t lowered = 0;

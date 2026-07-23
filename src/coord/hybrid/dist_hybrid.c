@@ -8,29 +8,58 @@
 */
 
 #include "dist_hybrid.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
-#include "rmr/rmr.h"
 #include "rmutil/util.h"
 #include "rpnet.h"
 #include "hybrid_cursor_mappings.h"
 #include "info/global_stats.h"
 #include "profile/profile.h"
 #include "dist_profile.h"
-#include "shard_window_ratio.h"
 #include "config.h"
 #include "coord/coord_request_ctx.h"
-#include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
 #include "document.h"
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/aggregate_plan.h"
+#include "obfuscation/hidden_unicode.h"
+#include "pipeline/pipeline.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "reply.h"
+#include "result_processor_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/reply.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "util/references.h"
+#include "vector_index.h"
+
+struct ConcurrentCmdCtx;
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3

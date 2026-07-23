@@ -7,11 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redise.h"
+
+#include <strings.h>
+#include <stdbool.h>
+#include <string.h>
+
 #include "rmalloc.h"
 #include "rmutil/args.h"
 #include "slot_ranges.h"
 #include "config.h"
-#include <strings.h>
+#include "hiredis/read.h"
+#include "rmr/endpoint.h"
+#include "rmr/node.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
 
 typedef struct {
   arrayof(RedisModuleSlotRange) slotRanges;
