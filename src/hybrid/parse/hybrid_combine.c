@@ -12,9 +12,6 @@
 #include "util/arg_parser.h"
 #include <string.h>
 
-#define HYBRID_DEFAULT_ALPHA 0.3
-#define HYBRID_DEFAULT_BETA 0.7
-
 static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
   unsigned int count = 0;
   int rc = AC_GetUnsigned(ac, &count, 0);
@@ -23,9 +20,6 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
     return false;
   } else if (rc != AC_OK) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
-    return false;
-  } else if (count == 0) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Explicitly specifying %s requires at least one argument, argument count must be positive", clause);
     return false;
   } else if (count % 2 != 0) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
@@ -43,7 +37,8 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   return true;
 }
 
-static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RSSearchOptions* searchOpts, QueryError *status) {
+static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
+                              RSSearchOptions *searchOpts, QueryError *status) {
   // LINEAR 4 ALPHA 0.1 BETA 0.9 ...
   //        ^
 
@@ -66,6 +61,9 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   // Define the required arguments
   ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
   ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+  // Legacy (counted) form of YIELD_SCORE_AS: accepted inside the method argument
+  // count for backward compatibility. The positional form (after the method
+  // block) is handled in handleCombine.
   ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   int windowValue = HYBRID_DEFAULT_WINDOW;
@@ -96,14 +94,15 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx, RS
   }
 
   // Store the parsed values
-  linearCtx->linearWeights[0] = hasAlpha ? alphaValue : HYBRID_DEFAULT_ALPHA;
-  linearCtx->linearWeights[1] = hasBeta ? betaValue : HYBRID_DEFAULT_BETA;
+  linearCtx->linearWeights[0] = hasAlpha ? alphaValue : HYBRID_DEFAULT_LINEAR_ALPHA;
+  linearCtx->linearWeights[1] = hasBeta ? betaValue : HYBRID_DEFAULT_LINEAR_BETA;
   linearCtx->window = windowValue;
 
   ArgParser_Free(parser);
 }
 
-static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow, RSSearchOptions* searchOpts, QueryError *status) {
+static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow,
+                          RSSearchOptions *searchOpts, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf = {0};
   if (!getVarArgsForClause(ac, &rrf, "RRF", status)) {
@@ -127,6 +126,9 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
                     ARG_OPT_END);
+  // Legacy (counted) form of YIELD_SCORE_AS: accepted inside the method argument
+  // count for backward compatibility. The positional form (after the method
+  // block) is handled in handleCombine.
   ArgParser_AddString(parser, "YIELD_SCORE_AS", "Alias for the combined score", &searchOpts->scoreAlias);
 
   // Parse the arguments
@@ -142,7 +144,27 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
 }
 
 
-static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, RSSearchOptions *searchOpts, QueryError *status) {
+// Parse the positional YIELD_SCORE_AS <alias> clause that may follow a COMBINE
+// method. The alias is applied to the merged (tail) score, so it is stored in
+// the tail search options rather than in either subquery.
+//   COMBINE RRF|LINEAR ... YIELD_SCORE_AS <alias>
+//                                         ^
+static void parseCombineYieldScoreClause(ArgsCursor *ac, HybridParseContext *ctx, QueryError *status) {
+  if (AC_IsAtEnd(ac)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Missing argument value for YIELD_SCORE_AS");
+    return;
+  }
+  if (AC_GetString(ac, &ctx->searchopts->scoreAlias, NULL, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_EBADVAL, "Invalid YIELD_SCORE_AS value");
+    return;
+  }
+  // Mirror the SEARCH subquery path so the combined score is emitted as a field
+  // and applyRichResultsOptimization does not skip collecting it.
+  *ctx->reqFlags |= QEXEC_F_SEND_SCORES_AS_FIELD;
+}
+
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx,
+                            RSSearchOptions *searchOpts, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -185,11 +207,38 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
 
   combineCtx->scoringType = parsedScoringType;
   ArgsCursor *ac = parser->cursor;
+  // The method ArgParser writes the legacy "counted" YIELD_SCORE_AS (form A)
+  // directly into searchopts->scoreAlias. Snapshot it so we can tell afterwards
+  // whether form A consumed the alias, and reject a second (positional) one.
+  const char *aliasBefore = ctx->searchopts->scoreAlias;
   if (parsedScoringType == HYBRID_SCORING_LINEAR) {
     combineCtx->linearCtx.linearWeights = rm_calloc(numWeights, sizeof(double));
     combineCtx->linearCtx.numWeights = numWeights;
     parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
     parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
+  }
+  if (QueryError_HasError(status)) {
+    return;
+  }
+  bool yieldParsedInBlock = (ctx->searchopts->scoreAlias != aliasBefore);
+
+  if (AC_AdvanceIfMatch(ac, "YIELD_SCORE_AS")) {
+    // Positional form B. Reject if the alias was already given in the counted
+    // form A (specified more than once).
+    if (yieldParsedInBlock) {
+      QueryError_SetError(status, QUERY_EPARSEARGS,
+                          "YIELD_SCORE_AS specified more than once");
+      return;
+    }
+    parseCombineYieldScoreClause(ac, ctx, status);
+    if (QueryError_HasError(status)) {
+      return;
+    }
+  } else if (yieldParsedInBlock) {
+    // Form A: the alias was written to searchopts->scoreAlias by the method
+    // ArgParser. Mirror the SEARCH subquery path so the combined score is
+    // emitted as a field and applyRichResultsOptimization does not skip it.
+    *ctx->reqFlags |= QEXEC_F_SEND_SCORES_AS_FIELD;
   }
 }
