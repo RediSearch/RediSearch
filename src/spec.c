@@ -3375,11 +3375,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 
   QueryError status = QueryError_Default();
 
-  // Block new documents while the index is knowingly incomplete from an OOM-aborted build,
-  // but NOT while a scan is in progress: a recovery scan (and the real-time writes alongside
-  // it) must be allowed to index, even though scan_failed_OOM stays set until that scan
-  // completes successfully (it still gates the query-time "partial data" warnings meanwhile).
-  if(spec->scan_failed_OOM && !spec->scan_in_progress) {
+  if(spec->scan_failed_OOM) {
     QueryError_SetWithoutUserDataFmt(&status, QUERY_ERROR_CODE_INDEX_BG_OOM_FAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);

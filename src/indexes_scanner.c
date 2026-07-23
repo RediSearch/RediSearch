@@ -72,14 +72,13 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
   StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(curr_run_ref);
   if (sp) {
-    // A newer scan may have superseded this one while the GIL was released (the async OOM
-    // path drops it between aborting the cursor and re-taking it here): a recovery FT.ALTER
-    // would have run IndexesScanner_New, which cancels this scanner, installs a replacement
-    // as sp->scanner, and clears the OOM state. Recording this stale scanner's failure now
-    // would clobber that fresh state — re-raising scan_failed_OOM makes IndexSpec_UpdateDoc
-    // reject the replacement scan's keys, leaving the index permanently partial. So only
-    // record while this scanner is still the spec's current one. Both this function and
-    // IndexesScanner_New run under the GIL, so the check is serialized against the swap.
+    // A newer scan may have superseded this one while the GIL was released (the async OOM path
+    // drops it between aborting the cursor and re-taking it here): a recovery FT.ALTER would have
+    // run IndexesScanner_New, which cancels this scanner, installs a replacement as sp->scanner,
+    // and cleared the OOM state. Recording this stale scanner's failure now would clobber that
+    // fresh state — re-raising scan_failed_OOM makes IndexSpec_UpdateDoc reject the replacement
+    // scan's keys, leaving the index permanently partial. So only record while this scanner is
+    // still the spec's current one. Both this function and IndexesScanner_New run under the GIL.
     if (sp->scanner == scanner) {
       // Error message does not contain user data. scanner->OOMkey may be NULL when no
       // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
@@ -205,14 +204,14 @@ IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
-  // NOTE: the persisted OOM state (scan_failed_OOM / scan_failed_OOM_scanned_keys / the
-  // background-index failure flag) is deliberately NOT cleared here. A recovery scan starting
-  // does not mean the index is complete yet — it still holds only the aborted build's partial
-  // data until this scan finishes. Clearing now would drop the query-time "partial data"
-  // warnings and flip FT.INFO to OK during that window. Instead the state is cleared in
-  // IndexesScanner_Free once the scan completes successfully. The write-block in
-  // IndexSpec_UpdateDoc is separately suppressed while scan_in_progress holds, so this scan can
-  // still index despite scan_failed_OOM remaining set.
+  // A fresh scan supersedes any earlier OOM-aborted build: clear the persisted OOM state so
+  // percent_indexed, FT.INFO's background-indexing status, and the new-document write-block in
+  // IndexSpec_UpdateDoc reflect this run rather than the old failure. If this scan also aborts on
+  // OOM, IndexesScanner_RecordBackgroundFailure re-sets them (and its supersession guard keeps a
+  // stale, superseded scanner from re-setting them behind this scan's back).
+  spec->scan_failed_OOM = false;
+  spec->scan_failed_OOM_scanned_keys = 0;
+  IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
 
   return scanner;
 }
@@ -228,17 +227,6 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
       if (spec->scanner == scanner) {
         spec->scanner = NULL;
         spec->scan_in_progress = false;
-        // A scan that completed successfully (not cancelled, and it did not abort on OOM)
-        // supersedes any earlier OOM-aborted build: clear the persisted OOM state now, so
-        // percent_indexed, FT.INFO's background-indexing status, and query-time "partial
-        // data" warnings all reflect the now-complete index. A cancelled or OOM-aborted
-        // scan leaves the state untouched (a superseded scan is not the current scanner, so
-        // it does not reach here; an OOM abort keeps the failure visible for recovery).
-        if (!IndexesScanner_IsCancelled(scanner) && !scanner->scanFailedOnOOM) {
-          spec->scan_failed_OOM = false;
-          spec->scan_failed_OOM_scanned_keys = 0;
-          IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
-        }
       }
       StrongRef_Release(tmp);
     }

@@ -131,67 +131,6 @@ def test_oom_state_cleared_on_successful_rescan(env):
   env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], 'OK')
 
 @skip(cluster=True)
-def test_oom_status_persists_during_recovery_scan():
-  # The user-visible OOM state (percent_indexed < 1, FT.INFO 'background indexing status' =
-  # OOM failure, and the query "partial data" warning) must persist for the whole duration of
-  # a recovery scan: until it completes, the index still holds only the aborted build's partial
-  # data. The state is cleared only once the recovery scan finishes successfully. Meanwhile the
-  # new-document write-block is suppressed while the scan is in progress, so the recovery scan
-  # can actually index. RESP3 so the search warning is directly accessible.
-  env = Env(protocol=3)
-  oom_test_config(env)
-
-  num_docs = 1000
-  for i in range(num_docs):
-      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
-
-  # Drive a partial, OOM-cancelled initial build.
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-  num_docs_scanned = num_docs // 4
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-  waitForIndexPauseScan(env, 'idx')
-  set_tight_maxmemory_for_oom(env, 0.85)
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexStatus(env, 'PAUSED_ON_OOM', 'idx')
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexFinishScan(env, 'idx')
-
-  # OOM state visible after the aborted build.
-  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], OOMfailureStr)
-  env.assertLess(float(index_info(env)['percent_indexed']), 1.0)
-  env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*')['warning'][0], partial_results_warning_str)
-
-  # Start a recovery scan, but pause it mid-flight so we can observe the in-progress window.
-  set_unlimited_maxmemory_for_oom(env)
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-  env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'age', 'NUMERIC').ok()
-  waitForIndexStatus(env, 'NEW', 'idx')
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexPauseScan(env, 'idx')
-
-  # Recovery is in progress and the index is still partial: the OOM state must NOT be cleared
-  # yet. (Before this fix it was cleared at scan start, silently dropping the warning.)
-  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], OOMfailureStr)
-  env.assertLess(float(index_info(env)['percent_indexed']), 1.0)
-  env.assertEqual(env.cmd('FT.SEARCH', 'idx', '*')['warning'][0], partial_results_warning_str)
-
-  # Let the recovery scan run to completion.
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexFinishScan(env, 'idx')
-
-  # Now the index is complete: the OOM state is cleared and every doc is indexed (the write-block
-  # did not reject the recovery scan's keys).
-  env.assertEqual(get_index_num_docs(env), num_docs)
-  env.assertEqual(float(index_info(env)['percent_indexed']), 1.0)
-  env.assertEqual(get_index_errors_dict(env)[bgIndexingStatusStr], 'OK')
-  env.assertNotContains(partial_results_warning_str, env.cmd('FT.SEARCH', 'idx', '*').get('warning', []))
-
-@skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity():
   # Change to resp3
   env = Env(protocol=3)
