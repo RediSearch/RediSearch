@@ -1687,8 +1687,16 @@ void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
 }
 
 int RMCK_ConfigGetBool(RedisModuleCtx *ctx, const char *name, int *res) {
-  if (strcmp(name, "tls-cluster") == 0) {
+  if (!strcmp(name, "tls-cluster")) {
     *res = 0; // Simulate that tls-cluster is disabled
+    return REDISMODULE_OK;
+  }
+  return REDISMODULE_ERR; // Unknown config
+}
+
+int RMCK_ConfigGetNumeric(RedisModuleCtx *ctx, const char *name, long long *res) {
+  if (!strcmp(name, "tls-port")) {
+    *res = 0; // Simulate that tls-port is not set
     return REDISMODULE_OK;
   }
   return REDISMODULE_ERR; // Unknown config
@@ -1834,6 +1842,7 @@ static void registerApis() {
 
   // Config
   REGISTER_API(ConfigGetBool);
+  REGISTER_API(ConfigGetNumeric);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
