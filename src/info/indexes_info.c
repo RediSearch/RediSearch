@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "spec.h"
 #include "field_spec_info.h"
+#include "VecSim/vec_sim.h"
 #include <string.h>  // Add this for strerror
 
 // Assuming the GIL is held by the caller
@@ -85,5 +86,11 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found
   if (BGIndexerInProgress) info.total_active_write_threads++;  // BG indexer is currently active
+
+  // Process-wide vector memory not tied to any specific spec (e.g. the shared SVS
+  // thread pool singleton).
+  size_t shared_vector_mem = VecSim_GetSharedMemory();
+  info.fields_stats.total_vector_idx_mem += shared_vector_mem;
+  info.total_mem += shared_vector_mem;
   return info;
 }

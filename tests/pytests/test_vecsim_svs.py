@@ -20,7 +20,9 @@ from common import (
     waitForIndex,
     SkipTest,
     call_and_store,
-    getWorkersThpoolStats
+    getWorkersThpoolStats,
+    wait_for_condition,
+    skipIfNoEnableAssert,
 )
 
 VECSIM_SVS_DATA_TYPES = ['FLOAT32', 'FLOAT16']
@@ -257,6 +259,84 @@ def test_memory_info():
 
         env.execute_command('FLUSHALL')
 
+@skip(cluster=True)
+def test_svs_shared_threadpool_memory_info():
+    """Verify shared SVS thread pool memory accounting:
+      * FT.DEBUG VECSIM_INFO exposes it as the top-level SHARED_MEMORY field
+        (appended once by the VecSim C API wrapper, not inside the nested
+        FRONTEND_INDEX/BACKEND_INDEX sections).
+      * FT.INFO vector_index_sz_mb folds it in once per call (per-spec scope).
+      * INFO MODULES search_used_memory_vector_index folds it in once per call
+        (process-wide scope).
+      * For a single SVS index, both FT.INFO and INFO MODULES report the same
+        bytes — vector field memory + pool memory.
+      * Pool memory is added once per call regardless of the number of vector
+        fields in the spec or specs in the process — no double-counting.
+
+    All observations are validated before and after growing the worker pool, which
+    physically resizes the shared SVS pool.
+    """
+    initial_workers = 1
+    grown_workers = 4
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    dim = 2
+    shared_mem_field = 'SHARED_MEMORY'
+
+    # The shared SVS pool singleton is initialized at module init via
+    # workersThreadPool_CreatePool -> VecSim_UpdateThreadPoolSize, so the field is
+    # always present in the debug info once any SVS index exists.
+    create_vector_index(env, dim, alg='SVS-VAMANA')
+
+    def measure():
+        # SHARED_MEMORY is appended once at the top level by the VecSim C API
+        # wrapper, not inside the nested BACKEND_INDEX/FRONTEND_INDEX sections.
+        debug_info = get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+        env.assertTrue(shared_mem_field in debug_info,
+                       message=f"VECSIM_INFO missing top-level '{shared_mem_field}': {debug_info}")
+        info_modules = env.cmd('INFO', 'MODULES')
+        return {
+            'debug_svs_pool_mem': int(debug_info[shared_mem_field]),
+            'debug_per_index_mem': int(debug_info['MEMORY']),
+            'info_modules_vec_mem': int(info_modules['search_used_memory_vector_index']),
+            'ft_info_vec_bytes': int(float(index_info(env, DEFAULT_INDEX_NAME)['vector_index_sz_mb']) * 0x100000),
+        }
+
+    def assert_invariants(label, m):
+        # FT.INFO and INFO MODULES report the same total for a single SVS field:
+        # per-index memory + pool memory, both folded once.
+        expected = m['debug_per_index_mem'] + m['debug_svs_pool_mem']
+        env.assertEqual(m['ft_info_vec_bytes'], expected,
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should equal per-index + pool: {m}")
+        env.assertEqual(m['info_modules_vec_mem'], expected,
+                        message=f"[{label}] INFO MODULES search_used_memory_vector_index should equal per-index + pool: {m}")
+        env.assertEqual(m['ft_info_vec_bytes'], m['info_modules_vec_mem'],
+                        message=f"[{label}] FT.INFO vector_index_sz_mb should match INFO MODULES "
+                                f"search_used_memory_vector_index: {m}")
+
+    # ---- Initial state ----
+    before = measure()
+    env.assertGreater(before['debug_svs_pool_mem'], 0, message="shared pool memory should be > 0 after pool initialization")
+    assert_invariants('before resize', before)
+
+    # ---- Grow the worker pool ----
+    # CONFIG SET WORKERS triggers VecSim_UpdateThreadPoolSize, which physically
+    # resizes the shared SVS pool (synchronous when no jobs are pending).
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', grown_workers)
+
+    after = measure()
+    env.assertGreater(after['debug_svs_pool_mem'], before['debug_svs_pool_mem'],
+                      message=f"SHARED_MEMORY should grow when workers go from "
+                              f"{initial_workers} to {grown_workers}: before={before}, after={after}")
+    assert_invariants('after resize', after)
+
+    # Both FT.INFO and INFO MODULES vector memory grow by exactly the pool growth
+    # (per-index memory is unchanged by the pool resize).
+    pool_growth = after['debug_svs_pool_mem'] - before['debug_svs_pool_mem']
+    env.assertEqual(after['ft_info_vec_bytes'] - before['ft_info_vec_bytes'], pool_growth,
+                    message=f"FT.INFO vector_index_sz_mb growth should match pool growth: before={before}, after={after}")
+    env.assertEqual(after['info_modules_vec_mem'] - before['info_modules_vec_mem'], pool_growth,
+                    message=f"INFO MODULES search_used_memory_vector_index growth should match pool growth: before={before}, after={after}")
+
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
 for workers in [0, 4]:
@@ -414,25 +494,18 @@ def change_threads(initial_workers, final_workers):
     env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
     env.assertEqual(int(env.execute_command(config_cmd(), 'GET', 'WORKERS')[0][1]), final_workers, message=message_prefix)
 
-    # TODO: new num_threads should be `final_workers` once VecSim gets notified of RediSearch thread pool changes
-    # last_reserved_num_threads should remain the same as we didn't do any operation
-    verify_num_threads(initial_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
+    # VecSim is notified of worker count changes via VecSim_UpdateThreadPoolSize.
+    # NUM_THREADS (shared pool size) should now reflect the new worker count.
+    # last_reserved_num_threads should remain the same as we didn't do any operation.
+    verify_num_threads(final_workers, prev_last_reserved_num_threads, message=f"{message_prefix}, after changing workers to {final_workers}")
 
     # Add more vectors to trigger background indexing
     populate_with_vectors(env, dim=dim, num_docs=update_threshold, datatype='FLOAT32', initial_doc_id=training_threshold + 1)
     wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME, message=f"{message_prefix}, add more vectors to trigger update")
-    # Since VecSim doesn't get notified when RediSearch worker count changes, when RediSearch worker count changes
-    # svs index continues to request the original number of threads during operations
-    #
-    # The actual thread reservation will be limited by the current RediSearch worker count
-    # - If workers decreased: requested > actual_workers
-    # - If workers increased: requested < actual_workers
-    #
-    # TODO: Expected behavior after VecSim gets worker change notifications:
-    # - num_threads should reflect the current RediSearch worker count
-    # - last_reserved_num_threads should match the actual threads used in operations
-    expected_last_reserved_num_threads = min(final_workers, initial_workers)
-    verify_num_threads(initial_workers, expected_last_reserved_num_threads,
+    # After VecSim gets worker change notifications:
+    # - num_threads reflects the current RediSearch worker count (shared pool size)
+    # - last_reserved_num_threads matches the actual threads used in operations (up to final_workers)
+    verify_num_threads(final_workers, final_workers,
                     message=f"{message_prefix}, after changing workers to {final_workers} and triggering another update job")
 
 def test_change_threads_turn_on():
@@ -624,3 +697,153 @@ def test_gc_no_workers():
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers)
+
+@skip(cluster=True)
+def test_resize_workers_during_pending_svs_jobs():
+    """WORKERS shrink while SVS update jobs are queued behind blocked queries.
+
+    Uses SYNC_POINT to block all worker threads on queries, then adds vectors
+    (SVS update jobs queue behind the blocked queries), then shrinks WORKERS
+    (allowed because the queue is RUNNING, not PAUSED). On signal, queries
+    release, workers resume, and the SVS jobs execute with the resized pool.
+
+    Uses BeforeSpecLock (not BeforeFirstRead) so that blocked workers do NOT
+    hold the spec read lock — this allows the main thread to acquire the spec
+    write lock for HSET / indexing without deadlocking.
+    """
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    skipIfNoEnableAssert(env)
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+    sync_point = 'BeforeSpecLock'
+
+    # Train the index and add a text field for query blocking
+    create_vector_index(env, dim, alg='SVS-vamana', additional_schema_args=['t', 'TEXT'])
+
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold, datatype='FLOAT32')
+    # Add a text value so FT.SEARCH t:hello has something to find
+    env.execute_command('HSET', 'doc1', 't', 'hello')
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="training")
+
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], initial_workers, message="after training")
+
+    # ARM the sync point — queries will block at BeforeSpecLock (no lock held)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point).ok()
+
+    # Fire initial_workers queries from separate connections to block all workers
+    query_threads = []
+    for _ in range(initial_workers):
+        conn = env.getConnection()
+        results, errors = [], []
+        t = threading.Thread(
+            target=lambda c, r, e: r.append(c.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME, '*', 'NOCONTENT', 'LIMIT', '0', '0')),
+            args=(conn, results, errors),
+            daemon=True
+        )
+        query_threads.append(t)
+        t.start()
+
+    # Wait until all workers are blocked at the sync point.
+    # Each blocked query is a job in progress, so numJobsInProgress == initial_workers
+    # means all workers are occupied and stuck.
+    wait_for_condition(
+        lambda: (getWorkersThpoolStats(env)['numJobsInProgress'] == initial_workers, {}),
+        'Timeout waiting for all workers to reach sync point')
+
+    # All workers are now blocked on queries (without holding spec lock).
+    # Add vectors — SVS update jobs are created (beginScheduledJob snapshots
+    # pool=4) and queued behind the blocked queries.
+    populate_with_vectors(env, dim=dim, num_docs=training_threshold,
+                          datatype='FLOAT32', initial_doc_id=training_threshold + 1)
+
+    # Shrink workers. Queue is RUNNING (not PAUSED), so this succeeds.
+    # VecSim_UpdateThreadPoolSize(2) is called — but since SVS scheduled jobs
+    # are pending (beginScheduledJob was called), the SVS pool shrink is DEFERRED
+    # until endScheduledJob fires.
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Release all blocked queries
+    env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point).ok()
+
+    # Wait for queries to finish
+    for t in query_threads:
+        t.join(timeout=30)
+
+    # Wait for SVS background indexing to complete
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                message="after resize and signal")
+
+    # Pool size should reflect the new worker count (deferred resize applied)
+    backend_info = get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    env.assertEqual(backend_info['NUM_THREADS'], final_workers,
+                    message="NUM_THREADS should match final workers")
+
+    # Verify search still works
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    res = env.execute_command('FT.SEARCH', DEFAULT_INDEX_NAME,
+                              f'*=>[KNN 10 @{DEFAULT_FIELD_NAME} $vec_param]',
+                              'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+    env.assertEqual(res[0], 10, message="KNN search should return results after resize")
+
+@skip(cluster=True)
+def test_multiple_svs_indexes_share_pool():
+    """Two SVS indexes share the same SVS thread pool. Both see the same
+    pool size and both complete operations after a WORKERS resize."""
+    initial_workers = 4
+    final_workers = 2
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {initial_workers}')
+    training_threshold = DEFAULT_BLOCK_SIZE
+    dim = 2
+    idx1, idx2 = 'idx1', 'idx2'
+    field = DEFAULT_FIELD_NAME
+
+    # Create two SVS indexes on the same field (both index the same docs)
+    create_vector_index(env, dim, index_name=idx1, field_name=field, alg='SVS-VAMANA')
+    create_vector_index(env, dim, index_name=idx2, field_name=field, alg='SVS-VAMANA')
+
+    # Populate past training threshold
+    populate_with_vectors(env, training_threshold, dim, field_name=field)
+
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} training")
+
+    # Both should report initial pool size
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], initial_workers,
+                        message=f"{idx} NUM_THREADS before resize")
+
+    # Resize workers
+    env.execute_command(config_cmd(), 'SET', 'WORKERS', final_workers)
+
+    # Both should immediately see the new pool size
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after resize")
+
+    # Trigger update jobs on both indexes
+    populate_with_vectors(env, training_threshold, dim, field_name=field,
+                          initial_doc_id=training_threshold + 1)
+
+    for idx in [idx1, idx2]:
+        wait_for_background_indexing(env, idx, field, message=f"{idx} after resize")
+
+    # Both indexes should still report the resized pool
+    for idx in [idx1, idx2]:
+        info = get_tiered_backend_debug_info(env, idx, field)
+        env.assertEqual(info['NUM_THREADS'], final_workers,
+                        message=f"{idx} NUM_THREADS after update")
+
+    # Verify search works on both
+    query = create_random_np_array_typed(dim, 'FLOAT32')
+    for idx in [idx1, idx2]:
+        res = env.execute_command('FT.SEARCH', idx,
+                                  f'*=>[KNN 10 @{field} $vec_param]',
+                                  'PARAMS', 2, 'vec_param', query.tobytes(), 'NOCONTENT')
+        env.assertEqual(res[0], 10, message=f"{idx} KNN search should return results")
