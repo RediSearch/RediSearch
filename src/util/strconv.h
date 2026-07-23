@@ -7,7 +7,7 @@
 #ifndef RS_STRCONV_H_
 #define RS_STRCONV_H_
 #include <limits.h>
-#include <sys/errno.h>
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
