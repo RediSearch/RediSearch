@@ -15,13 +15,13 @@ use index_result::{RSIndexResult, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::codec::{doc_ids_only::DocIdsOnly, raw_doc_ids_only::RawDocIdsOnly};
 use inverted_index::{DocIdsDecoder, opaque};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    Empty, RQEIterator, RQEIteratorError, RQEValidateStatus, SEARCH_ENTERPRISE_ITERATORS,
-    SkipToOutcome,
+    Empty, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SEARCH_ENTERPRISE_ITERATORS, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 use crate::{IteratorType, QueryError, RQEIteratorPrintable};
@@ -127,6 +127,49 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 }
 
+impl<'index> RQEIteratorBoxed<'index> for Wildcard<'index> {
+    type Suspended = RawWildcard<'index, Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawWildcard` is `#[repr(C)]` with the only `Rf`-dependent
+        // field being `result: RawIndexResult<Rf>`, layout-compatible across
+        // `Rf` (see [`crate::inverted_index::Wildcard::suspend`] for the
+        // same argument). Box::from_raw reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawWildcard<'index, Suspended>) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for RawWildcard<'query, Suspended> {
+    type Resumed<'a>
+        = Wildcard<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let raw = Box::into_raw(self);
+        // SAFETY: layout-compatible — see `suspend`. The top-level wildcard
+        // owns no references into the index (it's just a counter), so there
+        // is no state to refresh.
+        let active = unsafe { Box::from_raw(raw as *mut Wildcard<'a>) };
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mode-independent — mirrors the active `num_estimated`.
+        self.top_id as usize
+    }
+}
 /// A marker trait for iterators that match all documents.
 pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 
@@ -291,11 +334,25 @@ impl<'index> RQEIterator<'index> for NewWildcardIterator<'index> {
     }
 
     fn num_estimated(&self) -> usize {
-        delegate_wildcard_iterator!(self, num_estimated)
+        // Disambiguated against `RQESuspendedIterator::num_estimated` for the
+        // `Empty` variant (whose Suspended counterpart is `Empty` itself).
+        match self {
+            Self::NotOptimized(it) => RQEIterator::num_estimated(it),
+            Self::Optimized(it) => RQEIterator::num_estimated(it),
+            Self::Empty(it) => RQEIterator::num_estimated(it),
+            Self::Disk(it) => RQEIterator::num_estimated(it),
+        }
     }
 
     fn last_doc_id(&self) -> DocId {
-        delegate_wildcard_iterator!(self, last_doc_id)
+        // Disambiguated against `RQESuspendedIterator::last_doc_id` for the
+        // `Empty` variant (whose Suspended counterpart is `Empty` itself).
+        match self {
+            Self::NotOptimized(it) => RQEIterator::last_doc_id(it),
+            Self::Optimized(it) => RQEIterator::last_doc_id(it),
+            Self::Empty(it) => RQEIterator::last_doc_id(it),
+            Self::Disk(it) => RQEIterator::last_doc_id(it),
+        }
     }
 
     fn at_eof(&self) -> bool {
