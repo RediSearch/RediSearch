@@ -1440,10 +1440,12 @@ static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
 
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
   const RPLoader *loader = RPLoader_GetProfileSource(base);
-  const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
-  if (!fields || loader->loadopts.nkeys == 0) {
+  if (loader->loadopts.nkeys == 0) {
     return;
   }
+
+  const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
+  RS_LOG_ASSERT(fields, "profileFields must exist for explicit LOAD profile");
 
   RedisModule_ReplyKV_Array(reply, "Field loads profile");
   for (size_t ii = 0; ii < loader->loadopts.nkeys; ++ii) {
