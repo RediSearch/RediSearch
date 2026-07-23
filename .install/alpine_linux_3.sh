@@ -47,10 +47,10 @@ if [ -n "$LLVM_VER" ]; then
     # instead — both ld.lld and GNU ld accept a text script in place of an
     # archive, and it costs no disk space.
     if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
-        # Expand the glob before tee creates the output file, so the combined
-        # archive never lists itself.
-        # shellcheck disable=SC2086
-        LLVM_COMPONENT_LIBS=$(echo /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a /usr/lib/libzstd.a)
-        _sh "echo \"GROUP( ${LLVM_COMPONENT_LIBS} )\" | $MODE tee /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a > /dev/null"
+        # Build the GROUP() from a glob expanded at run/paste time (not baked in
+        # now — that produced a ~200-path one-liner in dry-run). The glob still
+        # expands before tee creates the output file, so the archive never lists
+        # itself. shellcheck disable=SC2086
+        _sh "libs=\$(echo /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a > /dev/null"
     fi
 fi
