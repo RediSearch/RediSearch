@@ -15,6 +15,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
+#include <unistd.h>
 
 #include "triemap_ffi.h"
 #include "util/logging.h"
@@ -1968,6 +1969,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 }
 
 #define DOCID_META_PRUNE_GIL_BATCH 500  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
+#define DOCID_META_PRUNE_GIL_SLEEP_US 1
 
 // Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
 // (nothing else removes those entries). Runs on the cleanPool worker before the
@@ -1976,9 +1978,11 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
 // RDB); gated on pruneKeyMetaOnFree so delete-docs drops skip it. specId is
 // monotonic, so any entry left behind is inert. See the design doc.
 static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
-  if (!sp->pruneKeyMetaOnFree || SearchDisk_IsEnabled() || sp->docs.size == 0) {
+  if (!sp->pruneKeyMetaOnFree || sp->docs.size == 0) {
     return;
   }
+  RS_ASSERT(!SearchDisk_IsEnabled());
+
   RedisModuleCtx *ctx = RSDummyContext;
   DocTable *dt = &sp->docs;
   size_t inBatch = 0;
@@ -1990,6 +1994,7 @@ static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
     if (++inBatch >= DOCID_META_PRUNE_GIL_BATCH) {
       RedisModule_ThreadSafeContextUnlock(ctx);
       inBatch = 0;
+      usleep(DOCID_META_PRUNE_GIL_SLEEP_US);
       RedisModule_ThreadSafeContextLock(ctx);
     }
   });
