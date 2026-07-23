@@ -7,8 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
+use timeout::TimeoutCheckResult;
+
 use super::filter::{TraversalFilter, VisitAll};
-use crate::trie_map::node::Node;
+use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) in lexicographical order.
 ///
@@ -17,12 +21,13 @@ use crate::trie_map::node::Node;
 pub struct Iter<'tm, Data, F> {
     /// Stack of nodes and whether they have been visited.
     stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Determine if the current node should be yielded and
-    /// if its children should be visited.
+    /// The [`TraversalFilter`] deciding, per node, the [`FilterOutcome`](super::filter::FilterOutcome).
     filter: F,
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
     key: Vec<u8>,
+    /// Timeout for this iterator
+    timeout: IteratorTimeoutState,
 }
 
 impl<'tm, Data, F> Iter<'tm, Data, F> {
@@ -36,7 +41,13 @@ impl<'tm, Data, F> Iter<'tm, Data, F> {
             stack,
             filter: f,
             key,
+            timeout: IteratorTimeoutState::no_timeout(),
         }
+    }
+
+    /// Set timeout
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.timeout = timeout.into();
     }
 }
 
@@ -66,6 +77,7 @@ where
             stack: root.into_iter().map(|node| (node, false)).collect(),
             key: prefix,
             filter: visit_descendants,
+            timeout: IteratorTimeoutState::no_timeout(),
         }
     }
 
@@ -79,6 +91,10 @@ where
     /// key to the one matching that node's entry
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         loop {
+            if matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
+                return None;
+            }
+
             let (node, was_visited) = self.stack.pop()?;
 
             if !was_visited {

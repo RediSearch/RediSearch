@@ -41,7 +41,12 @@ pub enum TopKMode {
     /// lost.
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
-    /// with the child filter iterator.
+    /// with the child filter iterator, keeping the top `k` in the heap.
+    ///
+    /// With no child filter every source record is a candidate: the whole
+    /// batch is fed through the heap, which still retains the top `k`. This is
+    /// the mode for a source that has no native top-k and must rely on the heap
+    /// for selection (e.g. a numeric `SORTBY` with no query filter).
     ///
     /// The source's [`ScoreSource::batch_strategy`] may return
     /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
@@ -91,7 +96,7 @@ pub struct TopKIterator<
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
-    compare: fn(f64, f64) -> Ordering,
+    compare: fn(&f64, &f64) -> Ordering,
     phase: Phase,
     /// Heap contents drained into score order for yielding.
     results: Vec<ScoredResult>,
@@ -106,7 +111,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     ///
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
-    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
@@ -115,7 +120,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Create a new [`TopKIterator`] with a filter child.
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
-    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
@@ -124,7 +129,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
+        compare: fn(&f64, &f64) -> Ordering,
         mode: TopKMode,
     ) -> Self {
         Self {
@@ -211,6 +216,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+            } else {
+                // No filter child: every source batch record is a candidate, so feed
+                // the whole batch through the heap, which retains the top k.
+                while let Some((doc_id, score)) = batch.next() {
+                    self.heap.push(doc_id, score);
+                }
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -219,6 +230,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     if self.mode == TopKMode::ForcedBatches {
                         // Honour the forced-batches contract: never switch
                         // mid-run.
+                        continue;
+                    }
+                    if self.child.is_none() {
+                        // Adhoc-BF requires a child filter iterator:
+                        // ignore the strategy switch.
                         continue;
                     }
                     self.mode = TopKMode::AdhocBF;
@@ -269,22 +285,23 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             };
             let doc_id = result.doc_id;
 
+            // Poll before the lookup so an expired deadline skips the expensive
+            // VecSim distance lookup.
+            scope.0.check_timeout()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 self.heap.push(doc_id, score);
             }
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates via `?` above and never gets here. Rerank while `scope` is
-        // alive, so the source's scan resources are still held.
+        // propagates earlier.
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let mut entries: Vec<_> = self.heap.drain_unsorted().collect();
             scope.0.rerank(&mut entries);
-            // Re-push to restore heap order under the (possibly) new scores.
-            // The count never exceeded k, so every entry is retained.
-            for ScoredResult { doc_id, score } in entries {
-                self.heap.push(doc_id, score);
-            }
+            // Restore heap order under the (possibly) new scores. The count
+            // never exceeded k, so every entry is retained and a bulk rebuild
+            // needs no eviction.
+            self.heap.rebuild_from(entries);
         }
 
         drop(scope);
@@ -303,40 +320,71 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     }
 
     /// Yield the next result from the unfiltered direct batch.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) are dropped
+    /// without replacement: the batch holds at most k entries, so skipping
+    /// shrinks the yielded count.
     fn advance_unfiltered_direct(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+        loop {
+            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
 
-        match item {
-            Some((doc_id, score)) => {
-                let result = self.source.build_result(doc_id, score);
-                self.current = Some(result);
-                self.last_doc_id = doc_id;
-                Ok(self.current.as_mut())
-            }
-            None => {
-                self.at_eof = true;
-                self.current = None;
-                Ok(None)
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
+
+            match item {
+                Some((doc_id, score)) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+                None => {
+                    self.at_eof = true;
+                    self.current = None;
+                    return Ok(None);
+                }
             }
         }
     }
 
     /// Yield the next result from the pre-sorted `results` vec.
+    ///
+    /// Results whose document expired ([`ScoreSource::is_expired`]) since
+    /// collection are dropped without replacement: they occupied their top-k
+    /// slots during collection, so they shrink the yielded count rather than
+    /// being refilled from lower-scored candidates.
     fn advance_from_results(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.yield_pos >= self.results.len() {
-            self.at_eof = true;
-            return Ok(None);
+        loop {
+            let entry = self.results.get(self.yield_pos).copied();
+            self.yield_pos += 1;
+
+            // Poll once per step, after classifying the entry and before yielding
+            // it — gates valid results, EOF, and expired skips alike.
+            self.source.check_timeout()?;
+            match entry {
+                None => {
+                    self.at_eof = true;
+                    return Ok(None);
+                }
+                Some(ScoredResult { doc_id, score }) => {
+                    let result = self.source.build_result(doc_id, score);
+                    if self.source.is_expired(&result) {
+                        continue;
+                    }
+                    self.last_doc_id = doc_id;
+                    self.current = Some(result);
+                    return Ok(self.current.as_mut());
+                }
+            }
         }
-        let ScoredResult { doc_id, score } = self.results[self.yield_pos];
-        self.yield_pos += 1;
-        let result = self.source.build_result(doc_id, score);
-        self.current = Some(result);
-        self.last_doc_id = doc_id;
-        Ok(self.current.as_mut())
     }
 }
 
@@ -382,8 +430,13 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> RQEIterat
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        // Only a child abort aborts us. Results come from our own score-ordered
+        // buffer, so a moved child does not move our cursor: collapse it to Ok.
         if let Some(child) = &mut self.child {
-            return child.revalidate(spec);
+            match child.revalidate(spec)? {
+                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
+                RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
+            }
         }
         Ok(RQEValidateStatus::Ok)
     }

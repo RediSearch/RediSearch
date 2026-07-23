@@ -9,15 +9,10 @@
 
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
-use std::{
-    ffi::c_char,
-    marker::PhantomData,
-    ops::{Bound, Deref},
-    ptr::NonNull,
-};
+use std::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use inverted_index::NumericFilter;
-use query_node_type::{QueryNodeOptions, QueryNodeType};
+use query_types::{QueryNodeOptions, QueryNodeType};
 use rqe_core::{DocId, FieldMask};
 
 /// The wildcard expansion mode for a [`QueryNode::Prefix`] node.
@@ -106,13 +101,6 @@ pub enum QueryNode<'a> {
         tok: &'a ffi::RSToken,
         /// Maximum edit distance (1, 2, or 3).
         max_dist: i32,
-    },
-    /// A lexicographic range query on a tag or text field.
-    LexRange {
-        /// Start of the range, or [`Bound::Unbounded`] for no lower limit.
-        begin: Bound<*const c_char>,
-        /// End of the range, or [`Bound::Unbounded`] for no upper limit.
-        end: Bound<*const c_char>,
     },
     /// A vector similarity search node.
     Vector {
@@ -350,14 +338,6 @@ impl QueryNodeRef {
                     max_dist: fz.maxDist,
                 }
             }
-            QueryNodeType::LexRange => {
-                // SAFETY: `type_` is `LexRange`, so the union holds a `QueryLexRangeNode`.
-                let lxrng = unsafe { &*union_ptr.cast::<ffi::QueryLexRangeNode>() };
-                QueryNode::LexRange {
-                    begin: char_ptr_to_bound(lxrng.begin, lxrng.includeBegin),
-                    end: char_ptr_to_bound(lxrng.end, lxrng.includeEnd),
-                }
-            }
             QueryNodeType::Vector => {
                 // SAFETY: `type_` is `Vector`, so the union holds a `QueryVectorNode`.
                 let vn = unsafe { &*union_ptr.cast::<ffi::QueryVectorNode>() };
@@ -503,14 +483,4 @@ fn child_ptr(node: &ffi::RSQueryNode, index: usize) -> NonNull<ffi::RSQueryNode>
     let child = unsafe { *slot };
     // SAFETY: all children in the AST are valid, non-null nodes.
     unsafe { NonNull::new_unchecked(child) }
-}
-
-const fn char_ptr_to_bound(ptr: *mut c_char, inclusive: bool) -> Bound<*const c_char> {
-    if ptr.is_null() {
-        Bound::Unbounded
-    } else if inclusive {
-        Bound::Included(ptr)
-    } else {
-        Bound::Excluded(ptr)
-    }
 }

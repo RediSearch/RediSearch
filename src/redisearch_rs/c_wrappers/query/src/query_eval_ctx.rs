@@ -9,7 +9,7 @@
 
 //! Safe wrapper around [`ffi::QueryEvalCtx`].
 
-use std::ptr::NonNull;
+use std::{ffi::CStr, ptr::NonNull};
 
 use query_flags::QEFlags;
 use rlookup::MetricRequest;
@@ -20,6 +20,8 @@ use rqe_iterators::{
     utils::{AnyTimeoutContext, TimeoutContextBlockedClient},
 };
 use search_disk::SearchDiskHandle;
+
+use query_types::scorers::{BuiltInScorer, RequestedScorer};
 
 /// Safe wrapper around [`ffi::QueryEvalCtx`].
 ///
@@ -60,6 +62,10 @@ impl QueryEvalContext {
     ///    context, but for the lifetime of every timeout context and iterator
     ///    derived from it (e.g. via
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
+    ///    The `opts.scorerName` pointer may be null (no scorer requested); when
+    ///    non-null it must point to a valid NUL-terminated C string that stays
+    ///    valid for at least the lifetime of the returned context (read by
+    ///    [`scorer`](QueryEvalContext::scorer)).
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
@@ -91,6 +97,12 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().sctx }
     }
 
+    /// Raw pointer to the [`ffi::RedisSearchCtx`], for passing to C functions
+    /// that take a `const RedisSearchCtx *`.
+    pub const fn sctx_ptr(&self) -> *const ffi::RedisSearchCtx {
+        self.as_ref().sctx
+    }
+
     /// The [`ffi::IndexSpec`] being queried.
     pub fn spec(&self) -> &ffi::IndexSpec {
         // SAFETY: invariant (2) of `new` guarantees `sctx.spec` is a valid,
@@ -115,6 +127,29 @@ impl QueryEvalContext {
     /// phrase terms to match in order regardless of per-node options.
     pub const fn search_in_order(&self) -> bool {
         self.opts().flags & ffi::RSSearchFlags_Search_InOrder != 0
+    }
+
+    /// The scorer this query requested, as a [`RequestedScorer`].
+    ///
+    /// This reports only the query's own choice; it does **not** apply any
+    /// default. A null scorer name is [`Unset`](RequestedScorer::Unset); a
+    /// set name resolves to [`BuiltIn`](RequestedScorer::BuiltIn) when it
+    /// matches a built-in, otherwise [`Custom`](RequestedScorer::Custom)
+    /// carrying the requested name. The caller decides the fallback for each
+    /// variant.
+    pub fn scorer(&self) -> RequestedScorer<'_> {
+        let Some(ptr) = NonNull::new(self.opts().scorerName.cast_mut()) else {
+            return RequestedScorer::Unset;
+        };
+        // SAFETY: invariant (2) of `new` guarantees `opts` is valid and that its
+        // `scorerName`, non-null here, points to a valid NUL-terminated C string
+        // that stays valid for at least the lifetime of the returned context, and
+        // thus of `&self` — which bounds the returned `RequestedScorer`'s borrow.
+        let name = unsafe { CStr::from_ptr(ptr.as_ptr()) };
+        match BuiltInScorer::from_c_str(name) {
+            Some(scorer) => RequestedScorer::BuiltIn(scorer),
+            None => RequestedScorer::Custom(name),
+        }
     }
 
     /// The [`query_error::QueryError`] accumulator for reporting evaluation
@@ -174,6 +209,12 @@ impl QueryEvalContext {
         unsafe { &*self.as_ref().docTable }
     }
 
+    /// Raw mutable pointer to the [`ffi::DocTable`], for passing to C functions
+    /// that take a `DocTable *`.
+    pub const fn doc_table_mut(&self) -> *mut ffi::DocTable {
+        self.as_ref().docTable
+    }
+
     /// The highest document ID currently assigned in the index.
     ///
     /// In search-on-disk mode (`spec.diskSpec` non-null) the value comes from
@@ -225,7 +266,7 @@ impl QueryEvalContext {
     ///
     /// When a Blocked Client Timeout request is wired into the context
     /// (`bcTimeoutAreq` non-null) the iterator polls that request's timeout
-    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeout`], when timeout
+    /// flag. Otherwise the Clock Based Timeout (or [`NoTimeoutChecker`], when timeout
     /// checks are skipped or no deadline is set) is derived from `sctx.time`.
     ///
     /// The returned [`AnyTimeoutContext`] is `'static`: when a Blocked Client
@@ -247,7 +288,7 @@ impl QueryEvalContext {
     /// caller discharges the precondition simply by not retaining the returned
     /// context beyond the current query. See [`TimeoutContextBlockedClient::new`].
     ///
-    /// [`NoTimeout`]: rqe_iterators::utils::NoTimeout
+    /// [`NoTimeoutChecker`]: rqe_iterators::utils::NoTimeoutChecker
     pub unsafe fn build_timeout_context(&self) -> AnyTimeoutContext {
         match NonNull::new(self.as_ref().bcTimeoutAreq) {
             Some(areq) => {
@@ -261,7 +302,7 @@ impl QueryEvalContext {
                 AnyTimeoutContext::BlockedClient(timeout)
             }
             // No Blocked Client Timeout source: derive the Clock Based Timeout
-            // (or `NoTimeout`) from `sctx.time`.
+            // (or `NoTimeoutChecker`) from `sctx.time`.
             None => AnyTimeoutContext::from_sctx(self.sctx(), TIMEOUT_CHECK_GRANULARITY),
         }
     }

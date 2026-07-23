@@ -54,7 +54,7 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher --exclude vector_score_source_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
@@ -378,7 +378,7 @@ prepare_cmake_arguments() {
   # the CMake cache retains CMAKE_INTERPROCEDURAL_OPTIMIZATION=true and the
   # static libraries already built from it contain LLVM bitcode, which
   # non-LTO consumers reject at link time (the Rust test binaries linking
-  # libredisearch_all.a through the default cc/bfd linker fail with
+  # libredisearch_c_bundle.a through the default cc/bfd linker fail with
   # "file format not recognized"). Inherit LTO from the cache so a re-drive
   # without the LTO argument (e.g. `make test` after an LTO `make build`)
   # keeps the matching clang/lld toolchain. FORCE wipes the directory in

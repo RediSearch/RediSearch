@@ -27,6 +27,8 @@
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
 #include "tag_index.h"
+#include "module.h"
+#include "util/workers.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -829,6 +831,8 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
 
 bool g_isLoading = false;
 
+#define RDB_LOAD_THROTTLE_BACKOFF_US 1000
+
 /**
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
@@ -839,9 +843,13 @@ bool g_isLoading = false;
 void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flags) {
   static size_t opCounter = 0;
 
+  if (!g_isLoading) {
+    return;
+  }
+
   // If server is loading, Yield to Redis if the number of operations is greater than the yieldEveryOps
   opCounter += numOps;
-  if (g_isLoading && opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+  if (opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = opCounter % RSGlobalConfig.indexerYieldEveryOpsWhileLoading;
     IncrementLoadYieldCounter(); // Track that we called yield
     unsigned int sleepMicros = GetIndexerSleepBeforeYieldMicros();
@@ -849,5 +857,17 @@ void IndexerYieldWhileLoading(RedisModuleCtx *ctx, unsigned int numOps, int flag
       usleep(sleepMicros);
     }
     RedisModule_Yield(ctx, flags, NULL);
+  }
+
+  // If server is loading, Yield to Redis if Vector write is throttling.
+  if (SearchDisk_IsEnabled() && !IS_SST_RDB_LOADING(ctx) &&
+      workersThreadPool_NumThreads() > 0 && SearchDisk_IsVectorWriteThrottling()) {
+    RedisModule_Log(ctx, "debug",
+                    "RDB load: vector flat buffer full; backing off the rebuild");
+    while (SearchDisk_IsVectorWriteThrottling()) {
+      usleep(RDB_LOAD_THROTTLE_BACKOFF_US);
+      RedisModule_Yield(ctx, flags, NULL);
+    }
+    RedisModule_Log(ctx, "debug", "RDB load: vector flat buffer throttle cleared; resuming");
   }
 }

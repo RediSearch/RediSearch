@@ -14,7 +14,6 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 use rqe_core::DocId;
 
 use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
@@ -24,62 +23,6 @@ use top_k::{
 };
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
-
-/// Child iterator whose `revalidate` unconditionally returns `Aborted`.
-///
-/// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
-/// already returns `Ok` from `revalidate`.  This stub only exists for the
-/// case that cannot be expressed with any existing public iterator type.
-struct AbortOnRevalidate;
-
-impl<'index> rqe_iterators::RQEIterator<'index> for AbortOnRevalidate {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
-    }
-
-    fn read(
-        &mut self,
-    ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
-        Ok(None)
-    }
-
-    fn skip_to(
-        &mut self,
-        _doc_id: DocId,
-    ) -> Result<Option<rqe_iterators::SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError>
-    {
-        unimplemented!()
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        Ok(rqe_iterators::RQEValidateStatus::Aborted)
-    }
-
-    fn rewind(&mut self) {}
-
-    fn num_estimated(&self) -> usize {
-        0
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        0
-    }
-
-    fn at_eof(&self) -> bool {
-        true
-    }
-
-    fn type_(&self) -> rqe_iterator_type::IteratorType {
-        rqe_iterator_type::IteratorType::Mock
-    }
-
-    fn intersection_sort_weight(&self, _: bool) -> f64 {
-        1.0
-    }
-}
 
 /// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`].
 ///
@@ -114,6 +57,10 @@ impl ScoreSource for TimingOutSource {
         BatchStrategy::Continue
     }
 
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
     fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
         rqe_iterator_type::IteratorType::Mock
     }
@@ -122,8 +69,8 @@ impl ScoreSource for TimingOutSource {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+fn asc(a: &f64, b: &f64) -> Ordering {
+    a.total_cmp(&b)
 }
 
 fn make_child<'a>(ids: Vec<DocId>) -> Box<dyn RQEIterator<'a> + 'a> {
@@ -234,39 +181,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
     assert!(it.at_eof());
 }
 
-// ── Revalidation ──────────────────────────────────────────────────────────────
-
-#[test]
-fn revalidate_without_child_returns_ok() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
-}
-
-#[test]
-fn revalidate_with_child_delegates_ok() {
-    // rqe_iterators::Empty::revalidate returns Ok, so it is the natural stand-in
-    // for any child iterator that leaves the parent in a valid state.
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-
-    assert_eq!(status, rqe_iterators::RQEValidateStatus::Ok);
-}
-
-#[test]
-fn revalidate_with_child_delegates_aborted() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn rqe_iterators::RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
-    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, rqe_iterators::RQEValidateStatus::Aborted);
-}
+// ── Timeout ─────────────────────────────────────────────────────────────────
 
 #[test]
 fn unfiltered_timeout_propagated() {
@@ -347,6 +262,157 @@ fn batches_multiple_batches() {
     assert_eq!(doc_ids, vec![3, 4, 1]);
 }
 
+/// Build a no-child Batches iterator, exercising the heap-driven top-k path a
+/// numeric `SORTBY` with no query filter uses.
+fn batches_no_child(
+    batches: Vec<Vec<(DocId, f64)>>,
+    k: usize,
+) -> TopKIterator<'static, MockScoreSource, Box<dyn RQEIterator<'static>>> {
+    let source = MockScoreSource::new(batches, vec![], |_, _| BatchStrategy::Continue);
+    TopKIterator::new_with_mode(
+        source,
+        None,
+        NonZeroUsize::new(k).unwrap(),
+        asc,
+        TopKMode::Batches,
+    )
+}
+
+#[test]
+fn batches_no_child_keeps_top_k() {
+    // The heap must retain the three lowest by score and yield them best-first,
+    // not stream all five in doc-id order.
+    let mut it = batches_no_child(
+        vec![vec![(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]],
+        3,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 4, 5]);
+}
+
+#[test]
+fn batches_no_child_fewer_than_k_yields_all() {
+    let mut it = batches_no_child(vec![vec![(1, 3.0), (2, 1.0)]], 5);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 1]);
+}
+
+#[test]
+fn batches_no_child_spans_multiple_batches() {
+    // Top-k selection must consider every batch, not just the first.
+    let mut it = batches_no_child(vec![vec![(1, 9.0), (2, 1.0)], vec![(3, 2.0), (4, 8.0)]], 2);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2, 3]);
+}
+
+#[test]
+fn batches_expired_doc_shrinks_results_without_refill() {
+    // Doc 1 expires after collection. It still fills the heap to k=2 during
+    // batch 1 (so the strategy sees a full heap and stops — batch 2's better
+    // candidate 3 is never pulled), and is dropped only at yield. Expiration
+    // must shrink the result count, not refill from candidate 3.
+    let source = MockScoreSource::new(
+        vec![vec![(1, 1.0), (2, 2.0)], vec![(3, 0.5)]],
+        vec![],
+        |count, k| {
+            if count >= k {
+                BatchStrategy::Stop
+            } else {
+                BatchStrategy::Continue
+            }
+        },
+    )
+    .with_expired([1]);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
+}
+
+#[test]
+fn unfiltered_expired_docs_dropped_at_yield() {
+    // The single direct batch is the complete result set; expired entries are
+    // skipped while streaming, shrinking the yielded count.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1, 3]);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
+}
+
+#[test]
+fn unfiltered_timeout_polled_while_skipping_expired() {
+    // A run of expired docs at the front of the direct batch must not drain past
+    // the deadline: the per-step poll fires on the expired skip and surfaces
+    // TimedOut instead of skipping ahead to the live doc 3.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1, 2])
+    .with_timeout_after(1);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn yield_timeout_polled_while_skipping_expired() {
+    // Collected top-k results that expired must not drain past the deadline at
+    // yield time: the per-step poll fires on the expired skip and surfaces
+    // TimedOut instead of skipping ahead to the live doc 3.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Stop
+    })
+    .with_expired([1, 2])
+    .with_timeout_after(1);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+    );
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn unfiltered_timeout_polled_before_yielding_valid() {
+    // No docs expire, so the deadline is never reached via an expired skip. It
+    // must still stop yielding: the first read returns a live doc, the second
+    // trips the per-step poll instead of streaming the rest of the batch.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_timeout_after(2);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(3).unwrap(), asc);
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
+#[test]
+fn yield_timeout_polled_before_yielding_valid() {
+    // Same guarantee on the heap-backed yield path: with no expired docs, the
+    // deadline still halts yielding after the first live result.
+    let source = MockScoreSource::new(vec![vec![(1, 0.1), (2, 0.2), (3, 0.3)]], vec![], |_, _| {
+        BatchStrategy::Stop
+    })
+    .with_timeout_after(2);
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2, 3]),
+        NonZeroUsize::new(3).unwrap(),
+        asc,
+    );
+    assert_eq!(it.read().unwrap().map(|r| r.doc_id), Some(1));
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
+
 #[test]
 fn strategy_stop_stops_after_first_batch() {
     let source = MockScoreSource::new(
@@ -423,6 +489,10 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
 
         fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
+        }
+
+        fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+            Ok(())
         }
 
         fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
@@ -568,6 +638,28 @@ fn adhoc_child_eof_returns_what_was_found() {
 }
 
 #[test]
+fn adhoc_expired_doc_shrinks_results_without_refill() {
+    // k=2; the best two scores are docs 1 (0.1) and 2 (0.2), so doc 3 (0.3)
+    // never enters the heap. Doc 1 expires after collection: it is dropped at
+    // yield without refilling from doc 3, mirroring the C HybridIterator's
+    // pop-time check.
+    let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
+        BatchStrategy::Continue
+    })
+    .with_expired([1]);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(vec![1, 2, 3])),
+        NonZeroUsize::new(2).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, vec![2]);
+    assert!(it.at_eof());
+}
+
+#[test]
 fn adhoc_empty_child_is_eof() {
     let source = MockScoreSource::new(vec![], vec![], |_, _| BatchStrategy::Continue);
     let mut it = TopKIterator::new_with_mode(
@@ -579,6 +671,61 @@ fn adhoc_empty_child_is_eof() {
     );
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+}
+
+/// An adhoc scan that hits the query deadline mid-walk must abort with
+/// [`RQEIteratorError::TimedOut`], not return a truncated top-k.
+#[test]
+fn adhoc_timeout_propagated() {
+    // Returns `TimedOut` from the second `adhoc_strategy` call, simulating the
+    // deadline firing after one document has been scored.
+    struct TimingOutAdhocSource {
+        adhoc_calls: u32,
+    }
+    impl ScoreSource for TimingOutAdhocSource {
+        type Batch = MockScoreBatch;
+        fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+            Ok(None)
+        }
+        fn lookup_score(&mut self, _: DocId) -> Option<f64> {
+            Some(1.0)
+        }
+        fn num_estimated(&self) -> usize {
+            0
+        }
+        fn rewind(&mut self) {
+            self.adhoc_calls = 0;
+        }
+        fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
+        where
+            Self: 'r,
+        {
+            RSIndexResult::build_virt().doc_id(doc_id).build()
+        }
+        fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+            BatchStrategy::Continue
+        }
+        fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+            self.adhoc_calls += 1;
+            if self.adhoc_calls >= 2 {
+                Err(RQEIteratorError::TimedOut)
+            } else {
+                Ok(())
+            }
+        }
+        fn iterator_type(&self) -> IteratorType {
+            IteratorType::Mock
+        }
+    }
+
+    let mut it = TopKIterator::new_with_mode(
+        TimingOutAdhocSource { adhoc_calls: 0 },
+        Some(make_child(vec![1, 2, 3, 4, 5])),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+        TopKMode::AdhocBF,
+    );
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
 }
 
 // ── ProfileChildren ───────────────────────────────────────────────────────────

@@ -236,9 +236,8 @@ InvertedIndex *Redis_OpenInvertedIndex(IndexSpec *spec, const char *term, size_t
   return idx;
 }
 
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
-
+InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *tok,
+                                     t_fieldMask fieldMask) {
   CharBuf termKey = {.buf = tok->str, .len = tok->len};
 
   InvertedIndex *idx = openIndexKeysDict(ctx->spec, &termKey, false, NULL);
@@ -249,6 +248,17 @@ QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok
   if (!InvertedIndex_NumDocs(idx) ||
       (Index_StoreFieldMask(ctx->spec) && !(InvertedIndex_FieldMask(idx) & fieldMask))) {
     // empty index! or index does not have results from requested field.
+    return NULL;
+  }
+
+  return idx;
+}
+
+QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
+                                t_fieldMask fieldMask, double weight) {
+
+  InvertedIndex *idx = Redis_OpenReaderIndex(ctx, tok, fieldMask);
+  if (!idx) {
     return NULL;
   }
 

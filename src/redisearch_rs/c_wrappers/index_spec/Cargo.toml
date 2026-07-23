@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+dict.workspace = true
 ffi.workspace = true
 field_spec.workspace = true
 inverted_index.workspace = true
@@ -17,6 +18,7 @@ schema_rule.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
+document.workspace = true
 pretty_assertions.workspace = true
 
 # Crate required to invoke C symbols

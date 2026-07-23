@@ -75,6 +75,7 @@
 #include "legacy_types.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
+#include "disk_gc.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
@@ -1299,8 +1300,8 @@ int RegisterRestoreIfNxCommands(RedisModuleCtx *ctx, RedisModuleCommand *restore
 
 Version supportedVersion = {
     .majorVersion = 8,
-    .minorVersion = 9,
-    .patchVersion = 80,
+    .minorVersion = 4,
+    .patchVersion = 0,
 };
 
 static void GetRedisVersion(RedisModuleCtx *ctx) {
@@ -1905,6 +1906,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
 
   // free thread pools
   GC_ThreadPoolDestroy();
+  // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
+  DiskGC_Cleanup();
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
@@ -3105,6 +3108,22 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
 
 }
 
+// Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
+// handler advances it, the main-thread timeout callbacks read it.
+static inline void searchReqCtx_SetExecutionStage(searchRequestCtx *req, QueryTimeoutStage stage) {
+  RS_AtomicIntStoreRelaxed(&req->execPhase, (int)stage);
+}
+static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx *req) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&req->execPhase);
+}
+
+// Record an FT.SEARCH-coordinator per-stage timeout, reading the search request's
+// own marker (QUEUE -> PIPELINE at dequeue -> REPLY after reduction). Coord side.
+static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError) {
+  QueryTimeoutStage stage = req ? searchReqCtx_GetExecutionStage(req) : QUERY_TIMEOUT_STAGE_QUEUE;
+  QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
+}
+
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
   searchRequestCtx *req = rCtx->searchCtx;
 
@@ -3526,6 +3545,13 @@ cleanup:
     }
     rm_free(rCtx->cachedResult);
     rCtx->cachedResult = NULL;
+  }
+
+  // Reduction/post-processing done, about to hand off the reply: advance the marker
+  // so a timeout from here on is attributed to REPLY (frozen once already timed out).
+  searchRequestCtx *doneReq = MRCtx_GetPrivData(mc);
+  if (doneReq && !MRCtx_IsTimedOut(mc)) {
+    searchReqCtx_SetExecutionStage(doneReq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
   if (bc && !fromTimeout && !MRCtx_IsTimedOut(mc)) {
@@ -4292,6 +4318,12 @@ static void DistSearchCommandHandler(void* pd) {
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
   }
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
+  }
   FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);
   for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
     RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
@@ -4424,6 +4456,9 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   struct MRCtx *mrctx = RedisModule_GetBlockedClientPrivateData(ctx);
   if (mrctx) {
     MRCtx_SetTimedOut(mrctx);
+    // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+    // marker advances), like the other blocked-client timeout callbacks.
+    recordSearchTimeoutStage(MRCtx_GetPrivData(mrctx), /*isError=*/true);
 
     // Coordinate with any queued/in-flight reducer so the blocked client is not
     // destroyed while it is still being used on a background thread.
@@ -4458,6 +4493,10 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   // Get searchRequestCtx (always valid - allocated on main thread before blocking)
   // req is parsed in the main thread and confirmed to be valid before blocking the client
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+
+  // Record the breakdown right after the freeze (MRCtx timedOut gates all stage
+  // marker advances), like the other blocked-client timeout callbacks.
+  recordSearchTimeoutStage(req, /*isError=*/false);
 
   // Try to claim reducing - if we get it, run reducer on main thread
   // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
@@ -4745,24 +4784,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                   "Cluster configuration: AUTO partitions, type: %d, coordinator timeout: %dms",
                   clusterConfig.type, clusterConfig.timeoutMS);
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (isClusterEnabled) {
-      // Init the topology updater cron loop.
-      InitRedisTopologyUpdater(ctx);
-    } else {
-      // We are not in cluster mode. No need to init the topology updater cron loop.
-      // Set the number of shards to 1 to indicate the topology is "set"
-      NumShards = 1;
-      // Setting all slots for the case where we send/test internal commands directly from client (potentially with _SLOTS_INFO)
-      RedisModuleSlotRangeArray *all_slots = rm_malloc(SlotRangeArray_SizeOf(1));
-      all_slots->num_ranges = 1;
-      all_slots->ranges[0].start = 0;
-      all_slots->ranges[0].end = 16383;
-      ASM_StateMachine_SetLocalSlots(all_slots);
-      rm_free(all_slots);
-    }
-  }
-
   size_t num_connections_per_shard;
   if (clusterConfig.connPerShard) {
     num_connections_per_shard = clusterConfig.connPerShard;
@@ -4776,6 +4797,22 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   MR_Init(num_io_threads, conn_pool_size, clusterConfig.timeoutMS);
   MR_InitLocalNodeId();
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (isClusterEnabled) {
+      // Start the topology updater and fetch the initial topology. Must come after MR_Init
+      // and MR_InitLocalNodeId, as the initial fetch feeds the topology into the MR layer.
+      InitRedisTopologyUpdater(ctx);
+    } else {
+      // We are not in cluster mode. No need to init the topology updater.
+      // Set the number of shards to 1 to indicate the topology is "set"
+      NumShards = 1;
+      // Setting all slots for the case where we send/test internal commands directly from client
+      // (potentially with _SLOTS_INFO)
+      static const RedisModuleSlotRangeArray all_slots = {1, {{0, 16383}}};
+      ASM_StateMachine_SetLocalSlots(&all_slots);
+    }
+  }
 
   return REDISMODULE_OK;
 }
@@ -5068,6 +5105,12 @@ static void DEBUG_DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
   if (sCmdCtx->handlerCtx.isProfile) {
     sCmdCtx->handlerCtx.coordQueueTime = rs_wall_clock_now_ns() - sCmdCtx->handlerCtx.coordStartTime;
+  }
+  // Dequeued by the coord: advance to PIPELINE (fan-out/reduce). Skipped once timed
+  // out while queued (freeze, mirroring RequestSyncState_SetExecutionStage).
+  searchRequestCtx *sReq = MRCtx_GetPrivData(sCmdCtx->mrctx);
+  if (sReq && !MRCtx_IsTimedOut(sCmdCtx->mrctx)) {
+    searchReqCtx_SetExecutionStage(sReq, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   // send argv not including the _FT.DEBUG
   DEBUG_FlatSearchCommandHandler(sCmdCtx->mrctx, sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, &sCmdCtx->handlerCtx);

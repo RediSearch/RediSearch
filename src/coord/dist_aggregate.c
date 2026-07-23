@@ -300,8 +300,8 @@ static int rpnetCreateIterator(RPNet *nc) {
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
   // this reader if it blocks in MRIterator_NextWithTimeout after AREQ timed out.
-  // Paired with RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
-  RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(it));
+  // Paired with RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
+  RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(it));
 #ifdef ENABLE_ASSERT
   // Expose the iterator to FT.DEBUG BG_PENDING_REPLIES; cleared in rpnetFree.
   DebugBgIterator_Set(it);
@@ -929,6 +929,9 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     return;
   }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  // The AREQ does not exist yet, so the coord-level marker carries the stage.
+  CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -946,12 +949,13 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // CMD, index, expr, args...
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);
 
   // The global timeout policy may change before this background job is picked up.
   // Use the policy captured from the original request.
   RSTimeoutPolicy requestTimeoutPolicy = CoordRequestCtx_GetTimeoutPolicy(reqCtx);
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->brc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);
@@ -1026,6 +1030,9 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/true);
+
   // Reply with timeout error
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
@@ -1069,9 +1076,12 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   CoordRequestCtx_UnlockSetRequest(CoordReqCtx);
 
+  // Record the per-stage breakdown at the stage the deadline caught the request.
+  CoordRequestCtx_RecordTimeoutStage(CoordReqCtx, /*isError=*/false);
+
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(CoordReqCtx);
   if (!req || AREQ_TryClaimAggregateResults(req)) {
-    // Either the request is NULL or We were able to claim the aggregation results.
+    // Either the request is NULL or we were able to claim the aggregation results.
     // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
     // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
     // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
@@ -1083,7 +1093,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   // Losing TryClaim means BG owns the claim, it may be blocked in MRIterator_NextWithTimeout.
   // Wake it so it observes the Timeout and exits the pipeline promptly.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncState);
 
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1176,6 +1186,9 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   CoordRequestCtx_LockSetRequest(reqCtx);
   CoordRequestCtx_SetTimedOut(reqCtx);
   AREQ *req = (AREQ *)CoordRequestCtx_GetRequest(reqCtx);
+  // Record the per-stage breakdown at the stage the deadline caught the request
+  // (QUEUE while BG has not taken the cursor yet).
+  CoordRequestCtx_RecordTimeoutStage(reqCtx, /*isError=*/false);
   if (req) {
     CoordRequestCtx_UnlockSetRequest(reqCtx);
   } else {
@@ -1195,7 +1208,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
 
   // BG has taken the cursor. Wake the abort channel — unblocks BG from
   // MRIterator_NextWithTimeout if it's mid-pipeline; no-op otherwise.
-  RequestSyncCtx_WakeAbortChannel(&req->syncCtx);
+  RequestSyncState_WakeAbortChannel(&req->syncState);
 
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
@@ -1229,6 +1242,9 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     return;
   }
+  // Picked up by a coord thread: attribute a timeout from here on to PIPELINE.
+  // The AREQ does not exist yet, so the coord-level marker carries the stage.
+  CoordRequestCtx_SetExecutionStage(reqCtx, QUERY_TIMEOUT_STAGE_PIPELINE);
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -1271,7 +1287,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
 
   if (requestTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
-    r->syncCtx.requiresAggregateResultsSync = true;
+    r->brc->requiresAggregateResultsSync = true;
   }
   CoordRequestCtx_SetRequest(reqCtx, r);
   CoordRequestCtx_UnlockSetRequest(reqCtx);

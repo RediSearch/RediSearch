@@ -21,6 +21,13 @@ typedef struct InvertedIndex InvertedIndex;
 extern "C" {
 #endif
 
+/* Open and validate the inverted index backing a specific term, honoring the
+ * requested field mask. Returns NULL when the term has no inverted index, the
+ * index is empty, or it holds no results for the requested field(s).
+ */
+InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *tok,
+                                     t_fieldMask fieldMask);
+
 /* Open an inverted index reader on a redis DMA string, for a specific term.
  * If singleWordMode is set to 1, we do not load the skip index, only the score index
  */

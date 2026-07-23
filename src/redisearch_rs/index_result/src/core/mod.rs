@@ -13,13 +13,13 @@ use std::ptr;
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
-use super::metrics::{MetricsVec, RawMetricsVec};
+use super::metrics::MetricsVec;
 use super::offsets::{RSOffsetVector, RawOffsetSlice};
 use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref, SharedPtr, Suspended};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
 /// Builder for creating [`RawIndexResult`] instances.
@@ -28,11 +28,11 @@ use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 /// [`RSResultKind::Term`] kind, [`RawIndexResult::build_term`] returns a
 /// specialized [`RawTermResultBuilder`] with additional setters for
 /// term-specific fields.
-pub struct RawIndexResultBuilder<R: Ref> {
+pub struct RawIndexResultBuilder<'query, R: Ref> {
     doc_id: DocId,
     field_mask: FieldMask,
     freq: u32,
-    data: RawResultData<R>,
+    data: RawResultData<'query, R>,
     weight: f64,
 }
 
@@ -42,22 +42,22 @@ pub struct RawIndexResultBuilder<R: Ref> {
 /// Created via [`RawIndexResult::build_term`]. Use [`Self::borrowed_record`]
 /// or [`Self::owned_record`] to set the term record data before calling
 /// [`Self::build`].
-pub struct RawTermResultBuilder<R: Ref> {
+pub struct RawTermResultBuilder<'query, R: Ref> {
     doc_id: DocId,
     field_mask: FieldMask,
     freq: u32,
     weight: f64,
-    record: TermBuilderRecord<R>,
+    record: TermBuilderRecord<'query, R>,
 }
 
 /// Internal enum holding the term record data for the builder.
-enum TermBuilderRecord<R: Ref> {
+enum TermBuilderRecord<'query, R: Ref> {
     Borrowed {
         term: Option<Box<RSQueryTerm>>,
         offsets: RawOffsetSlice<R>,
     },
     Owned {
-        term: Option<SharedPtr<R, RSQueryTerm>>,
+        term: Option<&'query RSQueryTerm>,
         offsets: RSOffsetVector,
     },
     FullyOwned {
@@ -66,7 +66,7 @@ enum TermBuilderRecord<R: Ref> {
     },
 }
 
-impl<R: Ref> RawIndexResultBuilder<R> {
+impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
     /// Set the document ID of this record
     pub const fn doc_id(mut self, doc_id: DocId) -> Self {
         self.doc_id = doc_id;
@@ -159,21 +159,21 @@ impl<R: Ref> RawIndexResultBuilder<R> {
 
     /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RawIndexResult<R> {
+    pub fn build(self) -> RawIndexResult<'query, R> {
         RawIndexResult {
             doc_id: self.doc_id,
             dmd: ptr::null(),
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
             has_field_expiration: false,
         }
     }
 }
 
-impl<R: Ref> RawTermResultBuilder<R> {
+impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
     /// Create a new term result builder
     const fn new() -> Self {
         Self {
@@ -232,7 +232,7 @@ impl<R: Ref> RawTermResultBuilder<R> {
     #[inline]
     pub fn owned_record(
         mut self,
-        term: Option<SharedPtr<R, RSQueryTerm>>,
+        term: Option<&'query RSQueryTerm>,
         offsets: RSOffsetVector,
     ) -> Self {
         self.record = TermBuilderRecord::Owned { term, offsets };
@@ -259,7 +259,7 @@ impl<R: Ref> RawTermResultBuilder<R> {
 
     /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RawIndexResult<R> {
+    pub fn build(self) -> RawIndexResult<'query, R> {
         let data = match self.record {
             TermBuilderRecord::Borrowed { term, offsets } => {
                 RawResultData::Term(RawTermRecord::Borrowed { term, offsets })
@@ -277,7 +277,7 @@ impl<R: Ref> RawTermResultBuilder<R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: RawMetricsVec::new(),
+            metrics: MetricsVec::new(),
             weight: self.weight,
             has_field_expiration: false,
         }
@@ -294,7 +294,7 @@ impl<R: Ref> RawTermResultBuilder<R> {
 #[cheadergen::config(rename_all = "camelCase")]
 #[derive(Debug)]
 #[repr(C)]
-pub struct RawIndexResult<R: Ref> {
+pub struct RawIndexResult<'query, R: Ref> {
     /// The document ID of the result
     pub doc_id: DocId,
 
@@ -308,13 +308,13 @@ pub struct RawIndexResult<R: Ref> {
     pub freq: u32,
 
     /// The actual data of the result
-    pub(super) data: RawResultData<R>,
+    pub(super) data: RawResultData<'query, R>,
 
     /// Holds an array of metrics yielded by the different iterators in the AST.
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
-    pub metrics: RawMetricsVec<R>,
+    pub metrics: MetricsVec<'query>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
@@ -337,7 +337,14 @@ pub struct RawIndexResult<R: Ref> {
 /// This is the only mode that crosses the C boundary today; the suspended
 /// counterpart is forthcoming.
 #[cheadergen::config(export)]
-pub type RSIndexResult<'a> = RawIndexResult<Active<'a>>;
+pub type RSIndexResult<'a> = RawIndexResult<'a, Active<'a>>;
+
+/// The [`Suspended`] instantiation of [`RawIndexResult`].
+///
+/// A result whose index-backed pointers have been weakened to inert raw
+/// pointers, so it can survive inverted-index lock release/reacquire cycles.
+/// Its query-pipeline pointers still live under `'query`.
+pub type SuspendedIndexResult<'query> = RawIndexResult<'query, Suspended>;
 
 // Compile-time proof that the [`Active`] and [`Suspended`] instantiations of
 // [`RawIndexResult`] are layout-identical, which is what makes the
@@ -351,8 +358,8 @@ pub type RSIndexResult<'a> = RawIndexResult<Active<'a>>;
 const _: () = {
     use std::mem::{align_of, offset_of, size_of};
 
-    type A = RawIndexResult<Active<'static>>;
-    type S = RawIndexResult<Suspended>;
+    type A = RawIndexResult<'static, Active<'static>>;
+    type S = RawIndexResult<'static, Suspended>;
 
     // Every field starts at the same offset.
     assert!(offset_of!(A, doc_id) == offset_of!(S, doc_id));
@@ -363,10 +370,14 @@ const _: () = {
     assert!(offset_of!(A, metrics) == offset_of!(S, metrics));
     assert!(offset_of!(A, weight) == offset_of!(S, weight));
 
-    // The two `R`-dependent field types have identical size (the non-`R`
-    // fields are the same type on both sides, so only these can differ).
-    assert!(size_of::<RawResultData<Active<'static>>>() == size_of::<RawResultData<Suspended>>());
-    assert!(size_of::<RawMetricsVec<Active<'static>>>() == size_of::<RawMetricsVec<Suspended>>());
+    // The only `R`-dependent field is `data`; check its two instantiations
+    // have identical size. The `metrics` field no longer depends on `R` (its
+    // `RLookupKey` lives under `'query`, never weakened), so it is the same
+    // `MetricsVec<'static>` type on both sides — nothing to assert there.
+    assert!(
+        size_of::<RawResultData<'static, Active<'static>>>()
+            == size_of::<RawResultData<'static, Suspended>>()
+    );
 
     // Whole-struct backstop: equal total size + alignment.
     assert!(size_of::<A>() == size_of::<S>());
@@ -414,43 +425,90 @@ impl<'a> Default for RSIndexResult<'a> {
 
 impl<'a> RSIndexResult<'a> {
     /// Convert this active result into its [`Suspended`] counterpart.
-    pub const fn into_suspended(self) -> RawIndexResult<Suspended> {
-        // SAFETY: `RawIndexResult<Active<'a>>` and `RawIndexResult<Suspended>`
+    pub const fn into_suspended(self) -> RawIndexResult<'a, Suspended> {
+        // SAFETY: `RawIndexResult<'a, Active<'a>>` and `RawIndexResult<'a, Suspended>`
         // are layout-identical (enforced by the `const _` assertion block above).
         // Going Active -> Suspended is a widening transition: it only loosens
-        // validity invariants (`'a`-bound references become inert raw pointers),
-        // so it is sound. `transmute` moves `self`, so no destructor runs on the
+        // validity invariants (the index-backed `'a`-bound references become inert
+        // raw pointers; the `'query`-bound query pointers are unchanged), so it is
+        // sound. `transmute` moves `self`, so no destructor runs on the
         // logically-moved bytes.
         unsafe { std::mem::transmute(self) }
     }
+
+    /// Convert the active result at `slot` into its suspended form in place,
+    /// reusing the same slot so the surrounding allocation is never moved.
+    ///
+    /// This is the inverse of [`RawIndexResult::into_active_in_place`]. Because
+    /// [`into_suspended`](Self::into_suspended) only *loosens* validity, this
+    /// conversion has no lifetime or pointee precondition — the only obligations
+    /// are the raw-pointer ones below.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that:
+    ///
+    /// 1. `slot` is non-null, aligned, and points to an initialized
+    ///    `RSIndexResult<'a>`.
+    /// 2. `slot` must be unaliased for the duration of the call: no other
+    ///    reference or pointer may be used to access the slot while this runs,
+    ///    since the value is moved out and written back through `slot` alone.
+    pub const unsafe fn into_suspended_in_place(
+        slot: *mut Self,
+    ) -> *mut RawIndexResult<'a, Suspended> {
+        debug_assert!(!slot.is_null());
+
+        // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
+        // moves the value out without dropping, leaving the slot logically uninit
+        // until the `write` below re-initializes it.
+        let active = unsafe { slot.read() };
+        // Safe widening conversion — consumes the moved-out value.
+        let suspended = active.into_suspended();
+        let slot = slot.cast::<RawIndexResult<'a, Suspended>>();
+        // SAFETY: `slot` is valid for writes and aligned; `Active<'a>` and
+        // `Suspended` are layout-identical, so `Suspended` fits the slot exactly.
+        // `write` does not drop the old bits — correct, `read` already moved them
+        // out. Net drops across this fn: zero.
+        unsafe { slot.write(suspended) };
+        slot
+    }
 }
 
-impl RawIndexResult<Suspended> {
+impl<'query> RawIndexResult<'query, Suspended> {
     /// Convert this suspended result back to an [`Active`] counterpart
     /// covering lifetime `'a`.
     ///
     /// Layout-compatibility is the same as for [`RSIndexResult::into_suspended`];
     /// this is the inverse direction. Promoting `Suspended` to `Active<'a>`
-    /// narrows validity (asserting that every pointer inside this result is
-    /// dereferenceable for `'a`), so the call is `unsafe`.
+    /// narrows validity (asserting that every index-backed pointer inside this
+    /// result is dereferenceable for `'a`), so the call is `unsafe`.
+    ///
+    /// # Invariants
+    ///
+    /// `into_active` never panics.
     ///
     /// # Safety
     ///
-    /// The caller must guarantee that all of the following hold for the entire
-    /// chosen lifetime `'a`:
+    /// This promotion only re-validates the **index-backed** pointers — the
+    /// ones that were weakened when the result was suspended. The caller must
+    /// guarantee that all of the following hold for the entire chosen lifetime
+    /// `'a`:
     ///
-    /// 1. Every single-value pointer — the document metadata ([`Self::dmd`])
-    ///    and each [`SharedPtr`] pointee (e.g. a metric's `RLookupKey`, a term
-    ///    record's borrowed query term) — is valid for reads of its pointee
-    ///    type.
-    /// 2. Every slice-backed pointer is valid for reads of its **entire stored
-    ///    length**, with provenance covering the whole region — e.g. a term
-    ///    record's offset slice ([`RawOffsetSlice`]), whose `*const u8` must
-    ///    cover all `len` bytes.
+    /// 1. The document metadata pointer ([`Self::dmd`]) is valid for reads (or
+    ///    null).
+    /// 2. Every index-backed slice pointer is valid for reads of its **entire
+    ///    stored length**, with provenance covering the whole region — namely a
+    ///    term record's offset slice ([`RawOffsetSlice`]), whose `*const u8`
+    ///    must cover all `len` bytes.
     /// 3. No concurrent writer aliases any pointer covered by (1) or (2).
-    /// 4. Conditions (1)–(3) hold recursively for every child result reachable
-    ///    through aggregate records (the [`SharedPtr`]/`Box` entries of a
-    ///    union / intersection / hybrid-metric result).
+    /// 4. Every aggregate child pointer is itself valid for reads for `'a`: the
+    ///    [`SharedPtr`](ref_mode::SharedPtr)/`Box` entry for each child of a
+    ///    union / intersection / hybrid-metric result. The `SharedPtr` children
+    ///    are index-mode and were weakened to raw pointers on suspension, so a
+    ///    safe `RawAggregateResult::get` dereferences them; the caller must
+    ///    ensure the child allocation was neither moved nor freed while
+    ///    suspended before it is reached.
+    /// 5. Conditions (1)–(4) hold recursively for every such child result.
     ///
     /// Typically the caller upholds these by holding the inverted-index read
     /// lock for the whole of `'a`, so that neither GC nor a writer can free or
@@ -462,49 +520,94 @@ impl RawIndexResult<Suspended> {
     /// call such as `RSOffsetSlice::as_bytes` (or anything built on it) would
     /// then read invalid memory — undefined behaviour reached through entirely
     /// safe code.
-    pub const unsafe fn into_active<'a>(self) -> RSIndexResult<'a> {
+    ///
+    /// The **query-pipeline** pointers — the `RLookupKey` in [`Self::metrics`]
+    /// and a term record's borrowed query term — are *not* part of this
+    /// obligation. They live under `'query`, were never weakened by
+    /// suspension, and the `'query: 'a` bound guarantees they remain valid for
+    /// all of `'a` independently of any lock.
+    pub const unsafe fn into_active<'a>(self) -> RawIndexResult<'a, Active<'a>>
+    where
+        'query: 'a,
+    {
         // SAFETY: layout-identical (see the `const _` assertion block above).
-        // Narrowing the validity from raw-pointer to `&'a`-style references
-        // is sound under the caller's contract documented on this method.
-        // `transmute` moves `self`, so no destructor runs on the logically-moved
-        // bytes.
+        // Narrowing the validity of the index-backed pointers from raw-pointer
+        // to `&'a`-style references is sound under the caller's contract
+        // documented on this method; the query-pipeline pointers are already
+        // valid for `'a` thanks to the `'query: 'a` bound. `transmute` moves
+        // `self`, so no destructor runs on the logically-moved bytes.
         unsafe { std::mem::transmute(self) }
+    }
+
+    /// Convert the suspended result at `slot` into its active form in place,
+    /// reusing the same slot so the surrounding allocation is never moved.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that:
+    ///
+    /// 1. `slot` is non-null, aligned, and points to an initialized
+    ///    `RawIndexResult<Suspended>`.
+    /// 2. `slot` must be unaliased for the duration of the call: no other
+    ///    reference or pointer may be used to access the slot while this runs,
+    ///    since the value is moved out and written back through `slot` alone.
+    /// 3. The safety preconditions of [`RawIndexResult::into_active`] must hold
+    ///    for the chosen lifetime `'a`.
+    pub const unsafe fn into_active_in_place<'a>(slot: *mut Self) -> *mut RSIndexResult<'a>
+    where
+        'query: 'a,
+    {
+        debug_assert!(!slot.is_null());
+
+        // SAFETY: `slot` is valid for reads and aligned (caller contract); `read`
+        // moves the value out without dropping, leaving the slot logically uninit
+        // until the `write` below re-initializes it.
+        let suspended = unsafe { slot.read() };
+        // SAFETY: `into_active`'s preconditions for `'a` are guaranteed by our
+        // caller (forwarded via this fn's `# Safety`); consumes the moved-out value.
+        let active: RSIndexResult<'a> = unsafe { suspended.into_active() };
+        let slot = slot.cast::<RSIndexResult<'a>>();
+        // SAFETY: `slot` is valid for writes and aligned; sizes/aligns asserted equal
+        // above, so `Active<'a>` fits the slot exactly. `write` does not drop the old
+        // bits — correct, `read` already moved them out. Net drops across this fn: zero.
+        unsafe { slot.write(active) };
+        slot
     }
 }
 
-impl<R: Ref> RawIndexResult<R> {
+impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// Create a builder for a virtual index result
-    pub const fn build_virt() -> RawIndexResultBuilder<R> {
+    pub const fn build_virt() -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::virt()
     }
 
     /// Create a builder for a numeric index result with the given number
-    pub const fn build_numeric(num: f64) -> RawIndexResultBuilder<R> {
+    pub const fn build_numeric(num: f64) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::numeric(num)
     }
 
     /// Create a builder for a metric index result with the given number
-    pub const fn build_metric(num: f64) -> RawIndexResultBuilder<R> {
+    pub const fn build_metric(num: f64) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::metric(num)
     }
 
     /// Create a builder for an intersection index result with the given capacity
-    pub fn build_intersect(cap: usize) -> RawIndexResultBuilder<R> {
+    pub fn build_intersect(cap: usize) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::intersect(cap)
     }
 
     /// Create a builder for a union index result with the given capacity
-    pub fn build_union(cap: usize) -> RawIndexResultBuilder<R> {
+    pub fn build_union(cap: usize) -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::union(cap)
     }
 
     /// Create a builder for a hybrid metric index result
-    pub fn build_hybrid_metric() -> RawIndexResultBuilder<R> {
+    pub fn build_hybrid_metric() -> RawIndexResultBuilder<'query, R> {
         RawIndexResultBuilder::hybrid_metric()
     }
 
     /// Create a specialized builder for a term index result
-    pub const fn build_term() -> RawTermResultBuilder<R> {
+    pub const fn build_term() -> RawTermResultBuilder<'query, R> {
         RawTermResultBuilder::new()
     }
 
@@ -619,7 +722,7 @@ impl<R: Ref> RawIndexResult<R> {
     /// # Safety
     ///
     /// 1. `Self::is_term()` must return `true` for `self`.
-    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<R> {
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<'query, R> {
         debug_assert!(
             self.is_term(),
             "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RawIndexResult` \
@@ -643,7 +746,7 @@ impl<R: Ref> RawIndexResult<R> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term(&self) -> Option<&RawTermRecord<R>> {
+    pub const fn as_term(&self) -> Option<&RawTermRecord<'query, R>> {
         match &self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -657,7 +760,7 @@ impl<R: Ref> RawIndexResult<R> {
 
     /// Get this record as a mutable term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<R>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<'query, R>> {
         match &mut self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -675,7 +778,7 @@ impl<R: Ref> RawIndexResult<R> {
     /// # Safety
     ///
     /// 1. `Self::is_aggregate` must return `true` for `self`.
-    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RawAggregateResult<R>> {
+    pub unsafe fn as_aggregate_unchecked(&self) -> Option<&RawAggregateResult<'query, R>> {
         debug_assert!(
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_unchecked` was invoked on an `IndexResult` \
@@ -699,7 +802,7 @@ impl<R: Ref> RawIndexResult<R> {
 
     /// Get this record as an aggregate result if possible. If the record is not an aggregate,
     /// returns `None`.
-    pub const fn as_aggregate(&self) -> Option<&RawAggregateResult<R>> {
+    pub const fn as_aggregate(&self) -> Option<&RawAggregateResult<'query, R>> {
         match &self.data {
             RawResultData::Union(agg)
             | RawResultData::Intersection(agg)
@@ -713,7 +816,7 @@ impl<R: Ref> RawIndexResult<R> {
 
     /// Get this record as a mutable aggregate result if possible. If the record is not an
     /// aggregate, returns `None`.
-    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RawAggregateResult<R>> {
+    pub const fn as_aggregate_mut(&mut self) -> Option<&mut RawAggregateResult<'query, R>> {
         match &mut self.data {
             RawResultData::Union(agg)
             | RawResultData::Intersection(agg)
@@ -731,7 +834,9 @@ impl<R: Ref> RawIndexResult<R> {
     /// # Safety
     ///
     /// 1. `Self::is_aggregate` must return `true` for `self`.
-    pub unsafe fn as_aggregate_mut_unchecked(&mut self) -> Option<&mut RawAggregateResult<R>> {
+    pub unsafe fn as_aggregate_mut_unchecked(
+        &mut self,
+    ) -> Option<&mut RawAggregateResult<'query, R>> {
         debug_assert!(
             self.is_aggregate(),
             "Invariant violation: `as_aggregate_mut_unchecked` was invoked on an `IndexResult` \
@@ -777,12 +882,12 @@ impl<R: Ref> RawIndexResult<R> {
     }
 
     /// Returns a mutable reference to the metrics collection.
-    pub const fn metrics_mut(&mut self) -> &mut RawMetricsVec<R> {
+    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'query> {
         &mut self.metrics
     }
 
     /// Returns a reference to the metrics collection.
-    pub const fn metrics_ref(&self) -> &RawMetricsVec<R> {
+    pub const fn metrics_ref(&self) -> &MetricsVec<'query> {
         &self.metrics
     }
 

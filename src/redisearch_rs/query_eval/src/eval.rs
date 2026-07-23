@@ -10,17 +10,21 @@
 //! Main query evaluation dispatcher.
 //!
 //! Converts a parsed query AST node into an executable iterator tree by
-//! dispatching on the [`QueryNodeType`](query_node_type::QueryNodeType) discriminant.
+//! dispatching on the [`QueryNodeType`](query_types::QueryNodeType) discriminant.
 
-use std::ptr::NonNull;
+use std::{ffi::CStr, ptr::NonNull};
 
+use c_trie::CTrieRef;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 use query_error::QueryErrorCode;
-use rqe_core::DocId;
+use query_term::RSQueryTerm;
+use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
+use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, build_geo_range_iterator, build_numeric_filter_iterator,
+    Empty, IteratorsConfig, RQEIteratorPrintable, build_geo_range_iterator,
+    build_numeric_filter_iterator, build_term_iterator,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -32,20 +36,52 @@ use rqe_iterators::{
 };
 use search_disk::SearchDiskHandle;
 
-use crate::{QueryEvalContext, QueryNode, QueryNodeRef};
+use crate::{
+    QueryEvalContext, QueryNode, QueryNodeRef,
+    scorers::{BuiltInScorer, RequestedScorer},
+};
 
 /// Global configuration values consumed by the query evaluator.
 ///
 /// These are snapshotted from the process-wide configuration once, at the FFI
 /// entry point, and threaded through evaluation as an explicit parameter rather
 /// than read from global state deep inside the dispatcher.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// Whether numeric inverted indexes use the compressed on-disk encoding.
     pub numeric_compress: bool,
     /// Whether an intersection prioritizes its union children when ordering its
     /// sub-iterators for evaluation.
     pub prioritize_intersect_union_children: bool,
+    /// The configured default scorer, applied to a query that sets no scorer of
+    /// its own.
+    ///
+    /// [`None`] when no built-in default is configured (either unset or a custom
+    /// scorer name), in which case a query with no scorer of its own is treated
+    /// as a custom scorer.
+    pub default_scorer: Option<BuiltInScorer>,
+    /// Minimum number of children for a union iterator to use a heap-based
+    /// implementation instead of a flat linear scan.
+    pub min_union_iter_heap: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        // Reuse the shared iterator-config default so the union-heap threshold
+        // keeps a single source of truth.
+        let IteratorsConfig {
+            min_union_iter_heap,
+            ..
+        } = IteratorsConfig::default();
+        let min_union_iter_heap = min_union_iter_heap as usize;
+
+        Self {
+            numeric_compress: false,
+            prioritize_intersect_union_children: false,
+            default_scorer: None,
+            min_union_iter_heap,
+        }
+    }
 }
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -187,9 +223,11 @@ pub fn eval_node<'index>(
         QueryNode::Union => Some(eval_union(ctx, node, config)),
         QueryNode::Numeric { nf } => eval_numeric(ctx, nf, config),
         QueryNode::Geo { gf } => eval_geo(ctx, gf, config),
+        QueryNode::Token { tok } => eval_token(ctx, node, tok, config),
+        QueryNode::Geometry { geomq } => eval_geometry(ctx, geomq),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
-        _ => eval_node_c(ctx, node),
+        _ => eval_node_c(ctx, node, config),
     }
 }
 
@@ -201,14 +239,17 @@ pub fn eval_node<'index>(
 fn eval_node_c<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
+    config: Config,
 ) -> Option<Evaluated<'index>> {
     let q = ctx.as_non_null().as_ptr();
     let n = node.as_non_null().as_ptr();
+    let config = (&raw const config).cast::<ffi::EvalConfig>();
     // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
     // with exclusive access, since `ctx` is `&mut`) and `n` from a live
     // `QueryNodeRef` (a valid `RSQueryNode`), satisfying `Query_EvalNode`'s
-    // contract.
-    let it = unsafe { ffi::Query_EvalNode(q, n) };
+    // contract. `config` points to a live `Config` valid for the duration of the
+    // call.
+    let it = unsafe { ffi::Query_EvalNode(q, n, config) };
     NonNull::new(it).map(Evaluated::C)
 }
 
@@ -604,7 +645,7 @@ fn eval_union<'index>(
     // either (1) we are inside a `NOT` subtree, where only the id set matters,
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
 
     // Recursively evaluate every child, narrowing its field mask first.
     //
@@ -681,7 +722,7 @@ fn eval_numeric<'index>(
         predicate: FieldExpirationPredicate::Default,
     };
 
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
     // SAFETY: `build_numeric_filter_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).
@@ -721,7 +762,7 @@ fn eval_geo<'index>(
     }
 
     let sctx = NonNull::from(ctx.sctx());
-    let min_union_iter_heap = ctx.config().min_union_iter_heap as usize;
+    let min_union_iter_heap = config.min_union_iter_heap;
     // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
     // `&mut` is sound.
     let gf_ref = unsafe { &mut *gf };
@@ -737,4 +778,284 @@ fn eval_geo<'index>(
     };
 
     iter.map(Evaluated::RustCompound)
+}
+
+/// `QN_TOKEN` — a single-term lookup.
+///
+/// In the in-memory path the term's inverted index is opened via
+/// [`Redis_OpenReaderIndex`](ffi::Redis_OpenReaderIndex) and wrapped in a term
+/// iterator with [`build_term_iterator`]. In search-on-disk mode the work is
+/// delegated to [`eval_token_disk`].
+/// Returns `None` when the term has no matching inverted index (e.g. it is absent).
+fn eval_token<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    tok: &ffi::RSToken,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    // A `QN_TOKEN` node always carries a non-null term string.
+    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let opts = node.opts();
+    let weight = opts.weight;
+    // the node's field mask narrowed to the query's.
+    let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
+    let token_id = ctx.next_token_id() as i32;
+    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
+    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
+    let term = RSQueryTerm::new_bytes(term_bytes, token_id, tok.flags());
+
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid
+    // `RedisSearchDiskIndexSpec` that stays valid for `'index` (`QueryEvalContext`
+    // invariants 1/2). `SearchDiskHandle::new` yields `None` for the null
+    // (in-memory) case, which falls through to the in-memory reader below.
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        eval_token_disk(
+            ctx,
+            disk,
+            tok,
+            term,
+            opts,
+            weight,
+            effective_field_mask,
+            config,
+        )
+    } else {
+        open_term_reader(ctx, tok, term, weight, effective_field_mask)
+    }
+}
+
+/// Open an in-memory term reader for a `QN_TOKEN` node.
+///
+/// Opens and validates the term's inverted index and, on success, wraps it in a
+/// term iterator that takes ownership of `term`. Returns `None` when the term
+/// has no matching inverted index (absent, empty, or no results in the queried
+/// field(s)), dropping `term`.
+fn open_term_reader<'index>(
+    ctx: &'index mut QueryEvalContext,
+    tok: &ffi::RSToken,
+    term: Box<RSQueryTerm>,
+    weight: f64,
+    effective_field_mask: FieldMask,
+) -> Option<Evaluated<'index>> {
+    debug_assert!(!ctx.sctx_ptr().is_null(), "sctx must not be null");
+
+    // Open and validate the term's inverted index. A null result means the term
+    // has no matching index (absent, empty, or no results in the queried
+    // field(s)), so there is nothing to read.
+    // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
+    // `tok` is the query node's `RSToken`; `Redis_OpenReaderIndex` only reads the
+    // token and does not retain it.
+    let idx = unsafe {
+        ffi::Redis_OpenReaderIndex(
+            ctx.sctx_ptr(),
+            std::ptr::from_ref(tok),
+            effective_field_mask,
+        )
+    };
+    let idx = NonNull::new(idx)?;
+
+    // SAFETY: `ctx.sctx_ptr()` is non-null (`QueryEvalContext` invariant 2).
+    let sctx = unsafe { NonNull::new_unchecked(ctx.sctx_ptr().cast_mut()) };
+    // SAFETY: `idx` is the term's inverted index just opened for this spec and
+    // stays valid for `'index` (`QueryEvalContext` invariants 1/2); `sctx` and its
+    // spec are valid for `'index` (invariant 2); `term` is a freshly
+    // heap-allocated query term whose ownership transfers to the iterator.
+    let iter = unsafe {
+        build_term_iterator(
+            idx.as_ptr(),
+            sctx,
+            FieldMaskOrIndex::Mask(effective_field_mask),
+            term,
+            weight,
+        )
+    };
+
+    Some(Evaluated::RustLeaf(Box::new(iter)))
+}
+
+/// Search-on-disk evaluation of a `QN_TOKEN` node.
+///
+/// Looks up the term's document count in the terms trie to compute the IDF
+/// then builds a disk term iterator.
+///
+/// `disk` must wrap the spec's own disk index.
+///
+/// Returns `None` — after setting the query status —
+/// when the disk iterator cannot be built.
+#[expect(clippy::too_many_arguments)]
+fn eval_token_disk<'index>(
+    ctx: &'index mut QueryEvalContext,
+    disk: SearchDiskHandle,
+    tok: &ffi::RSToken,
+    mut term: Box<RSQueryTerm>,
+    opts: &QueryNodeOptions,
+    weight: f64,
+    effective_field_mask: FieldMask,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    let spec = ctx.spec();
+    // Look up the term's document count in the terms trie to compute IDF, then
+    // build a disk term iterator through the enterprise API.
+    // SAFETY: in search-on-disk mode the terms trie is always initialised.
+    debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
+    // A `QN_TOKEN` node always carries a non-null term string; the term lookup
+    // below relies on it.
+    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+
+    // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
+    // outlives this lookup.
+    let terms = unsafe { CTrieRef::from_raw(spec.terms) };
+    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
+    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
+    let num_docs_in_term = terms.num_docs(term_bytes);
+    let num_documents = spec.stats.scoring.numDocuments;
+    let idf = idf::calculate_idf(num_documents, num_docs_in_term);
+    let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs_in_term);
+    term.set_idf(idf);
+    term.set_bm25_idf(bm25_idf);
+
+    let needs_offsets = expansion_needs_offsets(ctx, opts, config);
+
+    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+        .expect("query.sctx.diskSnapshot is null for a disk-backed token query");
+    // SAFETY: `disk` wraps the spec's disk index, valid for `'index`
+    // (`QueryEvalContext` invariants 1/2), and single-threaded query evaluation
+    // gives us the only live reference to it; the enterprise iterators are
+    // registered whenever a disk index is in use; `snapshot` is the disk snapshot
+    // taken at query start.
+    let iter = unsafe {
+        disk.new_term_iterator(term, effective_field_mask, weight, needs_offsets, snapshot)
+    };
+
+    match iter {
+        Ok(it) => Some(Evaluated::RustLeaf(it)),
+        Err(err) => {
+            // Surface the failure via `status` so the query aborts with an
+            // error rather than silently returning empty results.
+            ctx.status()
+                .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+            None
+        }
+    }
+}
+
+/// `QN_GEOMETRY` — a geometry (WKT/GeoJSON) spatial predicate on a GEOSHAPE
+/// field.
+///
+/// The GEOSHAPE index is a C++ R-tree exposed through a C API
+/// ([`GeometryApi`](ffi::GeometryApi)); this evaluator opens the field's index
+/// and dispatches to its `query` callback. On a query error the API returns
+/// NULL and an error string, which is reported into the query status; the
+/// iterator is `None`.
+fn eval_geometry<'index>(
+    ctx: &'index mut QueryEvalContext,
+    geomq: *mut ffi::GeometryQuery,
+) -> Option<Evaluated<'index>> {
+    debug_assert!(
+        !geomq.is_null(),
+        "geometry node must carry a geometry query"
+    );
+    // SAFETY: a well-formed geometry node carries a valid, non-null
+    // `GeometryQuery` whose `fs` is a valid, non-null `FieldSpec`.
+    let gq = unsafe { &*geomq };
+    let fs = gq.fs;
+    debug_assert!(!fs.is_null(), "geometry query must have a field spec");
+    // SAFETY: `fs` is a valid, non-null `FieldSpec`.
+    let field_index = unsafe { (*fs).index };
+
+    // TODO: pass `false` (don't create the index if missing) once the query
+    // string is validated before reaching this evaluator. Today, if the index
+    // has not been created yet and the query is invalid, not creating it would
+    // return results as if the index were empty instead of raising an error, so
+    // we create it eagerly to force the error path.
+    //
+    // SAFETY: `fs` is a valid `FieldSpec`. `OpenGeometryIndex` does not keep the
+    // pointer; with create-if-missing it may mutate `fs` to lazily attach the
+    // index, which is sound here because no live Rust borrow aliases `fs` (`gq`
+    // borrows the `GeometryQuery`, a separate allocation).
+    let index = unsafe { ffi::OpenGeometryIndex(fs.cast_mut(), true) };
+    debug_assert!(
+        !index.is_null(),
+        "OpenGeometryIndex with create-if-missing must return a valid index"
+    );
+    // SAFETY: `index` is a valid `GeometryIndex` from `OpenGeometryIndex`.
+    let api = unsafe { ffi::GeometryApi_Get(index) };
+    debug_assert!(!api.is_null(), "GeometryApi_Get must return a valid api");
+
+    let field_ctx = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+    let sctx = ctx.sctx_ptr();
+    let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
+
+    // SAFETY: `api` is a valid `GeometryApi` and its `query` callback is always
+    // populated by `GeometryApi_Get`.
+    let query_fn = unsafe { (*api).query }.expect("geometry api `query` must be set");
+    // SAFETY: all pointers are valid for the duration of the call: `sctx` and
+    // `field_ctx` outlive it, `index` is valid, `gq.str` points to `gq.str_len`
+    // bytes, and `err_msg` is a valid out-pointer.
+    let ret = unsafe {
+        query_fn(
+            sctx,
+            std::ptr::from_ref(&field_ctx).cast(),
+            index,
+            gq.query_type,
+            gq.format,
+            gq.str_,
+            gq.str_len,
+            &mut err_msg,
+        )
+    };
+
+    if ret.is_null() {
+        let detail = if let Some(err) = NonNull::new(err_msg) {
+            // SAFETY: these Redis API function-pointer are set once
+            // during module load and never mutated afterwards, so reading them
+            // during query evaluation cannot race.
+            let string_ptr_len =
+                unsafe { ffi::RedisModule_StringPtrLen }.expect("RedisModule_StringPtrLen unset");
+            // SAFETY: set once at module load, never mutated afterwards (see above).
+            let free_string =
+                unsafe { ffi::RedisModule_FreeString }.expect("RedisModule_FreeString unset");
+            // SAFETY: `err` is a valid `RedisModuleString` returned by the query.
+            let str_ptr = unsafe { string_ptr_len(err.as_ptr(), std::ptr::null_mut()) };
+            // SAFETY: `str_ptr` is a valid, NUL-terminated C string.
+            let s = unsafe { CStr::from_ptr(str_ptr) }
+                .to_string_lossy()
+                .into_owned();
+            // SAFETY: `err` was allocated by the query and is freed exactly once.
+            unsafe { free_string(std::ptr::null_mut(), err.as_ptr()) };
+            s
+        } else {
+            String::new()
+        };
+        ctx.status().set_with_user_data(
+            query_error::QueryErrorCode::BadVal,
+            "Error querying geoshape index",
+            &format!(": {detail}"),
+        );
+    }
+
+    NonNull::new(ret).map(Evaluated::C)
+}
+
+/// Whether a term disk reader must carry term offsets: required when the node
+/// forces slop/in-order matching, or when the effective scorer needs positions.
+/// Used only on the disk path.
+fn expansion_needs_offsets(
+    ctx: &mut QueryEvalContext,
+    opts: &QueryNodeOptions,
+    config: Config,
+) -> bool {
+    // The query's own scorer wins; a query that sets none falls back to the
+    // configured default, while a custom (non built-in) scorer conservatively
+    // needs offsets since we can't resolve what it does.
+    let scorer = match ctx.scorer() {
+        RequestedScorer::Unset => config.default_scorer,
+        RequestedScorer::Custom(_) => None,
+        RequestedScorer::BuiltIn(scorer) => Some(scorer),
+    };
+    slop_forces_offsets(opts.max_slop, opts.in_order)
+        || scorer.is_none_or(BuiltInScorer::needs_offsets)
 }

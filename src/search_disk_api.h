@@ -99,9 +99,6 @@ typedef struct SearchDiskCompactionCallbacks {
   // Closes an update session.
   // Implementations may release internal locks here.
   void (*endUpdate)(void *update_ctx);
-
-  // Debug/test-only sync point
-  void (*beforeApplySyncPoint)(void);
 } SearchDiskCompactionCallbacks;
 
 // Result of polling the async read pool
@@ -850,6 +847,15 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 
   /**
+   * @brief Check whether a disk vector index contains data.
+   *
+   * @param vecIndex VecSimIndex* handle for the field
+   * @param takeLocks Whether to synchronize with concurrent index mutations
+   * @return true when the index contains data, false otherwise
+   */
+  bool (*vectorIndexHasData)(void *vecIndex, bool takeLocks);
+
+  /**
    * @brief Stream the in-memory state of a quiesced VecSimIndex* directly
    *        into a RedisModuleIO RDB stream.
    *
@@ -860,9 +866,10 @@ typedef struct VectorDiskAPI {
    *
    * @param vecIndex VecSimIndex* handle for the field
    * @param rdb RedisModuleIO stream to write into
+   * @param takeLocks Whether to synchronize with concurrent index mutations
    * @return true on success, false on serialization failure
    */
-  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb);
+  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
   /**
    * @brief Create a VecSimIndex without any SpeedB storage bound.

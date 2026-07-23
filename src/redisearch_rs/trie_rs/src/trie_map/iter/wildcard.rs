@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use crate::trie_map::node::Node;
 
 use super::{
@@ -16,17 +18,15 @@ use super::{
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
 
 /// Per-key filter-based wildcard iterator. Public-named because it
-/// appears as the inner value of
-/// [`WildcardIter::Filter`](super::automaton::WildcardIter::Filter),
-/// but it can only be obtained through that dispatcher — the direct
-/// constructor on [`TrieMap`](crate::TrieMap) is crate-private.
+/// is wrapped into a [`WildcardIter`](super::automaton::WildcardIter)
+/// (via its `From` impl) by the wildcard dispatcher.
 pub struct WildcardFilterIter<'tm, 'p, Data>(Iter<'tm, Data, WildcardFilter<'p>>);
 
 impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
     pub(crate) fn new(root: Option<&'tm Node<Data>>, pattern: WildcardPattern<'p>) -> Self {
         let iter = match root {
             Some(root) => {
-                // If the first portion of the pattern is a literal, we can jumping directly
+                // If the first portion of the pattern is a literal, we can jump directly
                 // to the subtree of the trie containing the terms under that prefix
                 // (if there are any).
                 if let Some(rqe_wildcard::Token::Literal(lit)) = pattern.tokens().first() {
@@ -42,6 +42,11 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         }
         .traversal_filter(WildcardFilter(pattern));
         Self(iter)
+    }
+
+    /// Set timeout
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout);
     }
 
     /// Advance to the next matching entry; returns a reference to its data.
@@ -77,7 +82,7 @@ impl<'tm, 'p, Data> From<WildcardFilterIter<'tm, 'p, Data>>
     }
 }
 
-/// Returns all trie entries that match the given wildcard pattern.
+/// A [`TraversalFilter`] that keeps only keys matching the given [`WildcardPattern`].
 pub struct WildcardFilter<'p>(WildcardPattern<'p>);
 
 impl TraversalFilter for WildcardFilter<'_> {

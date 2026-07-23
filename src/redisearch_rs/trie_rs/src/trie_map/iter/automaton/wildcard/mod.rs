@@ -148,6 +148,8 @@ pub mod atoms;
 pub mod nfa;
 pub mod nfa_bit_set;
 
+use std::time::Instant;
+
 pub use nfa::WildcardNfa;
 pub use nfa_bit_set::NfaBitSet;
 
@@ -160,9 +162,9 @@ use rqe_wildcard::WildcardPattern;
 /// given pattern. See the module documentation for the selection criteria.
 pub enum WildcardIter<'tm, 'p, Data> {
     /// `u64`-backed NFA — pattern has ≤ 63 atoms.
-    U64(AutomatonIter<'tm, Data, WildcardNfa<u64>>),
+    U64(AutomatonIter<'tm, Data, WildcardNfa<'p, u64>>),
     /// `u128`-backed NFA — pattern has 64..=127 atoms.
-    U128(AutomatonIter<'tm, Data, WildcardNfa<u128>>),
+    U128(AutomatonIter<'tm, Data, WildcardNfa<'p, u128>>),
     /// Filter-based fallback — pattern has ≥ 128 atoms.
     Filter(WildcardFilterIter<'tm, 'p, Data>),
 }
@@ -181,6 +183,15 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
             Self::U64(it) => it.key(),
             Self::U128(it) => it.key(),
             Self::Filter(it) => it.key(),
+        }
+    }
+
+    /// Set timeout
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        match self {
+            Self::U64(it) => it.set_timeout(timeout),
+            Self::U128(it) => it.set_timeout(timeout),
+            Self::Filter(it) => it.set_timeout(timeout),
         }
     }
 }
@@ -227,6 +238,13 @@ impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
 
 /// Lending-iterator wrapper for [`WildcardIter`].
 pub struct WildcardLendingIter<'tm, 'p, Data>(WildcardIter<'tm, 'p, Data>);
+
+impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
+    /// Set timeout
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout);
+    }
+}
 
 impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>> for WildcardLendingIter<'tm, 'p, Data> {
     fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {

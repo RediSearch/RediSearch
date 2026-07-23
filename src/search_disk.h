@@ -599,6 +599,17 @@ bool SearchDisk_IsEnabled();
  */
 bool SearchDisk_IsEnabledForValidation();
 
+/**
+ * @brief Report whether disk vector indexes are currently throttling writers.
+ *
+ * A disk tiered vector index raises the Redis client-postpone throttle when its flat buffer
+ * fills, but that only gates client commands. The async reindex scan bypasses command
+ * dispatch, so it consults this between batches to apply the same back-pressure to itself.
+ *
+ * @return true if one or more indexes are currently throttling.
+ */
+bool SearchDisk_IsVectorWriteThrottling(void);
+
 // Vector API wrappers
 
 /**
@@ -623,6 +634,15 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
+ * @brief Check whether a disk vector index contains data.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param takeLocks Whether to synchronize with concurrent index mutations
+ * @return true when the index contains data, false otherwise
+ */
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks);
+
+/**
  * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
  *        the field's RedisModuleIO RDB stream.
  *
@@ -631,9 +651,10 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  *
  * @param vecIndex VecSimIndex* handle
  * @param rdb RedisModuleIO stream to write into
+ * @param takeLocks Whether to synchronize with concurrent index mutations
  * @return true on success, false otherwise
  */
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
 /**
  * @brief Create a VecSimIndex with no SpeedB storage bound.

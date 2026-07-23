@@ -110,7 +110,6 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
     case QN_FUZZY:           // TEXT
     case QN_PREFIX:          // TEXT
     case QN_WILDCARD_QUERY:  // TEXT
-    case QN_LEXRANGE:        // TEXT
       *reqScore = true;
       break;
 

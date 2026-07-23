@@ -36,7 +36,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 /// * `TC` - The [`TimeoutContext`] implementation. The variant is chosen at
 ///   construction time and monomorphized into the hot path.
 #[repr(C)]
-pub struct RawNot<Rf: Ref, I, TC> {
+pub struct RawNot<'query, Rf: Ref, I, TC> {
     /// The child iterator whose results are negated.
     child: MaybeEmpty<I>,
     /// The maximum document ID to iterate up to (inclusive).
@@ -46,9 +46,9 @@ pub struct RawNot<Rf: Ref, I, TC> {
     /// and reset to `false` at [`RQEIterator::rewind`].
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
-    result: RawIndexResult<Rf>,
+    result: RawIndexResult<'query, Rf>,
     /// Tracks the execution deadline for this iterator. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
     ///
     /// The timeout is absolute for the iterator's lifetime and does not
@@ -58,7 +58,7 @@ pub struct RawNot<Rf: Ref, I, TC> {
 
 /// Alias for an [`Active`] [`RawNot`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
-pub type Not<'index, I, TC> = RawNot<Active<'index>, I, TC>;
+pub type Not<'index, I, TC> = RawNot<'index, Active<'index>, I, TC>;
 
 impl<'index, I, TC> Not<'index, I, TC>
 where
@@ -68,7 +68,7 @@ where
     /// Build a new [`Not`] iterator.
     ///
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
     /// entirely on this iterator's hot path.
     pub fn new(child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {

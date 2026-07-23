@@ -153,6 +153,18 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geometry/geometry_api.h",
+        fns: &["GeometryApi_Get"],
+        types: &["GeometryApi"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/geometry_index.h",
+        fns: &["OpenGeometryIndex"],
+        types: &["GeometryQuery"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -177,6 +189,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "HybridIterator_GetNumIterations",
             "HybridIterator_GetSearchModeString",
             "HybridIterator_IsBatchMode",
+            "RS_VecSimCheckTimeout",
         ],
         // `vector_score_source` owns a `TimeoutCtx` (an absolute `timespec`
         // deadline) handed to VecSim. Exposed via this already-included header
@@ -242,7 +255,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryGeofilterNode",
             "QueryGeometryNode",
             "QueryIdFilterNode",
-            "QueryLexRangeNode",
             "QueryMissingNode",
             "QueryNullNode",
             "QueryNumericNode",
@@ -258,7 +270,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/redis_index.h",
-        fns: &["Redis_OpenInvertedIndex"],
+        fns: &["Redis_OpenInvertedIndex", "Redis_OpenReaderIndex"],
         types: &[],
         vars: &[],
     },
@@ -422,7 +434,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Release",
         ],
         types: &[],
-        vars: &["isCrdt"],
+        vars: &["isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -444,13 +456,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["strToLowerRunes"],
+        fns: &["strToLowerRunes", "strToRunesN"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs"],
+        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/trie/trie_node.h",
+        fns: &["TrieNode_NumDocs"],
         types: &[],
         vars: &[],
     },
@@ -469,13 +487,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/dict/dict.h",
         fns: &[
+            "dictIterator",
             "RS_dictAdd",
+            "RS_dictAddRaw",
+            "RS_dictCreate",
             "RS_dictDelete",
             "RS_dictFetchValue",
+            "RS_dictGetIterator",
+            "RS_dictNext",
             "RS_dictRelease",
+            "RS_dictReleaseIterator",
         ],
-        types: &[],
-        vars: &[],
+        types: &["dictType"],
+        vars: &["dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",
@@ -488,6 +512,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["unicode_tolower_fn"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &[],
+        vars: &["TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
@@ -526,8 +556,11 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "query_error.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
-    // `QueryNodeType` is taken by value in `src/query_node.h`.
-    "query_node_type.h",
+    // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
+    // also includes it for the scorer- and expander-name macros
+    // (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`, ...), whose single source
+    // of truth is the Rust `query_types` crate.
+    "query_types.h",
     // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
     "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
@@ -569,11 +602,6 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
     // small (one opaque type + a handful of functions).
     "varint_ffi.h",
-    // `src/ext/default.h` includes `query_eval.h` for the scorer- and
-    // expander-name macros (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`,
-    // ...), whose single source of truth is the Rust `query_eval` crate. These
-    // are string `#define`s, so a forward declaration isn't applicable.
-    "query_eval.h",
 ];
 
 /// Types defined in Rust (re-exported from their owning crate in
@@ -594,7 +622,7 @@ const BLOCKLIST_TYPES: &[&str] = &[
 const BLOCKLIST_FILES: &[&str] = &[
     ".*/document_rs.h",
     ".*/numeric_range_tree.h",
-    ".*/query_node_type.h",
+    ".*/query_types.h",
     ".*/query_term.h",
     ".*/query_term_ffi.h",
     ".*/rqe_iterator_type.h",

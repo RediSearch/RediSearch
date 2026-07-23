@@ -1,31 +1,12 @@
 name: Spellcheck
 
+# Thin wrapper around the shared reusable spellcheck workflow, kept as a
+# workflow_call entrypoint so existing callers
+# (uses: ./.github/workflows/task-spellcheck.yml) don't change. The repo's
+# .codespell/ config is still used (the shared workflow's default config path)
+# and the base ref is resolved from the PR / merge-queue target.
 on: [workflow_call]
 
 jobs:
   spellcheck:
-    runs-on: ubuntu-slim
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.ref }}
-          fetch-depth: 0
-
-      - name: Fetch master
-        run: git fetch origin master
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Install codespell
-        run: |
-          pwd
-          ls -la
-          ls -la ./.codespell
-          pip install -r ./.codespell/requirements.txt
-
-      - name: Run codespell on diffs
-        run: git diff --name-only origin/master --diff-filter=AM | xargs -r codespell --config .codespell/.codespellrc
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/spellcheck.yml@v1

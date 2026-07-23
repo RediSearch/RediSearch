@@ -159,6 +159,10 @@ impl MockQueryEvalCtx {
         self.doc_table
     }
 
+    pub fn opts_ptr(&self) -> *mut ffi::RSSearchOptions {
+        self.opts
+    }
+
     pub fn set_max_doc_id(&mut self, max_doc_id: rqe_core::DocId) {
         // SAFETY: `self.doc_table` is a valid, exclusively-owned allocation.
         unsafe { (*self.doc_table).maxDocId = max_doc_id }
@@ -179,7 +183,7 @@ impl MockQueryEvalCtx {
     /// background-executed request).
     ///
     /// The allocation is owned by this mock and freed on drop. It is zeroed,
-    /// so its `RequestSyncCtx::timedOut` flag reads as "not timed out": a code
+    /// so its `RequestSyncState::timedOut` flag reads as "not timed out": a code
     /// path that probes the timeout (via `AREQ_CheckTimedOut`) sees a valid,
     /// non-expired request.
     pub fn enable_blocked_client_timeout(&mut self) {

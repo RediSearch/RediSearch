@@ -51,7 +51,7 @@ impl FieldExpirationPredicate {
 }
 
 /// Field filter context used when querying fields.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 #[cheadergen::config(export)]
 pub struct FieldFilterContext {

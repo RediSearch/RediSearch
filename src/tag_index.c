@@ -302,27 +302,6 @@ static QueryIterator *TagIndex_GetReader(const TagIndex *idx, const RedisSearchC
   return NewInvIndIterator_TagQuery(iv, idx, sctx, fieldMaskOrIndex, t, weight);
 }
 
-// Helper: Get iterator from TrieMap iterator value
-// In disk mode: ptr is ignored, calls disk API with tag string
-// In memory mode: ptr is InvertedIndex*, uses it directly
-QueryIterator *TagIndex_GetIteratorFromTrieMapValue(TagIndex *idx, const RedisSearchCtx *sctx,
-                                                    const char *tag, size_t len, void *ptr,
-                                                    double weight, t_fieldIndex fieldIndex,
-                                                    QueryError *status) {
-  if (idx->diskSpec) {
-    // DISK MODE: Use tag string to query disk
-    RSToken tok = {.str = (char *)tag, .len = len};
-    return SearchDisk_NewTagIterator(idx->diskSpec, sctx, &tok, fieldIndex, weight, status);
-  }
-
-  // MEMORY MODE: Use InvertedIndex from TrieMap
-  InvertedIndex *iv = (InvertedIndex *)ptr;
-  if (!iv || InvertedIndex_NumDocs(iv) == 0) {
-    return NULL;
-  }
-  return TagIndex_GetReader(idx, sctx, iv, tag, len, weight, fieldIndex);
-}
-
 /* Open an index reader to iterate a tag index for a specific tag. Used at query evaluation time.
  * Returns NULL if there is no such tag in the index. On a disk-index creation failure, returns
  * NULL and populates `status` (when non-null) with the cause. */
@@ -392,13 +371,6 @@ void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLe
 TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
                                                  size_t tagValLen, tag_iter_mode mode) {
   return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
-}
-
-void TagIndex_IterateRangeValues(const TagIndex *idx, const char *min, int minlen, bool includeMin,
-                                 const char *max, int maxlen, bool includeMax,
-                                 TrieMapRangeCallback callback, void *ctx) {
-  TrieMap_IterateRange(idx->values, min, minlen, includeMin, max, maxlen, includeMax, callback,
-                       ctx);
 }
 
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {

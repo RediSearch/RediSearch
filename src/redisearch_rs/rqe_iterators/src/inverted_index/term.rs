@@ -10,20 +10,27 @@
 use std::ptr::NonNull;
 
 use ffi::RedisSearchCtx;
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use index_spec::IndexSpecReadGuard;
-use inverted_index::TermReader;
+use inverted_index::{
+    FilterMaskReader, IndexReader, PointsToOpaqueIndex, RawIndexReaderCore, RefreshOutcome,
+    ResumableReader, SuspendableReader, TermReader, doc_ids_only::DocIdsOnly, fields_offsets,
+    fields_only, freqs_fields, freqs_offsets, freqs_only, full, offsets_only,
+    opaque::InvertedIndex, raw_doc_ids_only::RawDocIdsOnly,
+};
 use query_term::RSQueryTerm;
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     expiration_checker::ExpirationChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::core::{InvIndIterator, RawInvIndIterator};
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
 
 /// An iterator over term inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
@@ -35,14 +42,14 @@ use super::core::{InvIndIterator, RawInvIndIterator};
 /// * `R` - The reader type used to read the inverted index.
 /// * `E` - The expiration checker type used to check for expired documents.
 #[repr(C)]
-pub struct RawTerm<Rf: Ref, R, E = crate::expiration_checker::NoOpChecker> {
-    it: RawInvIndIterator<Rf, R, E>,
+pub struct RawTerm<'query, Rf: Ref, R, E = crate::expiration_checker::NoOpChecker, RA = R> {
+    it: RawInvIndIterator<'query, Rf, R, E, RA>,
 }
 
 /// Alias for an [`Active`] [`RawTerm`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Term<'index, R, E = crate::expiration_checker::NoOpChecker> =
-    RawTerm<Active<'index>, R, E>;
+    RawTerm<'index, Active<'index>, R, E, R>;
 
 impl<'index, R, E> Term<'index, R, E>
 where
@@ -98,7 +105,12 @@ where
     pub const fn reader(&self) -> &R {
         &self.it.reader
     }
+}
 
+impl<'query, Rf: Ref, R, E, RA> RawTerm<'query, Rf, R, E, RA>
+where
+    R: PointsToOpaqueIndex,
+{
     /// Check if the iterator should abort revalidation.
     ///
     /// The term's inverted index may have been garbage-collected and
@@ -244,5 +256,330 @@ where
         }
         ctx.print_optional_counters(map);
         map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+    }
+}
+
+/// A reader over any term-compatible inverted index encoding, erasing the
+/// encoding type behind a single enum so callers don't need to be generic over
+/// it. Parameterised over a [`Ref`] mode `Rf`; see [`TermIndexReader`] for the
+/// [`Active`] instantiation (the live reader implementing [`IndexReader`]).
+/// `RawTermIndexReader<Suspended>` is its passive carrier across a lock
+/// release/reacquire cycle (implementing [`ResumableReader`]).
+///
+/// Encodings that track a field mask filter their records through a
+/// [`FilterMaskReader`]; encodings without field-mask data use the bare
+/// [`RawIndexReaderCore`].
+///
+/// # Invariants
+///
+/// 1. **Layout compatibility across modes.** `RawTermIndexReader<Active<'index>>`
+///    and `RawTermIndexReader<Suspended>` are layout-identical, so the owning
+///    `RawInvIndIterator` can suspend/resume by a same-allocation reinterpretation
+///    — the [`SuspendableReader`]/[`ResumableReader`] contract. This holds because
+///    it is a single `#[repr(C)]` generic whose `Rf` flows only through the
+///    per-variant [`RawIndexReaderCore`]/[`FilterMaskReader`] payloads, each itself
+///    layout-compatible (invariant 1 on those types). Enforced by the `const _`
+///    proof below.
+#[repr(C)]
+pub enum RawTermIndexReader<Rf: Ref> {
+    // Field-mask-tracking encodings (filtered through `FilterMaskReader`).
+    Full(FilterMaskReader<RawIndexReaderCore<Rf, full::Full>>),
+    FullWide(FilterMaskReader<RawIndexReaderCore<Rf, full::FullWide>>),
+    FreqsFields(FilterMaskReader<RawIndexReaderCore<Rf, freqs_fields::FreqsFields>>),
+    FreqsFieldsWide(FilterMaskReader<RawIndexReaderCore<Rf, freqs_fields::FreqsFieldsWide>>),
+    FieldsOnly(FilterMaskReader<RawIndexReaderCore<Rf, fields_only::FieldsOnly>>),
+    FieldsOnlyWide(FilterMaskReader<RawIndexReaderCore<Rf, fields_only::FieldsOnlyWide>>),
+    FieldsOffsets(FilterMaskReader<RawIndexReaderCore<Rf, fields_offsets::FieldsOffsets>>),
+    FieldsOffsetsWide(FilterMaskReader<RawIndexReaderCore<Rf, fields_offsets::FieldsOffsetsWide>>),
+    // Encodings without field-mask data (no `FilterMaskReader`).
+    FreqsOnly(RawIndexReaderCore<Rf, freqs_only::FreqsOnly>),
+    OffsetsOnly(RawIndexReaderCore<Rf, offsets_only::OffsetsOnly>),
+    FreqsOffsets(RawIndexReaderCore<Rf, freqs_offsets::FreqsOffsets>),
+    DocIdsOnly(RawIndexReaderCore<Rf, DocIdsOnly>),
+    RawDocIdsOnly(RawIndexReaderCore<Rf, RawDocIdsOnly>),
+}
+
+/// Active-form alias of [`RawTermIndexReader`] — the live term reader.
+pub type TermIndexReader<'index> = RawTermIndexReader<Active<'index>>;
+
+// Compile-time proof of invariant 1 on `RawTermIndexReader`: its `Active` and
+// `Suspended` instantiations are layout-identical. As an enum we assert size and
+// alignment equality; the per-variant payloads are layout-compatible by their own
+// invariant 1, so a divergence here would be a build error.
+const _: () = {
+    use std::mem::{align_of, size_of};
+    type A = RawTermIndexReader<Active<'static>>;
+    type S = RawTermIndexReader<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+/// Dispatch a method call to the reader held by the current variant. Works for
+/// any `Rf` because every variant carries the same name across modes.
+macro_rules! term_ir_dispatch {
+    ($self:expr, $method:ident $(, $args:expr)*) => {
+        match $self {
+            RawTermIndexReader::Full(r) => r.$method($($args),*),
+            RawTermIndexReader::FullWide(r) => r.$method($($args),*),
+            RawTermIndexReader::FreqsFields(r) => r.$method($($args),*),
+            RawTermIndexReader::FreqsFieldsWide(r) => r.$method($($args),*),
+            RawTermIndexReader::FieldsOnly(r) => r.$method($($args),*),
+            RawTermIndexReader::FieldsOnlyWide(r) => r.$method($($args),*),
+            RawTermIndexReader::FieldsOffsets(r) => r.$method($($args),*),
+            RawTermIndexReader::FieldsOffsetsWide(r) => r.$method($($args),*),
+            RawTermIndexReader::FreqsOnly(r) => r.$method($($args),*),
+            RawTermIndexReader::OffsetsOnly(r) => r.$method($($args),*),
+            RawTermIndexReader::FreqsOffsets(r) => r.$method($($args),*),
+            RawTermIndexReader::DocIdsOnly(r) => r.$method($($args),*),
+            RawTermIndexReader::RawDocIdsOnly(r) => r.$method($($args),*),
+        }
+    };
+}
+
+impl<'index> IndexReader<'index> for TermIndexReader<'index> {
+    #[inline(always)]
+    fn next_record(&mut self, result: &mut RSIndexResult<'index>) -> std::io::Result<bool> {
+        term_ir_dispatch!(self, next_record, result)
+    }
+
+    #[inline(always)]
+    fn seek_record(
+        &mut self,
+        doc_id: DocId,
+        result: &mut RSIndexResult<'index>,
+    ) -> std::io::Result<bool> {
+        term_ir_dispatch!(self, seek_record, doc_id, result)
+    }
+
+    #[inline(always)]
+    fn skip_to(&mut self, doc_id: DocId) -> bool {
+        term_ir_dispatch!(self, skip_to, doc_id)
+    }
+
+    #[inline(always)]
+    fn reset(&mut self) {
+        term_ir_dispatch!(self, reset)
+    }
+
+    #[inline(always)]
+    fn unique_docs(&self) -> u64 {
+        term_ir_dispatch!(self, unique_docs)
+    }
+
+    #[inline(always)]
+    fn has_duplicates(&self) -> bool {
+        term_ir_dispatch!(self, has_duplicates)
+    }
+
+    #[inline(always)]
+    fn flags(&self) -> ffi::IndexFlags {
+        term_ir_dispatch!(self, flags)
+    }
+
+    #[inline(always)]
+    fn needs_revalidation(&self) -> bool {
+        term_ir_dispatch!(self, needs_revalidation)
+    }
+
+    #[inline(always)]
+    fn refresh_buffer_pointers(&mut self) {
+        term_ir_dispatch!(self, refresh_buffer_pointers)
+    }
+}
+
+/// Resolve an opaque index and compare it against the current variant's reader.
+/// Implemented for every `Rf` so it is callable from the suspended-side
+/// `should_abort` check as well as the active reader.
+impl<Rf: Ref> PointsToOpaqueIndex for RawTermIndexReader<Rf> {
+    fn points_to_the_same_opaque_index(
+        &self,
+        opaque: &inverted_index::opaque::InvertedIndex,
+    ) -> bool {
+        term_ir_dispatch!(self, points_to_the_same_opaque_index, opaque)
+    }
+}
+
+impl<'index> TermReader<'index> for TermIndexReader<'index> {}
+
+/// `TermIndexReader<'index>` suspends to `RawTermIndexReader<Suspended>` — the
+/// same generic enum with the ref mode weakened.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`RawTermIndexReader`] (const
+/// proof there).
+unsafe impl<'index> SuspendableReader for TermIndexReader<'index> {
+    type Suspended = RawTermIndexReader<Suspended>;
+}
+
+/// Inverse of the above: `RawTermIndexReader<Suspended>` resumes to
+/// `TermIndexReader<'a>` at any index lifetime `'a`. `refresh_pointers` forwards
+/// to the suspended reader held by the current variant.
+///
+/// SAFETY: layout compatibility is invariant 1 on [`RawTermIndexReader`] (const
+/// proof there).
+unsafe impl ResumableReader for RawTermIndexReader<Suspended> {
+    type Resumed<'a> = TermIndexReader<'a>;
+
+    unsafe fn refresh_pointers(&mut self) -> RefreshOutcome {
+        // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+        // no-concurrent-aliasing obligation, which we forward unchanged to the
+        // per-variant suspended reader.
+        unsafe { term_ir_dispatch!(self, refresh_pointers) }
+    }
+}
+
+/// Build a term-query iterator over an in-memory inverted index.
+///
+/// Selects the reader for `idx`'s encoding, filters it by `field_mask_or_index`
+/// (a field mask reads only matching fields; a field index reads all fields and
+/// filters via the expiration checker), and returns a [`Term`] iterator that
+/// yields one entry per document containing `term`. `term`'s IDF scores are
+/// (re)computed from the opened index inside [`Term::new`].
+///
+/// # Safety
+///
+/// 1. `idx` must be a valid, non-null pointer to a term [`InvertedIndex`],
+///    remaining valid — and stable between [`revalidate`](RQEIterator::revalidate)
+///    calls — for `'index`. (Revalidation detects a GC replacement by comparing
+///    the index pointer looked up via `Redis_OpenInvertedIndex`.)
+/// 2. `sctx` and `sctx.spec` must be valid and remain valid for `'index`.
+/// 3. `term` is a heap-allocated [`RSQueryTerm`] whose ownership is transferred
+///    to the returned iterator.
+///
+/// # Panics
+///
+/// Panics if `idx` is a numeric index, which has no term reader.
+pub unsafe fn build_term_iterator<'index>(
+    idx: *const ffi::InvertedIndex,
+    sctx: NonNull<RedisSearchCtx>,
+    field_mask_or_index: FieldMaskOrIndex,
+    term: Box<RSQueryTerm>,
+    weight: f64,
+) -> Term<'index, TermIndexReader<'index>, FieldExpirationChecker> {
+    debug_assert!(!idx.is_null(), "idx must not be null");
+
+    let idx_ptr: *const InvertedIndex = idx.cast();
+    // SAFETY: precondition (1) — `idx` is a valid, non-null `InvertedIndex`.
+    let idx = unsafe { &*idx_ptr };
+
+    // A field mask reads only its fields; a field index reads all fields (index
+    // filtering happens later, via the expiration checker).
+    let mask = match field_mask_or_index {
+        FieldMaskOrIndex::Mask(m) => m,
+        FieldMaskOrIndex::Index(_) => RS_FIELDMASK_ALL,
+    };
+
+    let reader = match idx {
+        InvertedIndex::Full(ii) => TermIndexReader::Full(ii.reader(mask)),
+        InvertedIndex::FullWide(ii) => TermIndexReader::FullWide(ii.reader(mask)),
+        InvertedIndex::FreqsFields(ii) => TermIndexReader::FreqsFields(ii.reader(mask)),
+        InvertedIndex::FreqsFieldsWide(ii) => TermIndexReader::FreqsFieldsWide(ii.reader(mask)),
+        InvertedIndex::FieldsOnly(ii) => TermIndexReader::FieldsOnly(ii.reader(mask)),
+        InvertedIndex::FieldsOnlyWide(ii) => TermIndexReader::FieldsOnlyWide(ii.reader(mask)),
+        InvertedIndex::FieldsOffsets(ii) => TermIndexReader::FieldsOffsets(ii.reader(mask)),
+        InvertedIndex::FieldsOffsetsWide(ii) => TermIndexReader::FieldsOffsetsWide(ii.reader(mask)),
+        InvertedIndex::FreqsOnly(ii) => TermIndexReader::FreqsOnly(ii.reader()),
+        InvertedIndex::OffsetsOnly(ii) => TermIndexReader::OffsetsOnly(ii.reader()),
+        InvertedIndex::FreqsOffsets(ii) => TermIndexReader::FreqsOffsets(ii.reader()),
+        InvertedIndex::DocIdsOnly(ii) => TermIndexReader::DocIdsOnly(ii.reader()),
+        InvertedIndex::RawDocIdsOnly(ii) => TermIndexReader::RawDocIdsOnly(ii.reader()),
+        InvertedIndex::Numeric(_) | InvertedIndex::NumericFloatCompression(_) => {
+            panic!("numeric inverted indices have no term reader")
+        }
+    };
+
+    // SAFETY: precondition (2) — `sctx`/`sctx.spec` are valid for `'index`.
+    let expiration_checker = unsafe {
+        FieldExpirationChecker::new(
+            sctx,
+            FieldFilterContext {
+                field: field_mask_or_index,
+                predicate: FieldExpirationPredicate::Default,
+            },
+            reader.flags(),
+        )
+    };
+
+    // SAFETY: `reader` was just built from the valid `idx`; preconditions (2)/(3)
+    // uphold the remaining `Term::new` requirements (valid `sctx`, owned `term`).
+    unsafe { Term::new(reader, sctx, term, weight, expiration_checker) }
+}
+
+impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
+where
+    R: TermReader<'index> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + PointsToOpaqueIndex,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    // Reader weakens `R -> R::Suspended`; the frozen `RA` slot stays `R` (the
+    // active reader) so the inner iterator's dispatch pointers are unchanged.
+    type Suspended = RawTerm<'index, Suspended, R::Suspended, E, R>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is a `#[repr(C)]` newtype over the inner
+        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
+        // [`RawInvIndIterator`] (const proof there): `reader` weakens `R ->
+        // R::Suspended` (given the reader's own layout invariant) while the
+        // frozen `RA = R` slot keeps the dispatch pointers unchanged.
+        // `Box::from_raw` reuses the same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawTerm<'index, Suspended, R::Suspended, E, R>) }
+    }
+}
+
+impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawTerm<'query, Suspended, RS, E, RA>
+where
+    RS: ResumableReader + PointsToOpaqueIndex,
+    for<'a> RS::Resumed<'a>: TermReader<'a>,
+    E: ExpirationChecker + 'static,
+{
+    type Resumed<'a>
+        = Term<'a, RS::Resumed<'a>, E>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        mut self: Box<Self>,
+        spec: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Step 1: identity check on the suspended form. On abort we drop the
+        // suspended iterator without promoting it to Active — nothing is
+        // materialized.
+        if self.should_abort(spec) {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        // Step 2: run the shared in-place resume transition on the inner
+        // core iterator (refresh pointers, reset stale offsets, promote the
+        // result, and re-seek if GC moved us). `spec` witnesses the read lock
+        // the refresh requires.
+        let status = self.it.resume_in_place(spec)?;
+
+        // Step 3: reinterpret the owning box's type. The heap address is
+        // preserved across the cast.
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawTerm` is a `#[repr(C)]` newtype over the inner
+        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
+        // [`RawInvIndIterator`] (const proof there); `resume_in_place` left that
+        // field as a valid active iterator (reader promoted to `RS::Resumed<'a>`,
+        // dispatch pointers unchanged), so the whole `RawTerm` is now a valid
+        // `Term<'a, RS::Resumed<'a>, E>`.
+        let active = unsafe { Box::from_raw(raw as *mut Term<'a, RS::Resumed<'a>, E>) };
+
+        Ok(match status {
+            ResumeStatus::Unchanged => ResumeOutcome::Ok(active),
+            ResumeStatus::Moved => ResumeOutcome::Moved(active),
+        })
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.it.last_doc_id_field()
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.it.num_estimated()
     }
 }

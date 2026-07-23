@@ -22,13 +22,10 @@ use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
-// `collect_existing_docs` calls `spec.doc_exists()`, which calls `DocTable_Exists`
-// from the C library. That symbol is unavailable in pure-Rust test binaries, so we
-// provide a stub that always returns `false` (every doc treated as absent).
-#[unsafe(no_mangle)]
-unsafe extern "C" fn DocTable_Exists(_: *const ffi::DocTable, _: rqe_core::DocId) -> bool {
-    false
-}
+// Link both Rust-provided and C-provided symbols
+extern crate redisearch_rs;
+// Provide Redis allocator shims so the C dict functions can allocate memory.
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
@@ -84,6 +81,7 @@ fn empty_existing_docs_writes_only_terminator() {
 /// (stub returns false), `scan_gc` produces a delta. The output is an Empty
 /// frame, the serialised [`GcScanDelta`], then a Terminator.
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn existing_docs_with_deleted_entries_writes_delta() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
@@ -157,6 +155,7 @@ fn apply_returns_err_when_existing_docs_absent() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn roundtrip_all_docs_deleted_clears_index() {
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())

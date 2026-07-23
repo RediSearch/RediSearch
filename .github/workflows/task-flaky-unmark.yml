@@ -1,5 +1,6 @@
 name: Flaky tests — unmark
 
+# Thin workflow_dispatch caller of the shared reusable flaky-unmark workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -19,48 +20,11 @@ on:
 
 jobs:
   unmark:
-    runs-on: ubuntu-slim
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: pip install 'redis>=6,<7'
-
-      - name: Unmark flaky test
-        env:
-          REDIS_URL: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ inputs.branch }}
-          TEST_ID: ${{ inputs.test_id }}
-          REASON: ${{ inputs.reason }}
-          ACTOR: ${{ github.actor }}
-        run: python3 .github/scripts/flaky_db.py unmark
-
-      - name: Summary
-        if: success()
-        env:
-          # Pass inputs through env so they're treated as data, not interpolated
-          # into the shell script by GitHub Actions before bash evaluates it.
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ inputs.branch }}
-          TEST_ID: ${{ inputs.test_id }}
-          REASON: ${{ inputs.reason }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          {
-            echo "### Flaky mark removed :white_check_mark:"
-            echo
-            echo "| Field | Value |"
-            echo "|---|---|"
-            echo "| Repo | \`$REPO\` |"
-            echo "| Branch | \`$BRANCH\` |"
-            echo "| Test | \`$TEST_ID\` |"
-            echo "| Reason | $REASON |"
-            echo "| Unmarked by | @$ACTOR |"
-          } >> "$GITHUB_STEP_SUMMARY"
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-unmark.yml@v1
+    with:
+      branch: ${{ inputs.branch }}
+      test_id: ${{ inputs.test_id }}
+      reason: ${{ inputs.reason }}
+      ci-common-ref: v1
+    secrets:
+      redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
