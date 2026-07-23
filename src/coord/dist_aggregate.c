@@ -6,9 +6,14 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
 
 #include "result_processor.h"
 #include "rmr/rmr.h"

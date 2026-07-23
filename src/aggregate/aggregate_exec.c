@@ -12,6 +12,10 @@
 #include <strings.h>
 #include <sys/param.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "redismodule.h"
 #include "value_ffi.h"
 #include "search_result_ffi.h"

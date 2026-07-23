@@ -10,6 +10,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"

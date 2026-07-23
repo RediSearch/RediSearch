@@ -11,6 +11,10 @@
 #include <string.h>
 #include <strings.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
