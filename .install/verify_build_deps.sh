@@ -64,6 +64,8 @@ emit_result() {
   if ! report_mode; then
     if [[ "$status" == ok ]]; then
       printf '%-20s%b\n' "$dep" "${GREEN}✓${NC}"
+    elif is_optional_dep "$dep"; then
+      : # optional-missing isn't a failure: reported only in the "Optional (not installed)" section
     else
       printf '%-20s%b\n' "$dep" "${msg:-${RED}✗${NC}}"
     fi
