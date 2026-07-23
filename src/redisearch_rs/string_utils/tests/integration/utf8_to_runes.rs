@@ -35,11 +35,19 @@ fn stops_at_nul() {
 }
 
 #[test]
-fn truncated_trailing_sequence_stops() {
-    // A lead byte without its continuation bytes ends the decode without any
-    // out-of-bounds read.
-    assert_eq!(utf8_to_runes(&[b'a', 0xE2, 0x82]), vec![b'a' as u16]);
-    assert_eq!(utf8_to_runes(&[0xC3]), Vec::<u16>::new());
+fn truncated_trailing_sequence_zero_fills() {
+    // A lead byte whose continuation bytes run past the end still yields a rune,
+    // its missing bytes taken as zero — the terminator byte the C decoder reads
+    // there. Dropping the sequence would turn a one-rune key into an empty one.
+    // `[0xE2, 0x82]` is a 3-byte lead with one byte missing:
+    // (0xE2 & 0x0F) << 12 | (0x82 & 0x3F) << 6 | 0 = 0x2080.
+    assert_eq!(
+        utf8_to_runes(&[b'a', 0xE2, 0x82]),
+        vec![b'a' as u16, 0x2080]
+    );
+    // `[0xC3]` is a 2-byte lead with its continuation missing:
+    // (0xC3 & 0x1F) << 6 | 0 = 0x00C0.
+    assert_eq!(utf8_to_runes(&[0xC3]), vec![0x00C0]);
 }
 
 #[test]
@@ -76,9 +84,12 @@ fn four_byte_utf8_truncates_like_strtorunesn() {
         utf8_to_runes(&[b'a', 0xF0, 0x9F, 0x98, 0x80, b'b']),
         vec![b'a' as u16, 0xF600, b'b' as u16]
     );
-    // A truncated 4-byte sequence (lead byte without all continuation bytes)
-    // stops the decode without reading past the slice.
-    assert_eq!(utf8_to_runes(&[b'a', 0xF0, 0x9F]), vec![b'a' as u16]);
+    // A truncated 4-byte sequence zero-fills its two missing bytes rather than
+    // reading past the slice: (0xF0 & 0x07) << 18 | (0x9F & 0x3F) << 12 = 0x1F000.
+    assert_eq!(
+        utf8_to_runes(&[b'a', 0xF0, 0x9F]),
+        vec![b'a' as u16, 0xF000]
+    );
 }
 
 #[test]
