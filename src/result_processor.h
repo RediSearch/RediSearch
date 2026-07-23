@@ -211,9 +211,9 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
 void SetLoadersForBG(QueryProcessingCtx *qctx);
 void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
-/* Link the request sync context into every RP_SAFE_LOADER in the pipeline so
- * they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
- * aggregate.h). No-op for pipelines without safe loaders. */
+/* Link the request sync context into every RP_SAFE_LOADER and RP_DISK_ASYNC_LOADER in the
+ * pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake (see
+ * aggregate.h). No-op for pipelines without safe/disk loaders. */
 void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync);
 
 /** Creates a new Highlight processor */

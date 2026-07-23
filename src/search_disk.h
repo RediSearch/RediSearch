@@ -193,6 +193,20 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           RLookup *lk, const RLookupKey **keys,
                                                           size_t nkeys, uint32_t *outStateFlags);
 
+/**
+ * @brief Hand the disk async-loader result processor its request sync context.
+ *
+ * Lets `rp` perform the same RETURN_STRICT GIL deadlock-avoidance handshake as
+ * RP_SAFE_LOADER: `BlockedRequestCtx_SafeLoaderEnterGIL`/`ExitGIL` (see aggregate.h). Called from
+ * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
+ *
+ * @param rp  The disk async-loader ResultProcessor, previously returned by
+ *            SearchDisk_NewAsyncLoaderResultProcessor
+ * @param brc Opaque `struct BlockedRequestCtx *`, passed as `void *` because this header cannot
+ *            see the full definition; forwarded unchanged, or NULL to clear
+ */
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, void *brc);
+
 // Index API wrappers
 
 /**
