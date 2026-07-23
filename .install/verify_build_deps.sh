@@ -51,7 +51,7 @@ DEPS_OPT_MISSING=""
 OPTIONAL_DEPS="ld.lld"
 is_optional_dep() { case " $OPTIONAL_DEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-report_mode() { [ -n "${DEPS_REPORT_FILE:-}" ]; }
+report_mode() { [[ -n "${DEPS_REPORT_FILE:-}" ]]; }
 
 # emit_result <name> ok
 # emit_result <name> missing [human_message] [report_version]
