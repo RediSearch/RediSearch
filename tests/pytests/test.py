@@ -2293,6 +2293,8 @@ def testEmptyFieldNameRejected(env):
         .error().contains('Field name cannot be empty')
 
 def testFieldNameWithNullByteRejected(env):
+    # Without AS, the schema token is both the document path and the field name.
+    # With AS, the alias is the field name.
     conn = env.getClusterConnectionIfNeeded()
     with env.assertResponseError(contained='Field name cannot contain null bytes'):
         conn.execute_command('FT.CREATE', 'idx_nul_prefix', 'SCHEMA', b'\x00tag', 'TAG')
@@ -2301,12 +2303,24 @@ def testFieldNameWithNullByteRejected(env):
     with env.assertResponseError(contained='Field name cannot contain null bytes'):
         conn.execute_command('FT.CREATE', 'idx_nul_alias', 'SCHEMA', 'tag', 'AS', b'\x00alias', 'TAG')
 
-def testFieldPathWithNullByteRejected(env):
+def testHashFieldPathWithNullByteRejected(env):
+    # With AS, the original schema token is stored as a field path separate from
+    # the alias field name.
     conn = env.getClusterConnectionIfNeeded()
     with env.assertResponseError(contained='Field path cannot contain null bytes'):
         conn.execute_command('FT.CREATE', 'idx_path_nul_prefix', 'SCHEMA', b'\x00real', 'AS', 'tag', 'TAG')
     with env.assertResponseError(contained='Field path cannot contain null bytes'):
         conn.execute_command('FT.CREATE', 'idx_path_nul_embedded', 'SCHEMA', b'real\x00tail', 'AS', 'tag', 'TAG')
+
+@skip(no_json=True)
+def testJsonFieldPathWithNullByteRejected(env):
+    conn = env.getClusterConnectionIfNeeded()
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_prefix', 'ON', 'JSON',
+                             'SCHEMA', b'\x00$.real', 'AS', 'tag', 'TAG')
+    with env.assertResponseError(contained='Field path cannot contain null bytes'):
+        conn.execute_command('FT.CREATE', 'idx_json_path_nul_embedded', 'ON', 'JSON',
+                             'SCHEMA', b'$.real\x00tail', 'AS', 'tag', 'TAG')
 
 def testAlterFailureDoesNotLeaveSuffixTrie(env):
     env.cmd('FT.CREATE', 'idx_suffix_rollback', 'SCHEMA', 't', 'TEXT')
@@ -2323,16 +2337,22 @@ def testAlterFailureDoesNotLeaveSuffixTrie(env):
     env.expect('FT.SEARCH', 'idx_suffix_rollback', '*ell*', 'NOCONTENT').equal([1, 'doc:1'])
 
 def testAlterFailureDoesNotConsumeTextFieldIds(env):
-    env.cmd('FT.CREATE', 'idx_text_id_rollback', 'SCHEMA', 'base', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_text_id_rollback', 'MAXTEXTFIELDS', 'SCHEMA', 'base', 'TEXT')
+    max_text_fields = arch_int_bits()
 
-    for i in range(130):
+    for i in range(max_text_fields - 1):
         env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
                    f'tmp{i}', 'TEXT',
                    '', 'TAG') \
             .error().contains('Field name cannot be empty')
 
+    for i in range(max_text_fields - 1):
+        env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
+                   f'valid_text_{i}', 'TEXT').ok()
+
     env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
-               'valid_text', 'TEXT').ok()
+               'overflow_text', 'TEXT') \
+        .error().contains(f'Schema is limited to {max_text_fields} TEXT fields')
 
 def testSortbyMissingFieldSparse(env):
     # Note, the document needs to have one present sortable field in
