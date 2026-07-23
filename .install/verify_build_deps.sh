@@ -71,10 +71,14 @@ emit_result() {
   fi
   if [ "$status" = ok ]; then
     if is_optional_dep "$dep"; then DEPS_OPT_OK="$DEPS_OPT_OK $dep"; else DEPS_OK="$DEPS_OK $dep"; fi
+  elif is_optional_dep "$dep"; then
+    # Match the RTS report convention: optional-missing records carry no version tag.
+    DEPS_OPT_MISSING="$DEPS_OPT_MISSING $dep"
   else
     local tag=$dep
     [ -n "$vtag" ] && tag="$dep:$vtag"
-    if is_optional_dep "$dep"; then DEPS_OPT_MISSING="$DEPS_OPT_MISSING $tag"; else DEPS_MISSING="$DEPS_MISSING $tag"; missing_deps=true; fi
+    DEPS_MISSING="$DEPS_MISSING $tag"
+    missing_deps=true
   fi
 }
 
