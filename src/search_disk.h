@@ -942,6 +942,12 @@ typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
   SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // A numeric split between its Step B scan and its Step C+D commit (GC
+  // thread) — the mid-flight, nothing-committed point.
+  SEARCH_DISK_SITE_SPLIT_BEFORE_C = 3,
+  // index_spec_pre_checkpoint right after the numeric fork gate closed (main
+  // thread); cross-wake source for deterministically deferring a held split.
+  SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
 } SearchDiskCompactionSite;
 
 /**
