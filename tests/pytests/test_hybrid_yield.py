@@ -229,7 +229,8 @@ def test_hybrid_search_yield_score_as_after_combine():
     # YIELD_SCORE_AS after COMBINE should work
     response = env.cmd(
         'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
-        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS', 'search_score',
         'PARAMS', '2', 'BLOB', query_vector)
     results, _ = get_results_from_hybrid_response(response)
 
@@ -241,6 +242,138 @@ def test_hybrid_search_yield_score_as_after_combine():
         env.assertTrue('search_score' in doc_result)
         search_score = float(doc_result['search_score'])
         env.assertGreater(search_score, 0)
+
+def test_hybrid_combine_yield_score_as_both_forms():
+    """YIELD_SCORE_AS after COMBINE is accepted in two equivalent forms for
+    backward compatibility: counted inside the method argument count (legacy),
+    and positional after the method block (current). Both must succeed and
+    produce the same results."""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS search_score
+    counted, _ = get_results_from_hybrid_response(env.cmd(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'PARAMS', '2', 'BLOB', query_vector))
+
+    # Positional form: count 2 covers CONSTANT 60, YIELD_SCORE_AS follows
+    positional, _ = get_results_from_hybrid_response(env.cmd(
+        'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', 'search_score',
+        'PARAMS', '2', 'BLOB', query_vector))
+
+    env.assertGreater(len(counted.keys()), 0)
+    for results in (counted, positional):
+        for doc_key in results:
+            env.assertTrue('search_score' in results[doc_key])
+            env.assertGreater(float(results[doc_key]['search_score']), 0)
+    env.assertEqual(counted, positional,
+                    message="Counted and positional YIELD_SCORE_AS must be equivalent")
+
+def test_hybrid_combine_duplicate_yield_score_as_error():
+    """A duplicate YIELD_SCORE_AS after the COMBINE clause is rejected."""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS', 'score1',
+            'YIELD_SCORE_AS', 'score2',
+        'PARAMS', '2', 'BLOB', query_vector)\
+            .error().contains('YIELD_SCORE_AS: Unknown argument')
+
+def test_hybrid_combine_missing_argument():
+    """Test that missing argument value for YIELD_SCORE_AS after COMBINE clause
+    results in an error"""
+    env = Env()
+    setup_basic_index(env)
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+            'YIELD_SCORE_AS')\
+            .error().contains('Missing argument value for YIELD_SCORE_AS')
+
+def test_hybrid_combine_without_fusion():
+    """Test that COMBINE without a fusion method fails"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+
+    env.expect(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'shoes',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE',
+            'YIELD_SCORE_AS', 'score1',
+        'PARAMS', '2', 'BLOB', query_vector)\
+            .error().contains('COMBINE: Invalid value for argument')
+
+def test_hybrid_linear_combine_and_fused_score():
+    """Test that COMBINE with LINEAR method and count of 0 is supported"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
+
+    res = env.cmd(
+        'FT.HYBRID', 'idx',
+            'SEARCH', 'blue',
+            'VSIM', '@embedding', '$BLOB',
+            'COMBINE', 'LINEAR', '0',
+            'YIELD_SCORE_AS', 'fuse_score',
+        'PARAMS', '2', 'BLOB', query_vector)
+    results, _ = get_results_from_hybrid_response(res)
+
+    # Execute the same command with COMBINE with LINEAR method to verify that
+    # the results are the same
+    res_with_linear = env.cmd(
+        'FT.HYBRID', 'idx',
+            'SEARCH', 'blue',
+            'VSIM', '@embedding', '$BLOB',
+            'COMBINE', 'LINEAR', '4', 'ALPHA', '0.3', 'BETA', '0.7',
+            'YIELD_SCORE_AS', 'fuse_score',
+        'PARAMS', '2', 'BLOB', query_vector)
+    results_with_linear, _ = get_results_from_hybrid_response(res_with_linear)
+
+    env.assertEqual(results, results_with_linear,
+                    message="Results with COMBINE LINEAR count 0 should match results with COMBINE LINEAR count 4")
+
+def test_hybrid_rrf_combine_and_fused_score():
+    """Test that COMBINE with RRF method and count of 0 is supported"""
+    env = Env()
+    setup_basic_index(env)
+    query_vector = np.array([1.2, 0.3]).astype(np.float32).tobytes()
+
+    res = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'blue',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '0',
+        'YIELD_SCORE_AS', 'fused_score',
+        'PARAMS', '2', 'BLOB', query_vector)
+    results, _ = get_results_from_hybrid_response(res)
+
+    # Execute the same command with COMBINE with RRF method to verify that
+    # the results are the same
+    res_with_rrf = env.cmd(
+        'FT.HYBRID', 'idx',
+        'SEARCH', 'blue',
+        'VSIM', '@embedding', '$BLOB',
+        'COMBINE', 'RRF', '2', 'CONSTANT', '60',
+        'YIELD_SCORE_AS', 'fused_score',
+        'PARAMS', '2', 'BLOB', query_vector)
+    results_with_rrf, _ = get_results_from_hybrid_response(res_with_rrf)
+
+    env.assertEqual(results, results_with_rrf,
+                    message="Results with COMBINE RRF count 0 should match results with COMBINE RRF constant 60")
 
 def test_hybrid_multiple_yield_after_combine_error():
     """Test that multiple YIELD parameters after COMBINE keyword fail"""
@@ -270,7 +403,7 @@ def test_hybrid_yield_score_as_all_possible_scores():
         'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10',
             'YIELD_SCORE_AS', 'v_score',
-        'COMBINE', 'LINEAR', '6', 'ALPHA', alpha, 'BETA', beta,
+        'COMBINE', 'LINEAR', '4', 'ALPHA', alpha, 'BETA', beta,
             'YIELD_SCORE_AS', 'fused_score',
         'APPLY', f"{alpha}*case(exists(@s_score), @s_score ,0) + {beta}*case(exists(@v_score), @v_score,0)", 'AS', 'calculated_score',
         'PARAMS', '2', 'BLOB', query_vector)
