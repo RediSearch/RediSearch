@@ -63,20 +63,20 @@ emit_result() {
   local dep=$1 status=$2 msg=${3:-} vtag=${4:-}
   if ! report_mode; then
     printf "%-20s" "$dep"
-    if [ "$status" = ok ]; then
+    if [[ "$status" == ok ]]; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${msg:-${RED}✗${NC}}"
     fi
   fi
-  if [ "$status" = ok ]; then
+  if [[ "$status" == ok ]]; then
     if is_optional_dep "$dep"; then DEPS_OPT_OK="$DEPS_OPT_OK $dep"; else DEPS_OK="$DEPS_OK $dep"; fi
   elif is_optional_dep "$dep"; then
     # Match the RTS report convention: optional-missing records carry no version tag.
     DEPS_OPT_MISSING="$DEPS_OPT_MISSING $dep"
   else
     local tag=$dep
-    [ -n "$vtag" ] && tag="$dep:$vtag"
+    [[ -n "$vtag" ]] && tag="$dep:$vtag"
     DEPS_MISSING="$DEPS_MISSING $tag"
     missing_deps=true
   fi
@@ -130,7 +130,7 @@ fi
 
 # Function to detect the operating system
 detect_os() {
-  if [ -f /etc/os-release ]; then
+  if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     if [[ "$ID" == "amzn" ]]; then
       if [[ "$VERSION_ID" == "2" ]]; then
@@ -379,9 +379,9 @@ for dep in "${!dependencies[@]}"; do
       actual_version=$($get_version "$dep")
       $check_func $actual_version $min_version $max_version
       result=$?
-      if [ "$result" -eq 1 ]; then # below min version
+      if [[ "$result" -eq 1 ]]; then # below min version
         emit_result "$dep" missing "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}" "$min_version"
-      elif [ "$result" -eq 2 ]; then # exceeded max version
+      elif [[ "$result" -eq 2 ]]; then # exceeded max version
         emit_result "$dep" missing "${YELLOW}✗ (need version < $max_version, found version $actual_version)${NC}" "$min_version"
       else
         emit_result "$dep" ok
@@ -485,7 +485,7 @@ fi
 # Suggest using the all-in-one installation script
 echo -e "\n\033[0;36mTo install or inspect dependencies, check the following script:\033[0m"
 is_docker() {
-  [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
+  [[ -f /.dockerenv ]] || grep -q docker /proc/1/cgroup 2>/dev/null
 }
 mode=$(is_docker && echo "" || echo "sudo")
 echo -e "cd .install && ./install_script.sh ${mode}"
