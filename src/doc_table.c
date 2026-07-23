@@ -529,8 +529,9 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       ++deletedElements;
       DMD_Free(dmd);
     } else {
-      // key -> docId is not rebuilt here: legacy indexes are re-indexed after
-      // load (Indexes_EndRDBLoadingEvent), which repopulates DocIdMeta.
+      // key -> docId is not rebuilt here: LOADING_ENDED upgrades legacy indexes
+      // by dropping their old keyspace state, freeing this DocTable, and
+      // re-indexing from Redis keys. That scan repopulates DocIdMeta.
       DocTable_Set(t, dmd->id, dmd);
       t->memsize += sizeof(RSDocumentMetadata) + len;
     }

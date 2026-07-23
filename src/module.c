@@ -4922,7 +4922,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // key->docId is stored as Redis key-metadata in both modes; RDB callbacks are
   // gated to disk mode inside DocIdMeta_Init. Must run during OnLoad.
-  DocIdMeta_Init(ctx);
+  if (DocIdMeta_Init(ctx) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);

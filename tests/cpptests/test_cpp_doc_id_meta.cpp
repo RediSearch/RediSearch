@@ -41,7 +41,7 @@ protected:
     // Initialize spec dictionary (creates specDict_g)
     Indexes_Init(ctx);
 
-    DocIdMeta_Init(ctx);
+    ASSERT_EQ(DocIdMeta_Init(ctx), REDISMODULE_OK);
 
     // Create a mock key name for testing
     testKeyName = RedisModule_CreateString(ctx, "testkey", 7);
@@ -198,6 +198,17 @@ protected:
   static constexpr uint64_t SPEC2_ID = 2;
   static constexpr uint64_t SPEC3_ID = 3;
 };
+
+TEST(DocIdMetaInitTest, MissingKeyMetaApiReturnsError) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  auto savedCreateKeyMetaClass = RedisModule_CreateKeyMetaClass;
+
+  RedisModule_CreateKeyMetaClass = nullptr;
+  EXPECT_EQ(DocIdMeta_Init(ctx), REDISMODULE_ERR);
+
+  RedisModule_CreateKeyMetaClass = savedCreateKeyMetaClass;
+  RedisModule_FreeThreadSafeContext(ctx);
+}
 
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;

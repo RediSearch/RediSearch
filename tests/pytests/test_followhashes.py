@@ -127,8 +127,10 @@ def testSet(env):
     env.expect('ft.search', 'things', 'foo').equal([0])
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
     env.expect('ft.search', 'things', 'foo').equal([1, 'thing:bar', ['name', 'foo']])
+    env.assertEqual(index_info(env, 'things')['num_docs'], 1)
     env.expect('set', 'thing:bar', "bye bye")
     env.expect('ft.search', 'things', 'foo').equal([0])
+    env.assertEqual(index_info(env, 'things')['num_docs'], 0)
 
 @skip(cluster=True)
 def testRename(env):

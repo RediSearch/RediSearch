@@ -229,7 +229,13 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-void DocIdMeta_Init(RedisModuleCtx *ctx) {
+int DocIdMeta_Init(RedisModuleCtx *ctx) {
+  if (!RedisModule_CreateKeyMetaClass || !RedisModule_SetKeyMeta || !RedisModule_GetKeyMeta) {
+    RedisModule_Log(ctx, "warning",
+                    "DocIdMeta requires the Redis key metadata API (Redis 8.6.0 or newer)");
+    return REDISMODULE_ERR;
+  }
+
   // RDB save/load are disk-mode only: memory mode rebuilds the mapping by
   // re-indexing on load, so persisting it would risk staleness. NULL is valid -
   // rdb_save=NULL persists nothing, and REDISMODULE_META_ALLOW_IGNORE (flags
@@ -253,7 +259,11 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .free_effort = NULL,
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, DOCID_META_VERSION, &docIdKeyMetaClassIdConfig);
-  RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+  if (docIdKeyMetaClassId < 0) {
+    RedisModule_Log(ctx, "warning", "Failed to create DocIdMeta class");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 

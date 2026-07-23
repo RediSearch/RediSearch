@@ -27,8 +27,10 @@ These record where the implementation refined the plan below:
   DocIdMeta, delete (DocTable/disk), then `dropDocIdMeta`. Physical key removal
   goes through the `unlink` callback → `IndexSpec_DeleteDocById`.
 - **Q1 (legacy RDB) — resolved:** `DocTable_LegacyRdbLoad` no longer populates a
-  key→docId structure; legacy indexes are re-scanned/re-indexed after load
-  (`Indexes_EndRDBLoadingEvent`), which repopulates DocIdMeta.
+  key→docId structure. During `LOADING_ENDED`, `Indexes_UpgradeLegacyIndexes()`
+  drops the old legacy index keyspace state, frees the loaded DocTable, resets
+  stats, and only then exposes the upgraded spec for the full keyspace scan. The
+  scan repopulates DocIdMeta from live Redis keys.
 - **Q3 (FT.GET/FT.MGET) — resolved:** accepted the key-meta lookup; those
   commands open the key anyway to read fields, so the marginal cost is one
   `GetKeyMeta`.
@@ -187,11 +189,10 @@ Key facts confirmed while scoping (file:line at baseline `20b0cd6e3`):
   TTL, sorting-vector and payload APIs are **unchanged** (they are docId- or
   DMD-addressed already).
 - `DocTable_LegacyRdbLoad` drops its `DocIdMap_Put`; it stays RAM-only (legacy
-  is disk-unsupported) and only needs to rebuild buckets. Note: legacy RDB
+  is disk-unsupported) and only needs to consume/rebuild buckets until
+  `Indexes_UpgradeLegacyIndexes()` frees the loaded DocTable. Note: legacy RDB
   carried the mapping implicitly via re-population; since modern RAM rebuilds by
-  re-index anyway, the legacy loader only needs the DMDs in buckets. **Verify**
-  whether any legacy-load consumer needs key→docId before the post-load scan
-  repopulates `DocIdMeta` (see Open Questions Q1).
+  re-index anyway, the legacy loader only needs the DMDs in buckets.
 
 ### 4.2 key→docId via DocIdMeta in both modes
 
@@ -329,9 +330,10 @@ disk-only concerns (they only matter when `rdb_save`/`rdb_load` are registered).
 
 ## 9. Open questions (need answers before / during implementation)
 
-- **Q1 — Legacy RDB:** after `DocTable_LegacyRdbLoad` (RAM-only), is key→docId
-  ever needed before the post-load background scan repopulates `DocIdMeta`? If
-  yes, the legacy loader must also `DocIdMeta_Set` each key during load.
+- **Q1 — Legacy RDB — RESOLVED:** user commands do not observe the
+  `DocTable_LegacyRdbLoad` buckets. `Indexes_UpgradeLegacyIndexes()` frees them
+  and resets stats before the upgraded spec is scanned/re-indexed, so DocIdMeta
+  is populated by the scan that creates the live DocTable entries.
 - **Q2 — Expiration/eviction — RESOLVED.** The key-meta `unlink` callback fires
   on active expiry, lazy expiry, and maxmemory eviction: disk mode already
   relies on it exclusively (it does not subscribe to `EXPIRED`/`EVICTED`/

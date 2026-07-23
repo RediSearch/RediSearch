@@ -169,10 +169,12 @@ void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) 
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                 RedisModuleString *key) {
   enum RedisCmd redisCommand = GetRedisCmd(event);
-  // When running on SearchDisk, defer the actual handling of every event other
-  // than "loaded" to a post-notification per-key job, so indexing runs outside
-  // the keyspace-notification context.
-  if (SearchDisk_IsEnabled() && redisCommand != loaded_cmd) {
+  // SearchDisk already defers non-loaded events. In memory mode, defer module-originated
+  // notifications (e.g. RedisJSON): those modules may still own open key handles while
+  // notifying, and updating KeyMeta before those handles are closed can invalidate Redis'
+  // handle-local key bookkeeping under ASAN.
+  if (redisCommand != _null_cmd && redisCommand != loaded_cmd &&
+      (SearchDisk_IsEnabled() || (type & REDISMODULE_NOTIFY_MODULE))) {
     KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
     job->type = type;
     job->redisCommand = redisCommand;
@@ -277,7 +279,9 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // De-indexed via the DocIdMeta `unlink` callback (both modes).
+      // De-indexed via the DocIdMeta `unlink` callback (both modes). For SET
+      // overwrites, Redis unlinks the old value before the notification; the
+      // later KeyMeta free callback only releases the per-key metadata dict.
       break;
 
 /********************************************************
