@@ -51,6 +51,17 @@ fi
 export PATH="$HOME/.cargo/bin:$PATH"
 hash -r
 
+# list: record whether the Rust toolchain (cargo) is present; dry-run: print
+# the rustup install command if it's absent; real: unchanged.
+if [ "${CHECK_DEPS:-0}" = 1 ]; then
+    if command -v cargo >/dev/null 2>&1; then DEPS_OK="$DEPS_OK rust"; else DEPS_MISSING="$DEPS_MISSING rust"; fi
+    return 0 2>/dev/null || exit 0
+fi
+if [ "${DRY_RUN:-0}" = 1 ]; then
+    command -v cargo >/dev/null 2>&1 || _dry_line "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none   # then: rustup toolchain install $PINNED_VERSION (rust-toolchain.toml pin) + cargo-nextest"
+    return 0 2>/dev/null || exit 0
+fi
+
 if ! command -v rustup >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
     install_rustup "Installing Rust toolchain via rustup-init..."
 else

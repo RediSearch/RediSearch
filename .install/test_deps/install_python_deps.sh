@@ -3,6 +3,29 @@ set -eo pipefail
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
 
+# install_script.sh runs this as a subprocess, so deps_lib.sh isn't in scope —
+# pull it in (self-guarded, no-op if already loaded) for _dry_line / mode vars.
+if ! command -v _dry_line >/dev/null 2>&1; then
+    source "$(dirname "${BASH_SOURCE[0]}")/../deps_lib.sh"
+fi
+
+# list: nothing to record here — build-time uv is reported by install_python.sh
+# and these are test-only pip deps. dry-run: print the venv + uv sync sequence,
+# gated on the venv's absence. Neither mode may create the venv.
+if [ "${CHECK_DEPS:-0}" = 1 ]; then
+    return 0 2>/dev/null || exit 0
+fi
+if [ "${DRY_RUN:-0}" = 1 ]; then
+    # The venv lives in the module dir this script runs from ($PWD, set by
+    # install_script.sh's `cd ..`). Print an absolute, cd-prefixed one-liner so
+    # copy-paste creates it in the RIGHT place (not wherever you pasted from),
+    # and gate on that same dir so a provisioned venv drops the line entirely.
+    if [ ! -d "$PWD/.venv" ]; then
+        _dry_line "cd \"$PWD\" && uv venv --seed --clear && source .venv/bin/activate && uv sync --locked --all-packages"
+    fi
+    return 0 2>/dev/null || exit 0
+fi
+
 activate_venv() {
 	echo "copy activation script to shell config"
 	if [[ $OS_TYPE == Darwin ]]; then

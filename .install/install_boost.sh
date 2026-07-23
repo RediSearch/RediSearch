@@ -5,6 +5,24 @@ VERSION=1.88.0
 BOOST_NAME="boost_${VERSION//./_}"
 BOOST_DIR="boost" # here we search for the boost cached installation if exists. Do not change this value
 
+# Presence-only: the marker is the extracted boost/ dir. list records it;
+# dry-run prints the fetch/extract commands only when it's absent; real
+# behavior is unchanged.
+if [ "${CHECK_DEPS:-0}" = 1 ]; then
+    if [[ -d ${BOOST_DIR} ]]; then DEPS_OK="$DEPS_OK boost"; else DEPS_MISSING="$DEPS_MISSING boost"; fi
+    return 0 2>/dev/null || exit 0
+fi
+if [ "${DRY_RUN:-0}" = 1 ]; then
+    if [[ ! -d ${BOOST_DIR} ]]; then
+        BOOST_URL="https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-b2-nodocs.tar.gz"
+        _dry_line "wget -T 60 \"${BOOST_URL}\" -O ${BOOST_NAME}.tar.gz"
+        _dry_line "tar -xzf ${BOOST_NAME}.tar.gz"
+        _dry_line "mv boost-${VERSION} ${BOOST_DIR}"
+        _dry_line "rm ${BOOST_NAME}.tar.gz"
+    fi
+    return 0 2>/dev/null || exit 0
+fi
+
 if [[ -d ${BOOST_DIR} ]]; then
     echo "Boost cache directory present, skipping installation"
 else
