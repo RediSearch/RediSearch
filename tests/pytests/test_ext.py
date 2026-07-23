@@ -5,7 +5,7 @@ import sys
 from RLTest import Env
 from includes import *
 from test_info_modules import info_modules_to_dict
-from common import config_cmd
+from common import config_cmd, skip
 
 
 if 'EXT_TEST_PATH' in os.environ:
@@ -14,6 +14,7 @@ else:
     EXTPATH = 'tests/ctests/ext-example/libexample_extension.so'
 
 
+@skip(enterprise=True)
 def testExt(env):
     if env.env == 'existing-env' or NO_LIBEXT:
         env.skip()
