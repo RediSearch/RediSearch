@@ -23,6 +23,8 @@ pub enum CTrieDecrResult {
     Updated = 1,
     /// numDocs reached 0, term was deleted from the trie.
     Deleted = 2,
+    /// Term too long/unconvertible for the trie; never inserted.
+    Unsupported = 3,
 }
 
 /// Wrapper around the C Trie pointer for safe FFI operations.
@@ -61,6 +63,7 @@ impl CTrieRef {
     /// * `CTrieDecrResult::NotFound` - Term not found in trie
     /// * `CTrieDecrResult::Updated` - numDocs decremented, still > 0
     /// * `CTrieDecrResult::Deleted` - numDocs reached 0, term deleted
+    /// * `CTrieDecrResult::Unsupported` - term too long/unconvertible; never inserted
     ///
     /// # Safety
     ///
