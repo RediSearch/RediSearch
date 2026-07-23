@@ -333,6 +333,14 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 // and to prevent the system from running out of resources.
 // The number of worker threads should be proportional to the number of cores in the system at most,
 // otherwise no performance improvement will be achieved.
+// Keep build-time overrides (-DMAX_WORKER_THREADS, injected from the build environment;
+// set to 24 for enterprise builds) on the order of the core count (MOD-16610): the shared
+// SVS vector-indexing thread pool is sized to WORKERS and physically resized synchronously
+// on the Redis main thread by CONFIG SET, and each new SVS thread boots through a busy-spin
+// handshake, so the resize cost grows superlinearly with the thread count — tens of seconds
+// at WORKERS=2000, long enough to time out cluster-management operations, versus
+// milliseconds at 24. SVS threads are compute-bound, so worker counts beyond the core count
+// add no throughput to begin with.
 #ifndef MAX_WORKER_THREADS
 #define MAX_WORKER_THREADS (1 << 4)
 #endif
