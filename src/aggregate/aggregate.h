@@ -438,6 +438,19 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
  * request (AREQ_Free / HybridRequest_Free), then frees the wrapper itself. */
 void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
 
+/* Kind-checked accessors for the owned request. Callers that know which kind
+ * of request their cycle carries (e.g. per-kind reply/timeout callbacks) use
+ * these instead of reaching into the union, so a mismatched callback fails
+ * loudly in debug builds. */
+static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  return brc->query.areq;
+}
+static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  return brc->query.hybrid;
+}
+
 /* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
  * (no wrapper involved).
  * TRANSITIONAL(MOD-16691): AREQ_IncrRef / AREQ_DecrRef delegate to the owning

@@ -36,12 +36,6 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   brc->bc = bc;
   brc->deferred_reply = (reply_cb != NULL);
   RedisModule_BlockClientSetPrivateData(bc, brc);
-  // Cursor cycles reuse the wrapper across reads: reset the per-read
-  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
-  // slate. Harmless on the initial cycle (the state is already clean).
-  if (brc->kind == REQUEST_KIND_AREQ && brc->requiresAggregateResultsSync) {
-    AREQ_ResetForCursorReadReturnStrict(brc->query.areq);
-  }
 }
 
 void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
@@ -125,6 +119,12 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply_cb, timeout_cb,
                                                          BlockedRequestCtx_OnFree, timeout_ms);
   BlockedRequestCtx_BeginCycle(brc, bc, reply_cb);
+  // Cursor cycles reuse the wrapper across reads: reset the per-read
+  // RETURN_STRICT claim/latch state so the new cycle starts from a clean
+  // slate.
+  if (brc->requiresAggregateResultsSync) {
+    AREQ_ResetForCursorReadReturnStrict(BlockedRequestCtx_GetAREQ(brc));
+  }
   brc->registry_node = node;
   brc->registry_node_is_cursor = true;
   // report block client start time

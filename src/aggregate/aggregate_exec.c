@@ -1607,7 +1607,7 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
   // Signal timeout to background thread (will notice and skip storing results)
   AREQ_SetTimedOut(req);
   recordAREQTimeoutStage(req, /*isError=*/true);
@@ -1654,7 +1654,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
 
   // Signal timeout to background thread
   AREQ_SetTimedOut(req);
@@ -1763,7 +1763,7 @@ static int QueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->brc->reply.hasStoredResults) {
@@ -1797,7 +1797,7 @@ static int CursorReadTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
   // Signal timeout to background thread so it skips storing results.
   AREQ_SetTimedOut(req);
   recordAREQTimeoutStage(req, /*isError=*/true);
@@ -1818,7 +1818,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
   AREQ_SetTimedOut(req);
   recordAREQTimeoutStage(req, /*isError=*/false);
 
@@ -1866,7 +1866,7 @@ static int CursorReadReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  AREQ *req = brc->query.areq;
+  AREQ *req = BlockedRequestCtx_GetAREQ(brc);
 
   if (!req->brc->reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
@@ -1927,9 +1927,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
   if (RunInThread(ctx)) {
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // reqConfig was captured at request construction, so a concurrent
-    // FT.CONFIG SET cannot desync the callbacks chosen here from the policy
-    // the BG thread and the timeout callback act on.
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;

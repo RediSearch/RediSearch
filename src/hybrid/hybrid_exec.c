@@ -968,7 +968,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1010,7 +1010,7 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Signal timeout to the worker and to all subquery depleters.
   HybridRequest_SetTimedOut(hreq);
@@ -1055,7 +1055,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  HybridRequest *hreq = brc->query.hybrid;
+  HybridRequest *hreq = BlockedRequestCtx_GetHybrid(brc);
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
@@ -1095,7 +1095,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  HybridRequest *req = brc->query.hybrid;
+  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
 
   if (QueryError_HasError(&req->brc->reply.err)) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->brc->reply.err), 1, SHARD_ERR_WARN);
@@ -1126,7 +1126,7 @@ static int HybridQueryReplyCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   // so no callback can observe missing privdata.
   RS_ASSERT(brc != NULL);
 
-  HybridRequest *req = brc->query.hybrid;
+  HybridRequest *req = BlockedRequestCtx_GetHybrid(brc);
 
   // Check if results were stored (background thread completed successfully)
   if (!req->brc->reply.hasStoredResults) {
@@ -1174,9 +1174,6 @@ static int HybridRequest_BuildPipelineAndExecute(StrongRef hybrid_ref, HybridPip
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    // reqConfig was captured at request construction, so a concurrent
-    // FT.CONFIG SET cannot desync the callbacks chosen here from the policy
-    // the BG thread and the timeout callback act on.
     RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;

@@ -277,10 +277,10 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
-    // Capture request-scoped config once, on the constructing thread (the main
-    // thread for coordinator requests). Parsing and execution must not re-read
-    // RSGlobalConfig, so a concurrent FT.CONFIG SET cannot desync the decisions
-    // the BG thread and the timeout callback derive from it.
+    // Capture request-scoped config once, at construction. Parsing and
+    // execution must not re-read RSGlobalConfig, so a concurrent FT.CONFIG SET
+    // cannot desync the decisions the BG thread and the timeout callback
+    // derive from it.
     hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
