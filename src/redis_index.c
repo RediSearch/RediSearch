@@ -13,6 +13,10 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"

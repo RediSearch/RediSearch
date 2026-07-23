@@ -15,6 +15,10 @@
 #include <limits.h>
 #include <strings.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "geo_index.h"
 #include "query.h"
 #include "config.h"

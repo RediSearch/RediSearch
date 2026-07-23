@@ -22,6 +22,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifdef ENABLE_ASSERT
+#include "module.h" // IWYU pragma: keep
+#endif
+
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"

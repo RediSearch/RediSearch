@@ -15,6 +15,10 @@
 #include <strings.h>
 #include <sys/param.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"

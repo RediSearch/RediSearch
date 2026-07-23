@@ -10,6 +10,10 @@
 
 #include <stddef.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
  #include "search_result_ffi.h"
  #include "aggregate.h"
  #include "util/timeout.h"

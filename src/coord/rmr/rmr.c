@@ -15,6 +15,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "reply.h"
 #include "reply_macros.h"
 #include "redismodule.h"
