@@ -51,10 +51,10 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an
- *    open, writable file descriptor.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field
- *    is a non-null, properly initialised `IndexSpec`.
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  */
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
 
