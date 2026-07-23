@@ -738,14 +738,11 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     CurrentThread_ClearIndexSpec();
     StrongRef_Release(own_ref);
   } else {
-    // KEEPDOCS: the Redis keys outlive the index, so their unlink callback never
-    // fires to reclaim this spec's key metadata. Mark the spec so background
-    // teardown (IndexSpec_PruneDocIdMeta) prunes those entries. Disk mode GCs
-    // them via its RDB cycle, so only memory mode needs this.
+    // KEEPDOCS: keys outlive the index, so prune this spec's key metadata during
+    // background teardown (memory mode only; disk GCs via RDB).
     if (!SearchDisk_IsEnabled()) {
       sp->pruneKeyMetaOnFree = true;
     }
-    // If we don't delete the docs, we just remove the index from the global dict
     Indexes_RemoveSpecFromGlobals(global_ref, true);
   }
 

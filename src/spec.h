@@ -375,10 +375,8 @@ typedef struct IndexSpec {
   // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
   bool resume_bg_indexing;
 
-  // Set at a KEEPDOCS drop (memory mode): the Redis keys outlive the index, so
-  // this spec's DocIdMeta entries must be pruned from them during background
-  // teardown (see IndexSpec_PruneDocIdMeta). A delete-docs drop leaves it false
-  // - those keys (and their metadata) are removed as the keys are deleted.
+  // KEEPDOCS drop (memory mode): prune this spec's DocIdMeta from surviving keys
+  // during background teardown (see IndexSpec_PruneDocIdMeta).
   bool pruneKeyMetaOnFree;
 } IndexSpec;
 

@@ -1967,25 +1967,14 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   removePendingIndexDrop();
 }
 
-// Number of keys pruned per GIL acquisition in IndexSpec_PruneDocIdMeta. Bounds
-// how long a single lock hold blocks the main thread, mirroring the
-// concurrent-search / fork-GC yield pattern.
-#define DOCID_META_PRUNE_GIL_BATCH 500
+#define DOCID_META_PRUNE_GIL_BATCH 500  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
 
-// Reclaim this spec's key->docId metadata (DocIdMeta) from Redis keys that
-// outlive the index. A KEEPDOCS drop (the FT.DROPINDEX default) leaves the keys
-// and their per-key DocIdMeta entries in place; nothing else ever removes this
-// spec's entries, so the drop marks `pruneKeyMetaOnFree` and we prune them here
-// before the DocTable (our source of key names) is freed. A delete-docs drop
-// leaves the flag clear: those keys - and their attached metadata - are removed
-// as the keys themselves are deleted.
-//
-// Runs on the cleanPool worker, which does not hold the GIL, so it opens keys
-// under the GIL in bounded batches to keep the event loop responsive. Memory
-// mode only: disk mode GCs stale DocIdMeta entries through its RDB save/load
-// cycle, and its DMDs carry no in-memory key name to open. specId is monotonic
-// and never reused, so any entry not pruned here is inert (never aliases a live
-// index) and is reclaimed when its key is eventually deleted.
+// Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
+// (nothing else removes those entries). Runs on the cleanPool worker before the
+// DocTable is freed, opening keys under the GIL in bounded batches so
+// FT.DROPINDEX stays O(1) on the main thread. Memory mode only (disk GCs via
+// RDB); gated on pruneKeyMetaOnFree so delete-docs drops skip it. specId is
+// monotonic, so any entry left behind is inert. See the design doc.
 static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
   if (!sp->pruneKeyMetaOnFree || SearchDisk_IsEnabled() || sp->docs.size == 0) {
     return;
@@ -2007,8 +1996,7 @@ static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
   RedisModule_ThreadSafeContextUnlock(ctx);
 }
 
-// cleanPool entry point: reclaim key metadata (needs the DocTable's key names)
-// before the shared teardown frees the DocTable.
+// cleanPool entry point: prune key metadata before teardown frees the DocTable.
 static void IndexSpec_FreeUnlinkedDataBg(void *p) {
   IndexSpec *spec = p;
   IndexSpec_PruneDocIdMeta(spec);

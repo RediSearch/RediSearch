@@ -230,27 +230,18 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
 }
 
 void DocIdMeta_Init(RedisModuleCtx *ctx) {
-  // RDB save/load are registered in disk mode only: memory mode rebuilds the
-  // mapping by re-indexing on RDB load, so a persisted mapping would be stale.
-  // Leaving both NULL in memory mode is valid per the KeyMeta API: rdb_save=NULL
-  // persists nothing, and because REDISMODULE_META_ALLOW_IGNORE is set (flags
-  // below) a NULL rdb_load silently ignores any DocIdMeta found in an RDB written
-  // under disk mode instead of failing the load (without the flag it would fail).
-  // No no-op handlers are needed.
-  // IsEnabledForValidation lets simulateInFlex tests exercise the callbacks;
-  // equals IsEnabled() in production.
+  // RDB save/load are disk-mode only: memory mode rebuilds the mapping by
+  // re-indexing on load, so persisting it would risk staleness. NULL is valid -
+  // rdb_save=NULL persists nothing, and REDISMODULE_META_ALLOW_IGNORE (flags
+  // below) makes a NULL rdb_load ignore DocIdMeta from a disk-mode RDB rather
+  // than fail the load. IsEnabledForValidation == IsEnabled() outside tests.
   const bool onDisk = SearchDisk_IsEnabledForValidation();
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
     .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
-    // NULL callbacks are valid per the KeyMeta API and are the behavior we want:
-    // COPY (copy=NULL => not copied) must not carry the docId — the copy is a
-    // distinct document that gets its own docId when indexed; RENAME
-    // (rename=NULL => kept) keeps it — same document, same docId. MOVE needs an
-    // explicit handler to drop it (the docId is meaningless in the target DB).
-    .copy = NULL,
-    .rename = NULL,
+    .copy = NULL, // If NULL, meta is not copied during copy operations
+    .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
@@ -329,11 +320,9 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
   int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
-  // If that was the last entry, detach and free the now-empty per-key dict so a
-  // surviving-but-de-indexed key (FILTER no longer matches, rename out of the
-  // prefix, ...) does not retain an empty allocation. SetKeyMeta does not free
-  // the previous value (it is caller-owned), and Redis skips the free callback
-  // once meta == reset_value (0), so detach first, then release.
+  // Last entry gone: detach and free the now-empty per-key dict so a surviving
+  // de-indexed key keeps no empty allocation. Detach-then-free - SetKeyMeta does
+  // not free the old value, and Redis skips the free callback once meta == 0.
   if (rc == DICT_OK && dictSize(specIdToDocId) == 0) {
     if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) == REDISMODULE_OK) {
       dictRelease(specIdToDocId);
