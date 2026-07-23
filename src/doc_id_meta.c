@@ -232,6 +232,11 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
 void DocIdMeta_Init(RedisModuleCtx *ctx) {
   // RDB save/load are registered in disk mode only: memory mode rebuilds the
   // mapping by re-indexing on RDB load, so a persisted mapping would be stale.
+  // Leaving both NULL in memory mode is valid per the KeyMeta API: rdb_save=NULL
+  // persists nothing, and because REDISMODULE_META_ALLOW_IGNORE is set (flags
+  // below) a NULL rdb_load silently ignores any DocIdMeta found in an RDB written
+  // under disk mode instead of failing the load (without the flag it would fail).
+  // No no-op handlers are needed.
   // IsEnabledForValidation lets simulateInFlex tests exercise the callbacks;
   // equals IsEnabled() in production.
   const bool onDisk = SearchDisk_IsEnabledForValidation();
