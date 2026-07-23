@@ -254,7 +254,12 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes);
+  // Vector indexes (e.g. HNSW) remain in memory even when the rest of the
+  // index is stored on disk, so their memory must always be reported.
+  // VecSim_GetSharedMemory() returns process-wide vector-related allocations not
+  // tied to any single index (e.g. the shared SVS thread pool singleton).
+  size_t vector_indexes_size = IndexSpec_VectorIndexesSize(specForOpeningIndexes) +
+                               VecSim_GetSharedMemory();
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks());
 
