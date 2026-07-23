@@ -10,7 +10,7 @@
 
 #include <stdarg.h>
 #include <stdint.h>
-#include <cstdio>
+#include <sys/types.h> // for ssize_t
 
 #include "resp3.h"
 #include "query_error_ffi.h"
