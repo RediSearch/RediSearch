@@ -49,3 +49,7 @@ if [[ "${SKIP_PYTHON_TEST_DEPS:-0}" != 1 ]]; then
 fi
 
 git config --global --add safe.directory '*'
+
+# make sure submodules are initialized
+git submodule sync --recursive
+git submodule update --init --recursive
