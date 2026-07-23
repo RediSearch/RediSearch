@@ -21,13 +21,13 @@ const fn is_c_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0B' | b'\x0C')
 }
 
-/// Remove tag escape sequences and optionally convert to lowercase.
+/// Normalise a tag value into the form it is indexed and looked up under.
 ///
 /// 1. Strips backslash escapes that precede ASCII punctuation or whitespace.
 /// 2. If `case_sensitive` is `false`, converts the result to lowercase using
 ///    [`unicode::tolower`](crate::unicode::tolower) (per-character, no
 ///    context-dependent rules).
-pub fn strtolower(s: &str, case_sensitive: bool) -> Cow<'_, str> {
+pub fn normalize(s: &str, case_sensitive: bool) -> Cow<'_, str> {
     let bytes = s.as_bytes();
     // Only `\` before ASCII punctuation or C-locale whitespace counts as
     // an escape; `\` before a letter (e.g. `\n` as two literal bytes) is
