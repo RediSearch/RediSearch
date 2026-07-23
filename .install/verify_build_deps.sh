@@ -62,11 +62,10 @@ report_mode() { [ -n "${DEPS_REPORT_FILE:-}" ]; }
 emit_result() {
   local dep=$1 status=$2 msg=${3:-} vtag=${4:-}
   if ! report_mode; then
-    printf "%-20s" "$dep"
     if [[ "$status" == ok ]]; then
-      echo -e "${GREEN}✓${NC}"
+      printf '%-20s%b\n' "$dep" "${GREEN}✓${NC}"
     else
-      echo -e "${msg:-${RED}✗${NC}}"
+      printf '%-20s%b\n' "$dep" "${msg:-${RED}✗${NC}}"
     fi
   fi
   if [[ "$status" == ok ]]; then
