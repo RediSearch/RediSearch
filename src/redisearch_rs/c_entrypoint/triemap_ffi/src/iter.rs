@@ -139,7 +139,7 @@ pub unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, ti
     let timeout = if timeout.tv_nsec == 0 && timeout.tv_sec == 0 {
         None
     } else {
-        // Convert libc monotinic now into Instant. Both are monotonic so the
+        // Convert libc monotonic now into Instant. Both are monotonic so the
         // conversion is exact and immune to wall-clock adjustments.
         let now = timespec_monotonic_now();
         let deadline_since_boot = Duration::new(timeout.tv_sec as u64, timeout.tv_nsec as u32);

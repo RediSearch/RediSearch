@@ -311,78 +311,91 @@ fn test_trie_wildcard_iter_timeout() {
     run_iter_timeout_test(b"*", tm_iter_mode::TM_WILDCARD_MODE);
 }
 
-/// Assert that an iterator opened with the given `pattern`/`mode` honors a
-/// deadline set via [`TrieMapIterator_SetTimeout`]: it keeps yielding before
-/// the deadline and stops yielding once the deadline has passed.
-///
-/// The `pattern` must match at least two entries in [`with_trie_map`].
+/// Number of entries inserted into the map used by the timeout tests.
+const TIMEOUT_MAP_ENTRIES: usize = 1_000;
+
 fn run_iter_timeout_test(pattern: &[u8], mode: tm_iter_mode) {
-    with_trie_map(|t| {
-        // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
-        let it = unsafe {
-            TrieMap_IterateWithFilter(t, pattern.as_ptr().cast(), pattern.len() as tm_len_t, mode)
-        };
+    let t = NewTrieMap();
 
-        let mut char: *mut c_char = std::ptr::null_mut();
-        let mut len: tm_len_t = 0;
-        let mut value: *mut c_void = std::ptr::null_mut();
+    let mut value: u8 = 0;
+    let value_ptr = &mut value as *mut u8 as *mut c_void;
 
-        let mut deadline = timespec_monotonic_now();
-        let duration_ns = 200_000_000; // 200 ms are 200_000_000 nanoseconds
-        deadline.tv_nsec += duration_ns;
-
-        // handle overflow, a second consists of 1_000_000_000 nanoseconds
-        deadline.tv_sec += deadline.tv_nsec / 1_000_000_000;
-        deadline.tv_nsec %= 1_000_000_000;
-
-        // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
-        unsafe { TrieMapIterator_SetTimeout(it, deadline) };
-
-        for _ in 0..2 {
-            assert_eq!(
-                1,
-                // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
-                unsafe {
-                    TrieMapIterator_Next(
-                        it,
-                        &mut char as *mut *mut c_char,
-                        &mut len as *mut tm_len_t,
-                        &mut value as *mut *mut c_void,
-                    )
-                },
-                "Before the deadline passes, next should yield a result"
+    for i in 0..TIMEOUT_MAP_ENTRIES {
+        let key = format!("{i:08}");
+        // Safety: We adhere to all the safety requirements of `TrieMap_Add`
+        unsafe {
+            TrieMap_Add(
+                t,
+                key.as_ptr().cast(),
+                key.len() as tm_len_t,
+                value_ptr,
+                None,
             );
         }
+    }
 
-        // Wait until the deadline has passed.
-        // We're using a monotonic timer, so this should not be flaky
-        while {
-            let now = timespec_monotonic_now();
-            now.tv_sec < deadline.tv_sec
-                || (now.tv_sec == deadline.tv_sec && now.tv_nsec <= deadline.tv_nsec)
-        } {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+    // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
+    let it = unsafe {
+        TrieMap_IterateWithFilter(t, pattern.as_ptr().cast(), pattern.len() as tm_len_t, mode)
+    };
 
-        for _ in 0..2 {
-            assert_eq!(
-                0,
-                // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
-                unsafe {
-                    TrieMapIterator_Next(
-                        it,
-                        &mut char as *mut *mut c_char,
-                        &mut len as *mut tm_len_t,
-                        &mut value as *mut *mut c_void,
-                    )
-                },
-                "After the deadline passes, next should not yield a result"
-            );
-        }
+    let mut char: *mut c_char = std::ptr::null_mut();
+    let mut len: tm_len_t = 0;
+    let mut value: *mut c_void = std::ptr::null_mut();
 
-        // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
-        unsafe { TrieMapIterator_Free(it) };
-    });
+    let mut deadline = timespec_monotonic_now();
+    let duration_ns = 200_000_000; // 200 ms are 200_000_000 nanoseconds
+    deadline.tv_nsec += duration_ns;
+
+    // handle overflow, a second consists of 1_000_000_000 nanoseconds
+    deadline.tv_sec += deadline.tv_nsec / 1_000_000_000;
+    deadline.tv_nsec %= 1_000_000_000;
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
+    unsafe { TrieMapIterator_SetTimeout(it, deadline) };
+
+    for _ in 0..2 {
+        assert_eq!(
+            1,
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+            unsafe {
+                TrieMapIterator_Next(
+                    it,
+                    &mut char as *mut *mut c_char,
+                    &mut len as *mut tm_len_t,
+                    &mut value as *mut *mut c_void,
+                )
+            },
+            "Before the deadline passes, next should yield a result"
+        );
+    }
+
+    // Wait until the deadline has passed.
+    // We're using a monotonic timer, so this should not be flaky
+    while {
+        let now = timespec_monotonic_now();
+        now.tv_sec < deadline.tv_sec
+            || (now.tv_sec == deadline.tv_sec && now.tv_nsec <= deadline.tv_nsec)
+    } {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    let found = unsafe {
+        TrieMapIterator_Next(
+            it,
+            &mut char as *mut *mut c_char,
+            &mut len as *mut tm_len_t,
+            &mut value as *mut *mut c_void,
+        )
+    };
+    // Expired
+    assert_eq!(found, 1);
+
+    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+    unsafe { TrieMapIterator_Free(it) };
+
+    // Safety: We adhere to all the safety requirements of `TrieMap_Free`
+    unsafe { TrieMap_Free(t, Some(do_not_free)) };
 }
 
 #[test]

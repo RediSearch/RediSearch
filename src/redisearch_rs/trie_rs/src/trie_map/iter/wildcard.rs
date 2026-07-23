@@ -44,6 +44,7 @@ impl<'tm, 'p, Data> WildcardFilterIter<'tm, 'p, Data> {
         Self(iter)
     }
 
+    /// Set timeout
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout);
     }

@@ -25,6 +25,7 @@ impl<'tm, 't, Data> From<ContainsIter<'tm, 't, Data>> for ContainsLendingIter<'t
 }
 
 impl<'tm, 't, Data> ContainsLendingIter<'tm, 't, Data> {
+    /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
     }

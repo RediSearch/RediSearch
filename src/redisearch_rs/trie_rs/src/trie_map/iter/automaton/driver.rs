@@ -123,6 +123,7 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
         iter
     }
 
+    /// Set timeout
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into()
     }

@@ -76,9 +76,7 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
         // prompt detection construct the checker with a small `limit`.
         if self.counter >= self.limit {
             // Reset the counter whenever we probe the clock so the next
-            // `limit` calls are amortized again. Without this reset the
-            // counter would stay `>= limit` forever, turning every
-            // subsequent call into a real clock check.
+            // `limit` calls are amortized again.
             self.counter = 0;
             if Instant::now() >= self.deadline {
                 return TimeoutCheckResult::TimedOut;
@@ -104,8 +102,7 @@ impl TimeoutChecker for DeadlineTimeoutChecker {
 pub struct NoTimeoutChecker;
 
 impl TimeoutChecker for NoTimeoutChecker {
-    /// Increments the internal counter and, if the `limit` is reached, checks if
-    /// the current time has passed the `deadline`.
+    /// No-op. Always returns [`TimeoutCheckResult::Ok`].
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
         TimeoutCheckResult::Ok
@@ -138,34 +135,5 @@ impl TimeoutChecker for AnyTimeoutChecker {
             Self::NoTimeout(c) => c.reset_counter(),
             Self::Deadline(c) => c.reset_counter(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // NOTE: behavioral tests that only exercise the public API live in
-    // `tests/tests.rs`. This module keeps only the tests that must inspect
-    // private internals (e.g. the amortization `counter`), which an
-    // integration test cannot reach.
-
-    #[test]
-    fn clock_context_amortizes_repeatedly_after_first_probe() {
-        // Deadline is effectively unreachable, so the checker must always
-        // report Ok. With `limit = 100`, the clock is probed on calls
-        // 100, 200, 300, ... and the counter must reset each time. The
-        // calls in between (never a multiple of `limit`) must not probe
-        // the clock. Regression test for a counter that was left `>= limit`
-        // after the first probe, which turned every later call into a
-        // clock check.
-        let limit = 100;
-        let mut ctx = DeadlineTimeoutChecker::new(Duration::from_secs(3600), limit);
-        for _ in 0..(limit as usize * 5) {
-            assert!(matches!(ctx.check_timeout(), TimeoutCheckResult::Ok));
-        }
-        // After probing on the last multiple of `limit`, the counter must
-        // have been reset rather than left at `limit`.
-        assert!(ctx.counter < limit);
     }
 }

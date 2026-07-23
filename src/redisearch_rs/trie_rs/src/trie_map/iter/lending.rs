@@ -36,6 +36,7 @@ impl<'tm, Data, F> LendingIter<'tm, Data, F> {
         LendingIter(self.0.traversal_filter(f))
     }
 
+    /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout)
     }

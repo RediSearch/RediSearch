@@ -186,6 +186,7 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
         }
     }
 
+    /// Set timeout
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         match self {
             Self::U64(it) => it.set_timeout(timeout),
@@ -239,6 +240,7 @@ impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
 pub struct WildcardLendingIter<'tm, 'p, Data>(WildcardIter<'tm, 'p, Data>);
 
 impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
+    /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.0.set_timeout(timeout);
     }

@@ -31,6 +31,7 @@ pub enum TrieMapIteratorImpl<'tm> {
 }
 
 impl TrieMapIteratorImpl<'_> {
+    /// Set timeout
     pub fn set_timeout(&mut self, timeout: Option<Instant>) {
         match self {
             Self::Plain(i) => i.set_timeout(timeout),
