@@ -14,7 +14,7 @@ extern crate redisearch_rs;
 mod runes_to_string;
 mod runes_to_utf8;
 mod str_to_lower_runes;
-mod tag_strtolower;
+mod tag_normalize;
 mod unicode_tolower;
 mod unicode_tolower_capped;
 mod utf8_to_runes;
