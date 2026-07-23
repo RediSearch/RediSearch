@@ -2319,6 +2319,10 @@ static int parseCompactionSite(const char *name, int *out) {
     *out = SEARCH_DISK_SITE_COMPACTION_COMPLETED;
   } else if (!strcasecmp(name, "pre_checkpoint")) {
     *out = SEARCH_DISK_SITE_PRE_CHECKPOINT;
+  } else if (!strcasecmp(name, "split_before_c")) {
+    *out = SEARCH_DISK_SITE_SPLIT_BEFORE_C;
+  } else if (!strcasecmp(name, "numeric_gate_closed")) {
+    *out = SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED;
   } else {
     return 0;
   }
@@ -2335,7 +2339,8 @@ static int parseCompactionSite(const char *name, int *out) {
  *   REACHED <site>                     -> integer arrival count
  *   RESET                              clear all state, free waiters
  *
- * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint.
+ * <site> is one of: compaction_begin, compaction_completed, pre_checkpoint,
+ * split_before_c, numeric_gate_closed.
  */
 DEBUG_COMMAND(replCompactionCoordinator) {
   if (!debugCommandsEnabled(ctx)) {
