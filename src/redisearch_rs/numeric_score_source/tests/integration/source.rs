@@ -10,7 +10,9 @@
 //! Tests for [`NumericScoreSource`], driven by real [`NumericRangeTree`]
 //! fixtures.
 
+use std::cell::Cell;
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::time::Duration;
 use std::{iter, num::NonZeroUsize};
 
@@ -436,6 +438,25 @@ fn expired_clock() -> TimeoutContextClock {
     TimeoutContextClock::new(Duration::from_nanos(1), 1)
 }
 
+/// Counts `check_timeout` calls and never times out. The shared counter is
+/// readable after the source has taken ownership of the context, so a test can
+/// assert exactly how many polls a phase performed.
+#[derive(Clone, Default)]
+struct CountingTimeout(Rc<Cell<u32>>);
+
+impl CountingTimeout {
+    fn calls(&self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl TimeoutContext for CountingTimeout {
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        self.0.set(self.0.get() + 1);
+        Ok(())
+    }
+}
+
 #[test]
 fn collection_times_out_during_materialization() {
     // Multi-leaf tree so `next_batch` reads several ranges' records; the first
@@ -464,27 +485,26 @@ fn iterator_read_propagates_timeout() {
 
 #[test]
 fn filtering_scan_is_timeout_aware() {
-    // Single-leaf tree of four records, materialized into one batch. The clock's
-    // deadline is already elapsed, but its granularity is one above the record
-    // count, so the four per-record polls in materialization never reach a real
-    // probe. The timeout can only surface if the stale-record filtering scan
-    // keeps polling the same amortized counter past that granularity.
+    // Single-leaf tree of four records, materialized into one batch. Materialization
+    // polls once per record and once before the sort; the stale-record filtering
+    // scan then adds one poll per record. A deadline primed to survive
+    // materialization must therefore surface inside that scan.
     let pairs = [(1u64, 4.0), (2, 3.0), (3, 2.0), (4, 1.0)];
     let tree = tree_from(&pairs);
-    let past_deadline =
-        || TimeoutContextClock::new(Duration::from_nanos(1), pairs.len() as u32 + 1);
-
-    // No filtering: materialization alone stays below the probe granularity, so
-    // the batch is produced without timing out.
+    // Pin the number of polls materialization performs, so the filtered case can
+    // prime a one-shot timeout that fires only once the filtering scan begins.
+    let counter = CountingTimeout::default();
     let mut unfiltered =
-        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(past_deadline());
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(counter.clone());
     assert!(unfiltered.next_batch().unwrap().is_some());
+    let materialization_polls = counter.calls();
+    assert_eq!(materialization_polls, pairs.len() as u32 + 1);
 
-    // With a validity filter, the post-materialization scan polls per record and
-    // crosses the deadline that materialization alone could not reach.
+    // A one-shot timeout that survives materialization fires on the filtering
+    // scan's first poll, proving the scan honors the deadline.
     let mut filtered = NumericScoreSource::unfiltered(&tree, full_range(), false)
         .with_validity(DeletedDocs::from_iter([2]))
-        .with_timeout(past_deadline());
+        .with_timeout(TimeoutOnce::new(materialization_polls));
     assert!(matches!(
         filtered.next_batch(),
         Err(RQEIteratorError::TimedOut)
