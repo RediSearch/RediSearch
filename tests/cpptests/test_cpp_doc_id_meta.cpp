@@ -210,6 +210,10 @@ TEST(DocIdMetaInitTest, MissingKeyMetaApiReturnsError) {
   RedisModule_FreeThreadSafeContext(ctx);
 }
 
+TEST(DocIdMetaInitTest, GlobalTestEnvironmentRegistersKeyMetaClass) {
+  EXPECT_GE(RMCK_GetKeyMetaClassByName("D-ID"), 0);
+}
+
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
 
@@ -397,6 +401,27 @@ TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesMeta) {
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
   verifyDocId(testKeyName, SPEC1_ID, 3003);
+}
+
+TEST_F(DocIdMetaTest, TestClearKeyMetaStoragePreservesClassRegistration) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RMCK_ClearKeyMetaStorage();
+
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+  EXPECT_EQ(RMCK_GetKeyMetaClassByName(DOC_ID_META_CLASS_NAME), getDocIdMetaClassId());
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 2002), REDISMODULE_OK);
+  verifyDocId(testKeyName, SPEC1_ID, 2002);
+}
+
+TEST_F(DocIdMetaTest, TestFlushDbClearsKeyMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RMCK::flushdb(ctx);
+
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
 }
 
 // Simple test to check if basic setup works
