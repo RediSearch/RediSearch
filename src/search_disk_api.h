@@ -328,6 +328,27 @@ typedef struct BasicDiskAPI {
   ResultProcessor *(*newAsyncLoaderResultProcessor)(RedisSearchCtx *sctx, uint32_t reqflags,
                                                     RLookup *lk, const RLookupKey **keys,
                                                     size_t nkeys, uint32_t *outStateFlags);
+
+  /**
+   * Hand the disk async-loader result processor its request sync context, so it can perform
+   * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
+   * `BlockedRequestCtx_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   *
+   * `rp` must be a ResultProcessor previously returned by `newAsyncLoaderResultProcessor`.
+   * `brc` is an opaque `struct BlockedRequestCtx *`, passed as `void *` because this header
+   * cannot see the full definition; it is stored and later passed back to
+   * `BlockedRequestCtx_SafeLoaderEnterGIL`/`ExitGIL` unchanged.
+   *
+   * @param rp  The disk async-loader ResultProcessor
+   * @param brc Opaque `BlockedRequestCtx *`, or NULL to clear
+   *
+   * ABI note: this field must stay LAST in `BasicDiskAPI` — any new fields must be appended
+   * after it, never inserted before. The C side (this header) and the Rust side (which builds
+   * the concrete `BasicDiskAPI` struct literal) are compiled as one module and always rebuilt
+   * together, but if that ever changes, a reordered field here without a matching Rust rebuild
+   * would make callers read through a mismatched function-pointer slot.
+   */
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, void *brc);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

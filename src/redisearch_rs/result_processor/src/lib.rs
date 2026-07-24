@@ -345,6 +345,37 @@ where
         unsafe { NonNull::new_unchecked(ptr) }
     }
 
+    /// Reborrows the concrete [`ResultProcessor`] implementation behind a raw `ffi::ResultProcessor`
+    /// pointer previously produced by [`Self::into_ptr`] for this exact `P`.
+    ///
+    /// Lets an FFI entry point that only has the raw `rp` pointer (e.g. a C API setter that hands
+    /// some request-scoped state to "whichever Rust result processor `rp` is") reach into the
+    /// concrete Rust-side state, without going through the `next`/`free` "VTable" and without a
+    /// public downcast helper existing anywhere else in this crate. It mirrors how
+    /// [`Self::result_processor_next`] recovers `Self` from a `Header` pointer, including the same
+    /// debug-only type check.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must have been produced by [`Self::into_ptr`] for this exact `P`, and must not
+    ///    since have been passed to the `free` "VTable" function (i.e. the pointee must still be
+    ///    alive).
+    /// 2. The returned reference must not be used to move out of, or otherwise violate the pinning
+    ///    invariant of, the wrapped `result_processor`.
+    /// 3. No `&mut` reference to the pointee (such as the `&mut Self` produced by the
+    ///    `result_processor_next`/`result_processor_free` VTable path) may exist or be created for
+    ///    the lifetime `'a`; callers must not invoke this concurrently with those on the same
+    ///    pointer.
+    #[inline]
+    pub unsafe fn inner_from_raw<'a>(ptr: NonNull<ffi::ResultProcessor>) -> &'a P {
+        let ptr = ptr.cast::<Self>();
+        debug_assert!(ptr.is_aligned());
+        // Safety: invariant 1, upheld by the caller.
+        unsafe { Self::debug_assert_same_type(ptr.cast()) };
+        // Safety: invariants 1 and 2, upheld by the caller.
+        unsafe { &(*ptr.as_ptr()).result_processor }
+    }
+
     /// Constructs a `Box<ResultProcessor>` from a raw pointer.
     ///
     /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
