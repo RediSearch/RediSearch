@@ -7,92 +7,92 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use string_utils::tag_strtolower;
+use string_utils::tag;
 
 #[test]
 fn unescape_punct() {
-    assert_eq!(tag_strtolower("hello\\!world", false), "hello!world");
+    assert_eq!(tag::normalize("hello\\!world", false), "hello!world");
 }
 
 #[test]
 fn unescape_space() {
-    assert_eq!(tag_strtolower("hello\\ world", false), "hello world");
+    assert_eq!(tag::normalize("hello\\ world", false), "hello world");
 }
 
 #[test]
 fn no_unescape_alpha() {
-    assert_eq!(tag_strtolower("hello\\nworld", false), "hello\\nworld");
+    assert_eq!(tag::normalize("hello\\nworld", false), "hello\\nworld");
 }
 
 #[test]
 fn case_sensitive() {
-    assert_eq!(tag_strtolower("Hello\\!World", true), "Hello!World");
+    assert_eq!(tag::normalize("Hello\\!World", true), "Hello!World");
 }
 
 #[test]
 fn case_insensitive() {
-    assert_eq!(tag_strtolower("Hello\\!World", false), "hello!world");
+    assert_eq!(tag::normalize("Hello\\!World", false), "hello!world");
 }
 
 #[test]
 fn empty() {
-    assert_eq!(tag_strtolower("", false), "");
+    assert_eq!(tag::normalize("", false), "");
 }
 
 #[test]
 fn trailing_backslash() {
-    assert_eq!(tag_strtolower("abc\\", false), "abc\\");
+    assert_eq!(tag::normalize("abc\\", false), "abc\\");
 }
 
 #[test]
 fn unescape_vertical_tab() {
     // Vertical tab (0x0B) is whitespace per C isspace() — must be unescaped.
-    assert_eq!(tag_strtolower("hello\\\x0Bworld", false), "hello\x0Bworld");
+    assert_eq!(tag::normalize("hello\\\x0Bworld", false), "hello\x0Bworld");
 }
 
 #[test]
 fn consecutive_escapes() {
     // `\\!` = bytes [0x5C, 0x5C, 0x21]: first `\` is removed (next is
     // punct `\`), second `\` and `!` are kept — matches C behavior.
-    assert_eq!(tag_strtolower("\\\\!", false), "\\!");
+    assert_eq!(tag::normalize("\\\\!", false), "\\!");
 }
 
 #[test]
 fn escaped_backslash_before_alpha() {
     // `\\n` = bytes [0x5C, 0x5C, 0x6E]: first `\` removed (next is punct
     // `\`), second `\` kept, `n` is not punct/space so kept verbatim.
-    assert_eq!(tag_strtolower("\\\\n", false), "\\n");
+    assert_eq!(tag::normalize("\\\\n", false), "\\n");
 }
 
 #[test]
 fn sigma_lowercased_per_character() {
     // Per-character lowercasing: Σ always maps to σ (no context-dependent
     // final-sigma rule), matching the C `unicode_tolower` behaviour.
-    assert_eq!(tag_strtolower("ΣΣΣΣΣ", false), "σσσσσ");
-    assert_eq!(tag_strtolower("ΝΕΑΝΊΑΣ", false), "νεανίασ");
+    assert_eq!(tag::normalize("ΣΣΣΣΣ", false), "σσσσσ");
+    assert_eq!(tag::normalize("ΝΕΑΝΊΑΣ", false), "νεανίασ");
 }
 
 #[test]
 fn case_insensitive_matches_unicode_tolower() {
-    use string_utils::unicode_tolower;
+    use string_utils::unicode;
 
     for s in ["ΣΣΣΣΣ", "ΝΕΑΝΊΑΣ", "Straße", "HELLO", "σίγμα"] {
         assert_eq!(
-            tag_strtolower(s, false),
-            unicode_tolower(s),
-            "tag_strtolower({s:?}, false) != unicode_tolower",
+            tag::normalize(s, false),
+            unicode::tolower(s),
+            "tag::normalize({s:?}, false) != unicode::tolower",
         );
     }
 }
 
-// Compare Rust tag_strtolower against C tag_strtolower via FFI.
+// Compare Rust `tag::normalize` against C `tag_strtolower` via FFI.
 // The C function may rm_free/rm_malloc *pstr, so input must be
 // allocated with the Redis allocator.
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
     use std::ffi::c_void;
-    use string_utils::tag_strtolower;
+    use string_utils::tag;
 
     /// Call C `tag_strtolower` via FFI and return the resulting string.
     fn c_tag_strtolower(s: &str, case_sensitive: bool) -> String {
@@ -131,7 +131,7 @@ mod ffi_comparison {
 
     fn assert_tag_matches_c(s: &str, case_sensitive: bool) {
         let c_result = c_tag_strtolower(s, case_sensitive);
-        let rust_result = tag_strtolower(s, case_sensitive);
+        let rust_result = tag::normalize(s, case_sensitive);
         assert_eq!(
             rust_result, c_result,
             "mismatch for input {:?} (case_sensitive={}): rust={:?}, c={:?}",
@@ -216,7 +216,7 @@ mod ffi_comparison {
 #[cfg(not(miri))]
 mod proptest_checks {
     use proptest::prelude::*;
-    use string_utils::{tag_strtolower, unicode_tolower};
+    use string_utils::{tag, unicode};
 
     /// Generate ASCII strings biased toward backslashes and punctuation.
     fn tag_input() -> impl Strategy<Value = String> {
@@ -231,7 +231,7 @@ mod proptest_checks {
     proptest! {
         #[test]
         fn case_insensitive_is_lowercase(s in tag_input()) {
-            let result = tag_strtolower(&s, false);
+            let result = tag::normalize(&s, false);
             assert_eq!(
                 result,
                 result.to_lowercase(),
@@ -242,12 +242,12 @@ mod proptest_checks {
 
         #[test]
         fn case_sensitive_then_lower_eq_case_insensitive(s in tag_input()) {
-            let sensitive = tag_strtolower(&s, true);
-            let then_lower = unicode_tolower(&sensitive);
-            let insensitive = tag_strtolower(&s, false);
+            let sensitive = tag::normalize(&s, true);
+            let then_lower = unicode::tolower(&sensitive);
+            let insensitive = tag::normalize(&s, false);
             assert_eq!(
                 then_lower, insensitive,
-                "unicode_tolower(tag_strtolower(s, true)) != tag_strtolower(s, false) for {:?}",
+                "unicode::tolower(tag::normalize(s, true)) != tag::normalize(s, false) for {:?}",
                 s
             );
         }
