@@ -668,7 +668,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
@@ -712,7 +717,12 @@ CONFIG_GETTER(getMinOperationWorkers) {
 static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.
