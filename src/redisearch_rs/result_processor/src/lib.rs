@@ -362,6 +362,10 @@ where
     ///    alive).
     /// 2. The returned reference must not be used to move out of, or otherwise violate the pinning
     ///    invariant of, the wrapped `result_processor`.
+    /// 3. No `&mut` reference to the pointee (such as the `&mut Self` produced by the
+    ///    `result_processor_next`/`result_processor_free` VTable path) may exist or be created for
+    ///    the lifetime `'a`; callers must not invoke this concurrently with those on the same
+    ///    pointer.
     #[inline]
     pub unsafe fn inner_from_raw<'a>(ptr: NonNull<ffi::ResultProcessor>) -> &'a P {
         let ptr = ptr.cast::<Self>();
