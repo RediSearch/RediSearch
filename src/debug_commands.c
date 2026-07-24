@@ -3421,6 +3421,41 @@ DEBUG_COMMAND(DumpDeletedIds) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
+// Dumps the in-memory bucket routing map of a disk numeric field as a JSON
+// string: [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
+// split's routing state on a master and its replica).
+DEBUG_COMMAND(NumericBucketMap) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (!sctx->spec->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
+  } else {
+    const FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+    if (!fs) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
+    } else {
+      char *json = SearchDisk_DebugDumpNumericBucketMap(sctx->spec->diskSpec, fs->index);
+      if (!json) {
+        RedisModule_ReplyWithError(sctx->redisCtx, "No bucket map for field");
+      } else {
+        RedisModule_ReplyWithStringBuffer(sctx->redisCtx, json, strlen(json));
+        SearchDisk_FreeDebugString(json);
+      }
+    }
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.DEBUG REGISTER_TEST_SCORERS
  * Register the test scorers for testing purposes.
@@ -3522,6 +3557,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"NUMERIC_BUCKET_MAP", NumericBucketMap},
                                {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers},
                                {"SET_MAX_INDEXES", SetMaxIndexes},

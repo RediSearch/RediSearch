@@ -641,6 +641,25 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the disk index spec
    */
   void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Debug: dump a numeric field's in-memory bucket routing map.
+   *
+   * Returns a NUL-terminated JSON array describing every bucket of the
+   * field's map (max value, state, entry count), or NULL when the field has
+   * no numeric index on this handle. Release with `freeDebugString`.
+   *
+   * @param index Pointer to the disk index spec
+   * @param fieldIndex The numeric field's index
+   */
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex);
+
+  /**
+   * @brief Frees a string returned by `debugDumpNumericBucketMap`.
+   *
+   * @param str The string to free (NULL is a no-op)
+   */
+  void (*freeDebugString)(char *str);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
