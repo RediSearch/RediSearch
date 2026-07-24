@@ -325,6 +325,12 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool scan_failed_OOM; // background indexing failed due to Out Of Memory
+  // Number of keys the background build had scanned when it aborted on OOM, frozen
+  // before the scanner is freed. IndexesScanner_IndexedPercent derives percent_indexed
+  // from it (over the current DbSize) while scan_failed_OOM holds, so an OOM-cancelled
+  // build is distinguishable from a completed one (which reports 1.0). Only meaningful
+  // when scan_failed_OOM is set.
+  size_t scan_failed_OOM_scanned_keys;
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
