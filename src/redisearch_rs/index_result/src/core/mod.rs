@@ -168,6 +168,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             data: self.data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -278,6 +279,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             data,
             metrics: MetricsVec::new(),
             weight: self.weight,
+            has_field_expiration: false,
         }
     }
 }
@@ -316,6 +318,18 @@ pub struct RawIndexResult<'query, R: Ref> {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+
+    /// Whether the document backing this record has at least one field-level
+    /// expiration (HFE).
+    ///
+    /// Set inline by the inverted-index decoder from a bit packed into the
+    /// entry's delta (see the `inverted_index` codec). Expiration-aware
+    /// iterators use it to skip the TTL-table lookup when it is `false`: that is
+    /// an exact predicate — a `false` value means the document has no TTL-table
+    /// entry, so the lookup would return "not expired" anyway. It is a
+    /// document-level property, so every posting of a given document carries the
+    /// same value.
+    pub has_field_expiration: bool,
 }
 
 /// The [`Active`] instantiation of [`RawIndexResult`].
@@ -380,6 +394,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data,
             metrics,
             weight,
+            has_field_expiration,
         } = self;
         let Self {
             doc_id: o_doc_id,
@@ -389,6 +404,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             data: o_data,
             metrics: o_metrics,
             weight: o_weight,
+            has_field_expiration: o_has_field_expiration,
         } = other;
         doc_id == o_doc_id
             && dmd == o_dmd
@@ -397,6 +413,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             && data == o_data
             && metrics == o_metrics
             && weight == o_weight
+            && has_field_expiration == o_has_field_expiration
     }
 }
 
@@ -992,6 +1009,7 @@ impl<'a> RSIndexResult<'a> {
             data: self.data.to_owned(),
             metrics: self.metrics.clone(),
             weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
         }
     }
 

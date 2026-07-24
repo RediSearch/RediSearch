@@ -192,6 +192,21 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
+// Returns true if `docId` has a field-level expiration registered for the field
+// at the given spec field index. Used during indexing to set the per-field
+// inline expiration bit on tag/numeric postings (which belong to a single
+// field). The field-expiration array is sorted by field index.
+static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
+                                               t_fieldIndex fieldIndex) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
+  for (size_t i = 0; i < fes.len; ++i) {
+    if (fes.ptr[i].index == fieldIndex) {
+      return true;
+    }
+  }
+  return false;
+}
+
 
 /** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);

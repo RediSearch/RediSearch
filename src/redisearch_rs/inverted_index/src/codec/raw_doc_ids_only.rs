@@ -66,7 +66,11 @@ impl Decoder for RawDocIdsOnly {
         base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        // Entries are fixed 4-byte words, so the cursor position divided by 4 is the entry's
+        // ordinal within the block. `start_ordinal` lets us report how many entries we advanced.
+        let start_ordinal = cursor.position() / 4;
+
         // Check if the very next record is the target before starting a binary search
         let mut delta_bytes = [0u8; 4];
         std::io::Read::read_exact(cursor, &mut delta_bytes)?;
@@ -75,7 +79,7 @@ impl Decoder for RawDocIdsOnly {
 
         if doc_id >= target {
             result.doc_id = doc_id;
-            return Ok(true);
+            return Ok(Some(1));
         }
 
         // Start binary search
@@ -100,7 +104,7 @@ impl Decoder for RawDocIdsOnly {
 
         // Make sure we don't go past the end of the encoded input
         if left >= end {
-            return Ok(false);
+            return Ok(None);
         }
 
         // Read the final value
@@ -110,7 +114,9 @@ impl Decoder for RawDocIdsOnly {
         doc_id = base + delta as DocId;
 
         result.doc_id = doc_id;
-        Ok(true)
+        // `left` is the landed entry's absolute ordinal; entries advanced from the starting
+        // position is `left - start_ordinal + 1`.
+        Ok(Some((left - start_ordinal + 1) as u16))
     }
 
     fn base_result<'index>() -> RSIndexResult<'index> {

@@ -457,7 +457,7 @@ mod from_tree {
     fn build_tree(entries: &[(DocId, f64)]) -> NumericRangeTree {
         let mut tree = NumericRangeTree::new(false);
         for (doc_id, value) in entries {
-            tree.add(*doc_id, *value, false, 0);
+            tree.add(*doc_id, *value, false, false, 0);
         }
         tree
     }

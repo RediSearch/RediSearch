@@ -68,6 +68,11 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     /// document ID for delta calculations.
     pub(crate) last_doc_id: DocId,
 
+    /// The ordinal (0-based position) within the current block of the *next* entry to be decoded.
+    /// Used to index the block's `expiration_bits` side bitset so each decoded result carries its
+    /// document-level field-expiration flag. Reset to 0 whenever the current block changes.
+    pub(crate) entry_in_block: u16,
+
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
@@ -253,11 +258,17 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         }
 
         let ii = self.ii.get();
-        let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = &ii.blocks[self.current_block_idx];
+        let base = D::base_id(block, self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
         D::decode(&mut cursor, base, result)?;
         self.buf_pos = cursor.position();
+
+        // The codec does not carry the field-expiration flag; it lives in the
+        // block's side bitset, indexed by entry ordinal.
+        result.has_field_expiration = block.expiration_bit(self.entry_in_block);
+        self.entry_in_block += 1;
 
         self.last_doc_id = result.doc_id;
 
@@ -278,14 +289,22 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
-        let success = D::seek(&mut cursor, base, doc_id, result)?;
+        let advanced = D::seek(&mut cursor, base, doc_id, result)?;
         self.buf_pos = cursor.position();
 
-        if success {
-            self.last_doc_id = result.doc_id;
+        match advanced {
+            Some(advanced) => {
+                // `advanced` entries were traversed from the entry we were positioned on, so the
+                // landed entry sits at ordinal `entry_in_block + advanced - 1` within the block.
+                let landed = self.entry_in_block + advanced - 1;
+                result.has_field_expiration =
+                    ii.blocks[self.current_block_idx].expiration_bit(landed);
+                self.entry_in_block = landed + 1;
+                self.last_doc_id = result.doc_id;
+                Ok(true)
+            }
+            None => Ok(false),
         }
-
-        Ok(success)
     }
 
     #[inline(always)]
@@ -387,6 +406,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
             buf_pos: 0,
             current_block_idx: 0,
             last_doc_id,
+            entry_in_block: 0,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
             _phantom: PhantomData,
@@ -418,6 +438,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
         self.last_doc_id = current_block.first_doc_id;
         self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
         self.buf_pos = 0;
+        self.entry_in_block = 0;
     }
 }
 

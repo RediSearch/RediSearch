@@ -89,15 +89,17 @@ impl Decoder for FieldsOffsets {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
 
             base += delta as DocId;
 
@@ -118,7 +120,7 @@ impl Decoder for FieldsOffsets {
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 
@@ -188,15 +190,17 @@ impl Decoder for FieldsOffsetsWide {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
             let field_mask = FieldMask::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -218,7 +222,7 @@ impl Decoder for FieldsOffsetsWide {
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 

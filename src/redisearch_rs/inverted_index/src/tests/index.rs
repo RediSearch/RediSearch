@@ -242,8 +242,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 8 + 48,
-        "should write 4 bytes for delta, 8 bytes of thin vec header, and 48 bytes for the index block"
+        4 + 8 + IndexBlock::STACK_SIZE,
+        "should write 4 bytes for delta, 8 bytes of thin vec header, and one index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -260,8 +260,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 48,
-        "should write 4 bytes for delta and 48 bytes for the new index block"
+        4 + IndexBlock::STACK_SIZE,
+        "should write 4 bytes for delta and one new index block"
     );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
@@ -271,9 +271,9 @@ fn adding_big_delta_makes_new_block() {
     assert_eq!(ii.n_unique_docs, 2);
 }
 
-// An `IndexBlock` is 48 bytes so we want to carefully control the growth strategy used by it to
-// limit memory usage. This test ensures the blocks field of an inverted index only grows by one
-// element at a time.
+// `IndexBlock`s are stored inline in the blocks vector, so we want to carefully control the growth
+// strategy used by it to limit memory usage. This test ensures the blocks field of an inverted
+// index only grows by one element at a time.
 #[test]
 fn adding_ii_blocks_growth_strategy() {
     /// Dummy encoder which only allows 2 entries per block for testing

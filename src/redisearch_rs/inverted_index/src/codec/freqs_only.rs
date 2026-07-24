@@ -59,15 +59,17 @@ impl Decoder for FreqsOnly {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let freq = loop {
             let [delta, freq] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
 
             base += delta as DocId;
 
@@ -78,7 +80,7 @@ impl Decoder for FreqsOnly {
 
         result.doc_id = base;
         result.freq = freq;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 

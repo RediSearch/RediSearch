@@ -43,7 +43,7 @@ fn with_redactions(f: impl FnOnce()) {
 fn populated_tree(count: u64, start: f64, step: f64, compress_floats: bool) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=count {
-        tree.add(i, start + (i - 1) as f64 * step, false, 0);
+        tree.add(i, start + (i - 1) as f64 * step, false, false, 0);
     }
     tree
 }
@@ -53,7 +53,7 @@ fn populated_multivalued_tree(count: u64) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=count {
         for j in 0..3 {
-            tree.add(i, (i + j) as f64, true, 0);
+            tree.add(i, (i + j) as f64, false, true, 0);
         }
     }
     tree
@@ -112,7 +112,7 @@ fn test_debug_summary_populated() {
       "RootMaxDepth",
       1,
       "MemoryUsage",
-      1155
+      1187
     ]
     "#);
 }

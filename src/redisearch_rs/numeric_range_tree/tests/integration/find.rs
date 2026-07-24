@@ -37,7 +37,7 @@ fn build_large_tree(compress_floats: bool) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=50_000u64 {
         let value = ((i - 1) % 5000 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     tree
 }

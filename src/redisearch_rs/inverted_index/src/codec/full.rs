@@ -145,15 +145,17 @@ impl Decoder for Full {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, field_mask, offsets_sz] = match qint_decode::<4, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
 
             base += delta as DocId;
 
@@ -174,7 +176,7 @@ impl Decoder for Full {
             offsets_sz,
             result,
         )?;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 
@@ -238,15 +240,17 @@ impl Decoder for FullWide {
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
-    ) -> std::io::Result<bool> {
+    ) -> std::io::Result<Option<u16>> {
+        let mut advanced: u16 = 0;
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
                 Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
+            advanced += 1;
             let field_mask = FieldMask::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -260,7 +264,7 @@ impl Decoder for FullWide {
         };
 
         decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz, result)?;
-        Ok(true)
+        Ok(Some(advanced))
     }
 }
 
