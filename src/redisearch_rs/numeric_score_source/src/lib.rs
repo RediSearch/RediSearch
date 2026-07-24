@@ -15,6 +15,16 @@
 //! This crate provides [`NumericScoreSource`], a concrete [`top_k::ScoreSource`]
 //! that drives [`TopKIterator`] using a numeric field's values as scores.
 
+// Force-link the umbrella `redisearch_rs` crate so the `QueryError_*` (and other)
+// Rust FFI symbols that `libredisearch_c_bundle.a` calls back into are retained in the
+// lib unit-test binary, which links the C archive via the `unittest` feature.
+#[cfg(test)]
+extern crate redisearch_rs;
+// Stub the C symbols (e.g. OpenSSL) that the linked archive references but these
+// unit tests never exercise, so the binary links without pulling in those libs.
+#[cfg(test)]
+redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
 pub mod range_iterator;
 pub mod score_batch;
 pub mod source;
