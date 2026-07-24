@@ -44,20 +44,18 @@ impl NumericScoreBatch {
         mut keep: impl FnMut(DocId, f64) -> Result<bool, RQEIteratorError>,
     ) -> Result<Self, RQEIteratorError> {
         debug_assert_eq!(self.pos, 0, "retain must run before the batch is read");
-        let mut result = Ok(());
-        self.items.retain(|&(doc_id, score)| {
-            if result.is_err() {
-                return false;
+        // Two-pointer compaction so the first `Err` exits immediately instead of
+        // scanning the rest of the batch as `Vec::retain` would.
+        let mut write = 0;
+        for read in 0..self.items.len() {
+            let item = self.items[read];
+            if keep(item.0, item.1)? {
+                self.items[write] = item;
+                write += 1;
             }
-            match keep(doc_id, score) {
-                Ok(keep) => keep,
-                Err(err) => {
-                    result = Err(err);
-                    false
-                }
-            }
-        });
-        result.map(|()| self)
+        }
+        self.items.truncate(write);
+        Ok(self)
     }
 }
 
