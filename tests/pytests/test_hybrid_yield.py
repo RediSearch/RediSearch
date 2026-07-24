@@ -284,12 +284,17 @@ def test_hybrid_yield_score_as_keyword_alias():
         # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS <alias>
         counted, _ = get_results_from_hybrid_response(env.cmd(
             'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+            # initQueryTimeout() detects the keyword TIMEOUT by arg scanning,
+            # so we need to place it before the COMBINE clause to avoid confusion.
+            # Remove this once MOD-17165 is implemented.
+            'TIMEOUT', '1000',
             'COMBINE', 'RRF', '4', 'CONSTANT', '60', 'YIELD_SCORE_AS', alias,
             'PARAMS', '2', 'BLOB', query_vector))
 
         # Positional form: count 2 covers CONSTANT 60, YIELD_SCORE_AS follows
         positional, _ = get_results_from_hybrid_response(env.cmd(
             'FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+            'TIMEOUT', '1000',
             'COMBINE', 'RRF', '2', 'CONSTANT', '60', 'YIELD_SCORE_AS', alias,
             'PARAMS', '2', 'BLOB', query_vector))
 

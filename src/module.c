@@ -3730,8 +3730,7 @@ static void DistCoordReqFreePrivData(RedisModuleCtx *ctx, void *privdata) {
 }
 
 // Forward declaration for initQueryTimeout (defined later in file)
-static int initQueryTimeout(size_t *timeout, int timeoutArgIdx, RedisModuleString **argv,
-                            int argc, QueryError *status);
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status);
 
 /** Debug */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3808,8 +3807,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Early TIMEOUT argument parsing, required for block-client timeout.
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, RMUtil_ArgIndex("TIMEOUT", argv, argc),
-                       argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -3841,29 +3839,6 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
                                                &handlerCtx);
-}
-
-// Locate the client's top-level TIMEOUT option in an FT.HYBRID argument vector.
-// Returns the index of the TIMEOUT keyword, or -1 if none is present.
-static int HybridTimeoutArgIndex(RedisModuleString **argv, int argc) {
-  for (int i = 0; i < argc; i++) {
-    size_t len;
-    const char *arg = RedisModule_StringPtrLen(argv[i], &len);
-    if (len == strlen("YIELD_SCORE_AS") && !strncasecmp(arg, "YIELD_SCORE_AS", len)) {
-      i++;  // the following token is a user alias, never a keyword
-    } else if (len == strlen("PARAMS") && !strncasecmp(arg, "PARAMS", len)) {
-      // PARAMS <count> <count tokens>: skip the count and its arguments so a
-      // parameter named or valued "TIMEOUT" is not mistaken for the keyword.
-      long long nargs;
-      if (i + 1 < argc && RedisModule_StringToLongLong(argv[i + 1], &nargs) == REDISMODULE_OK &&
-          nargs > 0 && nargs <= (long long)(argc - i - 2)) {
-        i += 1 + (int)nargs;  // skip the count token and its nargs parameter tokens
-      }
-    } else if (len == strlen("TIMEOUT") && !strncasecmp(arg, "TIMEOUT", len)) {
-      return i;
-    }
-  }
-  return -1;
 }
 
 int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -3923,12 +3898,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  // Parse timeout from command args. Use a hybrid-aware scan so a YIELD_SCORE_AS
-  // alias or PARAMS entry spelled "TIMEOUT" is not mistaken for the keyword.
+  // Parse timeout from command args
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, HybridTimeoutArgIndex(argv, argc),
-                       argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
@@ -4447,12 +4420,12 @@ typedef void (*BlockedClientFreePrivDataCB) (RedisModuleCtx *ctx, void *privdata
 // The value is also silently capped to search-_max-foreground-timeout-limit
 // when the limit is active; AREQ_Compile sets the QEXEC_S_MAX_TIMEOUT_CAPPED
 // flag on its own request, which is what surfaces the warning to the user.
-static int initQueryTimeout(size_t *timeout, int timeoutArgIdx, RedisModuleString **argv,
-                            int argc, QueryError *status) {
+static int initQueryTimeout(size_t *timeout, RedisModuleString **argv, int argc, QueryError *status) {
   RS_ASSERT(timeout != NULL);
 
   *timeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
 
+  int timeoutArgIdx = RMUtil_ArgIndex("TIMEOUT", argv, argc);
   if (timeoutArgIdx >= 0) {
     timeoutArgIdx++;
     ArgsCursor ac;
@@ -4659,8 +4632,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Early TIMEOUT argument parsing, required for DistSearchBlockClientWithTimeout.
   size_t queryTimeoutMS;
   QueryError status = QueryError_Default();
-  if (initQueryTimeout(&queryTimeoutMS, RMUtil_ArgIndex("TIMEOUT", argv, argc),
-                       argv, argc, &status) != REDISMODULE_OK) {
+  if (initQueryTimeout(&queryTimeoutMS, argv, argc, &status) != REDISMODULE_OK) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
     return QueryError_ReplyAndClear(ctx, &status);
   }
