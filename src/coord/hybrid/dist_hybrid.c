@@ -31,6 +31,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "aggregate/reply_empty.h"
 #include "aggregate/aggregate_exec_common.h"
+#include "param.h"
 
 // We mainly need the resp protocol to be three in order to easily extract the "score" key from the response
 #define HYBRID_RESP_PROTOCOL_VERSION 3
@@ -276,19 +277,49 @@ static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWirePara
   }
 }
 
-// The function transforms FT.HYBRID index SEARCH query VSIM field vector
-// into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
-// _NUM_SSTRING _INDEX_PREFIXES ...
-// stores the index of the K value argument in the MRCommand (for later
-// modification by the command modifier callback in SHARD_K_RATIO optimization).
+/**
+ * Reconstructs the PARAMS clause from the resolved parameter dictionary rather
+ * than re-scanning argv for the "PARAMS" keyword. The emitted order is the
+ * dict-iteration order, which is not necessarily the client's original argument
+ * order; this is safe because parameters are referenced by name.
+ *
+ * @param xcmd - destination MR command to append arguments to
+ * @param params - resolved parameter dictionary (key: name, value: RedisModuleString)
+ */
+static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
+  if (!params) {
+    return;
+  }
+  unsigned long n = dictSize(params);
+  if (n == 0) {
+    return;
+  }
+  char numBuf[32];
+  MRCommand_Append(xcmd, "PARAMS", strlen("PARAMS"));
+  int len = snprintf(numBuf, sizeof(numBuf), "%lu", n * 2);
+  MRCommand_Append(xcmd, numBuf, len);
+
+  dictIterator *it = dictGetIterator(params);
+  dictEntry *entry;
+  while ((entry = dictNext(it))) {
+    const char *name = dictGetKey(entry);
+    MRCommand_Append(xcmd, name, strlen(name));
+    RedisModuleString *value = dictGetVal(entry);
+    size_t valueLen;
+    const char *valueData = RedisModule_StringPtrLen(value, &valueLen);
+    MRCommand_Append(xcmd, valueData, valueLen);
+  }
+  dictReleaseIterator(it);
+}
+
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             bool sendExplainScore,
                             const HybridCombineWireParams *combineParams,
+                            dict *params, bool forwardTimeout, long long timeoutMS,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
-  int argOffset;
   const char *index_name = RedisModule_StringPtrLen(argv[1], NULL);
 
   int cmdArgCount = 2;
@@ -333,45 +364,19 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     }
   }
 
-  // Add PARAMS arguments if present
-  argOffset = RMUtil_ArgIndex("PARAMS", argv + vsimOffset, argc - vsimOffset);
-  argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-  if (argOffset != -1) {
-    long long nargs;
-    int rc = RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
+  // Reconstruct the PARAMS clause from the resolved parameter dictionary.
+  MRCommand_appendParams(xcmd, params);
 
-    // PARAMS keyword and count - treat as string
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-
-    // append params string including PARAMS keyword and nargs
-    for (int i = 2; i < nargs + 2; ++i) {
-      if (i % 2 == 0) {
-        // Parameter name - treat as string
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      } else {
-        // Parameter value - could be binary, treat as binary
-        size_t valueLen;
-        const char *valueData = RedisModule_StringPtrLen(argv[argOffset + i], &valueLen);
-        MRCommand_Append(xcmd, valueData, valueLen);
-      }
-    }
+  // Forward the client's query timeout when TIMEOUT was set.
+  if (forwardTimeout) {
+    char numBuf[32];
+    MRCommand_Append(xcmd, "TIMEOUT", strlen("TIMEOUT"));
+    int len = snprintf(numBuf, sizeof(numBuf), "%lld", timeoutMS);
+    MRCommand_Append(xcmd, numBuf, len);
   }
 
-  // check for timeout argument and append it to the command.
-  // If TIMEOUT exists, it was already validated at AREQ_Compile.
-  argOffset = RMUtil_ArgIndex("TIMEOUT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-  }
-
-  // Add DIALECT arguments if present
-  argOffset = RMUtil_ArgIndex("DIALECT", argv, argc);
-  if (argOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[argOffset]);
-    MRCommand_AppendRstr(xcmd, argv[argOffset + 1]);
-  }
+  // DIALECT is deliberately not forwarded: FT.HYBRID rejects it at parse time,
+  // so a valid command never carries one and there is nothing to relay.
 
   // Forward EXPLAINSCORE so the shard's text scorer produces an RSScoreExplain
   // tree and the shard's merger wraps it.
@@ -740,11 +745,14 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
       return REDISMODULE_ERR;
     }
 
-    // Construct the command string
+    // Construct the command string.
     MRCommand xcmd;
     bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
+    dict *params = cmd.search->searchopts.params;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
-                                 &combineParams, &xcmd, serialized, sp, &hreq->kArgIndex);
+                                 &combineParams, params, cmd.timeoutSpecified,
+                                 cmd.clientTimeoutMS,
+                                 &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
