@@ -95,7 +95,8 @@
   do {                                                                                                      \
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                                             \
     IndexLoadOptions lopts =                                                                                \
-      {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};                                             \
+      {.nameC = idxName, .flags = INDEXSPEC_LOAD_NOCOUNTERINC,                                              \
+       .db = RedisModule_GetSelectedDb(ctx)};                                                              \
     StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);                                                    \
     IndexSpec *sp = StrongRef_Get(spec_ref);                                                                \
     if (!sp) {                                                                                              \
@@ -495,7 +496,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // allow 'DD' for back support and ignore it.
   if (argc < 3 || argc > 4) return RedisModule_WrongArity(ctx);
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (sp == NULL) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
@@ -614,9 +615,6 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
 
-  if (RedisModule_GetSelectedDb(ctx) != 0) {
-    return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
-  }
   QueryError status = QueryError_Default();
 
   if (!SearchDisk_CheckLimitNumberOfIndexes(Indexes_Count() + 1)) {
@@ -655,7 +653,8 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
-  const bool found = dictFetchValue(specDict_g, specName);
+  // Existence is per logical DB (the same name may exist on another DB).
+  const bool found = dictFetchValue(specDict_g, DB_SPEC_KEY(RedisModule_GetSelectedDb(ctx), specName));
   HiddenString_Free(specName, false);
   if (found) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -681,7 +680,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   const char* spec_name = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef global_ref = Indexes_LoadIndexSpecUnsafe(spec_name);
+  StrongRef global_ref = Indexes_LoadIndexSpecUnsafe(ctx, spec_name);
   IndexSpec *sp = StrongRef_Get(global_ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), spec_name);
@@ -758,7 +757,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_WrongArity(ctx);
   }
 
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -806,7 +805,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *id = RedisModule_StringPtrLen(argv[2], NULL);
 
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
@@ -872,7 +871,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
 
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(idx);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, idx);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
@@ -928,7 +927,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = QueryError_Default();
 
   const char *ixname = AC_GetStringNC(&ac, NULL);
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ixname);
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(ctx, ixname);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), ixname);
@@ -1017,6 +1016,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   IndexLoadOptions loadOpts = {
       .nameR = argv[2],
       .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  loadOpts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1034,7 +1034,8 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   size_t length = 0;
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
-  if (dictFetchValue(specDict_g, alias)) {
+  // An alias must not collide with an index name on the same DB.
+  if (dictFetchValue(specDict_g, DB_SPEC_KEY(RedisModule_GetSelectedDb(ctx), alias))) {
     HiddenString_Free(alias, false);
     QueryError_SetCode(error, QUERY_ERROR_CODE_ALIAS_CONFLICT);
     CurrentThread_ClearIndexSpec();
@@ -1079,6 +1080,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
+  lOpts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1114,6 +1116,7 @@ static int AliasDelIfExCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
+  lOpts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   if (!StrongRef_Get(ref)) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1129,6 +1132,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryError status = QueryError_Default();
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
+  lOpts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef Orig_ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   size_t length = 0;
@@ -1175,6 +1179,7 @@ int AliasListCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   IndexLoadOptions lOpts = {.nameR = argv[1],
                             .flags = INDEXSPEC_LOAD_NOALIAS | INDEXSPEC_LOAD_KEY_RSTRING};
+  lOpts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&lOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -1249,7 +1254,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  Indexes_List(&_reply, false);
+  Indexes_List(&_reply, RedisModule_GetSelectedDb(ctx), false);
   return REDISMODULE_OK;
 }
 
@@ -3778,6 +3783,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -3877,6 +3883,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // Prepare the spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -4604,6 +4611,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // Prepare spec ref for the background thread
   const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
   IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  lopts.db = RedisModule_GetSelectedDb(ctx);
   StrongRef spec_ref = Indexes_LoadIndexSpecUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {

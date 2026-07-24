@@ -107,7 +107,7 @@ static void Indexes_AsyncScanKeyCB(RedisModuleCtx *ctx, RedisModuleScanCursor *c
     // ShouldIndex is the authority (it also evaluates the index FILTER expression the pre-filter
     // can't); the redundant type/prefix check is cheap. `key` is already pinned, so pass it
     // through instead of reopening by name.
-    if (SchemaRule_ShouldIndex(sp, name, type, key)) {
+    if (SchemaRule_ShouldIndex(ctx, sp, name, type, key)) {
       uint64_t docId = 0;
       if (DocIdMeta_GetWithOpenKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0) {
         // Already indexed in this spec; skip to avoid clobbering a fresher version.

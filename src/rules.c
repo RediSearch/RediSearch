@@ -566,8 +566,8 @@ bool SchemaRule_FilterPasses(EvalCtx *r, RSExpr *filter_exp) {
          RSValue_BoolTest(r->res);
 }
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
-                            RedisModuleKey *openKey) {
+bool SchemaRule_ShouldIndex(RedisModuleCtx *ctx, struct IndexSpec *sp, RedisModuleString *keyname,
+                            DocumentType type, RedisModuleKey *openKey) {
   // check type
   if (type != sp->rule->type) {
     return false;
@@ -597,7 +597,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
   if (rule->filter_exp) {
     EvalCtx *r = EvalCtx_Create(EVAL_MODE_INDEX);
 
-    RedisSearchCtx sctx = { .redisCtx = RSDummyContext };
+    RedisSearchCtx sctx = { .redisCtx = ctx };
     QueryError status = QueryError_Default();
     RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, openKey, &status);
     QueryError_ClearError(&status); // TODO: report errors

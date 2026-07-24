@@ -408,3 +408,63 @@ def test_WriteCommandsOnReplica():
       env.assertTrue(False, message=f'Command {command} should have failed on the slave')
     except Exception as e:
       env.assertContains("You can't write against a read only replica.", str(e))
+
+
+@skip(cluster=True)
+def testDisklessSwapdbReplicaLoadsIndexRegistry():
+  """End-to-end coverage for the diskless-replication backup path.
+
+  With repl-diskless-load=swapdb the replica swaps in a fresh spec registry
+  (Backup_Globals in src/rdb.c, fired from ReplicaBackupCallback on
+  RedisModuleEvent_ReplBackup) before parsing the master's RDB into it, so it
+  can roll back if the load fails. That backup registry must use the same
+  composite (dbid, name) key type as the live registry; otherwise the per-spec
+  dictAdd reinterprets the DbSpecKey as a bare HiddenString and reads a bogus
+  (ptr, len) pair out of it. That out-of-bounds read is caught deterministically
+  under AddressSanitizer (CI runs SAN=address); in plain builds it is latent UB
+  that mis-hashes keys and can silently lose indexes. The deterministic crash is
+  guarded by the C unit test RdbMockTest.testBackupRegistryUsesCompositeKey;
+  this test exercises the real replication flow, which had no coverage before.
+
+  Command-propagation replication of FT.CREATE does NOT exercise this path, so
+  we create the index first and then force a brand-new FULL diskless resync,
+  which makes the spec travel through the RDB (and thus the backup registry)."""
+  env = Env(useSlaves=True, forceTcp=True)
+  if env.env == 'existing-env':
+    env.skip()
+
+  master = env.getConnection()
+  slave = env.getSlaveConnection()
+  env.expect('WAIT', '1', '120000').equal(1)  # initial sync (match pytest timeout)
+
+  # Diskless full sync on the master, swapdb load on the replica.
+  master.execute_command('CONFIG', 'SET', 'repl-diskless-sync', 'yes')
+  master.execute_command('CONFIG', 'SET', 'repl-diskless-sync-delay', '0')
+  slave.execute_command('CONFIG', 'SET', 'repl-diskless-load', 'swapdb')
+
+  # Create an index and a matching document on the master.
+  env.assertOk(master.execute_command('FT.CREATE', 'idx', 'ON', 'HASH',
+                                       'SCHEMA', 'f', 'TEXT'))
+  master.execute_command('HSET', 'doc1', 'f', 'hello world')
+  checkSlaveSynced(env, slave, ('EXISTS', 'doc1'), 1, time_out=20)
+
+  # Capture the master address before detaching the replica.
+  repl_info = slave.execute_command('info', 'replication')
+  master_host = repl_info['master_host']
+  master_port = repl_info['master_port']
+
+  # Force a brand-new FULL diskless resync: promote the replica, rotate the
+  # master's replication id so a partial resync is impossible, then re-attach.
+  slave.execute_command('REPLICAOF', 'NO', 'ONE')
+  master.execute_command('DEBUG', 'CHANGE-REPL-ID')
+  slave.execute_command('REPLICAOF', master_host, master_port)
+
+  # Wait for the link to come back up
+  runUntil(slave, 'up',
+           lambda conn: conn.execute_command('info', 'replication')['master_link_status'],
+           timeout=30)
+
+  # The replica must be alive and serving the index it received via the RDB.
+  env.assertTrue(slave.execute_command('PING'))
+  checkSlaveSynced(env, slave, ('FT.SEARCH', 'idx', 'hello world', 'NOCONTENT'),
+                   [1, 'doc1'], time_out=20)

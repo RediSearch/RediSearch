@@ -1201,7 +1201,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
     long long cid;
     int rc = RedisModule_StringToLongLong(argv[3], &cid);
     RS_ASSERT(rc == REDISMODULE_OK);
-    Cursors_Purge(GetGlobalCursor((uint64_t)cid), (uint64_t)cid);
+    Cursors_PurgeForDb(GetGlobalCursor((uint64_t)cid), (uint64_t)cid, RedisModule_GetSelectedDb(ctx));
     CoordRequestCtx_UnlockSetRequest(reqCtx);
     return coord_cursor_read_empty_reply_timeout(ctx, 0);
   }

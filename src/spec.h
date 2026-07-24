@@ -222,7 +222,11 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 27
+#define INDEX_CURRENT_VERSION 28
+// Index spec serialization that records the logical DB the index is bound to
+// (sp->dbid). RDBs written before this version do not carry a dbid; they load
+// with dbid = 0 (the only DB indexes could live in until then).
+#define INDEX_DB_ID_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
@@ -298,6 +302,7 @@ typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
   uint64_t specId;                // Unique monotonically increasing ID for this spec incarnation
+  int dbid;                       // Logical Redis DB the index is bound to (0 in cluster mode)
   FieldSpec *fields;              // Fields in the index schema
   uint16_t numFields;             // Number of fields
   uint16_t numSortableFields;     // Number of sortable fields
@@ -641,6 +646,11 @@ typedef struct {
     RedisModuleString *nameR;
   };
   IndexLoadOptionsFlags flags;
+  // Logical DB the lookup is scoped to. A resolved spec whose dbid differs is
+  // treated as "not found". Zero-initialized callers get DB 0, which matches
+  // the historical single-DB behavior; command handlers that act on the
+  // connection's selected DB set this to RedisModule_GetSelectedDb(ctx).
+  int db;
 } IndexLoadOptions;
 
 //---------------------------------------------------------------------------------------------
