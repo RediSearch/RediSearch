@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       platform:
-        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude a platform on every architecture, and "!platform~arch" to exclude a single platform/architecture combination (e.g., "all,!intel,!macos-26~x86_64")'
+        description: 'Platform filter, comma-separated list. Use "all" for all platforms, "!platform" to exclude (e.g., "all,!intel")'
         type: string
         default: all
       architecture:
@@ -108,18 +108,7 @@ jobs:
 
           # Parse comma-separated filters
           platform_list = [p.strip() for p in platform_filter.split(',') if p.strip()]
-          # Exclusions come in two forms:
-          #   "!platform"       -> drop that platform on every architecture
-          #   "!platform~arch"  -> drop a single platform/architecture combination
-          # ("~" separates arch because "-" already appears in platform names, e.g. macos-26.)
-          exclude_platforms = set()
-          exclude_combinations = set()
-          for token in (p[1:] for p in platform_list if p.startswith('!')):
-              platform_part, sep, architecture_part = token.partition('~')
-              if sep:
-                  exclude_combinations.add((platform_part, architecture_part))
-              else:
-                  exclude_platforms.add(platform_part)
+          exclude_list = [p[1:] for p in platform_list if p.startswith('!')]
           requested_optional_combinations = [
               (platform, architecture)
               for platform, architecture in optional_combinations
@@ -132,8 +121,7 @@ jobs:
               (platform, architecture)
               for platform, architecture in candidate_combinations
               if (platform in platform_list or 'all' in platform_list) and
-                 (platform not in exclude_platforms) and
-                 ((platform, architecture) not in exclude_combinations) and
+                 (platform not in exclude_list) and
                  (architecture == architecture_filter or architecture_filter == 'all')
           ]
 
