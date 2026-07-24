@@ -1437,19 +1437,133 @@ def testTagAutoescaping(env):
     env.assertEqual(res, expected_result)
 
 @skip(no_json=True)
-def testLimitations(env):
-    """ highlight/summarize is not supported with JSON indexes """
+def test_highlight_single_value_json(env):
+    """ highlight/summarize works for JSON fields with single-value JSONPath across all dialects """
+    conn = getConnectionByEnv(env)
+    MAX_DIALECT = set_max_dialect(env)
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
-               'SCHEMA',  '$.txt', 'AS', 'txt', 'TEXT').ok()
+               'SCHEMA', '$.name', 'AS', 'name', 'TEXT',
+               '$.description', 'AS', 'description', 'TEXT').ok()
+    conn.execute_command('JSON.SET', 'doc:1', '$',
+                         '{"name": "Noise-cancelling Bluetooth headphones",'
+                         ' "description": "Wireless Bluetooth headphones with noise-cancelling technology"}')
+    conn.execute_command('JSON.SET', 'doc:2', '$',
+                         '{"name": "Wireless earbuds",'
+                         ' "description": "Wireless Bluetooth in-ear headphones"}')
 
-    error_msg = "HIGHLIGHT/SUMMARIZE is not supported with JSON indexes"
+    for dialect in range(1, MAX_DIALECT + 1):
+        # HIGHLIGHT FIELDS on a specific field -- only 'name' is highlighted, not 'description'
+        res = env.cmd('FT.SEARCH', 'idx', '@name:(Bluetooth)', 'RETURN', '2', 'name', 'description',
+                      'HIGHLIGHT', 'FIELDS', '1', 'name', 'TAGS', '<b>', '</b>', 'DIALECT', dialect)
+        env.assertEqual(res[0], 1, message=f'DIALECT {dialect}')
+        env.assertEqual(res[1], 'doc:1', message=f'DIALECT {dialect}')
+        fields = dict(zip(res[2][0::2], res[2][1::2]))
+        env.assertEqual(fields['name'], 'Noise-cancelling <b>Bluetooth</b> headphones', message=f'DIALECT {dialect}')
+        env.assertNotContains('<b>', fields['description'], message=f'DIALECT {dialect}')
 
-    env.expect('FT.SEARCH', 'idx', 'jacob', 'HIGHLIGHT').error()\
-        .contains(error_msg)
+        # HIGHLIGHT without FIELDS -- all returned TEXT fields are highlighted
+        res = env.cmd('FT.SEARCH', 'idx', '@name:(Bluetooth)', 'RETURN', '2', 'name', 'description',
+                      'HIGHLIGHT', 'TAGS', '<b>', '</b>', 'DIALECT', dialect)
+        env.assertEqual(res[0], 1, message=f'DIALECT {dialect}')
+        fields = dict(zip(res[2][0::2], res[2][1::2]))
+        env.assertContains('<b>Bluetooth</b>', fields['name'], message=f'DIALECT {dialect}')
+        env.assertContains('<b>Bluetooth</b>', fields['description'], message=f'DIALECT {dialect}')
 
-    env.expect('FT.SEARCH', 'idx', 'abraham', 'SUMMARIZE').error()\
-        .contains(error_msg)
+        # HIGHLIGHT on a query matching both docs -- verify highlighted terms per doc
+        res = env.cmd('FT.SEARCH', 'idx', '@description:(Bluetooth headphones)', 'RETURN', '1', 'description',
+                      'HIGHLIGHT', 'TAGS', '<b>', '</b>', 'DIALECT', dialect)
+        env.assertEqual(res[0], 2, message=f'DIALECT {dialect}')
+        results = {res[i]: dict(zip(res[i+1][0::2], res[i+1][1::2])) for i in range(1, len(res), 2)}
+        env.assertContains('<b>Bluetooth</b>', results['doc:1']['description'], message=f'DIALECT {dialect}')
+        env.assertContains('<b>headphones</b>', results['doc:1']['description'], message=f'DIALECT {dialect}')
+        env.assertContains('<b>Bluetooth</b>', results['doc:2']['description'], message=f'DIALECT {dialect}')
+        env.assertContains('<b>headphones</b>', results['doc:2']['description'], message=f'DIALECT {dialect}')
+
+        # SUMMARIZE -- verify fragments contain the matched term
+        res = env.cmd('FT.SEARCH', 'idx', '@description:(technology)', 'RETURN', '1', 'description',
+                      'SUMMARIZE', 'LEN', '3', 'FRAGS', '1', 'DIALECT', dialect)
+        env.assertEqual(res[0], 1, message=f'DIALECT {dialect}')
+        env.assertEqual(res[1], 'doc:1', message=f'DIALECT {dialect}')
+        env.assertContains('technology', res[2][1], message=f'DIALECT {dialect}')
+
+    # HIGHLIGHT without RETURN is rejected for JSON (any dialect)
+    no_return_error = "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names"
+    env.expect('FT.SEARCH', 'idx', '@name:(Bluetooth)',
+               'HIGHLIGHT', 'DIALECT', '2').error().contains(no_return_error)
+    env.expect('FT.SEARCH', 'idx', '@name:(Bluetooth)', 'RETURN', '0',
+               'HIGHLIGHT', 'DIALECT', '2').error().contains(no_return_error)
+
+    # Guard: single-value JSONPath pointing to a JSON array value.
+    # The highlighter detects arrays and skips HIGHLIGHT/SUMMARIZE transformations
+    # (via RSValueType in DIALECT 1-2, and via Trio expanded array inspection in
+    # DIALECT 3+). The original loaded value should still be returned.
+    env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON',
+               'SCHEMA', '$.colors', 'AS', 'colors', 'TEXT').ok()
+    conn.execute_command('JSON.SET', 'doc:3', '$',
+                         '{"colors": ["red", "blue"]}')
+    for dialect in range(1, MAX_DIALECT + 1):
+        expected = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
+                           'DIALECT', dialect)
+
+        res = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
+                      'HIGHLIGHT', 'TAGS', '<b>', '</b>', 'DIALECT', dialect)
+        env.assertEqual(res, expected, message=f'array highlight guard DIALECT {dialect}')
+
+        res = env.cmd('FT.SEARCH', 'idx_arr', '@colors:(red)', 'RETURN', '1', 'colors',
+                      'SUMMARIZE', 'LEN', '1', 'FRAGS', '1', 'DIALECT', dialect)
+        env.assertEqual(res, expected, message=f'array summarize guard DIALECT {dialect}')
+
+@skip(no_json=True)
+def test_highlight_multi_value_json_rejected(env):
+    """ highlight/summarize is not supported for JSON fields with multi-value JSONPath """
+    MAX_DIALECT = set_max_dialect(env)
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.tags[*]', 'AS', 'tags', 'TEXT',
+               '$.name', 'AS', 'name', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+
+    multi_value_error = "HIGHLIGHT/SUMMARIZE is not supported for JSON fields with multi-value JSONPath"
+    no_return_error = "HIGHLIGHT/SUMMARIZE on JSON indexes requires RETURN with explicit field names"
+
+    for dialect in range(2, MAX_DIALECT + 1):
+        # Without RETURN, the RETURN requirement error fires first
+        env.expect('FT.SEARCH', 'idx', 'hello', 'HIGHLIGHT', 'FIELDS', '1', 'tags',
+                   'DIALECT', dialect).error().contains(no_return_error)
+
+        # With RETURN, multi-value HIGHLIGHT FIELDS are rejected
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'tags',
+                   'HIGHLIGHT', 'FIELDS', '1', 'tags', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'tags',
+                   'SUMMARIZE', 'FIELDS', '1', 'tags', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # HIGHLIGHT without FIELDS when any returned TEXT field has multi-value JSONPath
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '2', 'tags', 'name',
+                   'HIGHLIGHT', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # RETURN aliases are validated against the schema field named by the original return path
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', 'tags', 'AS', 'tag_alias',
+                   'HIGHLIGHT', 'FIELDS', '1', 'tag_alias', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # Raw JSONPath returns are validated directly when they do not resolve to a schema field
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', '$.tags[*]', 'AS', 'tag_path',
+                   'HIGHLIGHT', 'FIELDS', '1', 'tag_path', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # Raw JSONPath validation still applies if the alias collides with a schema field name
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '3', '$.tags[*]', 'AS', 'name',
+                   'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', dialect).error()\
+            .contains(multi_value_error)
+
+        # But HIGHLIGHT on single-value fields only should still work
+        env.expect('FT.SEARCH', 'idx', 'hello', 'RETURN', '1', 'name',
+                   'HIGHLIGHT', 'FIELDS', '1', 'name', 'DIALECT', dialect).noError()
 
 # For MOD-13904
 @skip(no_json=True)
