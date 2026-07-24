@@ -223,6 +223,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.heap.push(doc_id, score);
                 }
             }
+            // Batch consumption is unpolled; check once at the boundary.
+            self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
                 BatchStrategy::Stop => break,
