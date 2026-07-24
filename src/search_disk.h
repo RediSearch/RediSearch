@@ -866,6 +866,46 @@ uint64_t SearchDisk_GetDiskUsage(RedisSearchDiskIndexSpec* index);
 void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Seal all memtables and schedule a flush without waiting for it.
+ *
+ * Rolls every column family's active memtable into an immutable one and
+ * schedules a flush, returning immediately instead of blocking until the data
+ * reaches L0 (unlike SearchDisk_Flush). Test-support primitive: paired with a
+ * paused background worker it lets flush-state INFO metrics be observed
+ * deterministically. A blocking flush would deadlock against a paused worker.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Pause background flush and compaction work on the index's database.
+ *
+ * Reference-counted: each call must be balanced by
+ * SearchDisk_ContinueBackgroundWork. Blocks until in-flight background jobs
+ * drain. Test-support primitive used with SearchDisk_FlushNoWait to observe
+ * flush-state INFO metrics deterministically.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Resume background work paused by SearchDisk_PauseBackgroundWork.
+ *
+ * @param index Pointer to the disk index spec
+ */
+void SearchDisk_ContinueBackgroundWork(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Whether background work is currently paused on the index's database.
+ *
+ * @param index Pointer to the disk index spec
+ * @return true if background work is paused
+ */
+bool SearchDisk_IsBackgroundWorkPaused(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Master-side SST replication PRE_CHECKPOINT hook for a single index.
  *
  * Acquires the IndexSpec read lock (blocks writes, allows queries) and

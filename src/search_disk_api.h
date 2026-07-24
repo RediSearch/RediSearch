@@ -579,6 +579,49 @@ typedef struct IndexDiskAPI {
   void (*flush)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Seal all memtables and schedule a flush without waiting for it.
+   *
+   * Rolls every column family's active memtable into an immutable one and
+   * schedules a flush, but returns immediately instead of blocking until the
+   * flush reaches L0 (unlike `flush`). Test-support primitive: paired with a
+   * paused background worker, the sealed immutable memtable persists long
+   * enough to observe flush-state INFO metrics deterministically. A blocking
+   * `flush` would instead deadlock against the paused worker.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*flushNoWait)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Pause background flush and compaction work on the index's database.
+   *
+   * Reference-counted: each call must be balanced by continueBackgroundWork.
+   * Blocks until in-flight background jobs drain, after which no new
+   * flush/compaction is scheduled until resumed. Test-support primitive used
+   * with flushNoWait to observe flush-state INFO metrics deterministically.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*pauseBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Resume background work paused by pauseBackgroundWork.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*continueBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Whether background work is currently paused on the index's database.
+   *
+   * Lets callers refuse a blocking flush while paused (which would deadlock).
+   *
+   * @param index Pointer to the disk index
+   * @return true if background work is paused
+   */
+  bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Update the write buffer size for this index's database
    *
    * Dynamically changes the write_buffer_size option for all column families
