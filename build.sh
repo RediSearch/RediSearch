@@ -322,7 +322,7 @@ prepare_coverage_capture() {
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
     --ignore-errors inconsistent,corrupt,mismatch \
-    --exclude '*/_deps/*'
+    --include "$ROOT/deps/thpool/*" --include "$ROOT/src/*"
   end_group
 }
 
@@ -344,7 +344,7 @@ capture_coverage() {
   # cover lcov versions that classify the same disagreement under that name.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
     --ignore-errors inconsistent,corrupt,mismatch \
-    --exclude '*/_deps/*'
+    --include "$ROOT/deps/thpool/*" --include "$ROOT/src/*"
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
