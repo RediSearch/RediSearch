@@ -3624,6 +3624,7 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  // Only a missing representable term is fatal; UNSUPPORTED (never insertable) is a no-op.
   RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
   return result == TRIE_DECR_DELETED;
 }

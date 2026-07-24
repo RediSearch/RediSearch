@@ -1037,6 +1037,52 @@ static size_t trieGetNumDocs(Trie *t, const char *s) {
   return TrieNode_NumDocs(node);
 }
 
+TEST_F(TrieTest, testDecrementNumDocsRepresentable) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  trieInsertWithNumDocs(t, "hello", 1.0, 3);
+
+  EXPECT_EQ(TRIE_DECR_UPDATED, Trie_DecrementNumDocs(t, "hello", strlen("hello"), 1));
+  EXPECT_EQ(2, trieGetNumDocs(t, "hello"));
+
+  EXPECT_EQ(TRIE_DECR_DELETED, Trie_DecrementNumDocs(t, "hello", strlen("hello"), 2));
+  EXPECT_EQ(0, trieGetNumDocs(t, "hello"));
+}
+
+// A representable term never inserted must stay distinct (NOT_FOUND) from the
+// unrepresentable case, so the disk-compaction caller can still assert on it.
+TEST_F(TrieTest, testDecrementNumDocsMissingRepresentable) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  trieInsertWithNumDocs(t, "hello", 1.0, 3);
+  EXPECT_EQ(TRIE_DECR_NOT_FOUND, Trie_DecrementNumDocs(t, "absent", strlen("absent"), 1));
+}
+
+// A term at/over the trie's TRIE_INITIAL_STRING_LEN rune cap is never inserted,
+// so decrementing it reports UNSUPPORTED, not NOT_FOUND.
+TEST_F(TrieTest, testDecrementNumDocsUnrepresentableLongTerm) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tp(t, [](Trie *p) { TrieType_Free(p); });
+
+  // 255 runes: representable, inserts and decrements normally.
+  std::string ascii255(TRIE_INITIAL_STRING_LEN - 1, 'a');
+  ASSERT_TRUE(trieInsertWithNumDocs(t, ascii255.c_str(), 1.0, 1));
+  EXPECT_EQ(TRIE_DECR_DELETED, Trie_DecrementNumDocs(t, ascii255.c_str(), ascii255.size(), 1));
+
+  // 256 / 257 runes: trip the rune-length guard.
+  std::string ascii256(TRIE_INITIAL_STRING_LEN, 'a');
+  std::string ascii257(TRIE_INITIAL_STRING_LEN + 1, 'a');
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, ascii256.c_str(), ascii256.size(), 1));
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, ascii257.c_str(), ascii257.size(), 1));
+
+  // 256 copies of U+754C (界), 3 bytes each: trips the earlier byte-length guard.
+  std::string cjk256;
+  for (int i = 0; i < TRIE_INITIAL_STRING_LEN; i++) cjk256 += "\xE7\x95\x8C";
+  EXPECT_EQ(TRIE_DECR_UNSUPPORTED, Trie_DecrementNumDocs(t, cjk256.c_str(), cjk256.size(), 1));
+}
+
 // Regression: TrieType_GenericLoad must preserve sort mode across reload,
 // or Trie_IterateRange's binary search breaks on Lex-sourced tries.
 TEST_F(TrieTest, testRdbSaveLoadLexRangePreservesQueries) {
