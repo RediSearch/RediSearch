@@ -16,11 +16,48 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
-use rqe_iterators::RQEIteratorError;
+use rqe_iterators::{ExpirationChecker, NoOpChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
+
+/// Reports whether a doc id still resolves to a live result document — one that
+/// has not been deleted and whose whole-document TTL has not lapsed.
+///
+/// This is the document-level check (deletion + whole-doc expiry); *field*-level
+/// TTL is a separate concern carried by an [`ExpirationChecker`]. The numeric
+/// index keeps entries for stale documents until GC reclaims them, so the source
+/// drops them before they reach the top-k heap. This mirrors the result
+/// processor's per-document validity check: the numeric optimizer's bounded heap
+/// must hold `k` *valid* survivors, and a downstream drop cannot retroactively
+/// admit the live document a stale entry displaced.
+pub trait DocValidity {
+    /// Returns `true` if `doc_id` still resolves to a valid result document.
+    fn is_valid(&self, doc_id: DocId) -> bool;
+
+    /// Fast-path gate: `false` lets the source skip filtering entirely.
+    fn may_filter(&self) -> bool {
+        true
+    }
+}
+
+/// A [`DocValidity`] that treats every document as valid, for when no doc table
+/// is available (the default) or validity filtering is not wanted.
+#[derive(Clone, Copy, Default)]
+pub struct AllValid;
+
+impl DocValidity for AllValid {
+    #[inline(always)]
+    fn is_valid(&self, _doc_id: DocId) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn may_filter(&self) -> bool {
+        false
+    }
+}
 
 /// Default number of value-ordered ranges materialized into a single batch.
 ///
@@ -70,7 +107,8 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 /// - TODO: MOD-14946 Profile metrics
 /// - TODO: MOD-14947 Parity tests
 /// - TODO: MOD-14948 Performance validation
-pub struct NumericScoreSource<'index> {
+pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationChecker = NoOpChecker>
+{
     /// Value-ordered range stream over the numeric index.
     ranges: NumericRangeIterator<'index>,
     /// Filter driving [`find`](NumericRangeTree::find); its `offset`/`limit`
@@ -101,6 +139,14 @@ pub struct NumericScoreSource<'index> {
     heap_old_size: usize,
     /// Number of expand-and-retry iterations performed so far.
     num_iterations: usize,
+    /// Document-level validity oracle: drops records for doc ids it reports
+    /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
+    /// [`AllValid`] keeps every record.
+    validity: V,
+    /// Field-level TTL checker: drops records whose sort field has expired before
+    /// they reach the top-k heap, matching the optimizer's numeric field
+    /// predicate. [`NoOpChecker`] keeps every record.
+    expiration: E,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -181,6 +227,63 @@ impl<'index> NumericScoreSource<'index> {
             child_estimate,
             heap_old_size: 0,
             num_iterations: 0,
+            validity: AllValid,
+            expiration: NoOpChecker,
+        }
+    }
+}
+
+impl<'index, V: DocValidity, E: ExpirationChecker> NumericScoreSource<'index, V, E> {
+    /// Attach a document-validity oracle, dropping records for doc ids it reports
+    /// invalid (deleted or whole-doc expired) from every batch. This is the
+    /// source's equivalent of the numeric optimizer's per-document validity
+    /// check, keeping entries that survive in the index until GC out of the
+    /// top-k results.
+    pub fn with_validity<V2: DocValidity>(self, validity: V2) -> NumericScoreSource<'index, V2, E> {
+        NumericScoreSource {
+            validity,
+            expiration: self.expiration,
+            ranges: self.ranges,
+            filter: self.filter,
+            initial_offset: self.initial_offset,
+            initial_limit: self.initial_limit,
+            ascending: self.ascending,
+            range_batch_size: self.range_batch_size,
+            num_estimated: self.num_estimated,
+            retry_enabled: self.retry_enabled,
+            num_docs: self.num_docs,
+            child_estimate: self.child_estimate,
+            last_limit_estimate: self.last_limit_estimate,
+            heap_old_size: self.heap_old_size,
+            num_iterations: self.num_iterations,
+        }
+    }
+
+    /// Attach a field-level TTL checker, dropping records whose sort field has
+    /// expired from every batch. This mirrors the numeric optimizer feeding a
+    /// field-expiration predicate to its numeric sub-iterator: the check is
+    /// pre-heap so expired records never displace a live document from the
+    /// bounded top-k.
+    pub fn with_expiration<E2: ExpirationChecker>(
+        self,
+        expiration: E2,
+    ) -> NumericScoreSource<'index, V, E2> {
+        NumericScoreSource {
+            expiration,
+            validity: self.validity,
+            ranges: self.ranges,
+            filter: self.filter,
+            initial_offset: self.initial_offset,
+            initial_limit: self.initial_limit,
+            ascending: self.ascending,
+            range_batch_size: self.range_batch_size,
+            num_estimated: self.num_estimated,
+            retry_enabled: self.retry_enabled,
+            num_docs: self.num_docs,
+            child_estimate: self.child_estimate,
+            last_limit_estimate: self.last_limit_estimate,
+            heap_old_size: self.heap_old_size,
+            num_iterations: self.num_iterations,
         }
     }
 
@@ -247,11 +350,36 @@ impl<'index> NumericScoreSource<'index> {
     }
 }
 
-impl<'index> ScoreSource for NumericScoreSource<'index> {
+impl<'index, V: DocValidity, E: ExpirationChecker> ScoreSource
+    for NumericScoreSource<'index, V, E>
+{
     type Batch = NumericScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
-        Ok(self.ranges.next_n(self.range_batch_size)?)
+        let Some(mut batch) = self.ranges.next_n(self.range_batch_size)? else {
+            return Ok(None);
+        };
+        // Drop stale entries pre-heap so they never displace a live document from
+        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
+        // and field-level TTL, the two the range tree only sheds at GC time. Each
+        // gate keeps the common no-filtering case free of its per-record check.
+        let filter_validity = self.validity.may_filter();
+        let filter_expiration = self.expiration.has_expiration();
+        if filter_validity || filter_expiration {
+            batch.retain(|doc_id, score| {
+                if filter_validity && !self.validity.is_valid(doc_id) {
+                    return false;
+                }
+                if filter_expiration {
+                    let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
+                    if self.expiration.is_expired(&record) {
+                        return false;
+                    }
+                }
+                true
+            });
+        }
+        Ok(Some(batch))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
