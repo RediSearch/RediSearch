@@ -317,6 +317,20 @@ jobs:
           coverage: ${{ inputs.coverage }}
           cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
+      # Build RedisJSON once and cache it, restoring on subsequent runs with the
+      # same key. Produces bin/rejson.so and exports REJSON_PATH, which the
+      # flow-test and flaky-test-enumeration steps reuse instead of rebuilding.
+      # Gated on a flow-test consumer (standalone/coordinator) so unit-test-only
+      # runs don't build RedisJSON they never use.
+      - name: Build RedisJSON (cached)
+        if: ${{ !inputs.skip-tests && inputs.rejson && (inputs.standalone || inputs.coordinator) }}
+        uses: ./.github/actions/build-rejson
+        with:
+          rejson-branch: ${{ inputs.rejson-branch }}
+          san: ${{ inputs.san }}
+          cov: ${{ inputs.coverage && '1' || '0' }}
+          cache_platform_id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
+
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
