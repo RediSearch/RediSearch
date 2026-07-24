@@ -32,7 +32,7 @@ use rqe_iterators::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{ScoreBatch, ScoreSource, TopKMetrics, TopKMode, TopKSourceProfile};
+use top_k::{ScoreBatch, ScoreSource};
 
 /// A validity oracle backed by an explicit set of deleted doc ids, standing in
 /// for a doc table with entries flagged deleted but not yet reclaimed by GC.
@@ -604,9 +604,15 @@ impl TimeoutContext for TimeoutOnce {
 }
 
 /// Collect an unfiltered top-k iterator to exhaustion into `(doc_id, score)`.
-fn drain_top_k<'a, V: DocValidity + 'a, E: ExpirationChecker + 'a, T: TimeoutContext + 'a>(
-    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T>,
-) -> Vec<(DocId, f64)> {
+fn drain_top_k<'a, V, E, T, I>(
+    it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T, I>,
+) -> Vec<(DocId, f64)>
+where
+    V: DocValidity + 'a,
+    E: ExpirationChecker + 'a,
+    T: TimeoutContext + 'a,
+    I: RQEIterator<'a> + 'a,
+{
     let mut got = Vec::new();
     while let Some(result) = it.read().unwrap() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
@@ -667,13 +673,9 @@ fn map_get<'a>(reply: &'a ReplyValue, key: &str) -> Option<&'a ReplyValue> {
     })
 }
 
-/// Render a source's [`TopKSourceProfile`] entry and return the captured reply.
-fn render_profile<S: TopKSourceProfile>(
-    source: &S,
-    mode: TopKMode,
-    metrics: &TopKMetrics,
-    child: Option<&dyn ProfilePrint>,
-) -> ReplyValue {
+/// Render an iterator's [`ProfilePrint`] entry through the normal FT.PROFILE
+/// wrapping path and return the captured reply.
+fn render_profile(it: &dyn ProfilePrint) -> ReplyValue {
     redis_mock::init_redis_module_mock();
     // SAFETY: the mock replaces every `RedisModule_Reply*` pointer with an
     // implementation that records replies without dereferencing the ctx.
@@ -681,7 +683,7 @@ fn render_profile<S: TopKSourceProfile>(
     let mut replies = capture_replies(|| {
         let mut ctx = ProfilePrintCtx::new(false, false);
         let mut map = replier.map();
-        source.print_profile(mode, metrics, &mut map, &mut ctx, child);
+        it.print_profile(&mut map, &mut ctx);
     });
     assert_eq!(replies.len(), 1, "expected a single map reply");
     replies.pop().unwrap()
@@ -762,7 +764,7 @@ fn profile_reports_optimizer_type_and_counters() {
     drain_top_k(&mut it);
     let metrics = *it.metrics();
 
-    let reply = render_profile(it.source(), it.mode(), &metrics, None);
+    let reply = render_profile(&it);
 
     assert_eq!(
         map_get(&reply, "Type"),
@@ -800,7 +802,7 @@ fn profile_reports_batches_read_before_a_timeout() {
     // The source-local counter is what the profile used to read.
     assert_eq!(it.source().num_batches(), 0, "abort path reset the source");
 
-    let reply = render_profile(it.source(), it.mode(), &metrics, None);
+    let reply = render_profile(&it);
     assert_eq!(
         map_get(&reply, "Batches number"),
         Some(&ReplyValue::LongLong(metrics.num_batches as i64))
@@ -813,12 +815,10 @@ fn profile_renders_child_subtree() {
     let source = NumericScoreSource::unfiltered(&tree, full_range(), false);
 
     let child = IdList::<true>::new(vec![1u64, 2, 3]);
-    let reply = render_profile(
-        &source,
-        TopKMode::Batches,
-        &TopKMetrics::default(),
-        Some(&child),
-    );
+    let mut it = new_numeric_top_k_filtered(source, child, NonZeroUsize::new(100).unwrap());
+    drain_top_k(&mut it);
+
+    let reply = render_profile(&it);
 
     let child_reply = map_get(&reply, "Child iterator").expect("child subtree rendered");
     assert!(

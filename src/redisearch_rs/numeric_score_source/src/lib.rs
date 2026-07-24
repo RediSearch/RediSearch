@@ -38,17 +38,24 @@ use std::{cmp::Ordering, num::NonZeroUsize};
 use redis_reply::MapBuilder;
 use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIterator,
+    c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
 use top_k::{TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile};
 
-/// A [`TopKIterator`] driven by a [`NumericScoreSource`].
+/// A [`TopKIterator`] parameterised over [`NumericScoreSource`].
 ///
-/// Construct one with [`new_numeric_top_k_unfiltered`] or
-/// [`new_numeric_top_k_filtered`].
-pub type NumericTopKIterator<'index, V = AllValid, E = NoOpChecker, T = NoTimeoutChecker> =
-    TopKIterator<'index, NumericScoreSource<'index, V, E, T>>;
+/// `I` is the filter child iterator type, defaulting to the production
+/// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
+/// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+pub type NumericTopKIterator<
+    'index,
+    V = AllValid,
+    E = NoOpChecker,
+    T = NoTimeoutChecker,
+    I = CRQEIterator,
+> = TopKIterator<'index, NumericScoreSource<'index, V, E, T>, I>;
 
 /// Pick the heap comparator for the query's sort direction.
 fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
@@ -78,40 +85,33 @@ pub fn new_numeric_top_k_unfiltered<
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
 
-/// Construct a filtered [`NumericTopKIterator`] with a filter child.
+/// Construct a filtered [`NumericTopKIterator`] over `child`.
 ///
 /// Uses [`TopKMode::Batches`]: the source's batch is intersected with the
-/// child filter, and the heap keeps the top `k` by numeric value.
-pub fn new_numeric_top_k_filtered<
-    'index,
+/// child filter, and the heap keeps the top `k` by numeric value. The sort
+/// direction is taken from the `source` (`SORTBY field ASC`/`DESC`).
+pub fn new_numeric_top_k_filtered<'index, V, E, T, C>(
+    source: NumericScoreSource<'index, V, E, T>,
+    child: C,
+    k: NonZeroUsize,
+) -> TopKIterator<'index, NumericScoreSource<'index, V, E, T>, C>
+where
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
->(
-    source: NumericScoreSource<'index, V, E, T>,
-    child: impl RQEIterator<'index> + 'index,
-    k: NonZeroUsize,
-) -> NumericTopKIterator<'index, V, E, T> {
+    C: RQEIterator<'index> + 'index,
+{
     let cmp = cmp_for(source.ascending());
-    TopKIterator::new_with_mode(
-        source,
-        Some(Box::new(child) as Box<dyn RQEIterator<'index> + 'index>),
-        k,
-        cmp,
-        TopKMode::Batches,
-    )
+    TopKIterator::new_with_mode(source, Some(child), k, cmp, TopKMode::Batches)
 }
 
 impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
     for NumericScoreSource<'_, V, E, T>
 {
-    /// Render the numeric optimizer's profile entry.
+    /// Render the numeric optimizer's profile entry: an `OPTIMIZER` header plus
+    /// the batch and window-expansion counters.
     ///
-    /// Mirrors the C `OptimizerIterator` header (`Type: OPTIMIZER`) and adds the
-    /// batch/window counters the C reader keeps internally but never surfaces in
-    /// FT.PROFILE. `mode` is unused: the numeric source has no runtime mode
-    /// string, and the C `Optimizer mode` (a pre-execution query-optimization
-    /// type) has no analog here.
+    /// `mode` is unused — the numeric source has no runtime mode string.
     fn print_profile(
         &self,
         _mode: TopKMode,
