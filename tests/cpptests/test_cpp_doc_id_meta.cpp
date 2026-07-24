@@ -28,6 +28,12 @@ protected:
   }
 
   void SetUp() override {
+    // The DocIdMeta RDB save/load callbacks are a disk-mode feature and are only
+    // registered when disk mode is (really or simulated) enabled. Simulate it so
+    // DocIdMeta_Init registers rdb_save/rdb_load for these tests.
+    prevSimulateInFlex = RSGlobalConfig.simulateInFlex;
+    RSGlobalConfig.simulateInFlex = true;
+
     // Get context - MyEnvironment already initialized redismock
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     RMCK::flushdb(ctx);
@@ -35,7 +41,7 @@ protected:
     // Initialize spec dictionary (creates specDict_g)
     Indexes_Init(ctx);
 
-    DocIdMeta_Init(ctx);
+    ASSERT_EQ(DocIdMeta_Init(ctx), REDISMODULE_OK);
 
     // Create a mock key name for testing
     testKeyName = RedisModule_CreateString(ctx, "testkey", 7);
@@ -75,6 +81,8 @@ protected:
       RedisModule_FreeThreadSafeContext(ctx);
       ctx = nullptr;
     }
+
+    RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
   }
 
   // Helper: creates a spec in specDict_g with the given name and specId.
@@ -169,16 +177,42 @@ protected:
     EXPECT_EQ(DocIdMeta_Get(ctx, keyName, specId, &retrieved), REDISMODULE_ERR);
   }
 
+  // Helper: read the raw metadata uint64 for a key, allowing 0 (i.e. no dict
+  // attached / detached after the last entry was removed).
+  uint64_t readKeyMetaAllowZero(RedisModuleString *keyName) {
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
+    uint64_t meta = 0;
+    EXPECT_EQ(RedisModule_GetKeyMeta(getDocIdMetaClassId(), key, &meta), REDISMODULE_OK);
+    RedisModule_CloseKey(key);
+    return meta;
+  }
+
   RedisModuleCtx *ctx;
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
   std::vector<RefManager*> createdSpecs;
+  bool prevSimulateInFlex = false;
 
   // Helper constants for spec IDs and names
   static constexpr uint64_t SPEC1_ID = 1;
   static constexpr uint64_t SPEC2_ID = 2;
   static constexpr uint64_t SPEC3_ID = 3;
 };
+
+TEST(DocIdMetaInitTest, MissingKeyMetaApiReturnsError) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(nullptr);
+  auto savedCreateKeyMetaClass = RedisModule_CreateKeyMetaClass;
+
+  RedisModule_CreateKeyMetaClass = nullptr;
+  EXPECT_EQ(DocIdMeta_Init(ctx), REDISMODULE_ERR);
+
+  RedisModule_CreateKeyMetaClass = savedCreateKeyMetaClass;
+  RedisModule_FreeThreadSafeContext(ctx);
+}
+
+TEST(DocIdMetaInitTest, GlobalTestEnvironmentRegistersKeyMetaClass) {
+  EXPECT_GE(RMCK_GetKeyMetaClassByName("D-ID"), 0);
+}
 
 TEST_F(DocIdMetaTest, TestSetAndGetDocId) {
   uint64_t docId = 12345;
@@ -325,6 +359,69 @@ TEST_F(DocIdMetaTest, TestDeleteAndReget) {
 
   EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
+}
+
+// Deleting the last entry must detach and free the now-empty per-key dict, so a
+// surviving-but-de-indexed key does not retain an empty allocation. After detach
+// the raw meta reads back as 0 (reset_value); freeing without detaching would
+// leave a dangling pointer for the free callback to double-free at key deletion.
+TEST_F(DocIdMetaTest, TestDeleteLastEntryDetachesMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  // The per-key dict was the last holder of an entry, so it is detached (0).
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+}
+
+// Deleting a non-last entry must keep the dict attached (other specs still use
+// it), so the remaining entry is still resolvable.
+TEST_F(DocIdMetaTest, TestDeleteNonLastEntryKeepsMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  // Dict still holds SPEC2, so it stays attached.
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
+
+  // Removing the last remaining entry now detaches the dict.
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_OK);
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+}
+
+// After the dict is detached, a subsequent Set must transparently recreate it.
+TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocId(testKeyName, SPEC1_ID, 3003);
+}
+
+TEST_F(DocIdMetaTest, TestClearKeyMetaStoragePreservesClassRegistration) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RMCK_ClearKeyMetaStorage();
+
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+  EXPECT_EQ(RMCK_GetKeyMetaClassByName(DOC_ID_META_CLASS_NAME), getDocIdMetaClassId());
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 2002), REDISMODULE_OK);
+  verifyDocId(testKeyName, SPEC1_ID, 2002);
+}
+
+TEST_F(DocIdMetaTest, TestFlushDbClearsKeyMeta) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RMCK::flushdb(ctx);
+
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
 }
 
 // Simple test to check if basic setup works

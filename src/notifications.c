@@ -169,10 +169,12 @@ void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) 
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                 RedisModuleString *key) {
   enum RedisCmd redisCommand = GetRedisCmd(event);
-  // When running on SearchDisk, defer the actual handling of every event other
-  // than "loaded" to a post-notification per-key job, so indexing runs outside
-  // the keyspace-notification context.
-  if (SearchDisk_IsEnabled() && redisCommand != loaded_cmd) {
+  // SearchDisk already defers non-loaded events. In memory mode, defer module-originated
+  // notifications (e.g. RedisJSON): those modules may still own open key handles while
+  // notifying, and updating KeyMeta before those handles are closed can invalidate Redis'
+  // handle-local key bookkeeping under ASAN.
+  if (redisCommand != _null_cmd && redisCommand != loaded_cmd &&
+      (SearchDisk_IsEnabled() || (type & REDISMODULE_NOTIFY_MODULE))) {
     KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
     job->type = type;
     job->redisCommand = redisCommand;
@@ -273,14 +275,13 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       break;
 
 /********************************************************
- *  GROUP B: Skip deletion for SearchDisk (Unlink handles it)
+ *  GROUP B: Physical key removal — DocIdMeta unlink handles it (both modes)
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // Deletion handled by keyMetaOnUnlink callback
-      if (!SearchDisk_IsEnabled()) {
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
-      }
+      // De-indexed via the DocIdMeta `unlink` callback (both modes). For SET
+      // overwrites, Redis unlinks the old value before the notification; the
+      // later KeyMeta free callback only releases the per-key metadata dict.
       break;
 
 /********************************************************
@@ -303,7 +304,7 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       break;
 
 /********************************************************
- *  GROUP D: Has deletion branch to skip for SearchDisk
+ *  GROUP D: `change` — update; the empty-key (delete) branch is unlink-handled
  ********************************************************/
     case change_cmd:
       kp = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
@@ -313,28 +314,24 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
         RedisModule_CloseKey(kp);
       }
       if (kType == DocumentType_Unsupported) {
-        // In CRDT, empty key means key was deleted
-        if (SearchDisk_IsEnabled()) {
-          // Deletion handled by keyMetaOnUnlink callback
-          break;
-        }
-        Indexes_DeleteMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      } else {
-        // todo: here we will open the key again, we can optimize it by
-        //       somehow passing the key pointer
-        Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
+        // Empty key = deleted (e.g. under CRDT); de-indexed via the DocIdMeta
+        // `unlink` callback (both modes).
+        break;
       }
+      // todo: here we will open the key again, we can optimize it by
+      //       somehow passing the key pointer
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
       break;
 
 /********************************************************
- *  GROUP E: Never received with SearchDisk (not subscribed)
+ *  GROUP E: Physical key removal — DocIdMeta unlink handles it (both modes)
  ********************************************************/
     case trimmed_cmd:
     case key_trimmed_cmd:
     case expired_cmd:
     case evicted_cmd:
-      RS_ASSERT(!SearchDisk_IsEnabled());
-      Indexes_DeleteMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), hashFields);
+      // De-indexed via the DocIdMeta `unlink` callback (both modes); we no longer
+      // subscribe to these events (see Initialize_KeyspaceNotifications).
       break;
   }
 
@@ -774,17 +771,11 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 void Initialize_KeyspaceNotifications() {
   static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
-    int notifyFlags = 0;
-    if (SearchDisk_IsEnabled()) {
-      // On Disk we do not listen to notifications that lead to deleting the keys as the unlink callback of DocIDMeta will handle it.
-      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
-      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
-    } else {
-      notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_KEY_TRIMMED | REDISMODULE_NOTIFY_STRING |
-      REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE;
-    }
+    // Physical key removal (EXPIRED/EVICTED/TRIMMED) is de-indexed via the
+    // DocIdMeta `unlink` callback in both modes, so we don't subscribe to those.
+    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+                      REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LOADED |
+                      REDISMODULE_NOTIFY_MODULE;
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext, notifyFlags, KeySpaceNotificationCallback);
     RS_KeyspaceEvents_Initialized = true;
   }

@@ -10,6 +10,7 @@
 #include "doc_id_meta.h"
 #include "spec.h"
 #include "indexes.h"
+#include "search_disk.h"
 #include "util/arr/arr.h"
 #include "util/dict.h"
 #include "rdb.h"
@@ -228,7 +229,19 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-void DocIdMeta_Init(RedisModuleCtx *ctx) {
+int DocIdMeta_Init(RedisModuleCtx *ctx) {
+  if (!RedisModule_CreateKeyMetaClass || !RedisModule_SetKeyMeta || !RedisModule_GetKeyMeta) {
+    RedisModule_Log(ctx, "warning",
+                    "DocIdMeta requires the Redis key metadata API (Redis 8.6.0 or newer)");
+    return REDISMODULE_ERR;
+  }
+
+  // RDB save/load are disk-mode only: memory mode rebuilds the mapping by
+  // re-indexing on load, so persisting it would risk staleness. NULL is valid -
+  // rdb_save=NULL persists nothing, and REDISMODULE_META_ALLOW_IGNORE (flags
+  // below) makes a NULL rdb_load ignore DocIdMeta from a disk-mode RDB rather
+  // than fail the load. IsEnabledForValidation == IsEnabled() outside tests.
+  const bool onDisk = SearchDisk_IsEnabledForValidation();
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
@@ -238,15 +251,19 @@ void DocIdMeta_Init(RedisModuleCtx *ctx) {
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
-    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
-    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,
+    .rdb_load = onDisk ? (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad : NULL,
+    .rdb_save = onDisk ? (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave : NULL,
     .aof_rewrite = NULL,
     .defrag = NULL,
     .mem_usage = NULL,
     .free_effort = NULL,
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, DOCID_META_VERSION, &docIdKeyMetaClassIdConfig);
-  RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+  if (docIdKeyMetaClassId < 0) {
+    RedisModule_Log(ctx, "warning", "Failed to create DocIdMeta class");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
 }
 
 
@@ -312,7 +329,16 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   dict *specIdToDocId = (dict *)meta;
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
-  return dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  // Last entry gone: detach and free the now-empty per-key dict so a surviving
+  // de-indexed key keeps no empty allocation. Detach-then-free - SetKeyMeta does
+  // not free the old value, and Redis skips the free callback once meta == 0.
+  if (rc == DICT_OK && dictSize(specIdToDocId) == 0) {
+    if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) == REDISMODULE_OK) {
+      dictRelease(specIdToDocId);
+    }
+  }
+  return rc;
 }
 
 // Set docId using key name and spec incarnation ID.

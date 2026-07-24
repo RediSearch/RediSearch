@@ -1621,24 +1621,57 @@ static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
   if (!key) {
     return REDISMODULE_ERR;
   }
+
+  if (meta == 0) {
+    auto keyIt = keyMetaStorage.find(key->key);
+    if (keyIt != keyMetaStorage.end()) {
+      keyIt->second.erase(class_id);
+      if (keyIt->second.empty()) {
+        keyMetaStorage.erase(keyIt);
+      }
+    }
+    return REDISMODULE_OK;
+  }
+
   keyMetaStorage[key->key][class_id] = meta;
   return REDISMODULE_OK;
 }
 
-static void RMCK_ClearKeyMeta() {
-  // Clean up any allocated metadata using the free callback
-  for (auto& keyPair : keyMetaStorage) {
-    for (auto& metaPair : keyPair.second) {
-      if (metaPair.second != 0) {
-        auto configIt = classConfigs.find(metaPair.first);
-        if (configIt != classConfigs.end() && configIt->second.free) {
-          configIt->second.free("testkey", metaPair.second);
-        }
-      }
-    }
+static void RMCK_FreeKeyMetaValue(const std::string &key, RedisModuleKeyMetaClassId class_id,
+                                  uint64_t meta) {
+  if (meta == 0) {
+    return;
   }
 
+  auto configIt = classConfigs.find(class_id);
+  if (configIt != classConfigs.end() && configIt->second.free) {
+    configIt->second.free(key.c_str(), meta);
+  }
+}
+
+void RMCK_FreeKeyMetaForKey(const std::string &key) {
+  auto keyIt = keyMetaStorage.find(key);
+  if (keyIt == keyMetaStorage.end()) {
+    return;
+  }
+
+  for (auto &metaPair : keyIt->second) {
+    RMCK_FreeKeyMetaValue(key, metaPair.first, metaPair.second);
+  }
+  keyMetaStorage.erase(keyIt);
+}
+
+void RMCK_FreeAllKeyMeta() {
+  for (auto &keyPair : keyMetaStorage) {
+    for (auto &metaPair : keyPair.second) {
+      RMCK_FreeKeyMetaValue(keyPair.first, metaPair.first, metaPair.second);
+    }
+  }
   keyMetaStorage.clear();
+}
+
+static void RMCK_ClearKeyMeta() {
+  RMCK_FreeAllKeyMeta();
   classConfigs.clear();
   classNames.clear();
   nextClassId = 1;
@@ -1646,7 +1679,7 @@ static void RMCK_ClearKeyMeta() {
 
 // External interface for clearing KeyMeta storage
 void RMCK_ClearKeyMetaStorage() {
-  RMCK_ClearKeyMeta();
+  RMCK_FreeAllKeyMeta();
 }
 
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {

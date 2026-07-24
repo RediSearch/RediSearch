@@ -15,6 +15,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
+#include <unistd.h>
 
 #include "triemap_ffi.h"
 #include "util/logging.h"
@@ -408,7 +409,9 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 
   res += sp->docs.memsize;
   res += sp->docs.sortablesSize;
-  res += doctable_tm_size ? doctable_tm_size : TrieMap_MemUsage(sp->docs.dim.tm);
+  // No in-memory key trie anymore (it's Redis key-metadata, not counted here);
+  // doctable_tm_size is retained for call-site compatibility and is 0.
+  res += doctable_tm_size;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
   res += IndexSpec_collect_numeric_overhead(sp);
@@ -1965,6 +1968,46 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   removePendingIndexDrop();
 }
 
+#define DOCID_META_PRUNE_GIL_BATCH 500  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
+#define DOCID_META_PRUNE_GIL_SLEEP_US 1
+
+// Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
+// (nothing else removes those entries). Runs on the cleanPool worker before the
+// DocTable is freed, opening keys under the GIL in bounded batches so
+// FT.DROPINDEX stays O(1) on the main thread. Memory mode only (disk GCs via
+// RDB); gated on pruneKeyMetaOnFree so delete-docs drops skip it. specId is
+// monotonic, so any entry left behind is inert. See the design doc.
+static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
+  if (!sp->pruneKeyMetaOnFree || sp->docs.size == 0) {
+    return;
+  }
+  RS_ASSERT(!SearchDisk_IsEnabled());
+
+  RedisModuleCtx *ctx = RSDummyContext;
+  DocTable *dt = &sp->docs;
+  size_t inBatch = 0;
+  RedisModule_ThreadSafeContextLock(ctx);
+  DOCTABLE_FOREACH(dt, {
+    RedisModuleString *keyName = DMD_CreateKeyString(dmd, ctx);
+    DocIdMeta_Delete(ctx, keyName, sp->specId);
+    RedisModule_FreeString(ctx, keyName);
+    if (++inBatch >= DOCID_META_PRUNE_GIL_BATCH) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      inBatch = 0;
+      usleep(DOCID_META_PRUNE_GIL_SLEEP_US);
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
+  });
+  RedisModule_ThreadSafeContextUnlock(ctx);
+}
+
+// cleanPool entry point: prune key metadata before teardown frees the DocTable.
+static void IndexSpec_FreeUnlinkedDataBg(void *p) {
+  IndexSpec *spec = p;
+  IndexSpec_PruneDocIdMeta(spec);
+  IndexSpec_FreeUnlinkedData(spec);
+}
+
 /*
  * This function unlinks the index spec from any global structures and frees
  * all struct that requires acquiring the GIL.
@@ -2006,7 +2049,8 @@ void IndexSpec_Free(IndexSpec *spec) {
   if (RSGlobalConfig.freeResourcesThread == false || SearchDisk_IsEnabled()) {
     IndexSpec_FreeUnlinkedData(spec);
   } else {
-    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedData, spec, THPOOL_PRIORITY_HIGH);
+    redisearch_thpool_add_work(cleanPool, (redisearch_thpool_proc)IndexSpec_FreeUnlinkedDataBg,
+                               spec, THPOOL_PRIORITY_HIGH);
   }
 }
 
@@ -2767,7 +2811,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", TrieMap_MemUsage(sp->docs.dim.tm) / (float)0x100000);
+  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
+  // for backward compatibility.
+  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
@@ -3486,49 +3532,61 @@ static int dropDocIdMeta(RedisModuleCtx *ctx, RedisModuleString *key,
                  : DocIdMeta_Delete(ctx, key, specId);
 }
 
+// Resolve a key -> docId for this spec via DocIdMeta (both modes). 0 if absent.
+t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key) {
+  uint64_t docId = 0;
+  if (DocIdMeta_Get(ctx, key, sp->specId, &docId) != REDISMODULE_OK) {
+    return 0;
+  }
+  return (t_docId)docId;
+}
+
+// Borrow the in-memory DMD for a key (memory mode; disk fetches from disk).
+// NULL if the key is not indexed.
+const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
+                                                    RedisModuleString *key) {
+  t_docId docId = IndexSpec_GetDocIdByKeyR(sp, ctx, key);
+  if (docId == 0) {
+    return NULL;
+  }
+  return DocTable_Borrow(&sp->docs, docId);
+}
+
+// Logical de-index of a still-existing key that should no longer be indexed
+// (filter no longer matches, REPLACE, changed indexed field). Physical key
+// removal goes through the DocIdMeta `unlink` callback -> IndexSpec_DeleteDocById.
+// Unified across modes: resolve docId via DocIdMeta, delete, drop the mapping.
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey) {
-  t_docId id = 0;
+  // Look up docId from the key metadata.
+  uint64_t docId = 0;
+  if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK || docId == 0) {
+    // Nothing to delete
+    return;
+  }
+
   uint32_t docLen = 0;
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-
-    // Look up docId from key metadata
-    uint64_t docId = 0;
-    if (lookupDocIdMeta(ctx, key, openKey, spec->specId, &docId) != REDISMODULE_OK ||
-        docId == 0) {
-      // Nothing to delete
-      return;
-    }
-    id = docId;
-
-    // Delete the document by docId
-    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, id, &docLen)) {
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Failed to delete
       return;
     }
-
-    // Drop the key→docId mapping now that the document is gone from disk. This
-    // keeps DocIdMeta authoritative as an "is this key indexed?" oracle: an
-    // entry exists iff the document is currently indexed in this spec. Without
-    // this, a key that survives in the keyspace but is de-indexed (e.g. an HSET
-    // that makes it stop passing the index FILTER) would keep a stale mapping
-    // pointing at an already-deleted docId.
-    dropDocIdMeta(ctx, key, openKey, spec->specId);
   } else {
-    RSDocumentMetadata *md = DocTable_PopR(&spec->docs, key);
+    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, (t_docId)docId);
     if (!md) {
       // Nothing to delete
       return;
     }
-
-    id = md->id;
     docLen = md->docLen;
-
     DMD_Return(md);
   }
 
-  indexSpec_OnDocDeleted(spec, id, docLen);
+  // Drop the mapping so a surviving-but-de-indexed key isn't left pointing at a
+  // deleted docId.
+  dropDocIdMeta(ctx, key, openKey, spec->specId);
+
+  indexSpec_OnDocDeleted(spec, docId, docLen);
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -3544,20 +3602,33 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
+// Delete a document by its internal docId. The de-indexing entry point driven by
+// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
+// the spec write lock; no-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  RS_ASSERT(isSpecOnDisk(spec));
-  RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
-  // Acquire the write lock
   IndexSpec_IncrActiveWrites(spec);
   pthread_rwlock_wrlock(&spec->rwlock);
 
   uint32_t docLen = 0;
 
-  if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
-    // Document not found on disk
-    IndexSpec_DecrActiveWrites(spec);
-    pthread_rwlock_unlock(&spec->rwlock);
-    return;
+  if (SearchDisk_IsEnabled()) {
+    RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
+    if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
+      // Document not found on disk
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+  } else {
+    RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
+    if (!md) {
+      // Document not found in the in-memory table
+      IndexSpec_DecrActiveWrites(spec);
+      pthread_rwlock_unlock(&spec->rwlock);
+      return;
+    }
+    docLen = md->docLen;
+    DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);

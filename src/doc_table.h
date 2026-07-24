@@ -18,8 +18,6 @@
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
 
-typedef struct TrieMap TrieMap;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,26 +35,13 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
   return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
 }
 
-/* Map between external id an incremental id */
-typedef struct {
-  TrieMap *tm;
-} DocIdMap;
-
-DocIdMap NewDocIdMap();
-/* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n);
-
-/* Put a new doc id in the map if it does not already exist */
-void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId);
-
-int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n);
-/* Free the doc id map */
-void DocIdMap_Free(DocIdMap *m);
-
 /* The DocTable is a simple mapping between incremental ids and the original document key and
  * metadata. It is also responsible for storing the id incrementor for the index and assigning
  * new
  * incremental ids to inserted keys.
+ *
+ * The key -> docId direction is stored on the Redis key as key-metadata (see
+ * doc_id_meta.{h,c}), not here; the DocTable only maps docId -> RSDocumentMetadata.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -75,7 +60,6 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  DocIdMap dim;             // Mapping between document name to internal id
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -102,8 +86,6 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
-
-const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *r, RedisModuleString *s);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -193,38 +175,16 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
 }
 
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
-t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
-
-#define STRVARS_FROM_RSTRING(r) \
-  size_t n;                     \
-  const char *s = RedisModule_StringPtrLen(r, &n);
-
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
-}
-
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
-static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Pop(t, s, n);
-}
+/* Remove a document by its internal docId (unified unlink-driven delete path).
+ * Ownership of the returned DMD moves to the caller, or NULL if not present. */
+RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
 
-static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, key, strlen(key));
-  if (id == 0) {
-    return NULL;
-  }
-  return DocTable_Borrow(dt, id);
-}
-
-/* Change name of document hash in the same spec without reindexing */
-int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
-                     size_t to_len);
+/* Update the stored key of a document (by docId) after a RENAME; the key -> docId
+ * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
+void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
 
 /* increasing the ref count of the given dmd */
 /*

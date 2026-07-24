@@ -130,11 +130,12 @@ fn eval_ids_empty_keys() {
 }
 
 // ---------------------------------------------------------------------------
-// QN_IDS → IdList, resolving key names through the DocTable
+// QN_IDS → IdList, consuming pre-resolved doc ids
 //
-// The lightweight `MockQueryEvalCtx` has an empty `DocTable`, so the key→docId
-// resolution path (`DocTable_GetId`) is exercised here with the full-FFI
-// `TestContext`, which can register real documents.
+// key -> docId is resolved on the main thread during query construction (INKEYS
+// handling in `aggregate_request.c`), so the query node carries pre-resolved
+// `doc_ids`. These tests verify that `eval_ids` sorts, deduplicates, and drops
+// the misses (encoded as id 0).
 // ---------------------------------------------------------------------------
 
 // Disabled under Miri: `TestContext` and SDS creation call into the C library,
@@ -148,7 +149,7 @@ mod ids_doctable {
     use crate::util::new_sds;
 
     #[test]
-    fn eval_ids_resolves_keys_through_doc_table() {
+    fn eval_ids_consumes_pre_resolved_doc_ids() {
         let _guard = GlobalGuard::default();
         let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
@@ -159,13 +160,13 @@ mod ids_doctable {
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // Query for both known keys plus an unknown one, which must resolve to
-        // id 0 and be filtered out. `doc_ids` is NULL, so the DocTable lookup
-        // path is taken.
+        // The node carries pre-resolved `doc_ids` positionally matching `keys`;
+        // the unknown key ("ghost") is encoded as id 0 and must be dropped.
         let keys: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("ghost"), new_sds("doc_a")];
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_b, 0, id_a];
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
         let mut it = eval::eval_node(&mut ctx, &node, Config::default())
@@ -173,7 +174,7 @@ mod ids_doctable {
             .into_boxed();
 
         assert_eq!(it.type_(), IteratorType::IdListSorted);
-        // Results are sorted; the unknown key is dropped.
+        // Results are sorted; the unknown id (0) is dropped.
         let r = it.read().unwrap().unwrap();
         assert_eq!(r.doc_id, id_a);
         let r = it.read().unwrap().unwrap();
@@ -188,17 +189,18 @@ mod ids_doctable {
     }
 
     #[test]
-    fn eval_ids_unknown_keys_produce_empty_list() {
+    fn eval_ids_all_unresolved_produce_empty_list() {
         let _guard = GlobalGuard::default();
         let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // None of these keys exist in the (empty) DocTable.
+        // All keys unresolved: their pre-resolved ids are all 0.
         let keys: Vec<ffi::sds> = vec![new_sds("nope"), new_sds("missing")];
+        let mut doc_ids: Vec<ffi::t_docId> = vec![0, 0];
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
         let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
 
         let mut it = eval::eval_node(&mut ctx, &node, Config::default())

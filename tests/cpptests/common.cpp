@@ -12,6 +12,7 @@
 #include "module.h"
 #include "version.h"
 #include "common.h"
+#include "doc_id_meta.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
 
@@ -25,6 +26,9 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
   RSGlobalConfig.defaultScorer = rm_strdup(DEFAULT_SCORER_NAME);
+  if (DocIdMeta_Init(ctx) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
   return RediSearch_InitModuleInternal(ctx);
 }
 
