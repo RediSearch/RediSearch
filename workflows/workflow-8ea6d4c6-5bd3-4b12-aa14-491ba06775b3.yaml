@@ -1,0 +1,158 @@
+id: 8ea6d4c6-5bd3-4b12-aa14-491ba06775b3
+name: pr-review-gate
+description: >-
+  Phase 2 (CI). Run AFTER verify-gate has produced a verified, reviewed DRAFT PR.
+  Validates the branch name, waits for CI (failing fast on the first red check),
+  auto-repairs CI failures in a bounded loop, then marks the PR ready — only once
+  CI is green — and notifies. Per-branch disposable instances.
+tags:
+  purpose: pr-review-gate
+inputs:
+  properties:
+    head:
+      type: string
+      description: Head branch whose (draft) PR to take through CI.
+    guidance:
+      type: string
+      default: ""
+      description: Optional human steer for the CI-repair actor on restart.
+    extraClaudeArgs:
+      type: array
+      items:
+        type: string
+      default: []
+      description: Extra flags for the repair `claude -p` call (perms, model, etc.).
+  required:
+    - head
+jobs:
+  - name: ci
+    description: validate head -> ci wait+repair -> mark ready (once green) -> notify.
+    steps:
+      # 0. Guard: reject unsafe branch names before head reaches any shell command
+      #    or per-branch instance name. Fixed instance name (not per-branch).
+      - name: validate-head
+        description: Reject unsafe branch names (metacharacters, slashes, leading . or -).
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: validate-head
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              case "$HEAD" in
+                "") echo "empty head"; exit 1 ;;
+                [!A-Za-z0-9_]*) echo "unsafe head '$HEAD': must start with a letter, digit, or _"; exit 1 ;;
+                *[!A-Za-z0-9._-]*) echo "unsafe head '$HEAD': allowed chars are letters, digits, _ . - (no slashes/metacharacters/newlines)"; exit 1 ;;
+              esac
+              echo "head OK: $HEAD"
+        dependsOn: []
+
+      # 1. Bounded CI wait+repair loop (fail-fast on the first red check).
+      - name: ci-repair
+        description: Wait for CI, auto-repair failures; escalate only if it can't go green.
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/ci-repair"
+          modelName: ci-repair-${{ inputs.head }}
+          methodName: run
+          inputs:
+            head: ${{ inputs.head }}
+            guidance: ${{ inputs.guidance }}
+            extraClaudeArgs: ${{ inputs.extraClaudeArgs }}
+            maxCiRuns: 3
+            maxActorCalls: 2
+            timeoutSeconds: 7200
+            pollIntervalSeconds: 90
+        dependsOn:
+          - step: validate-head
+            condition:
+              type: succeeded
+
+      # 1a. Ping a human that CI couldn't be auto-repaired (stub).
+      - name: ci-escalate-notify
+        description: Tell a human CI couldn't be auto-fixed (stub).
+        allowFailure: true
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: ci-escalate-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              URL=$(gh pr view "$HEAD" --json url -q .url)
+              echo "[ci-escalate] CI could not be auto-repaired for '$HEAD' ($URL)."
+              echo "Details: swamp data get ci-repair-$HEAD result --json"
+              echo "Human triage: 'swamp workflow approvals' then approve/reject 'ci-triage'."
+              echo "Retry with guidance: swamp workflow run pr-review-gate --input head=\"$HEAD\" --input guidance=\"...\""
+              echo "TODO: replace this stub with a real notification transport (Slack, etc.)."
+        dependsOn:
+          - step: ci-repair
+            condition:
+              type: failed
+
+      # 1b. Human gate when CI couldn't be auto-fixed. Skipped when CI went green.
+      - name: ci-triage
+        description: Human approval gate for CI that couldn't be auto-repaired.
+        task:
+          type: manual_approval
+          prompt: >-
+            The bounded CI wait+repair loop could not get CI green within its budget.
+            Inspect `swamp data get ci-repair-<branch> result --json` (failing checks)
+            and the PR's CI logs. Approve to mark the PR ready anyway and notify, or
+            reject to keep it in draft and fix locally (then re-run pr-review-gate,
+            optionally with --input guidance).
+          timeout: 86400
+        dependsOn:
+          - step: ci-repair
+            condition:
+              type: failed
+
+      # 2. Mark the PR ready — runs when CI went green (ci-triage skipped) OR a
+      #    human approved despite red CI.
+      - name: mark-ready
+        description: Convert the draft PR to ready-for-review (only once CI is green).
+        task:
+          type: model_method
+          modelType: "@lucapalmieri1993/gh-review-gate"
+          modelName: gh-review-gate-${{ inputs.head }}
+          methodName: mark_ready
+          inputs:
+            head: ${{ inputs.head }}
+        dependsOn:
+          - step: ci-triage
+            condition:
+              type: or
+              conditions:
+                - type: succeeded
+                - type: skipped
+
+      # 3. Notify a human — PR ready and CI green.
+      - name: notify
+        description: Tell a human the PR is ready and CI is green (stub).
+        task:
+          type: model_method
+          modelType: command/shell
+          modelName: notify-${{ inputs.head }}
+          methodName: execute
+          inputs:
+            env:
+              HEAD: ${{ inputs.head }}
+            run: |
+              set -eu
+              URL=$(gh pr view "$HEAD" --json url -q .url)
+              NUM=$(gh pr view "$HEAD" --json number -q .number)
+              echo "[notify-human] PR #$NUM is ready for review, CI green: $URL"
+              echo "TODO: replace this stub with a real notification transport (Slack, etc.)."
+        dependsOn:
+          - step: mark-ready
+            condition:
+              type: succeeded
+    dependsOn: []
+version: 1

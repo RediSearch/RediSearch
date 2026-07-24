@@ -1,0 +1,11 @@
+type: '@lucapalmieri1993/gh-review-gate'
+typeVersion: 2026.07.22.5
+id: 327bfa9f-ba4b-41bd-9376-577efa7fd545
+name: gh-review-gate
+version: 1
+tags:
+  purpose: pr-review-gate
+# No workingDir: gh runs in the repo root swamp is invoked from and
+# auto-detects the repository. Portable, no hardcoded path.
+globalArguments: {}
+methods: {}
