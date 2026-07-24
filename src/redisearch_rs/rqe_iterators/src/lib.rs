@@ -78,7 +78,7 @@ pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
     TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
     build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
-    new_geo_range_iterator, open_numeric_or_geo_index,
+    free_geo_numeric_filters, new_geo_range_iterator, open_numeric_or_geo_index,
 };
 pub use metric::Metric;
 pub use metric_lazy::MetricLazy;
@@ -381,6 +381,23 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         filter: &NumericFilter,
         field_index: FieldIndex,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over the entries of the geo (numeric-encoded geohash) index at
+    /// the given field index whose `(lon, lat)` falls within the radius
+    /// described by `gf`.
+    ///
+    /// `gf` is mutated in place: [`build_geo_numeric_filters`] decomposes the
+    /// circle into up to [`geo::GEO_RANGE_COUNT`] numeric range filters and
+    /// stores them in `gf.numericFilters` (owned by `*gf`, freed by `GeoFilter_Free`).
+    /// The disk path then runs each range through the numeric machinery and
+    /// post-filters survivors by true great-circle distance.
+    fn new_geo_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        gf: &'index mut ffi::GeoFilter,
+        field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

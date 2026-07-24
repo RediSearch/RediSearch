@@ -83,12 +83,11 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 }
 
 void GeoFilter_Free(GeoFilter *gf) {
+  // `numericFilters` is allocated in Rust (`build_geo_numeric_filters`), so it
+  // must be freed in Rust with the matching allocator; `GeoFilter_FreeNumericFilters`
+  // releases both the array and each per-range `NumericFilter` it owns.
   if (gf->numericFilters) {
-    for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
-      if (gf->numericFilters[i])
-        NumericFilter_Free(gf->numericFilters[i]);
-    }
-    rm_free(gf->numericFilters);
+    GeoFilter_FreeNumericFilters(gf->numericFilters);
   }
   rm_free(gf);
 }

@@ -19,6 +19,7 @@ extern "C" {
 // Forward declarations to avoid circular dependencies
 typedef struct QueryIterator QueryIterator;
 typedef struct NumericFilter NumericFilter;
+typedef struct GeoFilter GeoFilter;
 typedef struct QueryError QueryError;
 // Forward declarations for the async field loader fn-ptr below. These are
 // compatible redeclarations of the canonical typedefs (result_processor.h,

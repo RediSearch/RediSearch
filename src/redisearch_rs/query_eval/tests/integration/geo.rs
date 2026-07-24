@@ -16,7 +16,6 @@
 //! the C library, which Miri cannot execute.
 #![cfg(not(miri))]
 
-use geo::GEO_RANGE_COUNT;
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
 use query_eval::{
@@ -97,28 +96,19 @@ impl GeoFixture {
 impl Drop for GeoFixture {
     fn drop(&mut self) {
         // A valid geo evaluation populates `gf.numericFilters` with a
-        // Rust-allocated `[*mut NumericFilter; GEO_RANGE_COUNT]` array (via
-        // `Box::into_raw`) whose non-null entries are C-allocated (`rm_malloc`)
-        // `NumericFilter`s. This test binary uses distinct Rust and C allocators,
-        // so — unlike `GeoFilter_Free`, which releases both through `rm_free` —
-        // each must be reclaimed with the allocator that produced it: the array
-        // with `Box`, the entries with `NumericFilter_Free`. The `gf` box itself
-        // is released by the field drop below. Every evaluated iterator borrows
-        // the fixture and is dropped before this runs, so nothing still
-        // references the filters.
-        let array = self.gf.numericFilters as *mut [*mut ffi::NumericFilter; GEO_RANGE_COUNT];
-        if !array.is_null() {
-            // SAFETY: `array` is exactly what `build_geo_numeric_filters` produced
-            // with `Box::into_raw`; reclaiming it with `Box::from_raw` matches.
-            let array = unsafe { Box::from_raw(array) };
-            for &nf in array.iter() {
-                if !nf.is_null() {
-                    // SAFETY: each non-null entry is a live, C-allocated
-                    // `NumericFilter` owned by `gf`, freed here exactly once.
-                    unsafe { ffi::NumericFilter_Free(nf) };
-                }
-            }
-        }
+        // Rust-allocated array (via `build_geo_numeric_filters`) whose non-null
+        // entries are C-allocated `NumericFilter`s. Release it through the same
+        // Rust helper `GeoFilter_Free` uses in production, so the array is
+        // reclaimed with the Rust allocator and each entry with
+        // `NumericFilter_Free`. Unlike `GeoFilter_Free`, we must *not* free `gf`
+        // itself — it is Rust-boxed here and released by the field drop below.
+        // Every evaluated iterator borrows the fixture and is dropped before this
+        // runs, so nothing still references the filters.
+        //
+        // SAFETY: `gf.numericFilters` is NULL or exactly what
+        // `build_geo_numeric_filters` stored, and no iterator references it any
+        // longer.
+        unsafe { rqe_iterators::free_geo_numeric_filters(self.gf.numericFilters.cast()) };
     }
 }
 
