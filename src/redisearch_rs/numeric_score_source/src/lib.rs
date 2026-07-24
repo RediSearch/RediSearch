@@ -35,11 +35,13 @@ pub use source::{AllValid, DocValidity, NumericScoreSource};
 
 use std::{cmp::Ordering, num::NonZeroUsize};
 
+use redis_reply::MapBuilder;
 use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIterator,
+    profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeout, TimeoutContext},
 };
-use top_k::{TopKIterator, TopKMode};
+use top_k::{TopKIterator, TopKMode, TopKSourceProfile};
 
 /// A [`TopKIterator`] driven by a [`NumericScoreSource`].
 ///
@@ -98,4 +100,37 @@ pub fn new_numeric_top_k_filtered<
         cmp,
         TopKMode::Batches,
     )
+}
+
+impl<V: DocValidity, E: ExpirationChecker, T: TimeoutContext> TopKSourceProfile
+    for NumericScoreSource<'_, V, E, T>
+{
+    /// Render the numeric optimizer's profile entry.
+    ///
+    /// Mirrors the C `OptimizerIterator` header (`Type: OPTIMIZER`) and adds the
+    /// batch/window counters the C reader keeps internally but never surfaces in
+    /// FT.PROFILE. `mode` is unused: the numeric source has no runtime mode
+    /// string, and the C `Optimizer mode` (a pre-execution query-optimization
+    /// type) has no analog here.
+    fn print_profile(
+        &self,
+        _mode: TopKMode,
+        switches: usize,
+        map: &mut MapBuilder<'_>,
+        ctx: &mut ProfilePrintCtx<'_>,
+        child: Option<&dyn ProfilePrint>,
+    ) {
+        map.kv_simple_string(c"Type", c"OPTIMIZER");
+        ctx.print_optional_counters(map);
+        map.kv_long_long(c"Batches number", self.num_batches() as i64);
+        // `switches` is the iterator's strategy-switch count, which for the
+        // numeric source is exactly its disjoint-window expansions.
+        map.kv_long_long(c"Window expansions", switches as i64);
+
+        if let Some(child) = child {
+            let mut child_map = map.kv_map(c"Child iterator");
+            let mut child_ctx = ctx.child_ctx();
+            child.print_profile(&mut child_map, &mut child_ctx);
+        }
+    }
 }
