@@ -61,6 +61,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
         numeric_compress,
         prioritize_intersect_union_children,
         default_scorer,
+        min_term_prefix: iterators.min_term_prefix,
+        max_prefix_expansions: iterators.max_prefix_expansions as usize,
         min_union_iter_heap: iterators.min_union_iter_heap as usize,
     }
 }

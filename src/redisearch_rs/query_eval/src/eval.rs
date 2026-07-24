@@ -10,17 +10,18 @@
 //! Main query evaluation dispatcher.
 //!
 //! Converts a parsed query AST node into an executable iterator tree by
-//! dispatching on the [`QueryNodeType`](query_types::QueryNodeType) discriminant.
+//! dispatching on the [`QueryNodeType`] discriminant.
 
-use std::{ffi::CStr, ptr::NonNull};
+use std::{ffi::CStr, ops::ControlFlow, ptr::NonNull};
 
-use c_trie::CTrieRef;
+use c_trie::{CTrieRef, SuffixMode};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
+use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
-use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
+use query_types::{QueryNodeOptions, QueryNodeType, scorers::slop_forces_offsets};
 use rqe_core::{DocId, FieldMask};
 use rqe_iterators::{
     Empty, IteratorsConfig, RQEIteratorPrintable, build_geo_range_iterator,
@@ -32,8 +33,9 @@ use rqe_iterators::{
     inverted_index::new_missing_iterator,
     not_reducer::{NewNotIterator, new_not_iterator},
     optional_reducer::{NewOptionalIterator, new_optional_iterator},
-    union_opaque::build_union,
+    union_opaque::{build_union, build_union_with_q_str},
 };
+use rs_token::{RSTokenRef, RSTokenRefNulTerminated};
 use search_disk::SearchDiskHandle;
 
 use crate::{
@@ -60,6 +62,12 @@ pub struct Config {
     /// scorer name), in which case a query with no scorer of its own is treated
     /// as a custom scorer.
     pub default_scorer: Option<BuiltInScorer>,
+    /// Minimum pattern length (in bytes) a prefix/suffix/contains query must
+    /// reach before it is expanded; shorter patterns produce no matches.
+    pub min_term_prefix: u32,
+    /// Maximum number of terms a prefix/suffix/contains query expands to before
+    /// the trie walk stops and a warning is recorded.
+    pub max_prefix_expansions: usize,
     /// Minimum number of children for a union iterator to use a heap-based
     /// implementation instead of a flat linear scan.
     pub min_union_iter_heap: usize,
@@ -67,18 +75,23 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        // Reuse the shared iterator-config default so the union-heap threshold
-        // keeps a single source of truth.
+        // Reuse the shared iterator-config defaults so the prefix-expansion knobs
+        // keep a single source of truth.
         let IteratorsConfig {
+            min_term_prefix,
+            max_prefix_expansions,
             min_union_iter_heap,
             ..
         } = IteratorsConfig::default();
+        let max_prefix_expansions = max_prefix_expansions as usize;
         let min_union_iter_heap = min_union_iter_heap as usize;
 
         Self {
             numeric_compress: false,
             prioritize_intersect_union_children: false,
             default_scorer: None,
+            min_term_prefix,
+            max_prefix_expansions,
             min_union_iter_heap,
         }
     }
@@ -225,6 +238,7 @@ pub fn eval_node<'index>(
         QueryNode::Geo { gf } => eval_geo(ctx, gf, config),
         QueryNode::Token { tok } => eval_token(ctx, node, tok, config),
         QueryNode::Geometry { geomq } => eval_geometry(ctx, geomq),
+        QueryNode::Prefix { tok, mode } => eval_prefix(ctx, node, tok, mode, config),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node, config),
@@ -790,18 +804,18 @@ fn eval_geo<'index>(
 fn eval_token<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     // A `QN_TOKEN` node always carries a non-null term string.
-    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let term_bytes = tok.as_bytes();
+    debug_assert!(term_bytes.is_some(), "token string should not be null");
+    let term_bytes = term_bytes.unwrap_or_default();
     let opts = node.opts();
     let weight = opts.weight;
     // the node's field mask narrowed to the query's.
     let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
     let token_id = ctx.next_token_id() as i32;
-    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
-    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
     let term = RSQueryTerm::new_bytes(term_bytes, token_id, tok.flags());
 
     // SAFETY: `ctx.spec().diskSpec` is either null or a valid
@@ -832,7 +846,7 @@ fn eval_token<'index>(
 /// field(s)), dropping `term`.
 fn open_term_reader<'index>(
     ctx: &'index mut QueryEvalContext,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     term: Box<RSQueryTerm>,
     weight: f64,
     effective_field_mask: FieldMask,
@@ -845,13 +859,8 @@ fn open_term_reader<'index>(
     // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
     // `tok` is the query node's `RSToken`; `Redis_OpenReaderIndex` only reads the
     // token and does not retain it.
-    let idx = unsafe {
-        ffi::Redis_OpenReaderIndex(
-            ctx.sctx_ptr(),
-            std::ptr::from_ref(tok),
-            effective_field_mask,
-        )
-    };
+    let idx =
+        unsafe { ffi::Redis_OpenReaderIndex(ctx.sctx_ptr(), tok.as_ptr(), effective_field_mask) };
     let idx = NonNull::new(idx)?;
 
     // SAFETY: `ctx.sctx_ptr()` is non-null (`QueryEvalContext` invariant 2).
@@ -886,7 +895,7 @@ fn open_term_reader<'index>(
 fn eval_token_disk<'index>(
     ctx: &'index mut QueryEvalContext,
     disk: SearchDiskHandle,
-    tok: &ffi::RSToken,
+    tok: RSTokenRef,
     mut term: Box<RSQueryTerm>,
     opts: &QueryNodeOptions,
     weight: f64,
@@ -900,13 +909,13 @@ fn eval_token_disk<'index>(
     debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
-    debug_assert!(!tok.str_.is_null(), "token string should not be null");
+    let term_bytes = tok.as_bytes();
+    debug_assert!(term_bytes.is_some(), "token string should not be null");
+    let term_bytes = term_bytes.unwrap_or_default();
 
     // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
     // outlives this lookup.
     let terms = unsafe { CTrieRef::from_raw(spec.terms) };
-    // SAFETY: `tok.str_` points to `tok.len` valid bytes from the query node.
-    let term_bytes = unsafe { std::slice::from_raw_parts(tok.str_.cast::<u8>(), tok.len) };
     let num_docs_in_term = terms.num_docs(term_bytes);
     let num_documents = spec.stats.scoring.numDocuments;
     let idf = idf::calculate_idf(num_documents, num_docs_in_term);
@@ -1058,4 +1067,411 @@ fn expansion_needs_offsets(
     };
     slop_forces_offsets(opts.max_slop, opts.in_order)
         || scorer.is_none_or(BuiltInScorer::needs_offsets)
+}
+
+/// Open a search-on-disk reader for a single expanded term, wrapping the
+/// enterprise disk iterator as a [`CRQEIterator`].
+///
+/// `num_docs` is the term's document count, used to compute its IDF;
+/// `needs_offsets` selects the offset-carrying iterator variant. Returns `None`
+/// (and records a [`DiskIteratorCreation`](QueryErrorCode::DiskIteratorCreation)
+/// error) when the iterator cannot be built.
+fn open_expanded_term_reader_disk(
+    ctx: &mut QueryEvalContext,
+    disk: SearchDiskHandle,
+    term_bytes: &[u8],
+    num_docs: usize,
+    field_mask: FieldMask,
+    weight: f64,
+    needs_offsets: bool,
+) -> Option<CRQEIterator> {
+    let num_documents = ctx.spec().stats.scoring.numDocuments;
+    let idf = idf::calculate_idf(num_documents, num_docs);
+    let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs);
+    let token_id = ctx.next_token_id() as i32;
+    let mut term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
+    term.set_idf(idf);
+    term.set_bm25_idf(bm25_idf);
+    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
+        .expect("query.sctx.diskSnapshot is null for a disk-backed expansion");
+    // SAFETY: `disk` wraps the spec's disk index, valid for the query; the
+    // enterprise iterators are registered whenever a disk index is in use;
+    // `snapshot` is the disk snapshot taken at query start.
+    match unsafe { disk.new_term_iterator(term, field_mask, weight, needs_offsets, snapshot) } {
+        Ok(it) => {
+            let ptr = RQEIteratorWrapper::boxed_new(it);
+            let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
+            // SAFETY: `nn` is a valid, owning C `QueryIterator`.
+            Some(unsafe { CRQEIterator::new(nn) })
+        }
+        Err(err) => {
+            // Surface the failure so the query aborts with an error rather
+            // than silently dropping this expansion.
+            ctx.status()
+                .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
+            None
+        }
+    }
+}
+
+/// Open a reader for a single expanded term produced by a prefix
+/// expansion, wrapping it as a [`CRQEIterator`] so it can join a
+/// union of sibling expansions.
+///
+/// `term_bytes` is the term's key as the index stored it, and is looked up in
+/// the spec's inverted index verbatim. Those bytes are not necessarily valid
+/// UTF-8: a rune that is a lone surrogate — what truncating a non-BMP codepoint
+/// to [`u16`] at index time produces — encodes to its three-byte form, which
+/// UTF-8 forbids. They must stay unvalidated; rejecting them would drop exactly
+/// the terms such a codepoint creates.
+///
+/// Every expanded reader is opened with weight `1.0`: the node's own weight is
+/// applied once, by the enclosing union, so applying it here too would
+/// double-count it.
+///
+/// Returns `None` when the term has no matching inverted index (absent, empty,
+/// or no results in the queried field(s)).
+fn open_expanded_term_reader(
+    ctx: &mut QueryEvalContext,
+    term_bytes: &[u8],
+    num_docs: usize,
+    field_mask: FieldMask,
+    needs_offsets: bool,
+) -> Option<CRQEIterator> {
+    // See the doc comment: expansion children always carry unit weight.
+    const CHILD_WEIGHT: f64 = 1.0;
+
+    // SAFETY: `ctx.spec().diskSpec` is either null or a valid disk index spec
+    // that stays valid for the query; `SearchDiskHandle::new` yields `None` for
+    // the null (in-memory) case handled below.
+    if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        return open_expanded_term_reader_disk(
+            ctx,
+            disk,
+            term_bytes,
+            num_docs,
+            field_mask,
+            CHILD_WEIGHT,
+            needs_offsets,
+        );
+    }
+
+    // In-memory path.
+    // Consume a token id for this expansion up front, before opening the reader:
+    // every expanded term is assigned one whether or not it has an inverted
+    // index, keeping ids in step with the disk path above, which also consumes
+    // one id per expanded term.
+    let token_id = ctx.next_token_id() as i32;
+
+    // `Redis_OpenReaderIndex` reads only the token's string and length, so a
+    // zeroed token with those two fields set is sufficient.
+    // SAFETY: `RSToken` is a plain-data struct whose all-zero bit pattern is
+    // valid — a null `str` pointer, zero `len`, and zeroed `flags`/`expanded`
+    // bitfields.
+    let mut tok: ffi::RSToken = unsafe { std::mem::zeroed() };
+    tok.str_ = term_bytes.as_ptr() as *mut std::ffi::c_char;
+    tok.len = term_bytes.len();
+
+    debug_assert!(
+        !ctx.sctx_ptr().is_null(),
+        "QueryEvalContext must hold a non-null search context"
+    );
+    // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
+    // `tok` is a valid, live `RSToken` for the call; `Redis_OpenReaderIndex`
+    // only reads the token and does not retain it.
+    let idx =
+        unsafe { ffi::Redis_OpenReaderIndex(ctx.sctx_ptr(), std::ptr::from_ref(&tok), field_mask) };
+    let idx = NonNull::new(idx)?;
+
+    // Expanded terms carry no token flags.
+    let term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
+
+    // SAFETY: `ctx.sctx_ptr()` is non-null (`QueryEvalContext` invariant 2,
+    // asserted above).
+    let sctx = unsafe { NonNull::new_unchecked(ctx.sctx_ptr().cast_mut()) };
+    // SAFETY: `idx` is the term's inverted index just opened for this spec and
+    // stays valid for the query (`QueryEvalContext` invariants 1/2); `sctx` and
+    // its spec are valid; `term` is a freshly heap-allocated query term whose
+    // ownership transfers to the iterator.
+    let iter = unsafe {
+        build_term_iterator(
+            idx.as_ptr(),
+            sctx,
+            FieldMaskOrIndex::Mask(field_mask),
+            term,
+            CHILD_WEIGHT,
+        )
+    };
+    let ptr = RQEIteratorWrapper::boxed_new(iter);
+    let nn = NonNull::new(ptr).expect("term iterator must not be null");
+    // SAFETY: `nn` is a valid, owning C `QueryIterator` with all callbacks
+    // populated — exactly the precondition of `CRQEIterator::new`.
+    Some(unsafe { CRQEIterator::new(nn) })
+}
+
+/// `QN_PREFIX` — expand a prefix, suffix, or contains pattern over the spec's
+/// terms trie into a union of per-term readers.
+///
+/// Returns `None` when the pattern is shorter than the configured minimum or is
+/// too long (the length error is reported via
+/// [`status`](QueryEvalContext::status)).
+/// The number of expansions is capped by the configured
+/// [`Config::max_prefix_expansions`].
+fn eval_prefix<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
+    tok: RSTokenRefNulTerminated,
+    mode: WildcardMode,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    // A pattern shorter than the configured minimum is rejected to avoid
+    // over-broad expansions (e.g. a bare `a*`).
+    if tok.len() < config.min_term_prefix as usize {
+        return None;
+    }
+
+    // Lowercase the pattern to runes for the trie lookup.
+    //
+    // `tok` is *not* guaranteed to be valid UTF-8: a token is a byte string, and
+    // nothing between the query text and here validates its encoding — the
+    // grammar admits any byte that is not ASCII punctuation, whitespace or a
+    // control character, and a token taken from a query parameter is binary-safe
+    // besides. The conversion decodes it without validating, which is what makes
+    // the pattern name the same runes the index does: a term's bytes are decoded
+    // the same unvalidated way when it is indexed, so a client that stores and
+    // queries text in the same non-UTF-8 encoding resolves its own terms.
+    // Validating instead would fold malformed bytes to replacement characters
+    // and look up a key that was never stored.
+    let Some(Ok(pattern)) = tok.as_lower_runes() else {
+        ctx.status().set_error(
+            QueryErrorCode::Limit,
+            &format!(
+                "{} query string is too long. Maximum allowed length is {}",
+                mode.type_str(),
+                string_utils::runes::MAX_RUNE_STR_LEN
+            ),
+        );
+        return None;
+    };
+
+    // The reader field mask narrows the node's mask to the query-wide one; the
+    // suffix-trie support check below uses the node's own mask.
+    let node_field_mask = node.opts().field_mask;
+    let weight = node.opts().weight;
+
+    let (trie_prefix, trie_suffix) = match mode {
+        WildcardMode::Prefix => (true, false),
+        WildcardMode::Suffix => (false, true),
+        WildcardMode::Contains => (true, true),
+    };
+
+    let field_mask = node_field_mask & ctx.opts().fieldmask;
+    let is_disk = !ctx.spec().diskSpec.is_null();
+    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
+
+    let suffix_trie = ctx.spec().suffix;
+    let suffix_mask = ctx.spec().suffixMask;
+    let terms_trie = ctx.spec().terms;
+    // Enforce the search deadline unless timeout checks are disabled for this
+    // request, in which case the brute-force walk below runs to completion.
+    // Resolved here, with every other read of `ctx`, because `Expansion` borrows
+    // it mutably for the rest of the expansion.
+    let time = &ctx.sctx().time;
+    let timeout = (!time.skipTimeoutChecks).then(|| NonNull::from(&time.timeout));
+
+    let expansion = Expansion {
+        ctx,
+        children: Vec::new(),
+        field_mask,
+        is_disk,
+        needs_offsets,
+        max_expansions: config.max_prefix_expansions,
+    };
+
+    debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
+    // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
+    // during the query (`QueryEvalContext` invariants 1/2).
+    let terms = unsafe { CTrieRef::from_raw(terms_trie) };
+
+    let children = if trie_suffix && !suffix_trie.is_null() {
+        // The spec maintains a suffix trie for this pattern's fields: expand
+        // through it.
+        // SAFETY: `suffix_trie` is non-null (checked above) and is the spec's
+        // suffix `Trie`, valid for and unmutated during the query.
+        let suffix = unsafe { CTrieRef::from_raw(suffix_trie) };
+        expansion.expand_via_suffix_trie(
+            suffix,
+            terms,
+            &pattern,
+            trie_prefix,
+            node_field_mask,
+            suffix_mask,
+        )
+    } else {
+        // Brute-force expansion over the primary terms trie.
+        expansion.expand_via_terms_trie(terms, &pattern, trie_prefix, trie_suffix, timeout)
+    };
+
+    // Prefix unions always take the quick-exit path — they only need the
+    // matching id set, never per-child scores — and carry the pattern token as
+    // their profiling query string. `as_c_str` is safe here: `tok` is an
+    // `RSTokenRefNulTerminated`, so NUL-termination is guaranteed by its typestate.
+    let q_str = tok.as_c_str().expect("prefix token must carry a string");
+    // SAFETY: `q_str` borrows the node's token string, which outlives the
+    // returned iterator (both are owned by the query AST).
+    let iter = unsafe {
+        build_union_with_q_str(
+            children,
+            true,
+            config.min_union_iter_heap,
+            QueryNodeType::Prefix,
+            q_str,
+            weight,
+        )
+    };
+    Some(Evaluated::RustCompound(iter))
+}
+
+/// A single prefix expansion in progress: the inputs both walks share, the
+/// context they open readers against, and the readers opened so far.
+///
+/// Built once per `QN_PREFIX` evaluation and consumed by whichever `expand_via_*`
+/// walk applies, which hands back the accumulated readers.
+struct Expansion<'a> {
+    /// The evaluation context readers are opened against, and where the
+    /// expansion-cap warning and the unsupported-fields error are recorded.
+    ctx: &'a mut QueryEvalContext,
+    /// One reader per expanded term, in walk order.
+    children: Vec<CRQEIterator>,
+    /// The node's field mask narrowed to the query-wide one, applied to each
+    /// opened reader.
+    field_mask: FieldMask,
+    /// Whether the spec is disk-backed; selects the disk reader and, with it, the
+    /// per-term IDF lookup.
+    is_disk: bool,
+    /// Whether expanded disk readers must carry term offsets (disk path only).
+    needs_offsets: bool,
+    /// Upper bound on the number of terms an expansion may open.
+    max_expansions: usize,
+}
+
+impl Expansion<'_> {
+    /// Open a reader for `term_bytes` and push it as a union child, unless the
+    /// expansion cap has already been reached — in which case the "reached max
+    /// prefix expansions" warning is recorded and the trie walk is asked to stop.
+    ///
+    /// `num_docs` is the term's document count, used only on the disk path for
+    /// the IDF.
+    fn push_child(&mut self, num_docs: usize, term_bytes: &[u8]) -> ControlFlow<()> {
+        if self.children.len() >= self.max_expansions {
+            self.ctx
+                .status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            return ControlFlow::Break(());
+        }
+        if let Some(it) = open_expanded_term_reader(
+            self.ctx,
+            term_bytes,
+            num_docs,
+            self.field_mask,
+            self.needs_offsets,
+        ) {
+            self.children.push(it);
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// Expand `pattern` through the spec's suffix trie, returning one reader per
+    /// matching term.
+    ///
+    /// `suffix` wraps the spec's suffix trie and `terms` its primary terms trie.
+    /// `contains` selects a contains (both-anchored) walk over a suffix
+    /// (end-anchored) one. When the queried fields are not all covered by the
+    /// suffix trie, a `Generic` error is set and no reader is returned.
+    fn expand_via_suffix_trie(
+        mut self,
+        suffix: CTrieRef,
+        terms: CTrieRef,
+        pattern: &[ffi::rune],
+        contains: bool,
+        node_field_mask: FieldMask,
+        suffix_mask: FieldMask,
+    ) -> Vec<CRQEIterator> {
+        // Use the suffix trie only when every queried field is covered by it,
+        // otherwise the contains query is unsupported.
+        let fields_supported = node_field_mask == rqe_core::RS_FIELDMASK_ALL
+            || (suffix_mask & node_field_mask) == node_field_mask;
+        if !fields_supported {
+            self.ctx.status().set_error(
+                QueryErrorCode::Generic,
+                "Contains query on fields without WITHSUFFIXTRIE support",
+            );
+            return self.children;
+        }
+
+        let suffix_mode = if contains {
+            SuffixMode::Contains
+        } else {
+            SuffixMode::Suffix
+        };
+
+        // The suffix trie hands terms back already as stored key bytes but carries
+        // no document count, so on the disk path the term's count is looked up in the
+        // primary terms trie for the IDF; the in-memory path ignores it.
+        let on_term = |term_bytes: &[u8]| {
+            let num_docs = if self.is_disk {
+                terms.num_docs(term_bytes)
+            } else {
+                0
+            };
+            self.push_child(num_docs, term_bytes)
+        };
+        // SAFETY: `suffix` wraps the spec's valid suffix `Trie`, whose nodes carry
+        // the suffix-data payload the walk expects (caller contract); the suffix
+        // walk carries no timeout. The trie is not mutated or re-iterated for the
+        // duration of the call: `on_term` only opens per-term readers (which read
+        // the spec's inverted indexes) and, on the disk path, looks up the
+        // separate primary terms trie — never the suffix trie being walked.
+        unsafe {
+            suffix.iterate_suffix(pattern, suffix_mode, on_term);
+        }
+        self.children
+    }
+
+    /// Brute-force expand `pattern` over the primary terms trie, returning one
+    /// reader per matching term.
+    ///
+    /// `terms` wraps the spec's primary terms trie. `trie_prefix`/`trie_suffix`
+    /// anchor the walk (prefix, suffix, or — both set — contains); `timeout`
+    /// bounds it (`None` runs it to completion).
+    fn expand_via_terms_trie(
+        mut self,
+        terms: CTrieRef,
+        pattern: &[ffi::rune],
+        trie_prefix: bool,
+        trie_suffix: bool,
+        timeout: Option<NonNull<ffi::timespec>>,
+    ) -> Vec<CRQEIterator> {
+        // The primary trie hands terms back as runes (with their document count, used
+        // for the disk IDF), which must be encoded back into the term's key, byte for
+        // byte as the index stored it — WTF-8 rather than UTF-8 where a rune is a
+        // lone surrogate.
+        let on_runes = |runes: &[ffi::rune], num_docs: usize| {
+            let Some(key) = string_utils::runes::runes_to_utf8(runes) else {
+                // The term key cannot be reconstructed; skip this expansion.
+                return ControlFlow::Continue(());
+            };
+            self.push_child(num_docs, &key)
+        };
+        // SAFETY: `terms` wraps the spec's valid primary terms `Trie`; `timeout`,
+        // if set, points to the sctx's live timeout `timespec`. The trie is not
+        // mutated or re-iterated for the duration of the call: `on_runes` only
+        // opens per-term readers, which read the spec's inverted indexes rather
+        // than the terms trie being walked.
+        unsafe {
+            terms.iterate_contains(pattern, trie_prefix, trie_suffix, timeout, on_runes);
+        }
+        self.children
+    }
 }

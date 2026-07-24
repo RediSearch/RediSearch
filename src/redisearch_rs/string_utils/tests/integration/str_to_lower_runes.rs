@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use string_utils::{MAX_RUNE_STR_LEN, str_to_lower_runes};
+use string_utils::runes::{MAX_RUNE_STR_LEN, str_to_lower_runes};
 
 #[test]
 fn ascii() {
@@ -56,7 +56,7 @@ fn exceeds_limit() {
 mod ffi_comparison {
     use proptest::prelude::*;
     use std::ffi::{CString, c_void};
-    use string_utils::str_to_lower_runes;
+    use string_utils::runes::str_to_lower_runes;
 
     /// Call C `strToLowerRunes` via FFI and return the resulting rune slice.
     fn c_str_to_lower_runes(s: &str) -> Option<Vec<u16>> {
@@ -125,7 +125,7 @@ mod ffi_comparison {
 #[cfg(not(miri))]
 mod proptest_checks {
     use proptest::prelude::*;
-    use string_utils::str_to_lower_runes;
+    use string_utils::runes::str_to_lower_runes;
 
     /// Generate strings of BMP-only codepoints (U+0000..U+FFFF), since
     /// rune is u16 and non-BMP codepoints are truncated.

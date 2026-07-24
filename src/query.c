@@ -623,65 +623,6 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
  * of them.
  * Used for Prefix, Contains and suffix nodes.
 */
-static QueryIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
-
-  // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (qn->pfx.tok.len < q->config->minTermPrefix) {
-    return NULL;
-  }
-
-  IndexSpec *spec = q->sctx->spec;
-  Trie *t = spec->terms;
-  TrieCallbackCtx ctx = {.q = q, .opts = &qn->opts};
-
-  // terms trie always exists when prefix queries reach evaluation
-  RS_ASSERT(t);
-
-  size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
-  if (!str) {
-    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_LIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
-    return NULL;
-  }
-
-  ctx.cap = 8;
-  ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
-  ctx.nits = 0;
-
-  // spec support contains queries
-  if (spec->suffix && qn->pfx.suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .type = qn->pfx.prefix ? SUFFIX_TYPE_CONTAINS : SUFFIX_TYPE_SUFFIX,
-        .callback = charIterCb,
-        .cbCtx = &ctx,
-
-      };
-      Suffix_IterateContains(&sufCtx);
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
-    }
-  } else {
-    Trie_IterateContains(t, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
-                         runeIterCb, &ctx, &q->sctx->time.timeout,
-                         q->sctx->time.skipTimeoutChecks);
-  }
-
-  rm_free(str);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_PREFIX, qn->pfx.tok.str, q->config);
-}
-
-/* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
- * of them.
- * Used for Prefix, Contains and suffix nodes.
-*/
 static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_WILDCARD_QUERY, "query node type should be wildcard query");
 
@@ -1227,12 +1168,11 @@ QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *e
     case QN_GEO:
     case QN_TOKEN:
     case QN_GEOMETRY:
+    case QN_PREFIX:
       // These node types have been ported to Rust.
       return Query_EvalNode_Rs(q, n, evalConfig);
     case QN_TAG:
       return Query_EvalTagNode(q, n);
-    case QN_PREFIX:
-      return Query_EvalPrefixNode(q, n);
     case QN_FUZZY:
       return Query_EvalFuzzyNode(q, n);
     case QN_VECTOR:

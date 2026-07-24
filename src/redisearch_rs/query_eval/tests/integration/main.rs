@@ -20,6 +20,7 @@ mod null;
 mod numeric;
 mod optional;
 mod phrase;
+mod prefix;
 mod qast_iterate;
 mod token;
 mod union;

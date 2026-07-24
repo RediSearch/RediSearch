@@ -424,6 +424,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/spec.h",
         fns: &[
             "IndexSpec_AcquireWriteLock",
+            "IndexSpec_AddTerm",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
@@ -444,8 +445,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/suffix.h",
-        fns: &[],
-        types: &[],
+        fns: &["Suffix_IterateContains", "addSuffixTrie"],
+        types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
@@ -456,20 +457,24 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["strToLowerRunes", "strToRunesN"],
+        fns: &["runesToStr", "strToLowerRunes", "strToRunesN"],
         types: &[],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        fns: &[
+            "Trie_DecrementNumDocs",
+            "Trie_GetNode",
+            "Trie_IterateContains",
+        ],
         types: &[],
         vars: &[],
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieNode_NumDocs"],
-        types: &[],
+        types: &["TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {

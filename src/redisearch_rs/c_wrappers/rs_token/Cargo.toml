@@ -1,5 +1,5 @@
 [package]
-name = "c_trie"
+name = "rs_token"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
@@ -10,6 +10,6 @@ workspace = true
 
 [dependencies]
 ffi.workspace = true
+query_term.workspace = true
 string_utils.workspace = true
-strum.workspace = true
 workspace_hack.workspace = true
