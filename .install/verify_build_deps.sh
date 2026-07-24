@@ -12,6 +12,12 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 source "$SCRIPT_DIR/version_compare.sh"
 
+# Toolchain version pins, read from the same files the install path uses so the
+# check can't drift from what bootstrap installs.
+source "$SCRIPT_DIR/LLVM_VERSION.sh"
+PINNED_RUST_VERSION=$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$REPO_ROOT/rust-toolchain.toml" | head -1)
+
 should_check_cheadergen() {
   case "${REDISEARCH_GENERATE_HEADERS:-1}" in
     0|OFF|off|false|FALSE|False|NO|no)
@@ -24,18 +30,108 @@ should_check_cheadergen() {
 }
 
 # ============================================
+# check-deps report state (shared cross-module bootstrap contract)
+# ============================================
+# This script never installs — it only reports. The shared `make bootstrap
+# check-deps` (see Makefile) runs it to learn what each module needs.
+#
+# When DEPS_REPORT_FILE is set (aggregate mode), machine-readable records are
+# appended and the per-dependency human list is suppressed, so the outer
+# bootstrap can print one deduped union across all modules. Record format:
+#   ok <name> | missing <name>[:<version>] | opt_ok <name> | opt_missing <name>
+missing_deps=false
+DEPS_OK=""
+DEPS_MISSING=""
+DEPS_OPT_OK=""
+DEPS_OPT_MISSING=""
+
+# Optional = installed by bootstrap but NOT needed for the default (non-LTO)
+# build/run, so their absence must not fail the check. ld.lld is only used as
+# the LTO linker; a plain `make build` uses the system linker.
+OPTIONAL_DEPS="ld.lld"
+is_optional_dep() { case " $OPTIONAL_DEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+report_mode() { [[ -n "${DEPS_REPORT_FILE:-}" ]]; }
+
+# emit_result <name> ok
+# emit_result <name> missing [human_message] [report_version]
+# Prints one aligned human line (skipped in aggregate mode) and records the
+# outcome. Optional deps (OPTIONAL_DEPS) go to their own bucket and never flip
+# missing_deps. human_message defaults to a red ✗; pass a yellow message for
+# present-but-wrong-version failures.
+emit_result() {
+  local dep=$1 status=$2 msg=${3:-} vtag=${4:-}
+  if ! report_mode; then
+    if [[ "$status" == ok ]]; then
+      printf '%-20s%b\n' "$dep" "${GREEN}✓${NC}"
+    elif is_optional_dep "$dep"; then
+      : # optional-missing isn't a failure: reported only in the "Optional (not installed)" section
+    else
+      printf '%-20s%b\n' "$dep" "${msg:-${RED}✗${NC}}"
+    fi
+  fi
+  if [[ "$status" == ok ]]; then
+    if is_optional_dep "$dep"; then DEPS_OPT_OK="$DEPS_OPT_OK $dep"; else DEPS_OK="$DEPS_OK $dep"; fi
+  elif is_optional_dep "$dep"; then
+    # Optional-missing records carry no version tag, per the shared bootstrap report format.
+    DEPS_OPT_MISSING="$DEPS_OPT_MISSING $dep"
+  else
+    local tag=$dep
+    [[ -n "$vtag" ]] && tag="$dep:$vtag"
+    DEPS_MISSING="$DEPS_MISSING $tag"
+    missing_deps=true
+  fi
+}
+
+# Append the machine-readable records in aggregate mode. Returns 0 (and writes)
+# only when DEPS_REPORT_FILE is set, so callers can `emit_deps_report && exit 0`.
+emit_deps_report() {
+  report_mode || return 1
+  local p
+  for p in $DEPS_OK;          do echo "ok $p"           >> "$DEPS_REPORT_FILE"; done
+  for p in $DEPS_MISSING;     do echo "missing $p"      >> "$DEPS_REPORT_FILE"; done
+  for p in $DEPS_OPT_OK;      do echo "opt_ok $p"       >> "$DEPS_REPORT_FILE"; done
+  for p in $DEPS_OPT_MISSING; do echo "opt_missing $p"  >> "$DEPS_REPORT_FILE"; done
+  return 0
+}
+
+# ============================================
+# LLVM toolchain resolution (shared by the Linux loop and the macOS clang check)
+# ============================================
+
+# Extract the major version from an LLVM tool's --version output. clang prints
+# "clang version 21.1.8", lld prints "LLD 21.1.8" (no "version" word), so match
+# the first X.Y[.Z] token rather than keying off a label.
+get_llvm_major() {
+  "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | cut -d. -f1
+}
+
+# Resolve the LLVM-toolchain binary the build uses: build.sh prefers the
+# version-suffixed name (clang-$LLVM_VERSION), falling back to the unversioned
+# one whose major must match. Uses `command -v` directly (not check_command) so
+# it also works when sourced on macOS, where check_command is never defined.
+get_llvm_tool() {
+  local base=$1
+  if command -v "${base}-${LLVM_VERSION}" &>/dev/null; then
+    echo "${base}-${LLVM_VERSION}"
+  elif command -v "$base" &>/dev/null; then
+    echo "$base"
+  fi
+}
+
+# ============================================
 # OS Detection
 # ============================================
 
 # Check if the OS is macOS (Darwin)
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    source .install/verify_build_deps_macos.sh
+    source "$SCRIPT_DIR/verify_build_deps_macos.sh"
     exit $?
 fi
 
 # Function to detect the operating system
 detect_os() {
-  if [ -f /etc/os-release ]; then
+  if [[ -f /etc/os-release ]]; then
     . /etc/os-release
     if [[ "$ID" == "amzn" ]]; then
       if [[ "$VERSION_ID" == "2" ]]; then
@@ -183,14 +279,16 @@ check_cmake_version() {
 # OS-Specific Dependencies
 # ============================================
 
-# Define common dependencies
+# Common dependencies, keyed to a verify_method dispatched in the loop below.
 declare -A common_dependencies=(
-  ["make"]="command"       # Verify using command -v
-  ["gcc"]="command"        # Verify using command -v
-  ["g++"]="command"        # Verify using command -v
-  ["python3"]="command"    # Verify using command -v
-  ["cmake"]="command"      # Verify using command -v
-  ["cargo"]="command"      # Verify using command -v
+  ["make"]="command"
+  ["gcc"]="command"
+  ["g++"]="command"
+  ["python3"]="command"
+  ["cmake"]="command"
+  ["cargo"]="rust"
+  ["clang"]="llvm"    # required: bindgen/libclang need it, LTO uses it as CC
+  ["ld.lld"]="llvm"   # LTO linker only -> optional (see OPTIONAL_DEPS)
 )
 
 # cheadergen is only needed when regenerating Rust C headers.
@@ -266,80 +364,115 @@ fi
 # ============================================
 
 # Print header
-echo -e "\n===== Build Dependencies Checker =====\n"
-
-# Arrays to store missing dependencies
-missing_deps=false
+report_mode || echo -e "\n===== Build Dependencies Checker =====\n"
 
 # Check each dependency
 for dep in "${!dependencies[@]}"; do
-  printf "%-20s" "$dep"
-
   verify_method=${dependencies[$dep]}
 
   # Check based on verification method
   if [[ "$verify_method" == "command" ]]; then
-    # missing dep
     if ! check_command "$dep"; then
-      echo -e "${RED}✗${NC}"
-      missing_deps=true
-    else
-      # dep exist, check if version verification is needed
-      if [[ -n "${version_checks[$dep]}" ]]; then
-        # Extract version check function and minimum version
-        read -r get_version check_func min_version max_version <<< "${version_checks[$dep]}"
-
-        # Run the check function
-        actual_version=$($get_version "$dep")
-        $check_func $actual_version $min_version $max_version
-        result=$?
-        if [ "$result" -eq 1 ]; then # below min version
-          echo -e "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}"
-          missing_deps=true
-        elif [ "$result" -eq 2 ]; then # exceeded max version
-          echo -e "${YELLOW}✗ (need version < $max_version, found version $actual_version)${NC}"
-          missing_deps=true
-        else
-          echo -e "${GREEN}✓${NC}"
-        fi
+      emit_result "$dep" missing
+    elif [[ -n "${version_checks[$dep]}" ]]; then
+      # dep exists, run its version check
+      read -r get_version check_func min_version max_version <<< "${version_checks[$dep]}"
+      actual_version=$($get_version "$dep")
+      $check_func $actual_version $min_version $max_version
+      result=$?
+      if [[ "$result" -eq 1 ]]; then # below min version
+        emit_result "$dep" missing "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}" "$min_version"
+      elif [[ "$result" -eq 2 ]]; then # exceeded max version
+        emit_result "$dep" missing "${YELLOW}✗ (need version < $max_version, found version $actual_version)${NC}" "$min_version"
       else
-        # No version check needed
-        echo -e "${GREEN}✓${NC}"
+        emit_result "$dep" ok
       fi
+    else
+      # No version check needed
+      emit_result "$dep" ok
     fi
   elif [[ "$verify_method" == "package" ]]; then
-    # Lookup the package checker for the current OS
+    # Lookup the package checker for the current OS and call it dynamically
     package_checker=${os_package_checkers["$OS"]}
-
-    # Call the package checker dynamically
     if $package_checker "$dep"; then
-      echo -e "${GREEN}✓${NC}"
+      emit_result "$dep" ok
     else
-      echo -e "${RED}✗${NC}"
-      missing_deps=true
+      emit_result "$dep" missing
+    fi
+  elif [[ "$verify_method" == "llvm" ]]; then
+    tool=$(get_llvm_tool "$dep")
+    if [[ -z "$tool" ]]; then
+      emit_result "$dep" missing "${RED}✗ (LLVM $LLVM_VERSION toolchain not found)${NC}" "$LLVM_VERSION"
+    elif [[ "$tool" == "${dep}-${LLVM_VERSION}" ]]; then
+      # A version-suffixed binary (clang-21, ld.lld-21) is the pinned major by
+      # name — trust it without running --version. Matters for ld.lld: the
+      # bare `lld` driver prints no version, so probing it reports "unknown".
+      emit_result "$dep" ok
+    else
+      # Fell back to the unversioned binary; confirm its major.
+      actual_major=$(get_llvm_major "$tool")
+      if [[ "$actual_major" == "$LLVM_VERSION" ]]; then
+        emit_result "$dep" ok
+      else
+        emit_result "$dep" missing "${YELLOW}✗ (need LLVM $LLVM_VERSION, found ${actual_major:-unknown})${NC}" "$LLVM_VERSION"
+      fi
+    fi
+  elif [[ "$verify_method" == "rust" ]]; then
+    if check_command rustup; then
+      # Read-only: is the pinned toolchain installed? `rustup toolchain list`
+      # never triggers an auto-install (unlike resolving the pin via `cargo`).
+      if rustup toolchain list 2>/dev/null | grep -q "^${PINNED_RUST_VERSION}-"; then
+        emit_result "$dep" ok
+      else
+        emit_result "$dep" missing "${YELLOW}✗ (need Rust $PINNED_RUST_VERSION toolchain)${NC}" "$PINNED_RUST_VERSION"
+      fi
+    elif check_command cargo; then
+      # No rustup (e.g. a distro cargo): fall back to a version floor.
+      actual_version=$(cargo --version 2>/dev/null | awk '{print $2}')
+      if [[ -n "$actual_version" ]] && version_ge "$actual_version" "$PINNED_RUST_VERSION"; then
+        emit_result "$dep" ok
+      else
+        emit_result "$dep" missing "${YELLOW}✗ (need Rust >= $PINNED_RUST_VERSION, found ${actual_version:-none})${NC}" "$PINNED_RUST_VERSION"
+      fi
+    else
+      emit_result "$dep" missing "" "$PINNED_RUST_VERSION"
     fi
   elif [[ "$verify_method" == "cheadergen" ]]; then
     if ! check_command "$dep"; then
-      echo -e "${RED}✗${NC}"
-      missing_deps=true
+      emit_result "$dep" missing
     else
       actual_version=$(get_cheadergen_version)
       if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
-        echo -e "${GREEN}✓${NC}"
+        emit_result "$dep" ok
       else
-        echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
-        missing_deps=true
+        emit_result "$dep" missing "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}" "$REQUIRED_CHEADERGEN_VERSION"
       fi
     fi
   else # no method is defined for this dependency
-    echo -e "${YELLOW} (no method defined)${NC}"
-    missing_deps=true
+    emit_result "$dep" missing "${YELLOW} (no method defined)${NC}"
   fi
 done
 
 # ============================================
+# Aggregate report mode: emit records for the outer bootstrap and stop here.
+# ============================================
+if emit_deps_report; then
+  n_ok=$(set -- $DEPS_OK; echo $#)
+  n_missing=$(set -- $DEPS_MISSING; echo $#)
+  echo "==> [redisearch] checked: $n_ok installed, $n_missing missing"
+  exit 0
+fi
+
+# ============================================
 # Missing Dependencies Handling
 # ============================================
+
+# Optional deps (installed by bootstrap, not needed for a default build) are
+# reported separately and never fail the check.
+if [[ -n "$DEPS_OPT_MISSING" ]]; then
+  echo -e "\n${YELLOW}Optional (not installed; needed only for LTO/extra features):${NC}"
+  for p in $DEPS_OPT_MISSING; do echo -e "    ${p%%:*}"; done
+fi
 
 # Print installation instructions if there are missing dependencies
 if $missing_deps; then
@@ -353,7 +486,7 @@ fi
 # Suggest using the all-in-one installation script
 echo -e "\n\033[0;36mTo install or inspect dependencies, check the following script:\033[0m"
 is_docker() {
-  [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
+  [[ -f /.dockerenv ]] || grep -q docker /proc/1/cgroup 2>/dev/null
 }
 mode=$(is_docker && echo "" || echo "sudo")
 echo -e "cd .install && ./install_script.sh ${mode}"

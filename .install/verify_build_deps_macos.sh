@@ -1,112 +1,119 @@
 #!/usr/bin/env bash
+#
+# macOS build-dependency checks. Sourced by verify_build_deps.sh on Darwin, and
+# NOT meant to run standalone: it relies on the colors, version pins
+# (LLVM_VERSION / PINNED_RUST_VERSION), report helpers (emit_result /
+# emit_deps_report / report_mode / get_llvm_tool / get_llvm_major),
+# should_check_cheadergen and REQUIRED_CHEADERGEN_VERSION that the parent
+# defines before sourcing this file.
 
-# Set colors for output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
-
-should_check_cheadergen() {
-  case "${REDISEARCH_GENERATE_HEADERS:-1}" in
-    0|OFF|off|false|FALSE|False|NO|no)
-      return 1
-      ;;
-    *)
-      return 0
-      ;;
-  esac
-}
-
-# ============================================
-# Dependencies
-# ============================================
-# Define dependencies and their corresponding check methods
-mac_os_deps=("make" "python3" "cmake" "cargo" "clang" "openssl" "brew")
-mac_os_deps_types=(
-    "check_command" # Check for "make"
-    "check_command" # Check for "python3"
-    "check_command" # Check for "cmake"
-    "check_command" # Check for "cargo"
-    "check_clang"   # Check for "clang"
-    "check_command" # Check for "openssl"
-    "check_command" # Check for "brew"
-)
-
-# cheadergen is only needed when regenerating Rust C headers.
-# REDISEARCH_GENERATE_HEADERS=0 builds from checked-in headers.
-if should_check_cheadergen; then
-  mac_os_deps+=("cheadergen")
-  mac_os_deps_types+=("check_cheadergen")
+if ! declare -F emit_result >/dev/null 2>&1; then
+  echo "verify_build_deps_macos.sh must be sourced by verify_build_deps.sh" >&2
+  return 1 2>/dev/null || exit 1
 fi
 
-# Function to check if a command is available
-check_command() {
-  local cmd=$1
-  printf "%-20s" "$cmd"
+# ============================================
+# Checkers
+# ============================================
 
-  if ! command -v "$cmd" &>/dev/null; then
-    echo -e "${RED}✗${NC}"
-    missing_deps=true
+check_cmd_dep() {
+  if command -v "$1" &>/dev/null; then
+    emit_result "$1" ok
   else
-    echo -e "${GREEN}✓${NC}"
+    emit_result "$1" missing
   fi
 }
 
+# clang must be the LLVM build (Homebrew llvm@N), pinned to LLVM_VERSION — the
+# same major Rust uses. Apple's system clang has a different versioning scheme
+# and won't report LLVM_VERSION, so it's correctly rejected.
 check_clang() {
-    printf "%-20s" "clang"
-
-    if command -v clang &>/dev/null; then
-        clang_path=$(command -v clang)
-        if [[ "$clang_path" == *"/llvm"* ]]; then
-            echo -e "${GREEN}✓${NC}"
-        else
-            echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
-            missing_deps=true
-        fi
-    else
-        echo -e "${RED}✗${NC}"
-        missing_deps=true
-    fi
-}
-
-check_cheadergen() {
-  local cmd=$1
-  printf "%-20s" "$cmd"
-
-  if ! command -v "$cmd" &>/dev/null; then
-    echo -e "${RED}✗${NC}"
-    missing_deps=true
+  local tool
+  tool=$(get_llvm_tool clang)
+  if [[ -z "$tool" ]]; then
+    emit_result clang missing "${RED}✗${NC}" "$LLVM_VERSION"
     return
   fi
 
-  local actual_version
-  actual_version=$("$cmd" --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
-  if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
-    echo -e "${GREEN}✓${NC}"
+  # clang-<major> is the pinned major by name — trust it without --version.
+  if [[ "$tool" == "clang-${LLVM_VERSION}" ]]; then
+    emit_result clang ok
+    return
+  fi
+
+  local major
+  major=$(get_llvm_major "$tool")
+  if [[ "$major" == "$LLVM_VERSION" ]]; then
+    emit_result clang ok
+  elif [[ "$(command -v "$tool")" == *"/llvm"* ]]; then
+    emit_result clang missing "${YELLOW}✗ (need LLVM $LLVM_VERSION, found ${major:-unknown})${NC}" "$LLVM_VERSION"
   else
-    echo -e "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}"
-    missing_deps=true
+    emit_result clang missing "${YELLOW}✗ Expected LLVM Clang (need $LLVM_VERSION)${NC}" "$LLVM_VERSION"
+  fi
+}
+
+# cargo present + the pinned rust-toolchain.toml version available. Prefer
+# `rustup toolchain list` (read-only; never auto-installs) over resolving the
+# pin through `cargo`.
+check_rust() {
+  if command -v rustup &>/dev/null; then
+    if rustup toolchain list 2>/dev/null | grep -q "^${PINNED_RUST_VERSION}-"; then
+      emit_result cargo ok
+    else
+      emit_result cargo missing "${YELLOW}✗ (need Rust $PINNED_RUST_VERSION toolchain)${NC}" "$PINNED_RUST_VERSION"
+    fi
+  elif command -v cargo &>/dev/null; then
+    local actual
+    actual=$(cargo --version 2>/dev/null | awk '{print $2}')
+    if [[ -n "$actual" ]] && version_ge "$actual" "$PINNED_RUST_VERSION"; then
+      emit_result cargo ok
+    else
+      emit_result cargo missing "${YELLOW}✗ (need Rust >= $PINNED_RUST_VERSION, found ${actual:-none})${NC}" "$PINNED_RUST_VERSION"
+    fi
+  else
+    emit_result cargo missing "" "$PINNED_RUST_VERSION"
+  fi
+}
+
+check_cheadergen() {
+  if ! command -v cheadergen &>/dev/null; then
+    emit_result cheadergen missing
+    return
+  fi
+  local actual_version
+  actual_version=$(cheadergen --version 2>/dev/null | awk '{print $NF}' || echo "unknown")
+  if [[ "$actual_version" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then
+    emit_result cheadergen ok
+  else
+    emit_result cheadergen missing "${YELLOW}✗ (need version $REQUIRED_CHEADERGEN_VERSION, found version $actual_version)${NC}" "$REQUIRED_CHEADERGEN_VERSION"
   fi
 }
 
 # ============================================
-# Main Loop
+# Main
 # ============================================
-# Print header
-echo -e "\n===== Build Dependencies Checker =====\n"
+report_mode || echo -e "\n===== Build Dependencies Checker =====\n"
 
-missing_deps=false
+check_cmd_dep make
+check_cmd_dep python3
+check_cmd_dep cmake
+check_rust
+check_clang
+check_cmd_dep openssl
+check_cmd_dep brew
+if should_check_cheadergen; then
+  check_cheadergen
+fi
 
-for i in "${!mac_os_deps[@]}"; do
-  dep="${mac_os_deps[$i]}"
-  check_function="${mac_os_deps_types[$i]}"
-  $check_function "$dep"
-done
+# ============================================
+# Aggregate report mode: emit records and stop here.
+# ============================================
+if emit_deps_report; then
+  n_ok=$(set -- $DEPS_OK; echo $#)
+  n_missing=$(set -- $DEPS_MISSING; echo $#)
+  echo "==> [redisearch] checked: $n_ok installed, $n_missing missing"
+  return 0 2>/dev/null || exit 0
+fi
 
 # ============================================
 # Missing Dependencies Handling
