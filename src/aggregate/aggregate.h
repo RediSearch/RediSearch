@@ -339,10 +339,6 @@ typedef struct AREQ {
 
   bool useReplyCallback;
 
-  // State for reply_callback path (FAIL policy with workers)
-  // Background thread stores results here, then calls UnblockClient.
-  // The reply_callback reads from here to build the reply on the main thread.
-  ChunkReplyState storedReplyState;
 } AREQ;
 
 /* Forward declaration; full type lives in hybrid_request.h. */
@@ -361,18 +357,15 @@ struct BlockedRequestCtx {
     struct HybridRequest *hybrid;
   } query;
 
-  /* Reference count. Starts at 1 (set by New). Incremented by IncrRef,
-   * decremented by DecrRef; reaches 0 exactly once, triggering Free.
-   * Uses ACQ_REL on decrement so the free path sees all prior writes.
-   * Removed in Step 2 (replaced by the single-owner OnFree discipline). */
-  RS_Atomic(int) refcount;
-
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
    * and stores results, while the timeout-callback winner preempts BG (BG
    * bails at its post-claim check) and replies empty without running the
    * pipeline. The loser waits for the winner's completion signal.
-   * Gated by `requiresAggregateResultsSync`. */
+   * Gated by `requiresAggregateResultsSync`.
+   * NOTE: a planned follow-up flips this mechanism so the timeout callback
+   * never waits on BG state (mark flag → serialize → drain a thread-safe
+   * results store), replacing the whole claim/latch/wait block. */
   bool requiresAggregateResultsSync;     // Enable CAS/Signal/Wait around AggregateResults
   RS_Atomic(bool) aggregatingResults;    // CAS claim: BG winner runs the pipeline; timeout-callback winner skips it and replies empty
   bool aggregateResultsClaimLost;        // BG lost the CAS claim to the timeout callback
@@ -387,6 +380,45 @@ struct BlockedRequestCtx {
   int safeLoadersHoldingGIL;
   pthread_mutex_t aggregateResultsLock;
   pthread_cond_t aggregateResultsCond;
+
+  /* ===== Per-cycle fields =====
+   * A "cycle" is one blocked-client round trip: the initial query execution or
+   * a single cursor read. Bound on the main thread by
+   * BlockedRequestCtx_BeginCycle (after RedisModule_BlockClient returned `bc`,
+   * before dispatching BG work) and cleared by BlockedRequestCtx_EndCycle
+   * (called from BlockedRequestCtx_OnFree, the free_privdata callback).
+   * Between cycles these are NULL/zeroed and must not be read. */
+  RedisModuleBlockedClient *bc; // Redis-owned; valid for the cycle
+  bool deferred_reply; // false => BG replies inline via a thread-safe ctx;
+                       // true => BG stores results and the reply callback
+                       // registered with RedisModule_BlockClient serializes
+                       // them on main after UnblockClient
+  // Stored-reply slot for deferred (deferred_reply) cycles: the BG thread
+  // stores results/error here before UnblockClient; the reply or timeout
+  // callback reads it on main. One slot serves AREQ and hybrid cycles.
+  // Destroyed at EndCycle (per cycle) and, idempotently, in
+  // BlockedRequestCtx_Free as a safety net.
+  ChunkReplyState reply;
+
+  /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
+   * Every field below is temporary bloat: each one bridges a gap that a later
+   * step of the refactor (or the RETURN_STRICT flip follow-up) closes, and is
+   * deleted with it. The struct shrinks back accordingly. Grep for
+   * TRANSITIONAL(MOD-16691) to find all scaffolding. */
+
+  /* TRANSITIONAL(MOD-16691): reference count, until the cursor-ownership step
+   * makes the wrapper single-owner (cycle owns it via BeginCycle/OnFree, a
+   * parked cursor owns it between cycles). Starts at 1 (set by New);
+   * incremented by IncrRef, decremented by DecrRef; reaches 0 exactly once,
+   * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
+  RS_Atomic(int) refcount;
+
+  /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until Step 3 links
+   * the wrapper itself into BlockedQueries. The node created for this cycle,
+   * unlinked and freed in EndCycle. Kind-tagged because query and cursor
+   * nodes live in different lists. */
+  void *registry_node;
+  bool registry_node_is_cursor;
 };
 
 /* Allocate a heap BlockedRequestCtx that takes ownership of the request,
@@ -395,10 +427,10 @@ struct BlockedRequestCtx {
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
 
-/* Increment / decrement the wrapper's reference count. DecrRef triggers
- * BlockedRequestCtx_Free when the count drops to zero.
- * Step 2 will remove the refcount entirely; these functions exist only for
- * the Option A bridge in Step 0. */
+/* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
+ * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
+ * zero. Deleted together with `refcount` once the cursor-ownership step makes
+ * the wrapper single-owner. */
 BlockedRequestCtx *BlockedRequestCtx_IncrRef(BlockedRequestCtx *brc);
 void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
 
@@ -406,10 +438,26 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc);
  * request (AREQ_Free / HybridRequest_Free), then frees the wrapper itself. */
 void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
 
+/* Kind-checked accessors for the owned request. Callers that know which kind
+ * of request their cycle carries (e.g. per-kind reply/timeout callbacks) use
+ * these instead of reaching into the union, so a mismatched callback fails
+ * loudly in debug builds. */
+static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  return brc->query.areq;
+}
+static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
+  RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  return brc->query.hybrid;
+}
+
 /* Lifecycle helpers for AREQ objects. AREQ_Free destroys the AREQ directly
- * (no wrapper involved). AREQ_IncrRef / AREQ_DecrRef delegate to the owning
- * BlockedRequestCtx when one is present (req->brc != NULL); otherwise they call
- * AREQ_Free directly (for unwrapped transient / sub-AREQs). */
+ * (no wrapper involved).
+ * TRANSITIONAL(MOD-16691): AREQ_IncrRef / AREQ_DecrRef delegate to the owning
+ * BlockedRequestCtx's refcount when one is present (req->brc != NULL);
+ * otherwise they call AREQ_Free directly (for unwrapped transient /
+ * sub-AREQs). Deleted with the wrapper refcount once the cursor-ownership
+ * step makes the wrapper single-owner. */
 void AREQ_Free(AREQ *req);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
@@ -594,11 +642,11 @@ void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req);
 
 
 /**
- * Free a cursor parked in `req->storedReplyState.cursor`, if any.
+ * Free a cursor parked in `req->brc->reply.cursor`, if any.
  * Used by cleanup paths to release a cursor left behind when the
  * blocked-client timeout fires before the reply callback runs and
  * drains it via `AREQ_ReplyWithStoredResults`.
- * No-op when `storedReplyState.cursor` is NULL.
+ * No-op when `brc->reply.cursor` is NULL.
  */
 void AREQ_CleanUpStoredCursor(AREQ *req);
 

@@ -133,6 +133,20 @@ class ParseHybridTest : public ::testing::Test {
     return rc;
   }
 
+  // Request-scoped config is captured at request construction, not at parse.
+  // Tests that mutate RSGlobalConfig must reconstruct the request afterwards
+  // to observe the change.
+  void recreateHybridRequest() {
+    HybridRequest_DecrRef(hybridRequest);
+    hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
+    result.search = hybridRequest->requests[0];
+    result.vector = hybridRequest->requests[1];
+    result.tailPlan = &hybridRequest->tailPipeline->ap;
+    result.reqConfig = &hybridRequest->reqConfig;
+    result.cursorConfig = &hybridRequest->cursorConfig;
+    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
+  }
+
   // Helper function to test error cases with less boilerplate
   void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
 
@@ -218,6 +232,7 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -229,6 +244,7 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
 
   parseCommand(args);
@@ -241,6 +257,7 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);

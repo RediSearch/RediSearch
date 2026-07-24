@@ -98,7 +98,7 @@ bool pipelineCanYieldPartialResults(struct AREQ *r);
 void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored);
 
 /**
- * Drain results buffered post-timeout into `req->storedReplyState.results`.
+ * Drain results buffered post-timeout into `req->brc->reply.results`.
  * Only safe for pipelines classified as yielding partial results -- caller
  * must gate on `qctx->canYieldPartialResults` and perform any root-specific
  * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the

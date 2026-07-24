@@ -1,5 +1,6 @@
 #include "hybrid/hybrid_request.h"
 #include <stdatomic.h>
+#include "config.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
@@ -276,6 +277,11 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
+    // Capture request-scoped config once, at construction. Parsing and
+    // execution must not re-read RSGlobalConfig, so a concurrent FT.CONFIG SET
+    // cannot desync the decisions the BG thread and the timeout callback
+    // derive from it.
+    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -291,7 +297,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
@@ -305,7 +311,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
     RequestSyncState_Init(&hybridReq->syncState);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-    hybridReq->storedReplyState.err = QueryError_Default();
 
 
 }
@@ -411,9 +416,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
-
-    // Clean up storedReplyState
-    ChunkReplyState_Destroy(&req->storedReplyState);
 
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);

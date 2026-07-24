@@ -1040,7 +1040,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   return REDISMODULE_OK;
 }
 
-// Drain any queued partial results into `storedReplyState.results` on the main
+// Drain any queued partial results into `brc->reply.results` on the main
 // thread after the background pipeline has aborted. Flips RPNet to drainOnly
 // mode so the post-abort drain only pulls already-buffered shard replies, then
 // delegates the actual loop to the shared helper.
@@ -1099,9 +1099,9 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ_WaitForAggregateResultsComplete(req);
 
   // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->storedReplyState.hasStoredResults);
+  RS_ASSERT(req->brc->reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+    req->brc->reply.rc = RS_RESULT_TIMEDOUT;
   }
 
   // Harvest any shard replies that landed in the channel before the deadline.
@@ -1114,7 +1114,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 }
 
 // Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
-// stored by the BG thread in req->storedReplyState. NOT called if timeout fired
+// stored by the BG thread in req->brc->reply. NOT called if timeout fired
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);
@@ -1141,11 +1141,11 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   // Check if results were stored (background thread completed successfully)
-  if (!req->storedReplyState.hasStoredResults) {
+  if (!req->brc->reply.hasStoredResults) {
     // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->storedReplyState.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->storedReplyState.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->storedReplyState.err);
+    if (QueryError_HasError(&req->brc->reply.err)) {
+      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->brc->reply.err), 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &req->brc->reply.err);
     } else {
       RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
     }
@@ -1159,7 +1159,7 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // still produces rc=TIMEDOUT is the coord's own deadline firing, which
   // routes through DistAggregateTimeoutReturnStrictCallback -- not this
   // callback. Under FAIL, a shard timeout still bails the coord pipeline
-  // early; the BG thread stores the resulting error in storedReplyState.err
+  // early; the BG thread stores the resulting error in brc->reply.err
   // and the early-error branch above replies with it.
   AREQ_ReplyWithStoredResults(ctx, req);
 
@@ -1213,18 +1213,18 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // Sync with BG.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->storedReplyState.hasStoredResults) {
+  if (req->brc->reply.hasStoredResults) {
     // Drain anything queued before the deadline, then serialize and dispose
     // the stashed cursor (Pause if more rows remain, Free on EOF) inside
     // AREQ_ReplyWithStoredResults.
-    req->storedReplyState.rc = RS_RESULT_TIMEDOUT;
+    req->brc->reply.rc = RS_RESULT_TIMEDOUT;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else {
     // Pre-pipeline bail through AREQ_ReplyOrStoreError. Currently unreachable
     // on coord+RETURN_STRICT (coordinator cursors have a NULL spec_ref so the
     // only such bail in cursorRead can't fire); kept for forward-compat.
-    QueryError *err = &req->storedReplyState.err;
+    QueryError *err = &req->brc->reply.err;
     RS_ASSERT(QueryError_HasError(err));
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     QueryError_ReplyAndClear(ctx, err);
