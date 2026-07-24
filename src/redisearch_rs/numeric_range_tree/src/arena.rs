@@ -44,6 +44,16 @@ impl NodeIndex {
     pub const fn from_raw_parts(position: u32, generation: u32) -> Self {
         Self(Key::from_raw_parts(position, generation))
     }
+
+    /// Return the slab slot position of this index.
+    pub const fn position(self) -> u32 {
+        self.0.position()
+    }
+
+    /// Return the generation counter of this index.
+    pub const fn generation(self) -> u32 {
+        self.0.generation()
+    }
 }
 
 impl From<Key> for NodeIndex {
