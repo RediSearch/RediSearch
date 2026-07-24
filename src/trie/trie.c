@@ -131,13 +131,13 @@ static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, siz
 
 TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t delta) {
   if (len > TRIE_INITIAL_STRING_LEN * sizeof(rune)) {
-    return TRIE_DECR_NOT_FOUND;
+    return TRIE_DECR_UNSUPPORTED;
   }
   runeBuf buf;
   size_t runeLen = len;
   rune *runes = runeBufFill(s, len, &buf, &runeLen);
   if (!runes) {
-    return TRIE_DECR_NOT_FOUND;
+    return TRIE_DECR_UNSUPPORTED;
   }
   TrieDecrResult rc = Trie_DecrementNumDocsRunes(t, runes, runeLen, delta);
   runeBufFree(&buf);
@@ -145,8 +145,9 @@ TrieDecrResult Trie_DecrementNumDocs(Trie *t, const char *s, size_t len, size_t 
 }
 
 static TrieDecrResult Trie_DecrementNumDocsRunes(Trie *t, const rune *runes, size_t len, size_t delta) {
+  // Too long/empty to have been inserted: a no-op, not a missing term.
   if (!runes || len == 0 || len >= TRIE_INITIAL_STRING_LEN) {
-    return TRIE_DECR_NOT_FOUND;
+    return TRIE_DECR_UNSUPPORTED;
   }
 
   // Find the node for this term
