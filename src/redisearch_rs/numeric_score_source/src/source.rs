@@ -479,6 +479,23 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         RSIndexResult::build_numeric(score).doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+        // Unused: the numeric field value is the ordering key and is carried by
+        // the source-built result ([`yields_child_record`] is `false`), so the
+        // iterator never takes the child-record yield path that would call this.
+        // Production metric-key wiring is tracked by MOD-14210.
+    }
+
+    fn yields_child_record(&self) -> bool {
+        // Numeric `SORTBY` orders purely by the field value the source supplies,
+        // with no relevance scoring, so yield the source-built numeric result
+        // rather than the child's record.
+        false
+    }
+
     fn batch_strategy(&mut self, heap_count: usize, k: usize) -> BatchStrategy {
         // Batches arrive best-score-first, so a full heap can never be improved
         // by a later (worse-scored) batch.

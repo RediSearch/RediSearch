@@ -201,10 +201,49 @@ pub trait ScoreSource {
     /// itself, so any borrows the source might embed in the result stay
     /// valid. For `'static` sources, `'r` is unconstrained.
     ///
+    /// Used in [`Unfiltered`](crate::TopKMode::Unfiltered) mode where there is
+    /// no child iterator: the source must produce a complete result on its own.
+    ///
+    /// In filtered modes ([`Batches`](crate::TopKMode::Batches),
+    /// [`AdhocBF`](crate::TopKMode::AdhocBF)) the iterator yields the **child's**
+    /// `RSIndexResult` directly so its scoring inputs (frequency, field mask,
+    /// term records) are preserved, and calls
+    /// [`attach_score_metric`](Self::attach_score_metric) instead.
+    ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r;
+
+    /// Attach this source's score to the child's result as a metric entry.
+    ///
+    /// Called by [`TopKIterator`] in the filtered yield path: the child's
+    /// `RSIndexResult` is what the relevance scorer will see (so BM25/TFIDF
+    /// can recurse into the term records), and the source's score (e.g. a
+    /// vector distance) is exposed via the metrics channel for output fields
+    /// like `__v_score`.
+    ///
+    /// Implementations that maintain a stable score key should overwrite an
+    /// existing entry with the same key rather than appending, so repeated
+    /// yields of the same child storage don't leak metrics across docs.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r;
+
+    /// Whether the filtered yield path should hand back the child's captured
+    /// `RSIndexResult` (with [`attach_score_metric`](Self::attach_score_metric)
+    /// applied) rather than a source-built one.
+    ///
+    /// `true` (the default) preserves the child's scoring inputs for relevance
+    /// scoring — the hybrid/vector case. A source whose score *is* the ordering
+    /// key and needs no child scoring inputs (e.g. a numeric `SORTBY`) returns
+    /// `false`, so the iterator yields [`build_result`](Self::build_result) even
+    /// when a filter child is present.
+    fn yields_child_record(&self) -> bool {
+        true
+    }
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.

@@ -71,6 +71,12 @@ impl ScoreSource for CallCountingScoreSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }

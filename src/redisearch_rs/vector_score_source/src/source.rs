@@ -9,13 +9,18 @@
 
 //! [`VectorScoreSource`] — [`ScoreSource`] implementation backed by VecSim.
 
-use std::{ffi::c_void, num::NonZeroUsize, ptr::NonNull};
+use std::{
+    ffi::c_void,
+    num::NonZeroUsize,
+    ptr::{self, NonNull},
+};
 
 use ffi::{
-    RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex,
-    VecSimQueryParams, timespec,
+    QueryIterator, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
+    VecSimIndex, VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
+use rlookup::RLookupKey;
 use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIteratorError};
 use top_k::{BatchStrategy, ScoreSource, ScoredResult};
@@ -87,7 +92,16 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// earlier than this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
     /// Number of batches consumed so far. Reset on rewind.
-    num_iterations: usize,
+    pub num_iterations: usize,
+    /// Largest batch size used so far. Reset on rewind. Read by the
+    /// profile printer.
+    pub max_batch_size: usize,
+    /// Zero-based iteration index at which the current
+    /// [`max_batch_size`](Self::max_batch_size) was reached. Reset on rewind.
+    /// Read by the profile printer.
+    pub max_batch_iteration: usize,
+    /// Raw child iterator handle exposed to the C profile printer.
+    pub child_raw: *mut QueryIterator,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
@@ -98,6 +112,15 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// Field-expiration filter for the vector field, consulted at yield time
     /// via [`ScoreSource::is_expired`]. Use [`NoOpChecker`](rqe_iterators::NoOpChecker) to disable.
     expiration: E,
+    /// `true` once the unfiltered top-k query has succeeded; subsequent calls
+    /// short-circuit to `Ok(None)` so the source honors the single-shot
+    /// contract without re-issuing the HNSW query (which would also re-poll
+    /// the timeout context and could spuriously fail). A timed-out query
+    /// leaves this clear so a retry re-issues it. Reset by `rewind`.
+    unfiltered_consumed: bool,
+
+    /// Score key for this iterator's metric output; set by the metrics loader.
+    own_key: *mut RLookupKey<'index>,
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
@@ -163,10 +186,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             batch_iter: None,
             fixed_batch_size,
             num_iterations: 0,
+            max_batch_size: 0,
+            max_batch_iteration: 0,
+            child_raw: ptr::null_mut(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
             expiration,
+            unfiltered_consumed: false,
+            own_key: ptr::null_mut(),
         }
     }
 
@@ -202,12 +230,15 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             return fixed;
         }
         let index_size = self.index_size();
-        let child_est = self.child_num_estimated;
-        let estimate = self.k_remaining * index_size /
-            // guard div-by-zero
-            child_est.max(1);
-        // The `+ 1` guarantees a non-zero size.
-        NonZeroUsize::new(estimate + 1).unwrap()
+        // `max(1)` guards the divide; `k_remaining` can reach MAX_KNN_K, so form
+        // the ratio in floating point first to keep the product from overflowing
+        // `usize` before the divide brings it back down.
+        let child_est = self.child_num_estimated.max(1);
+        let estimate = self.k_remaining as f64 * (index_size as f64 / child_est as f64);
+        // Saturating cast clamps an oversized estimate into `usize`; `+ 1`
+        // guarantees a non-zero size.
+        let estimate = (estimate as usize).saturating_add(1);
+        NonZeroUsize::new(estimate).unwrap()
     }
 }
 
@@ -216,6 +247,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Single-shot top-k query for the unfiltered path; called exactly once
         // per evaluation by `prepare_unfiltered_direct`.
+        if self.unfiltered_consumed {
+            return Ok(None);
+        }
         self.query_params.timeoutCtx = self.timeout_ctx_ptr();
         let reply = self
             .index
@@ -226,6 +260,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 ReplyOrder::ByScore,
             )
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+        // Mark consumed only after the query succeeds: a timeout above propagates
+        // with the flag still clear, so a retry re-issues the query instead of
+        // taking the fast path and returning EOF.
+        self.unfiltered_consumed = true;
         Ok(reply
             .and_then(|r| r.into_results())
             .map(VecSimScoreBatch::new))
@@ -260,6 +298,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             if self.batch_iter.is_none() {
                 return Ok(None);
             }
+            // Seed the largest-batch tracker. A user-pinned size is constant, so
+            // it is also the maximum; a dynamic size starts at 0 and grows below.
+            self.max_batch_size = self.fixed_batch_size;
         }
 
         if !self
@@ -273,6 +314,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
         let batch_size = self.compute_next_batch_size();
         self.num_iterations += 1;
+
+        // Track the largest dynamically-computed batch and the (zero-based)
+        // iteration that produced it. A user-pinned size never varies, so the
+        // maximum stays at the seed above and the iteration index stays at 0.
+        if self.fixed_batch_size == 0 && batch_size.get() > self.max_batch_size {
+            self.max_batch_size = batch_size.get();
+            self.max_batch_iteration = self.num_iterations - 1;
+        }
 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
         let reply = batch_iter
@@ -306,7 +355,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                     guard.is_none(),
                     "begin_adhoc called twice without end_adhoc"
                 );
-                *guard = Some(self.index.acquire_shared_locks(&self.query_vector));
+                // SAFETY: discharges `acquire_shared_locks`' conditions for the
+                // guard's lifetime, which `begin_adhoc`/`end_adhoc` bound:
+                // `query_vector` is owned by `self`, so its heap buffer stays
+                // allocated (1) at a stable address across moves (2), and it is
+                // never mutated while the guard is held (3).
+                *guard = Some(unsafe { self.index.acquire_shared_locks(&self.query_vector) });
             }
             AdhocPathState::Disk { ctx } => {
                 debug_assert!(ctx.is_none(), "begin_adhoc called twice without end_adhoc");
@@ -382,16 +436,49 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn rewind(&mut self) {
         self.batch_iter = None;
         self.num_iterations = 0;
+        self.max_batch_size = 0;
+        self.max_batch_iteration = 0;
         self.k_remaining = self.k;
         self.child_num_estimated = self.initial_child_num_estimated;
+        self.unfiltered_consumed = false;
     }
 
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
     where
         Self: 'r,
     {
-        RSIndexResult::build_metric(score).doc_id(doc_id).build()
-        // TODO: MOD-14210: push the score to `result.metrics`. This needs `self` to know its key.
+        let mut result = RSIndexResult::build_metric(score).doc_id(doc_id).build();
+        if !self.own_key.is_null() {
+            // SAFETY: when non-null, `own_key` points to a live `RLookupKey` that the query
+            // set up before reading any results and keeps alive for at least `'r`. The cast
+            // is valid because `RLookupKey<'idx>` starts with a `#[repr(C)]` `ffi::RLookupKey`.
+            let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+            result.metrics.push_with_key(key, score);
+        }
+        result
+    }
+
+    fn attach_score_metric<'r>(&self, result: &mut RSIndexResult<'r>, score: f64)
+    where
+        Self: 'r,
+    {
+        if self.own_key.is_null() {
+            return;
+        }
+        // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
+        // before any reads occur, and the key lives in the query's RLookup structure for
+        // at least `'index` (the query lifetime).
+        let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+
+        // The child reuses one storage slot across yields, so an entry from a
+        // previous yield may already exist for our key. Update in place when
+        // present; push otherwise. Any non-matching metrics from the child's
+        // own subtree are left untouched.
+        if let Some(entry) = result.metrics.find_by_key_mut(key) {
+            entry.set_value(score);
+        } else {
+            result.metrics.push_with_key(key, score);
+        }
     }
 
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
@@ -564,6 +651,41 @@ mod tests {
         assert_eq!(
             source.child_num_estimated, 3,
             "rewind restores clamped seed"
+        );
+
+        drop(source);
+        // SAFETY: no live references to the index remain.
+        unsafe { VecSimIndex_Free(index.as_ptr()) };
+    }
+
+    /// The largest-batch profile metrics track each dynamically-computed batch
+    /// (size plus its zero-based iteration) and reset on rewind.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn largest_batch_metrics_track_and_reset() {
+        let index = build_flat_index(20, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let mut source = unsafe { flat_source(index, 3, 20) };
+
+        // drive two batches, shrinking the child estimate between them so
+        // the second computed size is larger, then rewind.
+        source.next_batch().unwrap();
+        let first = source.max_batch_size;
+        source.child_num_estimated = 5;
+        source.next_batch().unwrap();
+        let (grown_size, grown_iter) = (source.max_batch_size, source.max_batch_iteration);
+        source.rewind();
+
+        assert!(first > 0, "first batch seeds the maximum");
+        assert!(
+            grown_size > first,
+            "the larger second batch raises the maximum"
+        );
+        assert_eq!(grown_iter, 1, "recorded at its iteration");
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (0, 0),
+            "rewind clears the metrics"
         );
 
         drop(source);
