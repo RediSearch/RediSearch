@@ -2340,6 +2340,9 @@ def testAlterFailureDoesNotConsumeTextFieldIds(env):
     env.cmd('FT.CREATE', 'idx_text_id_rollback', 'MAXTEXTFIELDS', 'SCHEMA', 'base', 'TEXT')
     max_text_fields = arch_int_bits()
 
+    # Exercise the whole TEXT field-id space, not just one failed ALTER. If rollback
+    # leaks fieldIdToIndex entries, the failure only becomes visible once later valid
+    # additions reach the architecture-specific field-mask limit.
     for i in range(max_text_fields - 1):
         env.expect('FT.ALTER', 'idx_text_id_rollback', 'SCHEMA', 'ADD',
                    f'tmp{i}', 'TEXT',
