@@ -944,10 +944,9 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
     if (vecsimdisk_sst_consistency_lock_held) {
-      // Re-enable compactions (safe: the numeric consistency gate stays
-      // closed, so no split can finalize and no source rows become
-      // reapable) but do NOT reopen the gate - that would let a deferred
-      // split flip L Active after the RDB serialized it as BeingCreated.
+      // Re-enable compactions but keep the numeric consistency gate
+      // closed: the writes it guards must stay coherent with the
+      // just-serialized RDB (see SearchDisk_HotRestartSaveEnded).
       DiskConsistencyWindow_End(SearchDisk_HotRestartSaveEnded);
       RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
