@@ -33,7 +33,7 @@ clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 64
+    - workers: 16
     - requests: 100000
     - reporting-period: 1s
     - duration: 120s
