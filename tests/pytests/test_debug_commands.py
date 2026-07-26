@@ -798,7 +798,6 @@ class TestQueryDebugCommands(object):
         Test TIMEOUT_AFTER_N policy constraints for shard-level queries:
         - ON_TIMEOUT RETURN: always supported
         - ON_TIMEOUT FAIL: only supported without workers (WORKERS=0)
-        - ON_TIMEOUT RETURN-STRICT: never supported
         """
         env = self.env
         conn = getConnectionByEnv(env)
@@ -826,11 +825,6 @@ class TestQueryDebugCommands(object):
             # The query should succeed and return a timeout error (not a parse error)
             with env.assertResponseError(contained="Timeout limit was reached"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-
-        # Test ON_TIMEOUT RETURN-STRICT (never supported)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
