@@ -13,7 +13,7 @@ REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 
 # Defined by the parent verify_build_deps.sh when sourced; redefined here so
 # this script also works standalone. Emits "ok|missing <name>" records for the
-# monorepo check-deps union only when DEPS_REPORT_FILE is set.
+# monorepo list union only when DEPS_REPORT_FILE is set.
 type _emit >/dev/null 2>&1 || _emit() { [ -n "${DEPS_REPORT_FILE:-}" ] || return 0; echo "$1 $2" >> "$DEPS_REPORT_FILE"; }
 
 should_check_cheadergen() {

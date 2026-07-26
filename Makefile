@@ -225,12 +225,14 @@ help:
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
 bootstrap:
-ifeq ($(CHECK_DEPS),1)
+ifeq ($(filter list,$(MAKECMDGOALS)),list)
 	@$(ROOT)/.install/verify_build_deps.sh || true
 else
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
 endif
+
+list: ; @:
 
 fetch:
 	@echo "Fetching dependencies..."
@@ -473,7 +475,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: help bootstrap fetch build clean test unit-tests rust-tests pytest
+.PHONY: list help bootstrap fetch build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
