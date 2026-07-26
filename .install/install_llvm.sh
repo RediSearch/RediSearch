@@ -30,6 +30,13 @@ LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
 MODE="${1:-}"
 
+# On Linux this script is `source`d by the OS script (deps_lib.sh already in
+# scope); on macOS the OS script executes it as a subprocess, so pull deps_lib.sh
+# in ourselves. It self-guards against re-sourcing (won't reset DEPS_*).
+if ! command -v _dry_line >/dev/null 2>&1; then
+    source "$(dirname "${BASH_SOURCE[0]}")/deps_lib.sh"
+fi
+
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
 # Works on any glibc-based Linux. Will NOT work on musl/Alpine.
 install_from_tarball() {
@@ -275,6 +282,41 @@ install_llvm() {
 
     esac
 }
+
+# clang matching the required LLVM major already available?
+_llvm_ok() {
+    if command -v "clang-${LLVM_VER}" >/dev/null 2>&1; then return 0; fi
+    if command -v clang >/dev/null 2>&1; then
+        [ "$(llvm_major clang)" = "$LLVM_VER" ] && return 0
+    fi
+    return 1
+}
+
+# list: record clang (build-critical) presence; dry-run: print the install
+# command it would run, gated on presence; real: unchanged.
+if [ "${CHECK_DEPS:-0}" = 1 ]; then
+    if _llvm_ok; then DEPS_OK="$DEPS_OK clang"; else DEPS_MISSING="$DEPS_MISSING clang"; fi
+    return 0 2>/dev/null || exit 0
+fi
+if [ "${DRY_RUN:-0}" = 1 ]; then
+    if ! _llvm_ok; then
+        _p="${MODE:+$MODE }"
+        if [[ "$OS_TYPE" == "Darwin" ]]; then
+            _dry_line "brew install llvm@${LLVM_VER}"
+        else
+            _distro=""; [ -f /etc/os-release ] && _distro=$(. /etc/os-release && echo "${ID:-}")
+            [ -f /etc/alpine-release ] && _distro=alpine
+            case "$_distro" in
+                ubuntu|debian) _dry_line "${_p}apt-get install -y --no-install-recommends clang-${LLVM_VER} lld-${LLVM_VER} libclang-${LLVM_VER}-dev llvm-${LLVM_VER}   # or apt.llvm.org / official tarball fallback" ;;
+                alpine)        _dry_line "${_p}apk add --no-cache llvm${LLVM_VER} clang${LLVM_VER} clang${LLVM_VER}-libclang lld${LLVM_VER}" ;;
+                rhel|rocky|almalinux|centos|fedora|amzn) _dry_line "${_p}dnf install -y --nobest --skip-broken clang-${LLVM_VER} lld-${LLVM_VER} clang-devel-${LLVM_VER}   # or official tarball fallback" ;;
+                *) case "$ARCH" in x86_64) _t=X64 ;; aarch64) _t=ARM64 ;; *) _t="$ARCH" ;; esac
+                   _dry_line "curl -fSL --retry 3 -o /tmp/LLVM-${LLVM_FULL_VER}.tar.xz https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VER}/LLVM-${LLVM_FULL_VER}-Linux-${_t}.tar.xz && ${_p}tar -xf /tmp/LLVM-${LLVM_FULL_VER}.tar.xz -C ${INSTALL_DIR} --strip-components=1" ;;
+            esac
+        fi
+    fi
+    return 0 2>/dev/null || exit 0
+fi
 
 install_llvm
 
