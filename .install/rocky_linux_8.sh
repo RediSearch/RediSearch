@@ -9,15 +9,15 @@ if [ "${CHECK_DEPS:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then $MODE dnf updat
 # Development Tools includes config-manager. Skip it once the core compiler
 # trio is present so re-runs / dry-run don't keep re-listing the large group.
 if ! rpm -q gcc gcc-c++ make >/dev/null 2>&1; then
-    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq"
+    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq < /dev/null"
 fi
 
 # powertools (Rocky/Alma) or codeready-builder (RHEL) is needed to install epel
 dnf repolist --enabled 2>/dev/null | grep -qiE 'powertools|crb|codeready' || \
     _sh "$MODE dnf config-manager --set-enabled powertools 2>/dev/null || $MODE dnf config-manager --set-enabled \"codeready-builder-for-rhel-8-\$(uname -m)-rpms\" 2>/dev/null || true"
 
-# get epel to install gcc13
-rpm -q epel-release >/dev/null 2>&1 || _run dnf install epel-release -yqq
+# get epel to install gcc13 (dnf_install records it in list + is idempotent in real)
+dnf_install epel-release
 
 dnf_install gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
     gcc-toolset-13-libatomic-devel make wget git openssl openssl-devel \

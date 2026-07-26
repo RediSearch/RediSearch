@@ -13,7 +13,7 @@ tdnf_install() {
     if [ "${CHECK_DEPS:-0}" = 1 ]; then _check_pkgs "${pkgs[@]}"; return 0; fi
     if [ "${DRY_RUN:-0}" = 1 ]; then
         local miss; miss=$(_missing_only "${pkgs[@]}")
-        [ -n "$miss" ] && _sh "$MODE tdnf install -y $miss"
+        [ -n "$miss" ] && _sh "$MODE tdnf install -y $miss < /dev/null"
         return 0
     fi
     local i

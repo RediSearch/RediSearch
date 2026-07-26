@@ -21,7 +21,7 @@ dnf_install openssl openssl-devel which rsync unzip curl gdb xz
 # libstdc++ (GCC 11) only provides up to GLIBCXX_3.4.29. Install a newer
 # libstdc++ runtime from Fedora 43. --allowerasing lets dnf remove conflicting
 # packages (e.g. annobin, which requires gcc < 12) to satisfy the upgrade.
-_sh "$MODE dnf install -y --repofrompath=fedora,'https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/\$basearch/os/' --setopt=fedora.gpgcheck=0 --disablerepo='*' --enablerepo=fedora --skip-broken libstdc++ || true"
+_sh "$MODE dnf install -y --repofrompath=fedora,'https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/\$basearch/os/' --setopt=fedora.gpgcheck=0 --disablerepo='*' --enablerepo=fedora --skip-broken libstdc++ < /dev/null || true"
 
 # Install LLVM for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE

@@ -56,6 +56,7 @@ hash -r
 # cargo (mirrors the real install condition); cheadergen when header-gen is on.
 if [ "${CHECK_DEPS:-0}" = 1 ]; then
     if command -v rustup >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then DEPS_OK="$DEPS_OK rust"; else DEPS_MISSING="$DEPS_MISSING rust"; fi
+    if [ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" = "$NEXTEST_VERSION" ]; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
     if should_generate_headers; then
         if [ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" = "$REQUIRED_CHEADERGEN_VERSION" ]; then DEPS_OK="$DEPS_OK cheadergen"; else DEPS_MISSING="$DEPS_MISSING cheadergen"; fi
     fi
@@ -72,10 +73,15 @@ fi
 if [ "${DRY_RUN:-0}" = 1 ]; then
     _need=0
     command -v rustup >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1 || _need=1
-    rustup toolchain list 2>/dev/null | grep -q "$PINNED_VERSION" || _need=1
-    [ "$(cargo nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" = "$NEXTEST_VERSION" ] || _need=1
+    # pending unless the pinned toolchain has BOTH clippy and rustfmt (the
+    # install adds missing components, so "toolchain present" alone isn't enough)
+    { rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' \
+      && rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'; } || _need=1
+    [ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" = "$NEXTEST_VERSION" ] || _need=1
     if should_generate_headers; then
-        rustup toolchain list 2>/dev/null | grep -q "$NIGHTLY_VERSION" || _need=1
+        # pending unless the nightly toolchain has rust-docs-json (the install
+        # adds it; "toolchain present" alone isn't enough — mirrors the pinned check)
+        rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json' || _need=1
         [ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" = "$REQUIRED_CHEADERGEN_VERSION" ] || _need=1
     fi
     if [ "$_need" = 1 ]; then
@@ -90,11 +96,13 @@ elif [ "${DRY_RUN:-0}" != 1 ]; then
     echo "rustup and cargo already installed - skipping rustup-init"
 fi
 
-# Install the repo's pinned toolchain explicitly — skip when it's already present
-# so a provisioned host emits nothing (same end state either way: the install is
-# a no-op when the exact version exists). --profile=minimal + explicit
-# clippy/rustfmt (which `make lint`/`make fmt` need); rustdoc HTML is omitted.
-if ! rustup toolchain list 2>/dev/null | grep -q "$PINNED_VERSION"; then
+# Install the repo's pinned toolchain explicitly. Gate on the COMPONENTS, not
+# just the toolchain: `rustup toolchain install` only ADDS components, so a
+# pre-existing minimal-profile toolchain still needs clippy/rustfmt (which `make
+# lint`/`make fmt` require). Skip only when both are already installed — so a
+# fully-provisioned host emits nothing, but a minimal one gets the components.
+if ! { rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' \
+    && rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'; }; then
     _sh "rustup toolchain install --profile=minimal \"$PINNED_VERSION\" -c clippy -c rustfmt"
 fi
 
@@ -142,7 +150,7 @@ fi
 
 # cargo-nextest — the runner `make test` / `make rust-tests` invoke. Pinned via
 # .nextest-version; Linux uses the static musl prebuilt (works on glibc & musl).
-if [ "$(cargo nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" != "$NEXTEST_VERSION" ]; then
+if [ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" != "$NEXTEST_VERSION" ]; then
     if [[ "$OS_TYPE" = 'Darwin' ]]; then
         nextest_artifact="mac"
     elif [[ "$processor" =~ ^(aarch64|arm64)$ ]]; then
@@ -157,7 +165,10 @@ fi
 # cheadergen — required when REDISEARCH_GENERATE_HEADERS=ON (default). Uses
 # rustdoc JSON from the pinned nightly toolchain to regenerate the Rust C headers.
 if should_generate_headers; then
-    if ! rustup toolchain list 2>/dev/null | grep -q "$NIGHTLY_VERSION"; then
+    # Gate on the COMPONENT, not just the toolchain: the install adds
+    # rust-docs-json, so a pre-existing nightly without it still needs this
+    # (cheadergen reads its rustdoc JSON). Skip only when it's already present.
+    if ! rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json'; then
         _sh "rustup toolchain install \"$NIGHTLY_VERSION\" --profile=minimal --allow-downgrade --component rust-docs-json"
     fi
     if [ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" != "$REQUIRED_CHEADERGEN_VERSION" ]; then
