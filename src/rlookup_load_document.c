@@ -209,7 +209,16 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   const bool borrowedKey = options->openKey && (type == DocumentType_Hash || type == DocumentType_Json);
   if (borrowedKey) {
     if (type == DocumentType_Json) {
-      key = japi ? (void *)japi->getJsonFromHandle(options->openKey) : NULL;
+      RS_ASSERT(japi);
+      if (!japi) {
+        key = NULL;
+      } else if (japi_ver >= 8) {
+        key = (void *)japi->getJsonFromHandle(options->openKey);
+      } else {
+        RS_ASSERT(japi->isJSON(options->openKey));
+        key = japi->isJSON(options->openKey) ? RedisModule_ModuleTypeGetValue(options->openKey)
+                                             : NULL;
+      }
     } else {
       key = options->openKey;
     }
