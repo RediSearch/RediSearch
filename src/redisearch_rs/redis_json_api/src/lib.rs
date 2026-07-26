@@ -19,15 +19,15 @@ use redis_module::{RedisString, key::KeyFlags};
 use std::{error::Error, ffi::CStr, fmt};
 
 pub use key_values::KeyValuesIterator;
-pub use path::JsonPath;
+pub use path::{CompiledPath, JsonPath};
 pub use results::ResultsIter;
 pub use value::{JsonType, JsonValue, JsonValueRef};
 
 /// Minimum supported API version.
 pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER as i32;
 
-/// Latest API version (V8).
-pub const LATEST_API_VERSION: i32 = 8;
+/// Latest API version (V9).
+pub const LATEST_API_VERSION: i32 = 9;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";

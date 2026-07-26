@@ -9,6 +9,7 @@
 
 use std::{
     borrow::Cow,
+    cell::OnceCell,
     ffi::{CStr, c_char},
     mem,
     ops::{Deref, DerefMut},
@@ -19,6 +20,7 @@ use std::{
 
 use enumflags2::{BitFlags, bitflags, make_bitflags};
 use pin_project::pin_project;
+use redis_json_api::{CompiledPath, RedisJsonApi};
 
 use crate::bindings::{FieldSpecOption, FieldSpecOptions, FieldSpecType, FieldSpecTypes};
 
@@ -154,6 +156,15 @@ pub struct RLookupKey<'a> {
     _name: Cow<'a, CStr>,
     #[pin]
     _path: Option<Cow<'a, CStr>>,
+
+    /// Compiled form of `_path`, filled lazily by [`Self::compiled_path`] and
+    /// reused across documents. Inner `None` means "not compilable" (non-`$`
+    /// path or parse failure).
+    ///
+    /// Not `#[pin]`: it derives purely from `_path`, which is only mutated
+    /// during key construction — before any load fills this cell — so it needs
+    /// no invalidation.
+    compiled: OnceCell<Option<CompiledPath>>,
 }
 
 #[cheadergen::config(export, rename = "RLookupKey")]
@@ -233,6 +244,7 @@ impl<'a> RLookupKey<'a> {
             },
             _name: name,
             _path: None,
+            compiled: OnceCell::new(),
         }
     }
 
@@ -306,6 +318,32 @@ impl<'a> RLookupKey<'a> {
 
     pub const fn path(&self) -> &Option<Cow<'a, CStr>> {
         &self._path
+    }
+
+    /// Returns this key's compiled JSONPath handle, compiling it on first use
+    /// and caching it for reuse across every document in the same query.
+    ///
+    /// Returns `None` when the path is not a JSONPath (does not begin with `$`,
+    /// e.g. the `__key` sentinel) or fails to compile.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must be a valid Redis module context.
+    pub(crate) unsafe fn compiled_path(
+        &self,
+        api: &RedisJsonApi,
+        ctx: *mut ffi::RedisModuleCtx,
+    ) -> Option<&CompiledPath> {
+        self.compiled
+            .get_or_init(|| {
+                let path: &CStr = self._path.as_ref()?;
+                if !path.to_bytes().starts_with(b"$") {
+                    return None;
+                }
+                // Safety: `ctx` is a valid Redis module context (caller contract).
+                unsafe { CompiledPath::parse(path, ctx, api) }
+            })
+            .as_ref()
     }
 
     pub fn is_tombstone(&self) -> bool {

@@ -9,6 +9,7 @@
 
 use redis_module::RedisString;
 
+use crate::CompiledPath;
 use crate::KeyValuesIterator;
 use crate::RedisJsonApi;
 use crate::ResultsIter;
@@ -286,6 +287,25 @@ impl<'a> JsonValueRef<'a> {
         let ptr = NonNull::new(ptr.cast_mut())?;
 
         // Safety: we obtained this pointer from `get`.
+        Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
+    }
+
+    /// Returns an iterator over values matched by a pre-compiled `path`.
+    ///
+    /// Like [`get`](Self::get), but evaluates a compiled [`CompiledPath`] rather
+    /// than re-parsing a path string. Requires RedisJSON API v9.
+    pub fn get_with_path(&self, path: &CompiledPath) -> Option<ResultsIter<'_>> {
+        let api = self.api.vtable();
+        let get_with_path = api
+            .getWithPath
+            .expect("RedisJSON API function `getWithPath` not available");
+
+        // Safety: `ptr` is valid by construction and `path` is a valid compiled handle.
+        let ptr = unsafe { get_with_path(self.ptr, path.as_ptr()) };
+        // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
+        let ptr = NonNull::new(ptr.cast_mut())?;
+
+        // Safety: we obtained this pointer from `getWithPath`.
         Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
     }
 

@@ -106,3 +106,74 @@ impl<'a> JsonPath<'a> {
         unsafe { path_has_defined_order(self.ptr.as_ptr()) != 0 }
     }
 }
+
+/// An owned, compiled JSONPath handle, evaluated with
+/// [`JsonValueRef::get_with_path`](crate::JsonValueRef::get_with_path).
+///
+/// Unlike [`JsonPath`], it stores the `pathFree` pointer instead of borrowing
+/// the [`RedisJsonApi`], so it can be cached and dropped independently of the
+/// API handle's lifetime.
+#[derive(Debug)]
+pub struct CompiledPath {
+    ptr: NonNull<c_void>,
+    free: unsafe extern "C" fn(*const c_void),
+}
+
+impl Drop for CompiledPath {
+    fn drop(&mut self) {
+        // Safety: `ptr` came from `pathParse` and is freed exactly once, here.
+        unsafe { (self.free)(self.ptr.as_ptr()) }
+    }
+}
+
+impl CompiledPath {
+    /// Compiles `path` into a reusable handle, returning `None` if it does not
+    /// parse (the caller treats an unparseable path as "no match").
+    ///
+    /// Only available with RedisJSON API v2 and later.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ctx` must be a valid Redis module context.
+    pub unsafe fn parse(
+        path: &CStr,
+        ctx: *mut ffi::RedisModuleCtx,
+        api: &RedisJsonApi,
+    ) -> Option<Self> {
+        let vtable = api.vtable();
+        let path_parse = vtable
+            .pathParse
+            .expect("RedisJSON API function `pathParse` not available");
+        let path_free = vtable
+            .pathFree
+            .expect("RedisJSON API function `pathFree` not available");
+
+        let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
+
+        // Safety: ensured by caller (1.)
+        let ptr = unsafe { path_parse(path.as_ptr(), ctx, &raw mut err_msg) };
+
+        match NonNull::new(ptr as *mut c_void) {
+            Some(ptr) => Some(Self {
+                ptr,
+                free: path_free,
+            }),
+            None => {
+                // On failure `pathParse` transfers ownership of the error string; free it.
+                if !err_msg.is_null() {
+                    // `err_msg` is owned by us on the failure path; dropping frees it.
+                    drop(RedisString::from_redis_module_string(
+                        ctx.cast(),
+                        err_msg.cast(),
+                    ));
+                }
+                None
+            }
+        }
+    }
+
+    /// The raw compiled-path pointer, for passing to `getWithPath`.
+    pub(crate) const fn as_ptr(&self) -> *const c_void {
+        self.ptr.as_ptr()
+    }
+}
