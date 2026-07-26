@@ -41,6 +41,16 @@ LOG_TAIL_LINES = 200
 
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
+# The login the workflow gives the bot (git identity + the App token's author).
+# Used to (a) skip general comments / review threads the bot has already
+# responded to, so repeated fix runs don't re-reply, and (b) find the timestamp
+# of the last fix attempt to bound which reviewer feedback is "new".
+BOT_LOGIN = "redis-pr-app[bot]"
+
+# Prefix of every fix-attempt comment the bot posts (applied and declined
+# templates both start with it — see pr-backport-auto-fix.md).
+FIX_ATTEMPT_PREFIX = "🤖 Auto-backport fix"
+
 
 # ---- helpers -----------------------------------------------------------------
 
@@ -189,24 +199,29 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
 
 
 # Bodies we never surface as actionable general comments: our own bot output
-# (the auto-backport / auto-fix summaries) and the `/backport-agent*` command
-# comments. The context comments are already collected separately above; feeding
-# the bot's own summaries back in would create a feedback loop.
-_BOT_COMMENT_PREFIXES = ("🤖 Auto-backport", "/backport-agent")
+# (the auto-backport / auto-fix summaries and per-comment replies) and the
+# `/backport-agent*` command comments. The context comments are already
+# collected separately above; feeding the bot's own summaries back in would
+# create a feedback loop.
+_BOT_COMMENT_PREFIXES = ("🤖 Auto-backport", "🤖 Re:", "/backport-agent")
 
 
+# `reviewThreads` is paginated (100 per page); a busy PR can exceed one page.
+# `$after` is a nullable cursor — omitted (→ null) on the first call by
+# `gh_graphql`, then set from `pageInfo.endCursor` on subsequent pages.
 REVIEW_THREADS_QUERY = """
-query($owner:String!, $repo:String!, $pr:Int!) {
+query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$pr) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$after) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
           isOutdated
           path
           line
-          comments(first:50) {
+          comments(first:100) {
             nodes { author { login } authorAssociation body }
           }
         }
@@ -224,9 +239,29 @@ def _owner_repo() -> tuple[str, str]:
     return owner, name
 
 
+def last_fix_attempt_timestamp(pr: int) -> str | None:
+    """ISO-8601 `created_at` of the most recent bot fix-attempt comment, or None.
+
+    GitHub timestamps are UTC `...Z` strings, so max() by string order == max by
+    time. Used to bound which general comments / review bodies count as "new"
+    feedback the current run hasn't seen — feedback authored *before* the last
+    fix attempt was already available to that run (and possibly replied to), so
+    re-surfacing it would make repeated `/backport-agent-fix` runs re-reply to
+    the same comment. Best-effort: [] on gh failure → None (surface everything).
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    stamps = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
+        "--jq",
+        f'[ .[] | select(.body | startswith("{FIX_ATTEMPT_PREFIX}")) | .created_at ]',
+    )
+    stamps = [s for s in stamps if isinstance(s, str)]
+    return max(stamps) if stamps else None
+
+
 def fetch_unresolved_review_threads(pr: int) -> list[dict]:
     """Unresolved inline review threads whose root comment was authored by a
-    write-level user (OWNER/MEMBER/COLLABORATOR).
+    write-level user (OWNER/MEMBER/COLLABORATOR), across ALL pages.
 
     Returns one entry per thread: its GraphQL node id (needed by the agent to
     call `resolveReviewThread`), the `path`/`line` it anchors to, and the
@@ -235,55 +270,75 @@ def fetch_unresolved_review_threads(pr: int) -> list[dict]:
     started by non-write-level users are dropped here and reach the agent only
     (if at all) as untrusted evidence, never as actionable input.
 
-    Best-effort: `gh_graphql` returns None on any gh failure, in which case we
-    return [] rather than aborting the fix run.
+    Threads whose most recent comment is the bot's own reply are skipped: the
+    bot already responded and is awaiting the reviewer, so re-surfacing them
+    would make a follow-up fix run re-reply. Best-effort: any gh failure returns
+    the pages gathered so far rather than aborting the run.
     """
     owner, repo = _owner_repo()
-    data = common.gh_graphql(REVIEW_THREADS_QUERY, owner=owner, repo=repo, pr=pr)
-    try:
-        nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-    except (TypeError, KeyError):
-        return []
-
     threads: list[dict] = []
-    for node in nodes or []:
-        if node.get("isResolved"):
-            continue
-        comments = ((node.get("comments") or {}).get("nodes")) or []
-        if not comments:
-            continue
-        # Gate on the ROOT comment's author — the person who opened the thread.
-        root = comments[0]
-        if root.get("authorAssociation") not in TRUSTED_ASSOCIATIONS:
-            continue
-        bodies = [
-            {
-                "author": ((c.get("author") or {}).get("login")) or "",
-                "body": c.get("body") or "",
-            }
-            for c in comments
-            if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
-        ]
-        if not bodies:
-            continue
-        threads.append({
-            "thread_id": node.get("id"),
-            "path": node.get("path"),
-            "line": node.get("line"),
-            "is_outdated": bool(node.get("isOutdated")),
-            "comments": bodies,
-        })
+    after: str | None = None
+    while True:
+        data = common.gh_graphql(
+            REVIEW_THREADS_QUERY, owner=owner, repo=repo, pr=pr, after=after,
+        )
+        try:
+            conn = data["repository"]["pullRequest"]["reviewThreads"]
+            nodes = conn["nodes"]
+        except (TypeError, KeyError):
+            break
+
+        for node in nodes or []:
+            if node.get("isResolved"):
+                continue
+            comments = ((node.get("comments") or {}).get("nodes")) or []
+            if not comments:
+                continue
+            # Bot already replied and is awaiting the reviewer — don't re-surface.
+            if ((comments[-1].get("author") or {}).get("login")) == BOT_LOGIN:
+                continue
+            # Gate on the ROOT comment's author — the person who opened the thread.
+            root = comments[0]
+            if root.get("authorAssociation") not in TRUSTED_ASSOCIATIONS:
+                continue
+            bodies = [
+                {
+                    "author": ((c.get("author") or {}).get("login")) or "",
+                    "body": c.get("body") or "",
+                }
+                for c in comments
+                if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
+            ]
+            if not bodies:
+                continue
+            threads.append({
+                "thread_id": node.get("id"),
+                "path": node.get("path"),
+                "line": node.get("line"),
+                "is_outdated": bool(node.get("isOutdated")),
+                "comments": bodies,
+            })
+
+        page = conn.get("pageInfo") or {}
+        if not page.get("hasNextPage"):
+            break
+        after = page.get("endCursor")
+        if not after:
+            break
     return threads
 
 
-def fetch_general_pr_comments(pr: int) -> list[dict]:
+def fetch_general_pr_comments(pr: int, since: str | None) -> list[dict]:
     """Write-level general (issue-style) PR comments, excluding the bot's own
-    summaries and `/backport-agent*` command comments.
+    summaries/replies and `/backport-agent*` command comments.
 
     Same author-association trust gate as the review-thread / context
     collectors. `/backport-agent-context` comments are intentionally NOT
     re-surfaced here — they are already collected (stripped of their prefix)
-    into `context[]`.
+    into `context[]`. Each entry keeps the comment `id` so its identity is
+    preserved across runs. When `since` is set (the last fix attempt's
+    timestamp), only comments created strictly after it are returned, so a
+    repeated fix run doesn't re-reply to feedback the prior run already saw.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     raw = common.gh_paginated_array(
@@ -293,14 +348,57 @@ def fetch_general_pr_comments(pr: int) -> list[dict]:
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
-        "| {author: .user.login, body: .body} ]",
+        "| {id: .id, author: .user.login, body: .body, created_at: .created_at} ]",
     )
     out: list[dict] = []
     for c in raw:
-        body = (c.get("body") or "") if isinstance(c, dict) else ""
+        if not isinstance(c, dict):
+            continue
+        body = c.get("body") or ""
         if not body or body.startswith(_BOT_COMMENT_PREFIXES):
             continue
-        out.append({"author": c.get("author") or "", "body": body})
+        created = c.get("created_at") or ""
+        if since and created and created <= since:
+            continue
+        out.append({"id": c.get("id"), "author": c.get("author") or "", "body": body})
+    return out
+
+
+def fetch_review_bodies(pr: int, since: str | None) -> list[dict]:
+    """Write-level top-level PR *review* bodies (the summary text of a review,
+    e.g. a "Request changes" with no inline comment).
+
+    Such feedback is stored as a pull-request review, not an issue comment or a
+    review thread, so neither of the other collectors sees it. Same trust gate
+    and `since` cutoff as `fetch_general_pr_comments`; the bot's own reviews are
+    dropped both by the author-association gate and the login check. There is no
+    thread to resolve — the agent replies via a normal PR comment, exactly as
+    for general comments, so entries share the same `{id, author, body}` shape.
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    raw = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/pulls/{pr}/reviews",
+        "--jq",
+        "[ .[] "
+        "| select(.author_association == \"OWNER\" "
+        '     or .author_association == "MEMBER" '
+        '     or .author_association == "COLLABORATOR") '
+        "| select((.body // \"\") != \"\") "
+        "| {id: .id, author: .user.login, body: .body, submitted_at: .submitted_at} ]",
+    )
+    out: list[dict] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        body = r.get("body") or ""
+        if not body or body.startswith(_BOT_COMMENT_PREFIXES):
+            continue
+        if (r.get("author") or "") == BOT_LOGIN:
+            continue
+        submitted = r.get("submitted_at") or ""
+        if since and submitted and submitted <= since:
+            continue
+        out.append({"id": r.get("id"), "author": r.get("author") or "", "body": body})
     return out
 
 
@@ -379,9 +477,14 @@ def main() -> int:
 
     # Write-level reviewer feedback the agent should try to address alongside the
     # CI-failure fix: unresolved inline review threads (which it can mark
-    # resolved) and general PR comments (which it can only reply to).
+    # resolved), plus general PR comments and top-level review bodies (which it
+    # can only reply to). Comments/reviews are bounded to those newer than the
+    # last fix attempt so a repeated run doesn't re-reply to already-seen
+    # feedback; review threads self-dedup via their resolved state and the
+    # bot-replied-last check.
+    since = last_fix_attempt_timestamp(int(pr))
     review_threads = fetch_unresolved_review_threads(int(pr))
-    pr_comments = fetch_general_pr_comments(int(pr))
+    pr_comments = fetch_general_pr_comments(int(pr), since) + fetch_review_bodies(int(pr), since)
 
     runner_temp = os.environ["RUNNER_TEMP"]
     context_file = os.path.join(runner_temp, "auto-backport-fix-context.json")

@@ -77,7 +77,7 @@ The file looks like:
     }
   ],
   "pr_comments": [
-    {"author": "bob", "body": "The 8.6 backport also needs the header include from the original PR."}
+    {"id": 123456, "author": "bob", "body": "The 8.6 backport also needs the header include from the original PR."}
   ]
 }
 ```
@@ -90,9 +90,13 @@ workflow has already filtered to OWNER/MEMBER/COLLABORATOR authors (same gate as
   GraphQL node id you pass to `resolveReviewThread` once you address the thread;
   `path`/`line` locate it (`line` may be `null` for an outdated thread);
   `comments[]` are the write-level comments in the thread, oldest first.
-- `pr_comments[]` — general (non-inline) PR comments. The bot's own summaries and
-  `/backport-agent*` command comments are already filtered out. These have no
-  thread to resolve — you address them in code (if in scope) and reply.
+- `pr_comments[]` — general (non-inline) PR comments **and** top-level review
+  bodies (e.g. a "Request changes" review with no inline comment). The bot's own
+  summaries/replies and `/backport-agent*` command comments are already filtered
+  out, and the list is bounded to feedback newer than the last fix attempt so
+  you don't re-reply to comments a prior run already handled. Each carries an
+  `id` (its identity). These have no thread to resolve — you address them in
+  code (if in scope) and reply once with a normal PR comment.
 
 If the file is missing or malformed, or `$BACKPORT_FIX_CONTEXT_FILE` is empty,
 stop and print a one-line error. Do not push.

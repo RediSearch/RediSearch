@@ -38,6 +38,16 @@ import common  # noqa: E402
 # is the release branch to backport to.
 LABEL_RE = re.compile(r"^backport-(.+)-agent$")
 
+# A valid target is a release-branch name: `MAJOR.MINOR` optionally followed by
+# a variant suffix (e.g. `8.6`, `8.10`, `8.6-rse`, `2.8`). This is the gate that
+# keeps malformed targets out of the run — whether they come from a user-typed
+# `/backport-agent <list>` comment (`8.6x`, `foo`, path/injection-ish tokens) or
+# a mis-provisioned label (`backport-experimental-agent`). A well-formed target
+# that simply doesn't exist as a branch is still caught later by the agent's
+# per-target `git ls-remote` pre-flight; this only rejects things that could
+# never be a branch, before they reach branch-name construction.
+TARGET_RE = re.compile(r"^\d+\.\d+(?:-[A-Za-z0-9._-]+)?$")
+
 # The command token must be exactly `/backport-agent`, optionally followed by
 # whitespace and a target list. Anchored with a trailing boundary so mistyped
 # siblings like `/backport-agentcontext` don't get their suffix parsed as a
@@ -82,43 +92,59 @@ def resolve_targets(event_name: str, event_action: str,
     """Derive the deduplicated target-branch list from event + PR state."""
     targets: list[str] = []
 
-    # 1) `/backport-agent <list>` overrides labels for the run.
+    # 1) An explicit `/backport-agent <list>` comment overrides labels for the
+    #    run. A *plain* `/backport-agent` (no args) returns [] here and falls
+    #    through to the label scan below — the documented "backport to whatever
+    #    labels are on the PR" behavior.
     if event_name == "issue_comment":
         targets = parse_comment_args(comment_body)
 
-    # 2) Any `pull_request_target` event (both `closed` and `labeled`) backports
-    #    to EVERY matching label currently on the PR — never just the one label
-    #    that fired. On a `labeled` event we start from the just-fired label
-    #    (`github.event.label.name`) as a guard against the `gh pr view` label
-    #    snapshot lagging the event, then union in all matching PR labels.
-    #
-    #    Resolving all labels on the labeled path (rather than only the fired
-    #    one) is what makes multi-label backports reliable: adding several
-    #    `backport-<branch>-agent` labels fires a separate `labeled` run per
-    #    label, and the per-PR concurrency group (cancel-in-progress: false)
-    #    keeps only the LATEST pending run, cancelling the intermediates. If
-    #    each run resolved only its own fired label, the cancelled runs' targets
-    #    would be silently dropped. Having whichever run survives resolve the
-    #    full current label set means no target is lost, and the agent's
-    #    per-target idempotency (it skips any target whose backport PR already
-    #    exists) makes re-processing an already-handled label a no-op.
-    if not targets and event_name == "pull_request_target":
-        if event_action == "labeled":
+    if not targets:
+        # 2) On a `labeled` event, seed the just-fired label
+        #    (`github.event.label.name`) first, as a guard against the
+        #    `gh pr view` label snapshot lagging the webhook event.
+        if event_name == "pull_request_target" and event_action == "labeled":
             m = LABEL_RE.match(label_name or "")
             if m:
                 targets.append(m.group(1))
+
+        # 3) Fall back to EVERY matching label currently on the PR. This runs
+        #    for a plain `/backport-agent` comment, a `labeled` event, and a
+        #    `closed`-merged event alike — never just the one label that fired.
+        #
+        #    Resolving all labels (rather than only the fired one) is what makes
+        #    multi-label backports reliable: adding several
+        #    `backport-<branch>-agent` labels fires a separate `labeled` run per
+        #    label, and the per-PR concurrency group (cancel-in-progress: false)
+        #    keeps only the LATEST pending run, cancelling the intermediates. If
+        #    each run resolved only its own fired label, the cancelled runs'
+        #    targets would be silently dropped. Having whichever run survives
+        #    resolve the full current label set means no target is lost, and the
+        #    agent's per-target idempotency (it skips any target whose backport
+        #    PR already exists) makes re-processing an already-handled label a
+        #    no-op.
         for label in pr_data.get("labels", []) or []:
             m = LABEL_RE.match(label.get("name", ""))
             if m:
                 targets.append(m.group(1))
 
-    # Dedup, preserve order.
+    # Dedup (preserve order) and drop anything that isn't a well-formed release
+    # branch name — see TARGET_RE. Malformed targets are logged and skipped
+    # rather than aborting the run: one bad comment token or stray label must
+    # not stop the valid targets from being backported.
     seen: set[str] = set()
     out: list[str] = []
+    dropped: list[str] = []
     for t in targets:
-        if t not in seen:
-            seen.add(t)
+        if t in seen:
+            continue
+        seen.add(t)
+        if TARGET_RE.match(t):
             out.append(t)
+        else:
+            dropped.append(t)
+    if dropped:
+        common.log(f"Ignoring malformed backport target(s): {', '.join(dropped)}")
     return out
 
 

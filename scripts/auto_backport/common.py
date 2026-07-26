@@ -81,12 +81,17 @@ def gh_graphql(query: str, **variables: Any) -> Any:
     """Run a GraphQL query via `gh api graphql` and return the decoded `data`.
 
     `variables` are passed as typed `-F name=value` fields (gh infers int/bool
-    from the literal). Returns the `data` object, or `None` on any failure —
-    these calls are best-effort (a transient gh/network hiccup shouldn't kill a
-    backport-fix run), mirroring `gh_paginated_array`.
+    from the literal). A variable whose value is `None` is omitted entirely, so
+    a nullable GraphQL variable declared in the query resolves to `null` — this
+    is how a pagination cursor is passed as null on the first page. Returns the
+    `data` object, or `None` on any failure — these calls are best-effort (a
+    transient gh/network hiccup shouldn't kill a backport-fix run), mirroring
+    `gh_paginated_array`.
     """
     args = ["api", "graphql", "-f", f"query={query}"]
     for name, value in variables.items():
+        if value is None:
+            continue
         args += ["-F", f"{name}={value}"]
     try:
         out = gh(*args, check=False)
