@@ -390,6 +390,11 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }
 
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && handle);
+    return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
+}
+
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
     RS_ASSERT(disk && handle);
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
