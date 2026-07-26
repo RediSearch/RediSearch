@@ -892,6 +892,12 @@ void SearchDisk_PreFork(IndexSpec *sp);
 void SearchDisk_PostFork(IndexSpec *sp);
 
 /**
+ * @brief Hot-restart save-ended hook: re-enable compactions, keep the numeric
+ * consistency gate closed. See IndexDiskAPI.hotRestartSaveEnded.
+ */
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp);
+
+/**
  * @brief Master-side SST replication ABORT hook for a single index.
  *
  * Dispatches to the disk-side replicationAbort hook, then releases whichever
