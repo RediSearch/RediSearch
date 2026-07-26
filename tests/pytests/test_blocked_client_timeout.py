@@ -96,21 +96,6 @@ def _assert_return_strict_cursor_timeout_reply(env, res_pair, expected_cid,
     env.assertEqual(res.get('warning', []), [TIMEOUT_WARNING],
                     message=f"{message_prefix}: expected [TIMEOUT_WARNING], got {res.get('warning')}")
 
-def _assert_cursor_read_happy_path(env, cursor_id, chunk_size=10, message_prefix=""):
-    """Assert happy-path FT.CURSOR READ: non-empty results and no warnings."""
-    prev_info = info_modules_to_dict(env)
-    read_res, read_cid = env.cmd('FT.CURSOR', 'READ', 'idx', str(cursor_id))
-    env.assertEqual(read_cid, cursor_id,
-                        message=f"{message_prefix}: Cursor should still be open after one follow-up read")
-    rows = read_res.get('results', [])
-    env.assertEqual(len(rows), chunk_size,
-                    message=f"{message_prefix}: Expected exactly {chunk_size} rows on follow-up read, "
-                            f"got {rows}")
-    env.assertEqual(read_res.get('warning', []), [],
-                    message=f"{message_prefix}: Expected no warnings on follow-up read, got {read_res.get('warning')}")
-    _verify_metrics_not_changed(env, env, prev_info, [TIMEOUT_WARNING_COORD_METRIC])
-
-
 def _start_collecting_cursor_read(env, cursor_id, out_list, blocked_msg='Client for FT.CURSOR|READ not found'):
     """Run ``FT.CURSOR READ`` in a thread, collecting the reply tuple in `out_list`,
     and return ``(thread, blocked_client_id)`` once the BC is parked."""
@@ -242,15 +227,6 @@ def is_client_blocked(target, client_id):
     if not clients:
         return False
     return 'b' in clients[0].get('flags', '')
-
-
-def wait_for_client_blocked(env, client_id, timeout=30):
-    """Wait for a client to become blocked."""
-    def check_fn():
-        blocked = is_client_blocked(env, client_id)
-        return blocked, {'client_id': client_id, 'blocked': blocked}
-    client_list = env.execute_command('CLIENT', 'LIST')
-    wait_for_condition(check_fn, f'Timeout waiting for client {client_id} to be blocked , list = {client_list}', timeout)
 
 
 def wait_for_client_unblocked(env, client_id, timeout=30):
@@ -4185,15 +4161,6 @@ class TestCoordinatorTimeout:
                         str(base_warn_coord + 1),
                         message=f"Coordinator timeout warning metric should be +1 after {context}")
         _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_WARNING_COORD_METRIC])
-
-    def _drain_paused_cursor_after_timeout(self, cursor_id, baseline_cursor_total, context):
-        """After a RETURN_STRICT timeout reply, drain the cursor to EOF and assert it
-        was reclaimed cleanly. Returns total rows seen across drain reads."""
-        env = self.env
-        rows = _drain_cursor(env, cursor_id)
-        _wait_for_cursor_cleanup(env, baseline_cursor_total, context)
-        env.expect('FT.CURSOR', 'READ', 'idx', str(cursor_id)).error().contains('Cursor not found')
-        return rows
 
     def test_return_strict_timeout_before_coord_pickup_cursor_read(self):
         """Scenario 1: RETURN_STRICT timeout fires before the coord threadpool
