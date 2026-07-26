@@ -2068,8 +2068,6 @@ RSTimeoutPolicy TimeoutPolicy_Parse(const char *s, size_t n) {
     return TimeoutPolicy_Return;
   } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_Fail])) {
     return TimeoutPolicy_Fail;
-  } else if (STR_EQCASE(s, n, on_timeout_vals[TimeoutPolicy_ReturnStrict])) {
-    return TimeoutPolicy_ReturnStrict;
   } else {
     return TimeoutPolicy_Invalid;
   }
@@ -2483,7 +2481,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       ctx, "search-on-timeout",
       SearchDisk_IsEnabled() ? DEFAULT_TIMEOUT_POLICY_FLEX : DEFAULT_TIMEOUT_POLICY,
       REDISMODULE_CONFIG_UNPREFIXED,
-      on_timeout_vals, on_timeout_enums, 3,
+      on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
     )

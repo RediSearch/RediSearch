@@ -124,6 +124,8 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'MT_MODE', 1).error().contains(not_modifiable) # deprecated
     env.expect(config_cmd(), 'set', 'FRISOINI', 1).error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 1).error().contains('Invalid ON_TIMEOUT value')
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'return-strict').error()\
+        .contains('Invalid ON_TIMEOUT value')
     env.expect(config_cmd(), 'set', 'GCSCANSIZE', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'MIN_PHONETIC_TERM_LEN', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'GC_POLICY', 1).error().contains(not_modifiable)
@@ -265,7 +267,6 @@ def testInitConfig():
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
     _test_config_str('ON_TIMEOUT', 'fail')
-    _test_config_str('ON_TIMEOUT', 'return-strict')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -1180,11 +1181,9 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
 
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return-strict'])
-
     # Test search-on-timeout - invalid values
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'return-strict').error()\
+            .contains('CONFIG SET failed')
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
