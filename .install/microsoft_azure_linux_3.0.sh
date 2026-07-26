@@ -2,29 +2,6 @@
 MODE=$1 # whether to install using sudo or not
 set -eo pipefail
 
-# tdnf intermittently fails on Azure Linux mirrors with
-# "TDNFVerifySignature 2004" / "Failed to synchronize cache". Retry, and
-# within each attempt fall back to skipping the repo-metadata GPG plugin
-# (per-package GPG checks still apply). In list/dry-run mode it records /
-# prints (the package names, minus flags) instead of installing.
-tdnf_install() {
-    local a pkgs=()
-    for a in "$@"; do case "$a" in -*) ;; *) pkgs+=("$a") ;; esac; done
-    if [ "${CHECK_DEPS:-0}" = 1 ]; then _check_pkgs "${pkgs[@]}"; return 0; fi
-    if [ "${DRY_RUN:-0}" = 1 ]; then
-        local miss; miss=$(_missing_only "${pkgs[@]}")
-        [ -n "$miss" ] && _sh "$MODE tdnf install -y $miss < /dev/null"
-        return 0
-    fi
-    local i
-    for i in 1 2 3; do
-        $MODE tdnf install -y "$@" && return 0
-        $MODE tdnf --disableplugin=tdnfrepogpgcheck install -y "$@" && return 0
-        [ "$i" -lt 3 ] && sleep 10
-    done
-    return 1
-}
-
 tdnf_install -q build-essential ca-certificates gdb git libxcrypt-devel openssl-devel rsync tar unzip wget which xz
 
 # Install LLVM for LTO

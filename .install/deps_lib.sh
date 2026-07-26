@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Dependency-check / dry-run machinery + package-manager install primitives
-# for RediSearch's bootstrap. Modeled on redistimeseries' lib/pm.sh, adapted
-# to this module's framework (the sudo prefix is $MODE, set by install_script.sh
-# from $1; scripts are `source`d, so early-exits use `return 0 2>/dev/null`).
+# for RediSearch's bootstrap. Scripts are `source`d, so early exits use
+# `return 0 2>/dev/null`.
 #
 # Sourced by install_script.sh (before the OS script) and defensively by the
 # scripts install_script.sh runs as subprocesses (install_llvm.sh on macOS,
@@ -24,7 +23,8 @@ fi
 _DEPS_LIB_SOURCED=1
 
 # ----------------------------------------------------------------------------
-# Package-manager + sudo-prefix detection
+# Package-manager + sudo-prefix detection. Keep this local to the install
+# primitives because install, list, and dry-run all need the same PM value.
 # ----------------------------------------------------------------------------
 if [ "$(uname -s)" = "Darwin" ]; then
     PM="brew"; SUDO=""
@@ -45,6 +45,8 @@ DEPS_MISSING="${DEPS_MISSING:-}"
 DEPS_OPT_OK="${DEPS_OPT_OK:-}"
 DEPS_OPT_MISSING="${DEPS_OPT_MISSING:-}"
 
+source "$(dirname "${BASH_SOURCE[0]}")/min_versions.sh"
+
 # Optional deps: still installed by a real bootstrap; this only splits them
 # into a separate "optional" list bucket and stops a missing one from failing
 # `make bootstrap list`. Optional = tests/coverage/debug/feature extras that
@@ -56,7 +58,7 @@ _is_optional() { case " $OPTIONAL_PKGS " in *" $1 "*) return 0 ;; *) return 1 ;;
 # MIN_VERSIONS: sparse "pkg:minversion" list — only deps with a real floor a
 # distro package can satisfy. cmake's >= 3.25 is provisioned by install_cmake.sh
 # (recorded there), so it's intentionally NOT here.
-MIN_VERSIONS="${MIN_VERSIONS:-gcc:10 g++:10}"
+MIN_VERSIONS="${MIN_VERSIONS:-gcc:${GCC_MIN_VERSION} g++:${GPP_MIN_VERSION}}"
 _min_for() { for _e in $MIN_VERSIONS; do case "$_e" in "$1:"*) echo "${_e#*:}"; return ;; esac; done; }
 
 _get_installed_version() {
@@ -80,14 +82,20 @@ fi
 
 # dry-run colors (only on a real terminal; plain when piped, e.g. CI logs).
 if [ "$DRY_RUN" = 1 ] && [ -t 1 ]; then
-    _DRY_C="$(printf '\033[0;34m')"; _DRY_H="$(printf '\033[1;36m')"; _DRY_R="$(printf '\033[0m')"
-else _DRY_C=""; _DRY_H=""; _DRY_R=""; fi
-_dry_line() { printf '%s%s%s\n' "$_DRY_C" "$*" "$_DRY_R"; }
-_dry_head() { printf '%s%s%s\n' "$_DRY_H" "$*" "$_DRY_R"; }
+    _DRY_CMD_COLOR="$(printf '\033[0;34m')"
+    _DRY_HEADER_COLOR="$(printf '\033[1;36m')"
+    _DRY_RESET="$(printf '\033[0m')"
+else
+    _DRY_CMD_COLOR=""
+    _DRY_HEADER_COLOR=""
+    _DRY_RESET=""
+fi
+_dry_line() { printf '%s%s%s\n' "$_DRY_CMD_COLOR" "$*" "$_DRY_RESET"; }
+_dry_head() { printf '%s%s%s\n' "$_DRY_HEADER_COLOR" "$*" "$_DRY_RESET"; }
 
 # _run CMD... — install: execute (real sudo prefix); dry-run: print it (blue);
 # list: skip. Callers pre-filter to missing packages.
-_apt_df_shown=0
+_apt_debian_frontend_shown=0
 _run() {
     if [ "$CHECK_DEPS" = 1 ]; then return 0
     elif [ "$DRY_RUN" = 1 ]; then
@@ -96,8 +104,9 @@ _run() {
                 # First pkg-manager command: on apt, emit the noninteractive
                 # frontend right before it — only when there IS an apt command,
                 # so a box needing no apt install prints no export noise.
-                if [ "$PM" = apt ] && [ "$_apt_df_shown" = 0 ]; then
-                    _dry_line 'export DEBIAN_FRONTEND=noninteractive'; _apt_df_shown=1
+                if [ "$PM" = apt ] && [ "$_apt_debian_frontend_shown" = 0 ]; then
+                    _dry_line 'export DEBIAN_FRONTEND=noninteractive'
+                    _apt_debian_frontend_shown=1
                 fi
                 # apt-get/dnf/... read stdin; in a pasted dry-run that stdin IS
                 # the following commands, so the pkg manager swallows the rest of
@@ -194,6 +203,28 @@ yum_install() {
     if [ "$CHECK_DEPS" = 1 ]; then _check_pkgs "$@"; return 0; fi
     if [ "$DRY_RUN" = 1 ]; then set -- $(_missing_only "$@"); [ "$#" -gt 0 ] || return 0; fi
     _run yum install -y --skip-broken "$@"
+}
+
+tdnf_install() {
+    [ "$#" -gt 0 ] || return 0
+    local a pkgs=()
+    for a in "$@"; do case "$a" in -*) ;; *) pkgs+=("$a") ;; esac; done
+    if [ "$CHECK_DEPS" = 1 ]; then _check_pkgs "${pkgs[@]}"; return 0; fi
+    if [ "$DRY_RUN" = 1 ]; then
+        set -- $(_missing_only "${pkgs[@]}")
+        [ "$#" -gt 0 ] || return 0
+        _run tdnf install -y "$@"
+        return 0
+    fi
+    # Azure Linux mirrors can fail repo-metadata GPG sync transiently; retry and
+    # fall back to disabling that plugin while keeping per-package checks.
+    local i
+    for i in 1 2 3; do
+        ${_SUDO_DISPLAY:-$SUDO} tdnf install -y "$@" && return 0
+        ${_SUDO_DISPLAY:-$SUDO} tdnf --disableplugin=tdnfrepogpgcheck install -y "$@" && return 0
+        [ "$i" -lt 3 ] && sleep 10
+    done
+    return 1
 }
 
 apk_install() {
