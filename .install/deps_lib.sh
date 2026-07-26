@@ -104,6 +104,15 @@ _sh() {
     else eval "$1"; fi
 }
 
+# _env 'STR' — environment setup (e.g. `export PATH=…`, guarded `. ~/.cargo/env`)
+# that must take effect in EVERY mode (so later `command -v` checks in this
+# process see it) AND be shown in dry-run (so a pasted dry-run sets the shell up
+# the same way a real bootstrap does). Unlike _sh, it always evaluates.
+_env() {
+    if [ "$DRY_RUN" = 1 ]; then _dry_line "$1"; fi
+    eval "$1"
+}
+
 _missing_only() { for _p in "$@"; do _pkg_installed "$_p" || printf '%s ' "$_p"; done; }
 
 _pkg_installed() {
