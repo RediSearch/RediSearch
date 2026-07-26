@@ -3102,10 +3102,15 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
+    // ProcessKNNSearchReply does not accumulate the shards' totals, and the
+    // KNN heap is bounded by K, so the merged heap count is the total.
+    rCtx->totalReplies = heap_count(rCtx->pq);
+  } else {
+    // SORTBY-by-distance: rCtx->pq is a response window sized
+    // min(K, offset+count), so its count is not the total. processSearchReply
+    // summed the shards' totals (each at most K hits globally); clamp to K.
+    rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
   }
-  // We can always get at most K results
-  rCtx->totalReplies = heap_count(rCtx->pq);
-
 }
 
 // Atomic (relaxed) access to the FT.SEARCH MR execution-phase marker: the BG
