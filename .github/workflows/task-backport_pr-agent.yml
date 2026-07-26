@@ -9,7 +9,10 @@ name: Backport merged pull request (Codex agent)
 #
 # Trigger ways:
 #   - PR is closed and merged with at least one `backport-<branch>-agent` label.
-#   - A `backport-<branch>-agent` label is added to an already-merged PR.
+#   - A `backport-<branch>-agent` label is added to an already-merged PR. The
+#     run backports to EVERY matching label currently on the PR, not just the
+#     one that fired — so adding several labels reliably backports to all of
+#     them even though each label fires its own (concurrency-serialized) run.
 #   - A repo collaborator/member/owner comments `/backport-agent` on a merged PR.
 #       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
 #       Only a target-branch list is accepted here (no free-form context): the
@@ -66,7 +69,9 @@ jobs:
     #   * PR is closed and merged with at least one `backport-...-agent` label
     #     (the JSON-serialized labels-array check is a coarse pre-filter; the
     #     script step revalidates against `^backport-(.+)-agent$`).
-    #   * A `backport-<branch>-agent`-style label is added to a merged PR.
+    #   * A `backport-<branch>-agent`-style label is added to a merged PR
+    #     (the run then resolves ALL matching labels on the PR, not just this
+    #     one — see resolve_create.resolve_targets).
     #   * A write-level user comments `/backport-agent` (and not the longer
     #     `/backport-agent-fix` / `/backport-agent-context` sibling commands,
     #     which belong to the fix workflow).

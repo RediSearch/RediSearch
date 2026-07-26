@@ -86,14 +86,27 @@ def resolve_targets(event_name: str, event_action: str,
     if event_name == "issue_comment":
         targets = parse_comment_args(comment_body)
 
-    # 2) `pull_request_target: labeled` -> just the one label that fired.
-    if not targets and event_name == "pull_request_target" and event_action == "labeled":
-        m = LABEL_RE.match(label_name or "")
-        if m:
-            targets = [m.group(1)]
-
-    # 3) Fallback: every matching label on the PR.
-    if not targets:
+    # 2) Any `pull_request_target` event (both `closed` and `labeled`) backports
+    #    to EVERY matching label currently on the PR — never just the one label
+    #    that fired. On a `labeled` event we start from the just-fired label
+    #    (`github.event.label.name`) as a guard against the `gh pr view` label
+    #    snapshot lagging the event, then union in all matching PR labels.
+    #
+    #    Resolving all labels on the labeled path (rather than only the fired
+    #    one) is what makes multi-label backports reliable: adding several
+    #    `backport-<branch>-agent` labels fires a separate `labeled` run per
+    #    label, and the per-PR concurrency group (cancel-in-progress: false)
+    #    keeps only the LATEST pending run, cancelling the intermediates. If
+    #    each run resolved only its own fired label, the cancelled runs' targets
+    #    would be silently dropped. Having whichever run survives resolve the
+    #    full current label set means no target is lost, and the agent's
+    #    per-target idempotency (it skips any target whose backport PR already
+    #    exists) makes re-processing an already-handled label a no-op.
+    if not targets and event_name == "pull_request_target":
+        if event_action == "labeled":
+            m = LABEL_RE.match(label_name or "")
+            if m:
+                targets.append(m.group(1))
         for label in pr_data.get("labels", []) or []:
             m = LABEL_RE.match(label.get("name", ""))
             if m:

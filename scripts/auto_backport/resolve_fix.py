@@ -188,6 +188,122 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
     ]
 
 
+# Bodies we never surface as actionable general comments: our own bot output
+# (the auto-backport / auto-fix summaries) and the `/backport-agent*` command
+# comments. The context comments are already collected separately above; feeding
+# the bot's own summaries back in would create a feedback loop.
+_BOT_COMMENT_PREFIXES = ("🤖 Auto-backport", "/backport-agent")
+
+
+REVIEW_THREADS_QUERY = """
+query($owner:String!, $repo:String!, $pr:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$pr) {
+      reviewThreads(first:100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first:50) {
+            nodes { author { login } authorAssociation body }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _owner_repo() -> tuple[str, str]:
+    """Split `owner/repo` from GITHUB_REPOSITORY."""
+    repo = os.environ["GITHUB_REPOSITORY"]
+    owner, _, name = repo.partition("/")
+    return owner, name
+
+
+def fetch_unresolved_review_threads(pr: int) -> list[dict]:
+    """Unresolved inline review threads whose root comment was authored by a
+    write-level user (OWNER/MEMBER/COLLABORATOR).
+
+    Returns one entry per thread: its GraphQL node id (needed by the agent to
+    call `resolveReviewThread`), the `path`/`line` it anchors to, and the
+    write-level comment bodies in the thread. The author-association filter is
+    the same prompt-injection gate used for `/backport-agent-context` — threads
+    started by non-write-level users are dropped here and reach the agent only
+    (if at all) as untrusted evidence, never as actionable input.
+
+    Best-effort: `gh_graphql` returns None on any gh failure, in which case we
+    return [] rather than aborting the fix run.
+    """
+    owner, repo = _owner_repo()
+    data = common.gh_graphql(REVIEW_THREADS_QUERY, owner=owner, repo=repo, pr=pr)
+    try:
+        nodes = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    except (TypeError, KeyError):
+        return []
+
+    threads: list[dict] = []
+    for node in nodes or []:
+        if node.get("isResolved"):
+            continue
+        comments = ((node.get("comments") or {}).get("nodes")) or []
+        if not comments:
+            continue
+        # Gate on the ROOT comment's author — the person who opened the thread.
+        root = comments[0]
+        if root.get("authorAssociation") not in TRUSTED_ASSOCIATIONS:
+            continue
+        bodies = [
+            {
+                "author": ((c.get("author") or {}).get("login")) or "",
+                "body": c.get("body") or "",
+            }
+            for c in comments
+            if c.get("authorAssociation") in TRUSTED_ASSOCIATIONS and c.get("body")
+        ]
+        if not bodies:
+            continue
+        threads.append({
+            "thread_id": node.get("id"),
+            "path": node.get("path"),
+            "line": node.get("line"),
+            "is_outdated": bool(node.get("isOutdated")),
+            "comments": bodies,
+        })
+    return threads
+
+
+def fetch_general_pr_comments(pr: int) -> list[dict]:
+    """Write-level general (issue-style) PR comments, excluding the bot's own
+    summaries and `/backport-agent*` command comments.
+
+    Same author-association trust gate as the review-thread / context
+    collectors. `/backport-agent-context` comments are intentionally NOT
+    re-surfaced here — they are already collected (stripped of their prefix)
+    into `context[]`.
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    raw = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
+        "--jq",
+        "[ .[] "
+        "| select(.author_association == \"OWNER\" "
+        '     or .author_association == "MEMBER" '
+        '     or .author_association == "COLLABORATOR") '
+        "| {author: .user.login, body: .body} ]",
+    )
+    out: list[dict] = []
+    for c in raw:
+        body = (c.get("body") or "") if isinstance(c, dict) else ""
+        if not body or body.startswith(_BOT_COMMENT_PREFIXES):
+            continue
+        out.append({"author": c.get("author") or "", "body": body})
+    return out
+
+
 # ---- main --------------------------------------------------------------------
 
 
@@ -261,6 +377,12 @@ def main() -> int:
     if inline_context:
         context_bodies.append(inline_context)
 
+    # Write-level reviewer feedback the agent should try to address alongside the
+    # CI-failure fix: unresolved inline review threads (which it can mark
+    # resolved) and general PR comments (which it can only reply to).
+    review_threads = fetch_unresolved_review_threads(int(pr))
+    pr_comments = fetch_general_pr_comments(int(pr))
+
     runner_temp = os.environ["RUNNER_TEMP"]
     context_file = os.path.join(runner_temp, "auto-backport-fix-context.json")
     common.write_context(context_file, {
@@ -275,6 +397,8 @@ def main() -> int:
         "failed_jobs": failed_jobs,
         "log_excerpts": excerpts,
         "context": context_bodies,
+        "review_threads": review_threads,
+        "pr_comments": pr_comments,
     })
 
     common.set_output("skip", "false")
