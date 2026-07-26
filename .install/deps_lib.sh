@@ -133,7 +133,7 @@ _missing_only() { for _p in "$@"; do _pkg_installed "$_p" || printf '%s ' "$_p";
 _pkg_installed() {
     case "$PM" in
         apt)          dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'ok installed' ;;
-        dnf|yum|tdnf) rpm -q "$1" >/dev/null 2>&1 ;;
+        dnf|yum|tdnf) rpm -q "$1" >/dev/null 2>&1 || rpm -q "$1-minimal" >/dev/null 2>&1 ;;  # RHEL ships curl-minimal, which provides curl
         apk)          apk info -e "$1" >/dev/null 2>&1 ;;
         brew)         [ -n "$(brew list --versions "$1" 2>/dev/null)" ] ;;
         *)            return 1 ;;
