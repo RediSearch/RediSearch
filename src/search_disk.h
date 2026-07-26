@@ -484,15 +484,10 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
 /**
  * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
  *
- * @return Newly allocated JSON string (release with SearchDisk_FreeDebugString),
- *         or NULL when the field has no numeric index on this handle.
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
  */
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
-
-/**
- * @brief Frees a string returned by SearchDisk_DebugDumpNumericBucketMap.
- */
-void SearchDisk_FreeDebugString(char *str);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID

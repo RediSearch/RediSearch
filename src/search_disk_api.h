@@ -645,21 +645,16 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Debug: dump a numeric field's in-memory bucket routing map.
    *
-   * Returns a NUL-terminated JSON array describing every bucket of the
-   * field's map (max value, state, entry count), or NULL when the field has
-   * no numeric index on this handle. Release with `freeDebugString`.
+   * Writes a JSON array describing every bucket of the field's map (max
+   * value, state, entry count) into memory obtained from `allocate`, so the
+   * caller owns the result through its own allocator. Returns NULL when the
+   * field has no numeric index on this handle.
    *
    * @param index Pointer to the disk index spec
    * @param fieldIndex The numeric field's index
+   * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
    */
-  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex);
-
-  /**
-   * @brief Frees a string returned by `debugDumpNumericBucketMap`.
-   *
-   * @param str The string to free (NULL is a no-op)
-   */
-  void (*freeDebugString)(char *str);
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

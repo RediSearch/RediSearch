@@ -3446,8 +3446,8 @@ DEBUG_COMMAND(NumericBucketMap) {
       if (!json) {
         RedisModule_ReplyWithError(sctx->redisCtx, "No bucket map for field");
       } else {
-        RedisModule_ReplyWithStringBuffer(sctx->redisCtx, json, strlen(json));
-        SearchDisk_FreeDebugString(json);
+        RedisModule_ReplyWithStringBuffer(sctx->redisCtx, json, sdslen(json));
+        sdsfree(json);
       }
     }
   }
