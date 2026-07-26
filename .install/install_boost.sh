@@ -15,10 +15,15 @@ fi
 if [ "${DRY_RUN:-0}" = 1 ]; then
     if [[ ! -d ${BOOST_DIR} ]]; then
         BOOST_URL="https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}-b2-nodocs.tar.gz"
-        _dry_line "wget -T 60 \"${BOOST_URL}\" -O ${BOOST_NAME}.tar.gz"
-        _dry_line "tar -xzf ${BOOST_NAME}.tar.gz"
-        _dry_line "mv boost-${VERSION} ${BOOST_DIR}"
-        _dry_line "rm ${BOOST_NAME}.tar.gz"
+        # Absolute paths anchored to this script's dir (where the real install
+        # puts boost/ and where the presence gate looks) — so a pasted dry-run
+        # lands boost/ in the right place regardless of the shell's cwd, and a
+        # re-run then detects it instead of re-fetching and failing on `mv`.
+        _bd="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+        _dry_line "wget -T 60 \"${BOOST_URL}\" -O \"${_bd}/${BOOST_NAME}.tar.gz\""
+        _dry_line "tar -xzf \"${_bd}/${BOOST_NAME}.tar.gz\" -C \"${_bd}\""
+        _dry_line "mv \"${_bd}/boost-${VERSION}\" \"${_bd}/${BOOST_DIR}\""
+        _dry_line "rm \"${_bd}/${BOOST_NAME}.tar.gz\""
     fi
     return 0 2>/dev/null || exit 0
 fi

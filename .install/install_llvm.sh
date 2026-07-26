@@ -285,17 +285,22 @@ install_llvm() {
 
 # clang matching the required LLVM major already available?
 _llvm_ok() {
-    if command -v "clang-${LLVM_VER}" >/dev/null 2>&1; then return 0; fi
-    if command -v clang >/dev/null 2>&1; then
+    # Mirror accept_native_llvm: the toolchain counts as present only with BOTH
+    # clang AND lld at the pinned major (LTO links through lld; libclang ships
+    # with the same install). clang alone is a partial install and must reinstall.
+    if command -v "clang-${LLVM_VER}" >/dev/null 2>&1 && command -v "lld-${LLVM_VER}" >/dev/null 2>&1; then return 0; fi
+    if command -v clang >/dev/null 2>&1 && command -v lld >/dev/null 2>&1; then
         [ "$(llvm_major clang)" = "$LLVM_VER" ] && return 0
     fi
     return 1
 }
 
-# list: record clang (build-critical) presence; dry-run: print the install
-# command it would run, gated on presence; real: unchanged.
+# list: record the LLVM toolchain (build-critical) presence; dry-run: print the
+# install command it would run, gated on presence; real: unchanged. This script
+# installs clang + llvm-config + lld as one unit, and _llvm_ok verifies the
+# right-version toolchain is usable — so record both `clang` and `llvm`.
 if [ "${CHECK_DEPS:-0}" = 1 ]; then
-    if _llvm_ok; then DEPS_OK="$DEPS_OK clang"; else DEPS_MISSING="$DEPS_MISSING clang"; fi
+    if _llvm_ok; then DEPS_OK="$DEPS_OK clang llvm"; else DEPS_MISSING="$DEPS_MISSING clang llvm"; fi
     return 0 2>/dev/null || exit 0
 fi
 if [ "${DRY_RUN:-0}" = 1 ]; then
@@ -307,7 +312,19 @@ if [ "${DRY_RUN:-0}" = 1 ]; then
             _distro=""; [ -f /etc/os-release ] && _distro=$(. /etc/os-release && echo "${ID:-}")
             [ -f /etc/alpine-release ] && _distro=alpine
             case "$_distro" in
-                ubuntu|debian) _dry_line "${_p}apt-get install -y --no-install-recommends clang-${LLVM_VER} lld-${LLVM_VER} libclang-${LLVM_VER}-dev llvm-${LLVM_VER}   # or apt.llvm.org / official tarball fallback" ;;
+                ubuntu|debian)
+                    # Mirror the real fallback: use native packages only if apt
+                    # actually has a candidate for clang-${LLVM_VER} (e.g. Ubuntu
+                    # 26.04); otherwise print the apt.llvm.org path the installer
+                    # falls back to (e.g. Ubuntu jammy has no native clang-21), so
+                    # the pasted dry-run actually installs LLVM instead of failing.
+                    if apt-cache policy "clang-${LLVM_VER}" 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+                        _dry_line "${_p}apt-get install -y --no-install-recommends clang-${LLVM_VER} lld-${LLVM_VER} libclang-${LLVM_VER}-dev llvm-${LLVM_VER} < /dev/null"
+                    else
+                        _dry_line "${_p}apt-get install -y --no-install-recommends lsb-release wget gnupg ca-certificates software-properties-common < /dev/null"
+                        _dry_line "wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && chmod +x /tmp/llvm.sh && ${_p}/tmp/llvm.sh ${LLVM_VER} < /dev/null && rm -f /tmp/llvm.sh"
+                    fi
+                    ;;
                 alpine)        _dry_line "${_p}apk add --no-cache llvm${LLVM_VER} clang${LLVM_VER} clang${LLVM_VER}-libclang lld${LLVM_VER}" ;;
                 rhel|rocky|almalinux|centos|fedora|amzn) _dry_line "${_p}dnf install -y --nobest --skip-broken clang-${LLVM_VER} lld-${LLVM_VER} clang-devel-${LLVM_VER}   # or official tarball fallback" ;;
                 *) case "$ARCH" in x86_64) _t=X64 ;; aarch64) _t=ARM64 ;; *) _t="$ARCH" ;; esac

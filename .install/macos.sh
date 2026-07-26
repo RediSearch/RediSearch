@@ -20,7 +20,10 @@ brew_install coreutils
 brew_install make
 brew_install openssl
 brew_install wget
-"$(dirname "$0")/install_llvm.sh"
+# Source (not subprocess) so its list/dry-run DEPS_* records reach the parent
+# install_script.sh — a subprocess's records would vanish on exit, dropping
+# clang/llvm from `make bootstrap list` on macOS.
+source "$(dirname "$0")/install_llvm.sh"
 
 # Profile edits mutate the user's shell config — skip them in list/dry-run mode.
 if [ "${CHECK_DEPS:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then
