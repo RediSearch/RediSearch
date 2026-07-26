@@ -4,11 +4,13 @@ set -eo pipefail
 
 # Full system upgrade — real-only (not a dep; `dnf install` doesn't need it, so
 # list/dry-run stay clean). Runs on a real bootstrap.
-if [ "${CHECK_DEPS:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then $MODE dnf update -y; fi
+if [[ "${CHECK_DEPS:-0}" != 1 && "${DRY_RUN:-0}" != 1 ]]; then $MODE dnf update -y; fi
 
-# Development Tools includes config-manager. Skip it once the core compiler
-# trio is present so re-runs / dry-run don't keep re-listing the large group.
-if ! rpm -q gcc gcc-c++ make >/dev/null 2>&1; then
+# `dnf config-manager` is needed before enabling powertools/codeready.
+dnf_install dnf-plugins-core
+
+# Keep the large group out of list mode; package checks below cover build deps.
+if [[ "${CHECK_DEPS:-0}" != 1 ]] && ! rpm -q gcc gcc-c++ make >/dev/null 2>&1; then
     _sh "$MODE dnf groupinstall \"Development Tools\" -yqq < /dev/null"
 fi
 
@@ -27,12 +29,12 @@ dnf_install gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ \
 # We need Python headers to build psutil@5.x.y from
 # source, since it only started providing wheels for aarch64
 # in version 6.w.z.
-if [ "$(uname -m)" = "aarch64" ]; then
+if [[ "$(uname -m)" == "aarch64" ]]; then
     dnf_install python3.12-devel
 fi
 
 # Symlink the toolset compiler into /usr/local/bin — skip once gcc already points there.
-if [ "$(readlink -f /usr/local/bin/gcc 2>/dev/null)" != /opt/rh/gcc-toolset-13/root/usr/bin/gcc ]; then
+if [[ "$(readlink -f /usr/local/bin/gcc 2>/dev/null)" != /opt/rh/gcc-toolset-13/root/usr/bin/gcc ]]; then
     _run cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
     _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc  /usr/local/bin/gcc  || true
     _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/g++  /usr/local/bin/g++  || true

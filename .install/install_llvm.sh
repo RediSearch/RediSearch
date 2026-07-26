@@ -122,7 +122,9 @@ export_path_gha() {
 }
 
 llvm_major() {
-    "$1" --version 2>/dev/null | head -1 | sed -En 's/.*version ([0-9]+).*/\1/p'
+    "$1" --version 2>/dev/null | head -1 | sed -En \
+        -e 's/.*[Vv]ersion[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/^LLD[[:space:]]+([0-9]+).*/\1/p'
 }
 
 accept_native_llvm() {
@@ -235,7 +237,7 @@ install_llvm() {
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
             # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
             for tool in llvm-config clang clang++ lld ld.lld; do
-                if [ -f "/usr/bin/${tool}-${LLVM_VER}" ] && [ ! -e "/usr/bin/${tool}" ]; then
+                if [[ -f "/usr/bin/${tool}-${LLVM_VER}" && ! -e "/usr/bin/${tool}" ]]; then
                     $MODE ln -s "${tool}-${LLVM_VER}" "/usr/bin/${tool}"
                 fi
             done
@@ -244,7 +246,7 @@ install_llvm() {
             # Install matching libclang for bindgen — package name is version-specific.
             local default_ver
             default_ver=$(clang --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
-            if [ -n "$default_ver" ]; then
+            if [[ -n "$default_ver" ]]; then
                 $MODE apk add --no-cache "clang${default_ver}-libclang" 2>/dev/null || true
             fi
         else
@@ -283,29 +285,85 @@ install_llvm() {
     esac
 }
 
-# clang matching the required LLVM major already available?
+# clang/lld/llvm-config/libclang matching the required LLVM major already available?
+_clang_ok() {
+    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 && return 0
+    command -v clang >/dev/null 2>&1 && [[ "$(llvm_major clang)" == "$LLVM_VER" ]]
+}
+
+_lld_ok() {
+    local tool actual
+    for tool in "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}"; do
+        command -v "$tool" >/dev/null 2>&1 && return 0
+    done
+    for tool in lld ld.lld; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ "$actual" == "$LLVM_VER" ]] && return 0
+    done
+    return 1
+}
+
+_llvm_config_cmd() {
+    local candidate resolved actual brew_prefix
+    for candidate in "llvm-config-${LLVM_VER}" "llvm-config${LLVM_VER}" llvm-config \
+            "/usr/lib/llvm${LLVM_VER}/bin/llvm-config" \
+            "/usr/lib/llvm-${LLVM_VER}/bin/llvm-config" \
+            "${INSTALL_DIR}/bin/llvm-config"; do
+        resolved=$(command -v "$candidate" 2>/dev/null || true)
+        [[ -n "$resolved" ]] || continue
+        actual=$("$resolved" --version 2>/dev/null | sed -En 's/^([0-9]+).*/\1/p')
+        [[ "$actual" == "$LLVM_VER" ]] && { echo "$resolved"; return 0; }
+    done
+
+    if [[ "$OS_TYPE" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+        brew_prefix=$(brew --prefix 2>/dev/null || true)
+        if [[ -n "$brew_prefix" ]]; then
+            candidate="${brew_prefix}/opt/llvm@${LLVM_VER}/bin/llvm-config"
+            if [[ -x "$candidate" ]]; then
+                actual=$("$candidate" --version 2>/dev/null | sed -En 's/^([0-9]+).*/\1/p')
+                [[ "$actual" == "$LLVM_VER" ]] && { echo "$candidate"; return 0; }
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+_libclang_ok() {
+    local cfg="$1"
+    local libdir dir lib
+
+    libdir=$("$cfg" --libdir 2>/dev/null || true)
+    for dir in "$libdir" "${LIBCLANG_PATH:-}" /usr/lib64 /usr/lib \
+            "/usr/lib/llvm${LLVM_VER}/lib" "/usr/lib/llvm-${LLVM_VER}/lib" \
+            "${INSTALL_DIR}/lib"; do
+        [[ -n "$dir" ]] || continue
+        for lib in "$dir"/libclang.so "$dir"/libclang.so.* "$dir"/libclang-"$LLVM_VER".so \
+                "$dir"/libclang-"$LLVM_VER".so.* "$dir"/libclang.dylib "$dir"/libclang.a; do
+            [[ -e "$lib" ]] && return 0
+        done
+    done
+    return 1
+}
+
 _llvm_ok() {
-    # Present iff clang at the pinned major AND an lld linker exist (clang alone,
-    # with no linker, is a partial install). clang: the versioned binary, or an
-    # unversioned `clang` reporting that major. lld: the `lld` driver
-    # (Debian/RHEL: lld / lld-<ver>) OR the `ld.lld` linker — Alpine ships ld.lld
-    # but not always an unversioned `lld`, and LTO links via -fuse-ld=lld -> ld.lld.
-    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 \
-        || { command -v clang >/dev/null 2>&1 && [ "$(llvm_major clang)" = "$LLVM_VER" ]; } \
-        || return 1
-    command -v "lld-${LLVM_VER}" >/dev/null 2>&1 || command -v lld >/dev/null 2>&1 \
-        || command -v "ld.lld-${LLVM_VER}" >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1
+    local cfg
+    _clang_ok || return 1
+    _lld_ok || return 1
+    cfg=$(_llvm_config_cmd) || return 1
+    _libclang_ok "$cfg"
 }
 
 # list: record the LLVM toolchain (build-critical) presence; dry-run: print the
 # install command it would run, gated on presence; real: unchanged. This script
 # installs clang + llvm-config + lld as one unit, and _llvm_ok verifies the
 # right-version toolchain is usable — so record both `clang` and `llvm`.
-if [ "${CHECK_DEPS:-0}" = 1 ]; then
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     if _llvm_ok; then DEPS_OK="$DEPS_OK clang llvm"; else DEPS_MISSING="$DEPS_MISSING clang llvm"; fi
     return 0 2>/dev/null || exit 0
 fi
-if [ "${DRY_RUN:-0}" = 1 ]; then
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
     if ! _llvm_ok; then
         # LLVM's install is a multi-branch, per-OS fallback (native pkgs →
         # apt.llvm.org → official tarball, plus PATH linking) with runtime

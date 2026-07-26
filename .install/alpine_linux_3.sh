@@ -4,7 +4,7 @@ set -eo pipefail
 
 # apk index refresh — real-only (not a dep; `apk add --no-cache` works without
 # it, so list/dry-run stay clean). Runs on a real bootstrap.
-if [ "${CHECK_DEPS:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then $MODE apk update; fi
+if [[ "${CHECK_DEPS:-0}" != 1 && "${DRY_RUN:-0}" != 1 ]]; then $MODE apk update; fi
 
 apk_install build-base gcc g++ make linux-headers openblas-dev \
     xsimd curl wget git openssl openssl-dev \
@@ -14,7 +14,7 @@ apk_install build-base gcc g++ make linux-headers openblas-dev \
 # We must install Python via the package manager until
 # `uv` starts providing aarch64-musl builds.
 # See https://github.com/astral-sh/python-build-standalone/pull/569
-if [ "$(uname -m)" = "aarch64" ]; then
+if [[ "$(uname -m)" == "aarch64" ]]; then
     apk_install python3 python3-dev py3-pip
     # Needed before checkout
     apk_install gcompat libstdc++ libgcc
@@ -33,10 +33,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
 # compiler-rt: the python test venv builds its sdist-only deps with clang
 # (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
 # needs the runtime present.
-# LLVM_VER is derived from what install_llvm.sh landed; in list/dry-run nothing
-# was installed so it's empty — skip the version-specific static libs then.
+# LLVM_VER is derived from what install_llvm.sh landed. In list/dry-run no
+# install happened yet, so fall back to the pinned LLVM major from
+# LLVM_VERSION.sh and keep the static-library step visible.
 LLVM_VER=$(ls /usr/lib/ 2>/dev/null | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm' || true)
-if [ -n "$LLVM_VER" ]; then
+LLVM_VER="${LLVM_VER:-${LLVM_VERSION:-}}"
+if [[ -n "$LLVM_VER" ]]; then
     apk_install llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static compiler-rt
 
     # Alpine ships component .a files but no combined libLLVM-<ver>.a.
@@ -46,7 +48,7 @@ if [ -n "$LLVM_VER" ]; then
     # the buffer for a child of the archive"), so provide a GROUP() linker script
     # instead — both ld.lld and GNU ld accept a text script in place of an
     # archive, and it costs no disk space.
-    if [ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]; then
+    if [[ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]]; then
         # Build the GROUP() from a glob expanded at run/paste time (not baked in
         # now — that produced a ~200-path one-liner in dry-run). The glob still
         # expands before tee creates the output file, so the archive never lists

@@ -3,14 +3,22 @@ set -eo pipefail
 # Keep the xtrace for real installs, but not in list/dry-run — this file is
 # `source`d, so `set -x` would otherwise trace the whole run and bury the
 # copy-pasteable dry-run script in noise.
-[ "${CHECK_DEPS:-0}" = 1 ] || [ "${DRY_RUN:-0}" = 1 ] || set -x
+[[ "${CHECK_DEPS:-0}" == 1 || "${DRY_RUN:-0}" == 1 ]] || set -x
 
 # Source the profile update utility
 source "$(dirname "$0")/macos_update_profile.sh"
 
-if ! which brew &> /dev/null; then
-    echo "Homebrew is not installed. Install from https://brew.sh"
-    exit 1
+if ! command -v brew &> /dev/null; then
+    if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+        DEPS_MISSING="$DEPS_MISSING brew"
+        return 0 2>/dev/null || exit 0
+    fi
+    if [[ "${DRY_RUN:-0}" == 1 ]]; then
+        _dry_line '# Install Homebrew from https://brew.sh before running the brew commands below.'
+    else
+        echo "Homebrew is not installed. Install from https://brew.sh"
+        exit 1
+    fi
 fi
 
 export HOMEBREW_NO_AUTO_UPDATE=1
@@ -26,7 +34,7 @@ brew_install wget
 source "$(dirname "$0")/install_llvm.sh"
 
 # Profile edits mutate the user's shell config — skip them in list/dry-run mode.
-if [ "${CHECK_DEPS:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then
+if [[ "${CHECK_DEPS:-0}" != 1 && "${DRY_RUN:-0}" != 1 ]]; then
     BREW_PREFIX=$(brew --prefix)
     GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
     COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
