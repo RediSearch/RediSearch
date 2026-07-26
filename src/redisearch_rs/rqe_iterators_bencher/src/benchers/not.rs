@@ -12,7 +12,9 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
-use rqe_iterators::{RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::NoTimeout};
+use rqe_iterators::{
+    RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::NoTimeoutChecker,
+};
 
 #[derive(Default)]
 pub struct Bencher;
@@ -23,10 +25,10 @@ impl Bencher {
 
     const MAX_DOC_ID: u64 = 1_000_000;
 
-    /// Disable timeout checks in benchmarks: [`NoTimeout`] is a zero-sized
+    /// Disable timeout checks in benchmarks: [`NoTimeoutChecker`] is a zero-sized
     /// no-op so the iterator's `check_timeout` path is dead code after
     /// monomorphization.
-    const TIMEOUT_CTX: NoTimeout = NoTimeout;
+    const TIMEOUT_CTX: NoTimeoutChecker = NoTimeoutChecker;
 
     fn benchmark_group<'a>(
         &self,

@@ -154,7 +154,7 @@ fn first_result_after_rewind_is_best() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -215,7 +215,7 @@ fn filtered_batches_partial_child_intersects() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -246,7 +246,7 @@ fn filtered_adhoc_matches_batches() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 
@@ -284,7 +284,7 @@ fn filtered_adhoc_drops_nan_distance_docs() {
         source,
         Some(make_child(child_ids)),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 
@@ -316,7 +316,7 @@ fn rewind_replays_same_results() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -350,7 +350,7 @@ fn disjoint_child_yields_nothing() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::Batches,
     );
 
@@ -405,7 +405,7 @@ fn filtered_batches_drops_expired_without_refill() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::ForcedBatches,
     );
 
@@ -436,7 +436,7 @@ fn filtered_adhoc_drops_expired_without_refill() {
         source,
         Some(child),
         NonZeroUsize::new(k).unwrap(),
-        asc,
+        asc(),
         TopKMode::AdhocBF,
     );
 

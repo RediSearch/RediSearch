@@ -148,6 +148,8 @@ pub mod atoms;
 pub mod nfa;
 pub mod nfa_bit_set;
 
+use std::time::Instant;
+
 pub use nfa::WildcardNfa;
 pub use nfa_bit_set::NfaBitSet;
 
@@ -181,6 +183,15 @@ impl<'tm, 'p, Data> WildcardIter<'tm, 'p, Data> {
             Self::U64(it) => it.key(),
             Self::U128(it) => it.key(),
             Self::Filter(it) => it.key(),
+        }
+    }
+
+    /// Set timeout
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        match self {
+            Self::U64(it) => it.set_timeout(timeout),
+            Self::U128(it) => it.set_timeout(timeout),
+            Self::Filter(it) => it.set_timeout(timeout),
         }
     }
 }
@@ -227,6 +238,13 @@ impl<'tm, 'p, Data> Iterator for WildcardIter<'tm, 'p, Data> {
 
 /// Lending-iterator wrapper for [`WildcardIter`].
 pub struct WildcardLendingIter<'tm, 'p, Data>(WildcardIter<'tm, 'p, Data>);
+
+impl<'tm, 'p, Data> WildcardLendingIter<'tm, 'p, Data> {
+    /// Set timeout
+    pub fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.0.set_timeout(timeout);
+    }
+}
 
 impl<'tm, 'p, Data> From<WildcardIter<'tm, 'p, Data>> for WildcardLendingIter<'tm, 'p, Data> {
     fn from(iter: WildcardIter<'tm, 'p, Data>) -> Self {
