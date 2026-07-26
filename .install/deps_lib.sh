@@ -196,7 +196,9 @@ dnf_install() {
     if [[ "$CHECK_DEPS" == 1 ]]; then _check_pkgs "$@"; return 0; fi
     if [[ "$DRY_RUN" == 1 ]]; then set -- $(_missing_only "$@"); (( $# > 0 )) || return 0; fi
     _run dnf install -y --nobest --skip-broken --allowerasing "$@"
-    local missing=() p
+    [[ "$DRY_RUN" == 1 ]] && return 0
+    local missing=()
+    local p
     for p in "$@"; do
         case "$p" in -*) continue ;; esac
         _pkg_installed "$p" || missing+=("$p")

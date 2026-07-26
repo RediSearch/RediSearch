@@ -3,12 +3,15 @@ set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
-# gcc-11 (toolchain-r PPA) + a newer python (deadsnakes PPA) come from added
-# repos plus a system refresh + dbus prep. This raw prep is only needed until
-# gcc-11 is installed, so gate it on gcc-11's absence — a re-run / dry-run on a
-# provisioned host skips it entirely.
+# gcc-11/g++-11 (toolchain-r PPA) + a newer python (deadsnakes PPA) come from
+# added repos plus a system refresh + dbus prep. Gate on both compiler packages
+# so partially provisioned hosts still get the repo setup needed for the missing
+# half.
 _need_gcc11_repo=0
-dpkg-query -W -f='${Status}' gcc-11 2>/dev/null | grep -q 'ok installed' || _need_gcc11_repo=1
+if ! dpkg-query -W -f='${Status}' gcc-11 2>/dev/null | grep -q 'ok installed' ||
+        ! dpkg-query -W -f='${Status}' g++-11 2>/dev/null | grep -q 'ok installed'; then
+    _need_gcc11_repo=1
+fi
 if [[ "$_need_gcc11_repo" == 1 ]]; then
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" update -qq
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" upgrade -yqq
