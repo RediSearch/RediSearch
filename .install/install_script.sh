@@ -26,6 +26,7 @@ else
 fi
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
     printf '# %s\n' "$OS"
+    printf 'set -eo pipefail\n'
 else
     echo "$OS"
 fi

@@ -335,7 +335,7 @@ _llvm_config_cmd() {
 
 _libclang_ok() {
     local cfg="$1"
-    local libdir dir lib
+    local libdir dir lib resolved
 
     libdir=$("$cfg" --libdir 2>/dev/null || true)
     for dir in "$libdir" "${LIBCLANG_PATH:-}" /usr/lib64 /usr/lib \
@@ -343,8 +343,20 @@ _libclang_ok() {
             "${INSTALL_DIR}/lib"; do
         [[ -n "$dir" ]] || continue
         for lib in "$dir"/libclang.so "$dir"/libclang.so.* "$dir"/libclang-"$LLVM_VER".so \
-                "$dir"/libclang-"$LLVM_VER".so.* "$dir"/libclang.dylib "$dir"/libclang.a; do
-            [[ -e "$lib" ]] && return 0
+                "$dir"/libclang-"$LLVM_VER".so.* "$dir"/libclang.dylib \
+                "$dir"/libclang-"$LLVM_VER".dylib "$dir"/libclang.a; do
+            [[ -e "$lib" ]] || continue
+            resolved=$(readlink -f "$lib" 2>/dev/null || printf '%s' "$lib")
+            case "$lib $resolved" in
+                *"/llvm${LLVM_VER}/"*|*"/llvm-${LLVM_VER}/"*|*"/llvm@${LLVM_VER}/"*|\
+                *"lib/llvm${LLVM_VER}/"*|*"lib/llvm-${LLVM_VER}/"*|*"${INSTALL_DIR}/lib/"*|\
+                *"libclang-${LLVM_VER}.so"*|*"libclang.so.${LLVM_VER}"*)
+                    return 0
+                    ;;
+            esac
+            command -v strings >/dev/null 2>&1 &&
+                strings "$lib" 2>/dev/null | grep -aEq "(clang|LLVM) version ${LLVM_VER}\\." &&
+                return 0
         done
     done
     return 1

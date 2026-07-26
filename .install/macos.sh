@@ -33,17 +33,30 @@ brew_install wget
 # clang/llvm from `make bootstrap list` on macOS.
 source "$(dirname "$0")/install_llvm.sh"
 
-# Profile edits mutate the user's shell config — skip them in list/dry-run mode.
-if [[ "${CHECK_DEPS:-0}" != 1 && "${DRY_RUN:-0}" != 1 ]]; then
-    BREW_PREFIX=$(brew --prefix)
-    GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
-    COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
+# Profile edits mutate the user's shell config — skip them in list mode. In
+# dry-run, print equivalent commands so the pasted script uses the GNU tools too.
+if [[ "${CHECK_DEPS:-0}" != 1 ]]; then
+    if [[ "${DRY_RUN:-0}" == 1 ]]; then
+        _dry_line 'BREW_PREFIX="$(brew --prefix)"'
+        _dry_line 'GNUBIN="$BREW_PREFIX/opt/make/libexec/gnubin"'
+        _dry_line 'COREUTILS="$BREW_PREFIX/opt/coreutils/libexec/gnubin"'
+        _dry_line 'export PATH="$GNUBIN:$COREUTILS:$PATH"'
+        _dry_line 'for profile in "$HOME/.bash_profile" "$HOME/.zshrc"; do'
+        _dry_line '    [[ -f "$profile" ]] || continue'
+        _dry_line '    grep -q "export PATH=\"$GNUBIN:\$PATH\"" "$profile" || echo "export PATH=\"$GNUBIN:\$PATH\"" >> "$profile"'
+        _dry_line '    grep -q "export PATH=\"$COREUTILS:\$PATH\"" "$profile" || echo "export PATH=\"$COREUTILS:\$PATH\"" >> "$profile"'
+        _dry_line 'done'
+    else
+        BREW_PREFIX=$(brew --prefix)
+        GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
+        COREUTILS=$BREW_PREFIX/opt/coreutils/libexec/gnubin
 
-    # Update both profile files with all tools
-    if [[ -f ~/.bash_profile ]]; then
-        update_profile ~/.bash_profile "$GNUBIN" "$COREUTILS"
-    fi
-    if [[ -f ~/.zshrc ]]; then
-        update_profile ~/.zshrc "$GNUBIN" "$COREUTILS"
+        # Update both profile files with all tools
+        if [[ -f ~/.bash_profile ]]; then
+            update_profile ~/.bash_profile "$GNUBIN" "$COREUTILS"
+        fi
+        if [[ -f ~/.zshrc ]]; then
+            update_profile ~/.zshrc "$GNUBIN" "$COREUTILS"
+        fi
     fi
 fi
