@@ -60,10 +60,25 @@ cargo_is_rustup_proxy() {
     [[ "$cargo_path" == "$cargo_home_bin/cargo" || "$cargo_path" == "$HOME/.cargo/bin/cargo" ]]
 }
 
+pinned_components_ok() {
+    rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' &&
+        rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'
+}
+
+nightly_components_ok() {
+    ! should_generate_headers ||
+        rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json'
+}
+
 # list: record the build-relevant deps (nothing installed). rust = rustup AND
 # cargo (mirrors the real install condition); cheadergen when header-gen is on.
 if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
-    if command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy; then DEPS_OK="$DEPS_OK rust"; else DEPS_MISSING="$DEPS_MISSING rust"; fi
+    if command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy &&
+            pinned_components_ok && nightly_components_ok; then
+        DEPS_OK="$DEPS_OK rust"
+    else
+        DEPS_MISSING="$DEPS_MISSING rust"
+    fi
     if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]]; then DEPS_OK="$DEPS_OK cargo-nextest"; else DEPS_MISSING="$DEPS_MISSING cargo-nextest"; fi
     if should_generate_headers; then
         if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]]; then DEPS_OK="$DEPS_OK cheadergen"; else DEPS_MISSING="$DEPS_MISSING cheadergen"; fi
@@ -83,13 +98,12 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
     command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy || _need=1
     # pending unless the pinned toolchain has BOTH clippy and rustfmt (the
     # install adds missing components, so "toolchain present" alone isn't enough)
-    { rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' \
-      && rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'; } || _need=1
+    pinned_components_ok || _need=1
     [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}' || true)" == "$NEXTEST_VERSION" ]] || _need=1
     if should_generate_headers; then
         # pending unless the nightly toolchain has rust-docs-json (the install
         # adds it; "toolchain present" alone isn't enough — mirrors the pinned check)
-        rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json' || _need=1
+        nightly_components_ok || _need=1
         [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]] || _need=1
     fi
     if [[ "$_need" == 1 ]]; then
@@ -110,8 +124,7 @@ fi
 # pre-existing minimal-profile toolchain still needs clippy/rustfmt (which `make
 # lint`/`make fmt` require). Skip only when both are already installed — so a
 # fully-provisioned host emits nothing, but a minimal one gets the components.
-if ! { rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^clippy' \
-    && rustup component list --installed --toolchain "$PINNED_VERSION" 2>/dev/null | grep -q '^rustfmt'; }; then
+if ! pinned_components_ok; then
     _sh "rustup toolchain install --profile=minimal \"$PINNED_VERSION\" -c clippy -c rustfmt"
 fi
 
@@ -167,6 +180,7 @@ if [[ "$(cargo-nextest nextest --version 2>/dev/null | head -1 | awk '{print $2}
     else
         nextest_artifact="linux-musl"
     fi
+    _sh "mkdir -p \"$cargo_home_bin_dir\""
     _sh "curl -L --proto '=https' --tlsv1.2 -sSf \"https://get.nexte.st/${NEXTEST_VERSION}/${nextest_artifact}\" | tar zxf - -C \"$cargo_home_bin_dir\""
     hash -r
 fi
@@ -177,7 +191,7 @@ if should_generate_headers; then
     # Gate on the COMPONENT, not just the toolchain: the install adds
     # rust-docs-json, so a pre-existing nightly without it still needs this
     # (cheadergen reads its rustdoc JSON). Skip only when it's already present.
-    if ! rustup component list --installed --toolchain "$NIGHTLY_VERSION" 2>/dev/null | grep -q '^rust-docs-json'; then
+    if ! nightly_components_ok; then
         _sh "rustup toolchain install \"$NIGHTLY_VERSION\" --profile=minimal --allow-downgrade --component rust-docs-json"
     fi
     if [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" != "$REQUIRED_CHEADERGEN_VERSION" ]]; then

@@ -24,14 +24,22 @@ else
     OS=${OS_NAME,,}_${VERSION}
     OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
 fi
-echo $OS
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    printf '# %s\n' "$OS"
+else
+    echo "$OS"
+fi
 
 # Dependency-check / dry-run machinery + package-manager primitives. Sourced
 # here (before the OS script) so the OS/source-build scripts can record into
 # DEPS_* in list mode and print (nothing installed) in dry-run mode.
 source "$HERE/deps_lib.sh"
 
-echo "==> [redisearch] OS=$OS PM=$PM"
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    _dry_head "# ==> [redisearch] OS=$OS PM=$PM"
+else
+    echo "==> [redisearch] OS=$OS PM=$PM"
+fi
 
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
@@ -67,7 +75,7 @@ if [[ "${CHECK_DEPS:-0}" != 1 ]]; then
 fi
 
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
-    _dry_head "==> [redisearch] dry-run complete — commands above are what bootstrap would run for missing deps (nothing installed)"
+    _dry_head "# ==> [redisearch] dry-run complete — commands above are what bootstrap would run for missing deps (nothing installed)"
     exit 0
 fi
 

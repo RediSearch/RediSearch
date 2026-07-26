@@ -9,22 +9,9 @@ if ! command -v _dry_line >/dev/null 2>&1; then
     source "$(dirname "${BASH_SOURCE[0]}")/../deps_lib.sh"
 fi
 
-# list: nothing to record here — build-time uv is reported by install_python.sh
-# and these are test-only pip deps. dry-run: print the venv + uv sync sequence,
-# gated on the venv's absence. Neither mode may create the venv.
-if [ "${CHECK_DEPS:-0}" = 1 ]; then
-    return 0 2>/dev/null || exit 0
-fi
-if [ "${DRY_RUN:-0}" = 1 ]; then
-    # The venv lives in the module dir this script runs from ($PWD, set by
-    # install_script.sh's `cd ..`). Do the create/sync inside a SUBSHELL so the
-    # cd is contained (a bare `cd` would strand the pasting shell in the module
-    # dir), then activate via an ABSOLUTE path with no cd — so the venv ends up
-    # created+activated but the shell stays where you pasted from. Gate on the
-    # same dir so a provisioned venv drops the line entirely.
-    if [ ! -d "$PWD/.venv" ]; then
-        _dry_line "( cd \"$PWD\" && uv venv --seed --clear && uv sync --locked --all-packages ) && source \"$PWD/.venv/bin/activate\""
-    fi
+# list: nothing to record here — uv is reported by install_python.sh and these
+# are project-locked Python deps, not system packages.
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     return 0 2>/dev/null || exit 0
 fi
 
@@ -63,17 +50,31 @@ activate_venv() {
 # may ship a newer system Python that forces source builds. On platforms where
 # uv cannot provide 3.13, keep the distro Python fallback.
 if [[ -f /etc/alpine-release ]]; then
-    export CC=clang CXX=clang++
-    if uv python list 3.13 2>/dev/null | grep -q .; then
-        export UV_PYTHON=3.13
-        # Persist to the whole job, not just this script's process. The test
-        # harness runs `uv run python3 -m RLTest`, and `uv run` re-provisions the
-        # venv; without UV_PYTHON in scope it falls back to the system CPython
-        # 3.12, relinking .venv. pip is installed under python3.13/site-packages,
-        # so the 3.12 interpreter can't import it and RedisJSON's readies getpy3
-        # (`python3 -m pip --version`) fails with "Cannot find python3 interpreter".
-        [[ -n "${GITHUB_ENV:-}" ]] && echo "UV_PYTHON=3.13" >> "$GITHUB_ENV"
+    if [[ "${DRY_RUN:-0}" == 1 ]]; then
+        _dry_line 'export CC=clang CXX=clang++'
+        _dry_line 'if uv python list 3.13 2>/dev/null | grep -q .; then export UV_PYTHON=3.13; fi'
+        _dry_line 'if [[ -n "${GITHUB_ENV:-}" && "${UV_PYTHON:-}" == "3.13" ]]; then echo "UV_PYTHON=3.13" >> "$GITHUB_ENV"; fi'
+    else
+        export CC=clang CXX=clang++
+        if uv python list 3.13 2>/dev/null | grep -q .; then
+            export UV_PYTHON=3.13
+            # Persist to the whole job, not just this script's process. The test
+            # harness runs `uv run python3 -m RLTest`, and `uv run` re-provisions the
+            # venv; without UV_PYTHON in scope it falls back to the system CPython
+            # 3.12, relinking .venv. pip is installed under python3.13/site-packages,
+            # so the 3.12 interpreter can't import it and RedisJSON's readies getpy3
+            # (`python3 -m pip --version`) fails with "Cannot find python3 interpreter".
+            [[ -n "${GITHUB_ENV:-}" ]] && echo "UV_PYTHON=3.13" >> "$GITHUB_ENV"
+        fi
     fi
+fi
+
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    _dry_line "( cd \"$PWD\" && uv venv --seed --clear )"
+    _dry_line "source \"$PWD/.venv/bin/activate\""
+    _dry_line "( cd \"$PWD\" && uv sync --locked --all-packages )"
+    _dry_line "( cd \"$PWD\" && uv run pip list )"
+    return 0 2>/dev/null || exit 0
 fi
 
 # Create a virtual environment for Python tests, with `pip` pre-installed (--seed).

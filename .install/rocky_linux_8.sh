@@ -33,12 +33,30 @@ if [[ "$(uname -m)" == "aarch64" ]]; then
     dnf_install python3.12-devel
 fi
 
-# Symlink the toolset compiler into /usr/local/bin — skip once gcc already points there.
-if [[ "$(readlink -f /usr/local/bin/gcc 2>/dev/null)" != /opt/rh/gcc-toolset-13/root/usr/bin/gcc ]]; then
-    _run cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-    _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/gcc  /usr/local/bin/gcc  || true
-    _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/g++  /usr/local/bin/g++  || true
-    _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/cc   /usr/local/bin/cc   || true
-    _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/as   /usr/local/bin/as   || true
-    _run ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/make /usr/local/bin/make || true
+# Symlink the toolset compiler into /usr/local/bin.
+_toolset13_bindir=/opt/rh/gcc-toolset-13/root/usr/bin
+_toolset13_shim_ok() {
+    [[ "$(readlink -f "/usr/local/bin/$1" 2>/dev/null)" == "$_toolset13_bindir/$2" ]]
+}
+_toolset13_needs_shims=0
+[[ -f /etc/profile.d/gcc-toolset-13.sh ]] || _toolset13_needs_shims=1
+_toolset13_shim_ok gcc gcc || _toolset13_needs_shims=1
+_toolset13_shim_ok g++ g++ || _toolset13_needs_shims=1
+_toolset13_shim_ok cc cc || _toolset13_needs_shims=1
+_toolset13_shim_ok as as || _toolset13_needs_shims=1
+_toolset13_shim_ok make make || _toolset13_needs_shims=1
+
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+    if [[ "$_toolset13_needs_shims" == 1 ]]; then
+        DEPS_MISSING="$DEPS_MISSING gcc-toolset-13-shims"
+    else
+        DEPS_OK="$DEPS_OK gcc-toolset-13-shims"
+    fi
+else
+    [[ -f /etc/profile.d/gcc-toolset-13.sh ]] || _run cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+    _toolset13_shim_ok gcc gcc || _run ln -sf "$_toolset13_bindir/gcc" /usr/local/bin/gcc
+    _toolset13_shim_ok g++ g++ || _run ln -sf "$_toolset13_bindir/g++" /usr/local/bin/g++
+    _toolset13_shim_ok cc cc || _run ln -sf "$_toolset13_bindir/cc" /usr/local/bin/cc
+    _toolset13_shim_ok as as || _run ln -sf "$_toolset13_bindir/as" /usr/local/bin/as
+    _toolset13_shim_ok make make || _run ln -sf "$_toolset13_bindir/make" /usr/local/bin/make
 fi

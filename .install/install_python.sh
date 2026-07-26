@@ -2,7 +2,7 @@
 set -eo pipefail
 # xtrace for real installs only — this file is `source`d, so `set -x` in
 # list/dry-run would trace the whole run and bury the report/dry-run script.
-[ "${CHECK_DEPS:-0}" = 1 ] || [ "${DRY_RUN:-0}" = 1 ] || set -x
+[[ "${CHECK_DEPS:-0}" == 1 || "${DRY_RUN:-0}" == 1 ]] || set -x
 
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
@@ -23,14 +23,27 @@ export PATH="$UV_INSTALL_DIR:$PATH"
 # from the system or a previous manual install.
 have_ver="$(uv --version 2>/dev/null | awk '/^uv / {print $2; exit}' || true)"
 
-# list: record uv presence (optional dep); dry-run: print the uv installer if
-# it's absent; real: unchanged. Never write /etc/profile.d or GITHUB_PATH here.
-if [ "${CHECK_DEPS:-0}" = 1 ]; then
+# list: uv is required by the default Python test dependency flow; when that
+# flow is skipped, keep it optional. dry-run prints the installer if absent.
+# Never write /etc/profile.d or GITHUB_PATH in list/dry-run mode.
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     set +x
-    if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$MIN_UV_VERSION"; then DEPS_OPT_OK="$DEPS_OPT_OK uv"; else DEPS_OPT_MISSING="$DEPS_OPT_MISSING uv"; fi
+    if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$MIN_UV_VERSION"; then
+        if [[ "${SKIP_PYTHON_TEST_DEPS:-0}" != 1 ]]; then
+            DEPS_OK="$DEPS_OK uv"
+        else
+            DEPS_OPT_OK="$DEPS_OPT_OK uv"
+        fi
+    else
+        if [[ "${SKIP_PYTHON_TEST_DEPS:-0}" != 1 ]]; then
+            DEPS_MISSING="$DEPS_MISSING uv:$MIN_UV_VERSION"
+        else
+            DEPS_OPT_MISSING="$DEPS_OPT_MISSING uv:$MIN_UV_VERSION"
+        fi
+    fi
     return 0 2>/dev/null || exit 0
 fi
-if [ "${DRY_RUN:-0}" = 1 ]; then
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
     set +x
     if ! { [[ -n "$have_ver" ]] && version_ge "$have_ver" "$MIN_UV_VERSION"; }; then
         _dry_line "curl --proto '=https' --tlsv1.2 -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=\"\$HOME/.local/bin\" sh"

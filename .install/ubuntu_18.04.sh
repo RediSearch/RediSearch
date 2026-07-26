@@ -29,16 +29,24 @@ apt_install build-essential git wget make gcc-11 g++-11 openssl libssl-dev curl 
 _gcc_cur=$(gcc -dumpversion 2>/dev/null | cut -d. -f1 || echo 0)
 _gpp_cur=$(g++ -dumpversion 2>/dev/null | cut -d. -f1 || echo 0)
 if (( _gcc_cur < 11 )); then
-    # Register cc/gcc/g++ separately (no --slave grouping): if a debian-family
-    # module ran earlier in this shared build container, its debian_default_install
-    # already made g++ an independent master alternative, and --slave-grouping
-    # it under gcc here would conflict with that ("g++ ... is a master alternative").
-    _run update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-11 100
-    _run update-alternatives --set     cc  /usr/bin/gcc-11
-    _run update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
-    _run update-alternatives --set     gcc /usr/bin/gcc-11
+    if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+        DEPS_MISSING="$DEPS_MISSING gcc-active:11"
+    else
+        # Register cc/gcc/g++ separately (no --slave grouping): if a debian-family
+        # module ran earlier in this shared build container, its debian_default_install
+        # already made g++ an independent master alternative, and --slave-grouping
+        # it under gcc here would conflict with that ("g++ ... is a master alternative").
+        _run update-alternatives --install /usr/bin/cc  cc  /usr/bin/gcc-11 100
+        _run update-alternatives --set     cc  /usr/bin/gcc-11
+        _run update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
+        _run update-alternatives --set     gcc /usr/bin/gcc-11
+    fi
 fi
 if (( _gpp_cur < 11 )); then
-    _run update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
-    _run update-alternatives --set     g++ /usr/bin/g++-11
+    if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+        DEPS_MISSING="$DEPS_MISSING g++-active:11"
+    else
+        _run update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
+        _run update-alternatives --set     g++ /usr/bin/g++-11
+    fi
 fi
