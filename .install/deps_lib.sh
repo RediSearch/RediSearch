@@ -87,9 +87,24 @@ _dry_head() { printf '%s%s%s\n' "$_DRY_H" "$*" "$_DRY_R"; }
 
 # _run CMD... — install: execute (real sudo prefix); dry-run: print it (blue);
 # list: skip. Callers pre-filter to missing packages.
+_apt_df_shown=0
 _run() {
     if [ "$CHECK_DEPS" = 1 ]; then return 0
-    elif [ "$DRY_RUN" = 1 ]; then _dry_line "${_SUDO_DISPLAY:+$_SUDO_DISPLAY }$*"
+    elif [ "$DRY_RUN" = 1 ]; then
+        case " $* " in
+            *' apt-get '*|*' dnf '*|*' yum '*|*' tdnf '*|*' apk '*)
+                # First pkg-manager command: on apt, emit the noninteractive
+                # frontend right before it — only when there IS an apt command,
+                # so a box needing no apt install prints no export noise.
+                if [ "$PM" = apt ] && [ "$_apt_df_shown" = 0 ]; then
+                    _dry_line 'export DEBIAN_FRONTEND=noninteractive'; _apt_df_shown=1
+                fi
+                # apt-get/dnf/... read stdin; in a pasted dry-run that stdin IS
+                # the following commands, so the pkg manager swallows the rest of
+                # the paste. Redirect from /dev/null so a paste runs to the end.
+                _dry_line "${_SUDO_DISPLAY:+$_SUDO_DISPLAY }$* < /dev/null" ;;
+            *)  _dry_line "${_SUDO_DISPLAY:+$_SUDO_DISPLAY }$*" ;;
+        esac
     else ${_SUDO_DISPLAY:-$SUDO} "$@"; fi
 }
 
