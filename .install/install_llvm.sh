@@ -285,14 +285,16 @@ install_llvm() {
 
 # clang matching the required LLVM major already available?
 _llvm_ok() {
-    # Mirror accept_native_llvm: the toolchain counts as present only with BOTH
-    # clang AND lld at the pinned major (LTO links through lld; libclang ships
-    # with the same install). clang alone is a partial install and must reinstall.
-    if command -v "clang-${LLVM_VER}" >/dev/null 2>&1 && command -v "lld-${LLVM_VER}" >/dev/null 2>&1; then return 0; fi
-    if command -v clang >/dev/null 2>&1 && command -v lld >/dev/null 2>&1; then
-        [ "$(llvm_major clang)" = "$LLVM_VER" ] && return 0
-    fi
-    return 1
+    # Present iff clang at the pinned major AND an lld linker exist (clang alone,
+    # with no linker, is a partial install). clang: the versioned binary, or an
+    # unversioned `clang` reporting that major. lld: the `lld` driver
+    # (Debian/RHEL: lld / lld-<ver>) OR the `ld.lld` linker — Alpine ships ld.lld
+    # but not always an unversioned `lld`, and LTO links via -fuse-ld=lld -> ld.lld.
+    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 \
+        || { command -v clang >/dev/null 2>&1 && [ "$(llvm_major clang)" = "$LLVM_VER" ]; } \
+        || return 1
+    command -v "lld-${LLVM_VER}" >/dev/null 2>&1 || command -v lld >/dev/null 2>&1 \
+        || command -v "ld.lld-${LLVM_VER}" >/dev/null 2>&1 || command -v ld.lld >/dev/null 2>&1
 }
 
 # list: record the LLVM toolchain (build-critical) presence; dry-run: print the
