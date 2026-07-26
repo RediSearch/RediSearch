@@ -944,9 +944,12 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
     if (vecsimdisk_sst_consistency_lock_held) {
-      // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
-      // re-enabling compactions via PostFork on success.
-      DiskConsistencyWindow_End(SearchDisk_PostFork);
+      // Release the lock only: the process exits right after a successful
+      // hot-restart save, and the on-disk state must stay frozen at what the
+      // RDB captured - re-enabling compactions or the numeric consistency
+      // gate here would let a background GC advance the kept DBs past the
+      // serialized state before shutdown.
+      DiskConsistencyWindow_Close();
       RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {
