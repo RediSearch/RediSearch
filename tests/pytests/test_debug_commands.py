@@ -829,6 +829,25 @@ class TestQueryDebugCommands(object):
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
+    def CoordTimeoutPolicyConstraints(self):
+        """
+        Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
+        - ON_TIMEOUT RETURN: always supported
+        - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
+        """
+        env = self.env
+
+        # Skip for non-cluster - these constraints only apply to coordinator queries
+        if not env.isCluster():
+            return
+
+        # Test ON_TIMEOUT FAIL (not supported for coordinator)
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
+
+        # Restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
@@ -859,8 +878,78 @@ class TestQueryDebugCommands(object):
         self.SearchDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
+    def AggregateDebug(self):
+        env = self.env
+        self.setBasicDebugQuery("AGGREGATE")
+        basic_debug_query = self.basic_debug_query
+        self.QueryDebug()
 
+        # EOF will be reached before the timeout counter
+        limit = 2
+        res = self.QueryWithLimit(basic_debug_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
 
+        self.QueryWithSorter(sortby_params=['sortby', 1, '@n'])
+
+        # with cursor
+        timeout_res_count = 200
+        limit = self.num_docs
+        cursor_count = 600 # higher than timeout_res_count, but lower than limit
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        self.verifyResultsResp3(res, timeout_res_count, "AggregateDebug with cursor:")
+
+        iter = 0
+        total_returned = len(res['results'])
+        expected_results_per_iter = timeout_res_count
+
+        should_timeout = True
+        check_res = True
+        while (cursor):
+            remaining = limit - total_returned
+            if remaining <= timeout_res_count * env.shardsCount:
+                # We don't know how many docs are left in each shard, so the result structure is unpredictable.
+                # If all shards return fewer results than timeout_res_count, no timeout warning will occur.
+                # If at least one shard returns more than timeout_res_count, a timeout warning will be issued.
+                # See aggregate/aggregate_debug.h for more details.
+                if env.isCluster():
+                    check_res = False
+                else:
+                    # in a single shard the next read will return EOF
+                    expected_results_per_iter = remaining
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            total_returned += len(res['results'])
+            if cursor == 0:
+                should_timeout = False
+
+            if check_res:
+                self.verifyResultsResp3(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+            iter += 1
+        env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
+
+        # cursor count smaller than timeout count, expect no timeout
+        cursor_count = timeout_res_count // 2
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        should_timeout = False
+        self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+
+        # Test TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster mode - should work and return empty results
+        if env.isCluster():
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            res = env.cmd(*basic_debug_query, *debug_params)
+            self.verifyResultsResp3(res, 0, message="AggregateDebug: TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR in cluster:")
+
+        self.TimeoutPolicyConstraints()
+        self.CoordTimeoutPolicyConstraints()
+
+    def testAggregateDebug(self):
+        self.AggregateDebug()
+
+    def testAggregateDebug_MT(self):
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+        self.AggregateDebug()
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
