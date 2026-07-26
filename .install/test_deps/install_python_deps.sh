@@ -17,11 +17,13 @@ if [ "${CHECK_DEPS:-0}" = 1 ]; then
 fi
 if [ "${DRY_RUN:-0}" = 1 ]; then
     # The venv lives in the module dir this script runs from ($PWD, set by
-    # install_script.sh's `cd ..`). Print an absolute, cd-prefixed one-liner so
-    # copy-paste creates it in the RIGHT place (not wherever you pasted from),
-    # and gate on that same dir so a provisioned venv drops the line entirely.
+    # install_script.sh's `cd ..`). Do the create/sync inside a SUBSHELL so the
+    # cd is contained (a bare `cd` would strand the pasting shell in the module
+    # dir), then activate via an ABSOLUTE path with no cd — so the venv ends up
+    # created+activated but the shell stays where you pasted from. Gate on the
+    # same dir so a provisioned venv drops the line entirely.
     if [ ! -d "$PWD/.venv" ]; then
-        _dry_line "cd \"$PWD\" && uv venv --seed --clear && source .venv/bin/activate && uv sync --locked --all-packages"
+        _dry_line "( cd \"$PWD\" && uv venv --seed --clear && uv sync --locked --all-packages ) && source \"$PWD/.venv/bin/activate\""
     fi
     return 0 2>/dev/null || exit 0
 fi
