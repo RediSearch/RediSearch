@@ -224,15 +224,22 @@ help:
 # or to force no prefix.
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
+# TODO(MOD): RediSearch has no real dry-run yet. Until it does, the dry-run
+# branch below is a safe no-op (prints a note, installs nothing) so the monorepo
+# `make bootstrap dry-run` never runs the real installer here. Implement proper
+# dry-run: print the commands verify_build_deps.sh / install_script.sh would run.
 bootstrap:
 ifeq ($(filter list,$(MAKECMDGOALS)),list)
 	@$(ROOT)/.install/verify_build_deps.sh || true
+else ifeq ($(filter dry-run,$(MAKECMDGOALS)),dry-run)
+	@echo "RediSearch: dry-run not yet implemented — skipping (nothing installed)."
 else
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
 endif
 
 list: ; @:
+dry-run: ; @:
 
 fetch:
 	@echo "Fetching dependencies..."
@@ -475,7 +482,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: list help bootstrap fetch build clean test unit-tests rust-tests pytest
+.PHONY: list dry-run help bootstrap fetch build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
