@@ -287,14 +287,17 @@ install_llvm() {
 
 # clang/lld/llvm-config/libclang matching the required LLVM major already available?
 _clang_ok() {
-    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 && return 0
+    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 &&
+        [[ "$(llvm_major "clang-${LLVM_VER}")" == "$LLVM_VER" ]] && return 0
     command -v clang >/dev/null 2>&1 && [[ "$(llvm_major clang)" == "$LLVM_VER" ]]
 }
 
 _lld_ok() {
     local tool actual
     for tool in "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}"; do
-        command -v "$tool" >/dev/null 2>&1 && return 0
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ "$actual" == "$LLVM_VER" ]] && return 0
     done
     for tool in lld ld.lld; do
         command -v "$tool" >/dev/null 2>&1 || continue

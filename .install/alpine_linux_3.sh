@@ -34,10 +34,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
 # (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
 # needs the runtime present.
 # LLVM_VER is derived from what install_llvm.sh landed. In list/dry-run no
-# install happened yet, so fall back to the pinned LLVM major from
-# LLVM_VERSION.sh and keep the static-library step visible.
-LLVM_VER=$(ls /usr/lib/ 2>/dev/null | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm' || true)
-LLVM_VER="${LLVM_VER:-${LLVM_VERSION:-}}"
+# install happened yet, so use the pinned LLVM major directly and keep the
+# static-library step visible.
+if [[ "${CHECK_DEPS:-0}" == 1 || "${DRY_RUN:-0}" == 1 ]]; then
+    LLVM_VER="${LLVM_VERSION:-}"
+else
+    LLVM_VER=$(ls /usr/lib/ 2>/dev/null | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm' || true)
+    LLVM_VER="${LLVM_VER:-${LLVM_VERSION:-}}"
+fi
 if [[ -n "$LLVM_VER" ]]; then
     apk_install llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static compiler-rt
 

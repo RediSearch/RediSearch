@@ -7,6 +7,7 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 NIGHTLY_VERSION=$(cat "$REPO_ROOT/.rust-nightly")
 REQUIRED_CHEADERGEN_VERSION=$(cat "$REPO_ROOT/.cheadergen-version")
 NEXTEST_VERSION=$(cat "$REPO_ROOT/.nextest-version")
+CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 # The repo pins an exact toolchain in rust-toolchain.toml. Use it as our baseline
 # instead of installing a separate `stable`: nothing needs a distinct `stable`
 # (all builds resolve to this pinned version via the override), and a separate
@@ -37,10 +38,9 @@ install_rustup() {
     # repo's pinned toolchain is installed explicitly below.
     _sh "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none"
     # Source the freshly-installed env for the rest of THIS process (real mode).
-    # Not printed: the dry-run env prefix below already puts ~/.cargo/bin on PATH
-    # for a paste, so printing here would just duplicate it.
-    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env" || true
-    export PATH="$HOME/.cargo/bin:$PATH"
+    # Not printed: the dry-run env prefix below already puts Cargo home on PATH.
+    [[ -f "$CARGO_HOME_DIR/env" ]] && . "$CARGO_HOME_DIR/env" || true
+    export PATH="$CARGO_HOME_DIR/bin:$PATH"
     hash -r
 }
 
@@ -48,15 +48,15 @@ install_rustup() {
 # presence checks below are accurate. Detection only: runs in every mode but is
 # NEVER printed — it's not a step the user pastes. The env setup that IS pasted
 # comes from install_rustup, which only runs when rust is actually being installed.
-[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env" || true
-export PATH="$HOME/.cargo/bin:$PATH"
+[[ -f "$CARGO_HOME_DIR/env" ]] && . "$CARGO_HOME_DIR/env" || true
+export PATH="$CARGO_HOME_DIR/bin:$PATH"
 hash -r
 
 cargo_is_rustup_proxy() {
     local cargo_path cargo_home_bin
     cargo_path=$(command -v cargo 2>/dev/null || true)
     [[ -n "$cargo_path" ]] || return 1
-    cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    cargo_home_bin="$CARGO_HOME_DIR/bin"
     [[ "$cargo_path" == "$cargo_home_bin/cargo" || "$cargo_path" == "$HOME/.cargo/bin/cargo" ]]
 }
 
@@ -88,11 +88,12 @@ fi
 
 # ── DRY_RUN prints each command; real executes. Same flow in both. ───────────
 
-# The rustup/cargo commands below live in ~/.cargo/bin, which a freshly-opened
-# shell won't have on PATH. So in dry-run, if ANY rust step is pending, emit the
-# env setup FIRST — otherwise a pasted "rustup …" line dies with "command not
-# found" (the real bootstrap has it on PATH in-process; a fresh paste does not).
-# When every step is already satisfied nothing is pending and no env is emitted.
+# The rustup/cargo commands below live in Cargo home, which a freshly-opened
+# shell may not have on PATH. So in dry-run, if ANY rust step is pending, emit
+# the env setup FIRST — otherwise a pasted "rustup …" line dies with "command
+# not found" (the real bootstrap has it on PATH in-process; a fresh paste does
+# not). When every step is already satisfied nothing is pending and no env is
+# emitted.
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
     _need=0
     command -v rustup >/dev/null 2>&1 && cargo_is_rustup_proxy || _need=1
@@ -107,8 +108,8 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         [[ "$(cheadergen --version 2>/dev/null | awk '{print $NF}' || true)" == "$REQUIRED_CHEADERGEN_VERSION" ]] || _need=1
     fi
     if [[ "$_need" == 1 ]]; then
-        _dry_line '[[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env" || true'
-        _dry_line 'export PATH="$HOME/.cargo/bin:$PATH"'
+        _dry_line '[[ -f "${CARGO_HOME:-$HOME/.cargo}/env" ]] && . "${CARGO_HOME:-$HOME/.cargo}/env" || true'
+        _dry_line 'export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"'
     fi
 fi
 
@@ -157,7 +158,7 @@ fi
 
 # Cargo subcommands install into Cargo home (cargo may be a system binary in a
 # dir a non-root bootstrap can't write to). Put it on PATH — functional/detection
-# only, never printed (install_rustup already puts ~/.cargo/bin on PATH in a paste).
+# only, never printed (install_rustup already puts Cargo home on PATH in a paste).
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 cargo_home_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
 if [[ "${DRY_RUN:-0}" != 1 ]]; then

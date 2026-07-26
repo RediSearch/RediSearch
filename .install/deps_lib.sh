@@ -137,7 +137,21 @@ _env() {
     eval "$1"
 }
 
-_missing_only() { for _p in "$@"; do _pkg_installed "$_p" || printf '%s ' "$_p"; done; }
+_needs_install_or_upgrade() {
+    local _p="$1"
+    local _min _have
+
+    _pkg_installed "$_p" || return 0
+
+    _min=$(_min_for "$_p")
+    [[ -n "$_min" ]] || return 1
+
+    _have=$(_get_installed_version "$_p")
+    [[ -n "$_have" ]] && version_ge "$_have" "$_min" && return 1
+    return 0
+}
+
+_missing_only() { for _p in "$@"; do _needs_install_or_upgrade "$_p" && printf '%s ' "$_p"; done; }
 
 _pkg_installed() {
     case "$PM" in
