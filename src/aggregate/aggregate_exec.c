@@ -409,7 +409,9 @@ long calc_results_len(AREQ *req, size_t limit) {
   size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
   size_t resultFactor = getResultsFactor(req);
 
-  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+  // Report matches minus the rows the loader dropped (deleted/re-indexed mid-load).
+  size_t reported = QITR_ReportedTotal(&req->qiter);
+  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? reported : MIN(req->maxSearchResults, reported);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -440,8 +442,17 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     TotalGlobalStats_CountQuery(req->reqflags, duration);
   }
 
-  // Reset the total results length:
-  req->qiter.totalResults = 0;
+  // Reset the total results length. WITHCOUNT preserves it across cursor
+  // reads - the value is the shard-summed total set once at Phase B start,
+  // not a per-chunk count, so every FT.CURSOR READ must keep reporting it.
+  if (!HasWithCount(req)) {
+    req->qiter.totalResults = 0;
+  } else {
+    // totalResults survives this reset (WITHCOUNT); fold the dropped rows into it
+    // permanently so later cursor reads stay corrected.
+    req->qiter.totalResults = QITR_ReportedTotal(&req->qiter);
+  }
+  req->qiter.skippedResults = 0;
 
   QueryError_ClearError(req->qiter.err);
 }
@@ -496,7 +507,8 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     RedisModule_Reply_Array(reply);
 
-    RedisModule_Reply_LongLong(reply, req->qiter.totalResults);
+    // Report matches minus rows the loader dropped (deleted/re-indexed mid-load).
+    RedisModule_Reply_LongLong(reply, QITR_ReportedTotal(&req->qiter));
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
@@ -683,8 +695,8 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
-    // <total_results>
-    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+    // <total_results> - matches minus rows the loader dropped (deleted/re-indexed mid-load).
+    RedisModule_ReplyKV_LongLong(reply, "total_results", QITR_ReportedTotal(&req->qiter));
 
     // <error>
     _replyWarnings(req, reply, rc);
