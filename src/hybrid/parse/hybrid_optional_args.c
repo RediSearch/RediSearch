@@ -197,8 +197,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_CALLBACK, handleFilter, ctx,
                          ARG_OPT_END);
 
-    // TODO: Add YIELD_SCORE_AS support for score aliasing
-
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);
 
