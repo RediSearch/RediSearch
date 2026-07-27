@@ -743,6 +743,7 @@ dependencies = [
  "rmp-serde",
  "rqe_core",
  "serde",
+ "string_utils",
  "thiserror",
  "tracing",
  "workspace_hack",
