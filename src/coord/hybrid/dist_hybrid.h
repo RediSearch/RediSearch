@@ -18,6 +18,18 @@ extern "C" {
 #include "rmr/command.h"
 #include "profile/options.h"
 #include "vector_index.h"
+#include "hybrid/hybrid_scoring.h"
+
+// Resolved COMBINE parameters captured on the coordinator, used to reconstruct
+// an old-shard-compatible COMBINE clause on the wire (see HybridRequest_buildMRCommand).
+typedef struct {
+  // Resolved scoring parameters. Borrowed, not owned: points at the request's
+  // HybridScoringContext, which the merger keeps alive past command building.
+  const HybridScoringContext *scoringCtx;
+  // YIELD_SCORE_AS alias for the combined score, or NULL. Carried alongside
+  // scoringCtx because HybridScoringContext has no alias field.
+  const char *scoreAlias;
+} HybridCombineWireParams;
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
@@ -32,6 +44,7 @@ int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             bool sendExplainScore,
+                            const HybridCombineWireParams *combineParams,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex);
 
