@@ -1467,9 +1467,8 @@ void SetLoadersForBG(QueryProcessingCtx *qctx) {
 // pipeline so they can perform the RETURN_STRICT GIL deadlock-avoidance handshake. Called on
 // the BG worker for requests that use the aggregate-results sync protocol.
 //
-// The disk async loader lives in the Rust `redisearch_disk` crate; it is handed the same `sync`
-// so it can call `BlockedRequestCtx_SafeLoaderEnterGIL`/`ExitGIL` around its own GIL section,
-// exactly like RP_SAFE_LOADER, closing the same RETURN_STRICT deadlock window (see aggregate.h).
+// The disk async loader (Rust `redisearch_disk` crate) uses the same handshake via
+// `SearchDisk_AsyncLoader_SetSyncCtx` (see aggregate.h).
 void RPSafeLoader_SetSyncCtx(QueryProcessingCtx *qctx, struct BlockedRequestCtx *sync) {
   ResultProcessor *rp = qctx->endProc;
   while (rp) {
