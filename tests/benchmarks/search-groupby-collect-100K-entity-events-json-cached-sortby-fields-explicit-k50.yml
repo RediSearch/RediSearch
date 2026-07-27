@@ -1,6 +1,6 @@
 version: 0.5
 name: "search-groupby-collect-100K-entity-events-json-cached-sortby-fields-explicit-k50"
-description: "GROUPBY + COLLECT JSON benchmark with explicit projected fields and LIMIT 0 50. Temporarily 10K @ 16 workers pending MOD-16899 (100K stalls)."
+description: "GROUPBY + COLLECT JSON benchmark with explicit projected fields and LIMIT 0 50."
 
 metadata:
   component: "search"

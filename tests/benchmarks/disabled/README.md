@@ -14,7 +14,3 @@ back up to `tests/benchmarks/` once its ticket is resolved — the file's intern
 | Benchmark | Reason | Ticket |
 |-----------|--------|--------|
 | _(none currently)_ | | |
-
-## Notes
-
-The `search-groupby-collect-100K-entity-events-json-cached-sortby-fields-{explicit,star-offset500}-k50` benchmarks are **enabled but run a reduced 10K dataset** at 16 client workers (see their yml headers), because at 100K the JSON `LOAD` re-compiles the JSONPath per field under the GIL, so concurrent queries serialize and never return within the client deadline. Restore them to the 100K dataset once [MOD-16899](https://redislabs.atlassian.net/browse/MOD-16899) lands. The `hash` variants are unaffected (no JSONPath) and run at the full 100K. Tracked by [MOD-17201](https://redislabs.atlassian.net/browse/MOD-17201).
