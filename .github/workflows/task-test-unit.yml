@@ -213,10 +213,33 @@ jobs:
           rm bin.tar.gz
           echo "Restored bin/ size:"
           du -sh bin
-          echo "Top-level test binaries:"
-          find bin -maxdepth 4 -type f -perm -u+x | grep -E '(rstest|test_|bench_)' | head -20 || true
+          echo "Restored test binaries:"
+          find bin -type f -perm -u+x | grep -E '(rstest|test_|bench_)' | head -20 || true
           test -s nextest-archive.tar.zst || { echo "nextest-archive.tar.zst missing"; exit 1; }
           ls -lh nextest-archive.tar.zst
+
+      - name: Verify test binaries present
+        # A partial or corrupt artifact must not silently pass: sbin/unit-tests
+        # treats missing test directories/binaries as SKIPPED and still exits 0,
+        # so without this guard a green unit-test job could report success
+        # without having run any native tests. Assert the core C and C++
+        # unit-test executables were actually restored before running.
+        run: |
+          set -euo pipefail
+          missing=0
+          if ! find bin -type f -perm -u+x -name 'rstest' | grep -q .; then
+            echo "::error::C++ unit-test binary 'rstest' not found in restored artifact"
+            missing=1
+          fi
+          if ! find bin -type f -perm -u+x -name 'test_*' | grep -q .; then
+            echo "::error::No C unit-test executables ('test_*') found in restored artifact"
+            missing=1
+          fi
+          if [[ $missing -ne 0 ]]; then
+            echo "Build artifact is incomplete; refusing to run so a partial artifact cannot report a green unit-test run."
+            exit 1
+          fi
+          echo "Core C and C++ test binaries present."
 
       - name: Set Artifact Names
         # Used by failure-path log upload below.
