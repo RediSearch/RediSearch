@@ -11,6 +11,7 @@
 #include "main_thread.h"
 #include "rmalloc.h"
 
+#include <assert.h>
 #ifdef __linux__
 #include <sys/syscall.h>
 #include <unistd.h>

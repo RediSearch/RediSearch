@@ -65,9 +65,13 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // The barrier is freed by MRIterator via shardResponseBarrier_Free destructor
   // shardResponseBarrier_Init is called from iterStartCb when numShards is known from topology
   MRIterator *it = nc->shardResponseBarrier
-                   ? MR_IterateWithPrivateData(&nc->cmd, netCursorCallback, nc->shardResponseBarrier,
-                                               shardResponseBarrier_Free, shardResponseBarrier_Init,
-                                               iterStartCb, NULL)
+                   ? MR_IterateWithPrivateData(&nc->cmd, &(MRIteratorConfig){
+                       .successCB = netCursorCallback,
+                       .cbPrivateData = nc->shardResponseBarrier,
+                       .cbPrivateDataDestructor = shardResponseBarrier_Free,
+                       .cbPrivateDataInit = shardResponseBarrier_Init,
+                       .iterStartCb = iterStartCb,
+                     })
                    : MR_Iterate(&nc->cmd, netCursorCallback);
 
   if (!it) {

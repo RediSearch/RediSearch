@@ -2,6 +2,7 @@
 #include "aggregate/aggregate.h"
 #include "pipeline/pipeline.h"
 #include "hybrid/hybrid_scoring.h"
+#include "hybrid/hybrid_debug.h"
 #include "util/references.h"
 #include "redismodule.h"
 
@@ -36,6 +37,11 @@ typedef struct HybridRequest {
     ProfileClocks profileClocks;
     profiler_func profile;
     ProfilePrinterCtx profileCtx;
+
+    // Optional debug parameters for _FT.DEBUG FT.HYBRID.
+    // When non-NULL, debug timeouts are applied after pipeline building.
+    // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
+    HybridDebugParams *debugParams;
 } HybridRequest;
 
 // Blocked client context for HybridRequest background execution

@@ -21,6 +21,8 @@ extern "C" {
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
+void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                            struct ConcurrentCmdCtx *cmdCtx);
 
 // For testing purposes
 // numShards is passed from the main thread to ensure thread-safe access

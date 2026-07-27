@@ -13,6 +13,7 @@
 #pragma once
 
 #include "redismodule.h"
+#include "reply.h"
 #include "query_error.h"
 
 // Coordinator empty reply for FT.SEARCH commands.
@@ -28,6 +29,9 @@ int coord_aggregate_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **a
 // Creates QueryError with OOM/timeout warning and uses sendChunk_ReplyOnly_HybridEmptyResults.
 // When isProfile is true, wraps the reply with profile structure.
 int common_hybrid_query_reply_empty(RedisModuleCtx *ctx, QueryErrorCode errCode, bool internal, bool isProfile);
+
+// Variant for callers that already own a RedisModule_Reply (they must EndReply it).
+void common_hybrid_query_reply_empty_into(RedisModule_Reply *reply, QueryErrorCode errCode, bool internal, bool isProfile);
 
 // Single-shard empty reply for SEARCH and AGGREGATE commands.
 // Handles both RESP2 and RESP3 with command-appropriate formatting.
