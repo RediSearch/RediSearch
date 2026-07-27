@@ -1342,10 +1342,13 @@ def distinct_shard_tags(conn):
                 return
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    # Wait for the index to finish scan
-    # Check if equals 1 for RESP3 support
+    # Wait for the index to finish scanning. Poll the 'indexing' flag rather than
+    # percent_indexed: a background build aborted on OOM freezes percent_indexed
+    # below 1.0 (so a partial index isn't reported as complete), so it would never
+    # reach 1 and this would time out. 'indexing' drops to 0 once the scan ends,
+    # whether it completed or was cancelled by OOM.
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
-        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        while index_info(env, idx)['indexing'] not in (0, '0'):
             time.sleep(0.1)
 
 def bgScanCommand():
@@ -1402,10 +1405,10 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    # Wait for the index to finish scan
-    # Check if equals 1 for RESP3 support
+    # Wait for the index to finish scanning. See waitForIndexFinishScan: poll the
+    # 'indexing' flag, since an OOM-aborted build freezes percent_indexed below 1.0.
     with TimeLimit(60, 'Timeout while waiting for index to finish scan'):
-        while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+        while index_info(env, idx)['indexing'] not in (0, '0'):
             time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):
