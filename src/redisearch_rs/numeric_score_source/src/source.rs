@@ -37,9 +37,7 @@ pub trait DocValidity {
     fn is_valid(&self, doc_id: DocId) -> bool;
 
     /// Fast-path gate: `false` lets the source skip filtering entirely.
-    fn may_filter(&self) -> bool {
-        true
-    }
+    fn may_filter(&self) -> bool;
 }
 
 /// A [`DocValidity`] that treats every document as valid, for when no doc table
