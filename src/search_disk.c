@@ -223,6 +223,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
