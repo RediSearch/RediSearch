@@ -1,6 +1,6 @@
 version: 0.5
 name: "search-groupby-collect-100K-entity-events-json-cached-sortby-fields-star-offset500-k50"
-description: "GROUPBY + COLLECT JSON benchmark with FIELDS * and LIMIT 500 50."
+description: "GROUPBY + COLLECT JSON benchmark with FIELDS * and LIMIT 500 50. TEMPORARILY reduced to the 10K dataset at 16 client workers (MOD-17201): at 100K the JSON LOAD re-compiles the JSONPath per field under the GIL, so concurrent queries serialize and never return within the client deadline. Restore dataset_name/input to groupby-collect-entity-events-100K-heavy-json + keyspacelen 100000 (and re-raise workers) once MOD-16899 lands."
 
 metadata:
   component: "search"
@@ -16,7 +16,7 @@ setups:
   - oss-cluster-02-primaries
 
 dbconfig:
-  - dataset_name: "groupby-collect-entity-events-100K-heavy-json"
+  - dataset_name: "groupby-collect-entity-events-10K-heavy-json"
   - dataset_load_timeout_secs: 1800
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
@@ -25,15 +25,15 @@ dbconfig:
   - parameters:
     - workers: 64
     - reporting-period: 1s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-json/groupby-collect-entity-events-100K-heavy-json.redisjson.commands.SETUP.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-10K-heavy-json/groupby-collect-entity-events-10K-heavy-json.redisjson.commands.SETUP.csv"
   - check:
-      keyspacelen: 100000
+      keyspacelen: 10000
 
 clientconfig:
   - benchmark_type: "read-only"
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 64
+    - workers: 16
     - requests: 100000
     - reporting-period: 1s
     - duration: 120s

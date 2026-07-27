@@ -1,6 +1,6 @@
 version: 0.5
-name: "search-groupby-collect-10K-entity-events-json-cached-sortby-fields-explicit-k50"
-description: "GROUPBY + COLLECT JSON benchmark with explicit projected fields and LIMIT 0 50. 10K variant at 16 client workers (MOD-17201): the 100K JSON variant stalls because the JSON LOAD re-compiles the JSONPath per field under the GIL, so 64 concurrent queries serialize and never return; 10K docs at 16 workers completes and still exercises the COLLECT + per-field JSON-load path. Re-raise to 100K once MOD-16899 lands."
+name: "search-groupby-collect-100K-entity-events-json-cached-sortby-fields-explicit-k50"
+description: "GROUPBY + COLLECT JSON benchmark with explicit projected fields and LIMIT 0 50. TEMPORARILY reduced to the 10K dataset at 16 client workers (MOD-17201): at 100K the JSON LOAD re-compiles the JSONPath per field under the GIL, so concurrent queries serialize and never return within the client deadline. Restore dataset_name/input to groupby-collect-entity-events-100K-heavy-json + keyspacelen 100000 (and re-raise workers) once MOD-16899 lands."
 
 metadata:
   component: "search"
