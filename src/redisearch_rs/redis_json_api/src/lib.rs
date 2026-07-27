@@ -76,6 +76,7 @@ impl RedisJsonApi {
         let vtable_ptr = unsafe { ffi::japi };
 
         // Check version compatibility BEFORE forming a reference to the vtable.
+        // Safety: japi_ver is initialized alongside japi.
         let version = unsafe { ffi::japi_ver };
         if version < MIN_API_VERSION {
             return None;
