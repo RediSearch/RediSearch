@@ -224,9 +224,23 @@ help:
 # or to force no prefix.
 SUDO ?= $(shell [ "$$(id -u)" -eq 0 ] || echo sudo)
 
+# `list` / `dry-run` route through the REAL installer (install_script.sh),
+# same as the other modules: CHECK_DEPS=1 records present/missing deps and
+# installs nothing; DRY_RUN=1 prints the exact commands bootstrap would run for
+# missing deps and installs nothing.
 bootstrap:
+ifeq ($(filter list,$(MAKECMDGOALS)),list)
+	@cd $(ROOT)/.install && CHECK_DEPS=1 ./install_script.sh $(SUDO)
+else ifeq ($(filter dry-run,$(MAKECMDGOALS)),dry-run)
+	@cd $(ROOT)/.install && DRY_RUN=1 ./install_script.sh $(SUDO)
+else
 	@echo "Installing build dependencies..."
 	@cd $(ROOT)/.install && ./install_script.sh $(SUDO)
+endif
+
+list: ; @:
+dry-run: ; @:
+bootstrap-modes: ; @echo "list dry-run"
 
 fetch:
 	@echo "Fetching dependencies..."
@@ -469,7 +483,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: help bootstrap fetch build clean test unit-tests rust-tests pytest
+.PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck
