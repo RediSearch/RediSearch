@@ -798,7 +798,6 @@ class TestQueryDebugCommands(object):
         Test TIMEOUT_AFTER_N policy constraints for shard-level queries:
         - ON_TIMEOUT RETURN: always supported
         - ON_TIMEOUT FAIL: only supported without workers (WORKERS=0)
-        - ON_TIMEOUT RETURN-STRICT: never supported
         """
         env = self.env
         conn = getConnectionByEnv(env)
@@ -827,11 +826,6 @@ class TestQueryDebugCommands(object):
             with env.assertResponseError(contained="Timeout limit was reached"):
                 runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
-        # Test ON_TIMEOUT RETURN-STRICT (never supported)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT"):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-
         # Restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
@@ -840,7 +834,6 @@ class TestQueryDebugCommands(object):
         Test TIMEOUT_AFTER_N policy constraints for coordinator-level queries:
         - ON_TIMEOUT RETURN: always supported
         - ON_TIMEOUT FAIL: not supported (coordinator only supports RETURN)
-        - ON_TIMEOUT RETURN-STRICT: not supported (coordinator only supports RETURN)
         """
         env = self.env
 
@@ -850,11 +843,6 @@ class TestQueryDebugCommands(object):
 
         # Test ON_TIMEOUT FAIL (not supported for coordinator)
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
-        with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
-            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
-
-        # Test ON_TIMEOUT RETURN-STRICT (not supported for coordinator)
-        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN-STRICT').ok()
         with env.assertResponseError(contained="TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN"):
             runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 

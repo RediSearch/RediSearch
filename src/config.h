@@ -25,10 +25,10 @@ typedef enum {
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
 
-static const int on_timeout_enums[3] = {
+// Publicly configurable timeout policies. ReturnStrict remains internal-only.
+static const int on_timeout_enums[2] = {
   TimeoutPolicy_Return,
-  TimeoutPolicy_Fail,
-  TimeoutPolicy_ReturnStrict
+  TimeoutPolicy_Fail
 };
 static const char *on_timeout_vals[3] = {
   "return",
