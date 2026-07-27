@@ -428,6 +428,7 @@ _llvm_check_ok() {
 
 install_alpine_static_llvm_libs() {
     local installed_ver="$1"
+    local libdir linker_script
     [[ -n "$installed_ver" ]] || return 0
 
     # Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
@@ -444,12 +445,18 @@ install_alpine_static_llvm_libs() {
     # the buffer for a child of the archive"), so provide a GROUP() linker script
     # instead — both ld.lld and GNU ld accept a text script in place of an
     # archive, and it costs no disk space.
-    if [[ ! -e "/usr/lib/llvm${installed_ver}/lib/libLLVM-${installed_ver}.a" ]]; then
+    libdir="/usr/lib/llvm${installed_ver}/lib"
+    linker_script="${libdir}/libLLVM-${installed_ver}.a"
+    if [[ ! -e "$linker_script" ]]; then
+        if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+            [[ -d "$libdir" ]] && DEPS_MISSING="$DEPS_MISSING libLLVM-${installed_ver}.a"
+            return 0
+        fi
         # Build the GROUP() from a glob expanded at run/paste time (not baked in
         # now — that produced a ~200-path one-liner in dry-run). The glob still
         # expands before tee creates the output file, so the archive never lists
         # itself. shellcheck disable=SC2086
-        _sh "libs=\$(echo /usr/lib/llvm${installed_ver}/lib/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee /usr/lib/llvm${installed_ver}/lib/libLLVM-${installed_ver}.a > /dev/null"
+        _sh "libs=\$(echo ${libdir}/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee ${linker_script} > /dev/null"
     fi
 }
 

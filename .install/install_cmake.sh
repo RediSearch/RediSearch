@@ -3,6 +3,9 @@ set -eo pipefail
 version=3.25.1
 OS_TYPE=$(uname -s)
 MODE=$1 # whether to install using sudo or not
+if ! command -v brew_install >/dev/null 2>&1 || ! command -v apk_install >/dev/null 2>&1; then
+    source "$(dirname "${BASH_SOURCE[0]}")/deps_lib.sh"
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/version_compare.sh"
 
 # Skip if a cmake meeting the minimum version is already on PATH.
@@ -11,11 +14,11 @@ have_ver="$(cmake --version 2>/dev/null | awk '/cmake version/ {print $3; exit}'
 
 # list: record cmake presence (version-checked); dry-run: print the install
 # commands only if the required cmake isn't already present; real: unchanged.
-if [ "${CHECK_DEPS:-0}" = 1 ]; then
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$version"; then DEPS_OK="$DEPS_OK cmake"; else DEPS_MISSING="$DEPS_MISSING cmake:$version"; fi
     return 0 2>/dev/null || exit 0
 fi
-if [ "${DRY_RUN:-0}" = 1 ]; then
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
     if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$version"; then
         return 0 2>/dev/null || exit 0
     fi
@@ -46,13 +49,13 @@ fi
 
 if [[ $OS_TYPE = 'Darwin' ]]
 then
-    brew install cmake
+    brew_install cmake
 else
     OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
     OS_NAME=${OS_NAME#"NAME="}
     if [[ $OS_NAME == 'Alpine Linux' ]]
     then
-        $MODE apk add --no-cache cmake
+        apk_install cmake
     else
         processor=$(uname -m)
         if [[ $processor = 'x86_64' ]]
