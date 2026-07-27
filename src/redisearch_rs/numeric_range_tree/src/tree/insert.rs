@@ -278,6 +278,11 @@ impl NumericRangeTree {
     /// are identical—the median would equal the minimum, and without adjustment
     /// all entries would go to the right child, leaving the left empty.
     ///
+    /// The adjustment only fires when the range's `min_val` bound matches the
+    /// smallest value the range actually stores. That is not always the case, so
+    /// a split can still leave one child empty—see the comment on `newly_empty`
+    /// below.
+    ///
     /// # Note
     ///
     /// The original range is retained in the node (now internal). It may be
@@ -341,9 +346,19 @@ impl NumericRangeTree {
         }
         drop(result);
 
-        // A split can leave a child leaf empty: when float compression collapses
-        // every stored value to the same f32, the median equals the minimum, the
-        // split point becomes `next_up(min)`, and all entries land on one side.
+        // A split can leave a child leaf empty whenever every entry falls on the
+        // same side of `split`. Two known ways to get there:
+        //
+        // 1. Float compression collapses every stored value to the same f32. The
+        //    median then equals `min_val`, the split point becomes `next_up(min)`,
+        //    and every entry lands in the *left* child.
+        // 2. `min_val` is stale. GC removes entries from a range but never raises
+        //    its bounds, so once the documents holding the smallest value are
+        //    collected, `min_val` sits below every surviving value. If a majority
+        //    of the survivors share the smallest surviving value, that value is the
+        //    median, the `split == min_val` guard above does not fire, and every
+        //    entry lands in the *right* child.
+        //
         // Such an empty leaf must be reflected in `empty_leaves`, otherwise a
         // later add routed to it would decrement the counter below zero. The
         // parent had >= 1 entry (we split only after adding), so at most one of
