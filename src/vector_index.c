@@ -236,6 +236,13 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, queryType, q->status) != VecSim_OK)  {
         return NULL;
       }
+      // On disk (Flex) HNSW, query-time RERANK is an override only. When the query omits
+      // it, fall back to the index's create-time RERANK default
+      if (vq->field->vectorOpts.diskCtx.indexName != NULL &&
+          qParams.hnswDiskRuntimeParams.shouldRerank == VecSimBool_UNSET) {
+        qParams.hnswDiskRuntimeParams.shouldRerank =
+            vq->field->vectorOpts.diskCtx.rerank ? VecSimBool_TRUE : VecSimBool_FALSE;
+      }
       if (vq->knn.k > MAX_KNN_K) {
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);

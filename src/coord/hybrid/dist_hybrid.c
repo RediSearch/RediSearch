@@ -228,6 +228,54 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
   }
 }
 
+// Append a reconstructed, old-shard-compatible COMBINE clause built from the
+// coordinator's resolved scoring parameters. All scoring arguments are emitted
+// explicitly with a positive, even argument count and YIELD_SCORE_AS (when
+// present) counted inside the block, so shards of any version parse it and never
+// fall back on their own (possibly different) defaults.
+static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
+  if (!cp || !cp->scoringCtx) {
+    return;
+  }
+  const HybridScoringContext *sc = cp->scoringCtx;
+  const bool hasAlias = cp->scoreAlias != NULL;
+  char numBuf[32];
+  const size_t numBufSize = sizeof(numBuf);
+  int n;
+
+  MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
+  if (sc->scoringType == HYBRID_SCORING_RRF) {
+    // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
+    MRCommand_Append(xcmd, "RRF", strlen("RRF"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  } else {
+    // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
+    MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "BETA", strlen("BETA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  }
+  if (hasAlias) {
+    MRCommand_Append(xcmd, "YIELD_SCORE_AS", strlen("YIELD_SCORE_AS"));
+    MRCommand_Append(xcmd, cp->scoreAlias, strlen(cp->scoreAlias));
+  }
+}
+
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
@@ -236,6 +284,7 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
                             bool sendExplainScore,
+                            const HybridCombineWireParams *combineParams,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, int *outKArgIndex) {
   RS_ASSERT(outKArgIndex != NULL);
@@ -266,28 +315,16 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
   int vsimOffset = RMUtil_ArgIndex("VSIM", argv, argc);
   MRCommand_appendVsim(xcmd, argv, argc, vsimOffset, outKArgIndex);
 
-  int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
-  combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
-  bool hasCombine = combineOffset != -1;
-
-  // Add COMBINE
-  if (combineOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[combineOffset]);
-    // Add RRF/LINEAR and its arguments
-    argOffset = RMUtil_ArgIndex("RRF", argv + vsimOffset, argc - vsimOffset);
-    if (argOffset == -1) {
-      argOffset = RMUtil_ArgIndex("LINEAR", argv + vsimOffset, argc - vsimOffset);
-    }
-    argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-    if (argOffset != -1 && argOffset < argc - 2) {
-      long long nargs;
-      RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
-
-      for (int i = 0; i < nargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      }
-    }
-  }
+  // Always reconstruct and forward the coordinator's resolved COMBINE clause
+  // (in the legacy counted form).
+  // Forwarding it unconditionally - even when the client omitted COMBINE and
+  // the coordinator filled in defaults - pins every shard to identical fusion
+  // parameters (constant/weights/window), so hybrid results stay consistent
+  // across shards of different versions during a rolling upgrade rather than
+  // each shard falling back on its own (possibly changed) defaults. This also
+  // normalizes the positional YIELD_SCORE_AS form and a zero argument count
+  // into the counted form that all shard versions accept.
+  MRCommand_appendCombine(xcmd, combineParams);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -687,6 +724,16 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
+    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
+    // hands scoringCtx ownership to the merger and nulls the local pointer. The
+    // scoring context object itself is kept alive by the merger, so borrowing it
+    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
+    // when building the per-shard command below.
+    HybridCombineWireParams combineParams = {
+        .scoringCtx = hybridParams.scoringCtx,
+        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    };
+
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
       HybridPipelineParams_Cleanup(&hybridParams);
@@ -697,7 +744,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     MRCommand xcmd;
     bool sendExplainScore = (hreq->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) != 0;
     HybridRequest_buildMRCommand(argv, argc, profileOptions, sendExplainScore,
-                                 &xcmd, serialized, sp, &hreq->kArgIndex);
+                                 &combineParams, &xcmd, serialized, sp, &hreq->kArgIndex);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
