@@ -18,6 +18,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <cstdint>
 
 typedef std::set<std::string> ElemSet;
 
@@ -159,6 +160,35 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   // No min, but has a max
   ret = trieIterRange(t, NULL, "5");
   ASSERT_EQ(445, ret.size());
+
+  TrieType_Free(t);
+}
+
+TEST_F(TrieTest, testDeleteScansPackedChildKeys) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  rune prefix = 0x41;
+  ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRune(t, &prefix, 1, 1.0, 0, NULL, 0));
+
+  constexpr int childCount = 128;
+
+  for (int i = 0; i < childCount; ++i) {
+    rune key[] = {prefix, static_cast<rune>(0x20 + i)};
+    ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRune(t, key, 2, static_cast<double>(i), 0, NULL, 0));
+  }
+
+  // Regression: child-key storage is packed inside TrieNode and may start at an
+  // odd address. Deleting through a wide root scan must not let the compiler use
+  // aligned SIMD loads from that packed key array.
+  TrieNode *prefixNode = Trie_GetNode(t, &prefix, 1, true, NULL);
+  ASSERT_NE(nullptr, prefixNode);
+  ASSERT_EQ(childCount, TrieNode_NumChildren(prefixNode));
+  uintptr_t childKeyAddress =
+      reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) - childCount * sizeof(rune);
+  ASSERT_NE(0u, childKeyAddress % alignof(rune));
+
+  rune key[] = {prefix, 0x20};
+  ASSERT_EQ(1, Trie_DeleteRunes(t, key, 2));
+  ASSERT_EQ(childCount, Trie_Size(t));
 
   TrieType_Free(t);
 }
