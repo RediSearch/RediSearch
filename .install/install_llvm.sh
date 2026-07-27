@@ -233,8 +233,10 @@ install_llvm() {
         echo ">>> Alpine Linux — trying apk packages"
         # Alpine 3.23+ has llvm21 in main; 3.22 only has llvm20.
         # Official tarballs are glibc-based and won't work here.
+        local installed_ver=""
         if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "clang${LLVM_VER}-libclang" "lld${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
+            installed_ver="$LLVM_VER"
             # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
             for tool in llvm-config clang clang++ lld ld.lld; do
                 if [[ -f "/usr/bin/${tool}-${LLVM_VER}" && ! -e "/usr/bin/${tool}" ]]; then
@@ -248,11 +250,13 @@ install_llvm() {
             default_ver=$(clang --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
             if [[ -n "$default_ver" ]]; then
                 $MODE apk add --no-cache "clang${default_ver}-libclang" 2>/dev/null || true
+                installed_ver="$default_ver"
             fi
         else
             echo "ERROR: No LLVM package available. Upgrade to Alpine 3.23+ or use edge."
             return 1
         fi
+        install_alpine_static_llvm_libs "$installed_ver"
         ;;
 
     # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
@@ -362,7 +366,8 @@ _libclang_ok() {
     return 1
 }
 
-_llvm_ok() {
+_llvm_ok_for() {
+    local LLVM_VER="$1"
     local cfg
     _clang_ok || return 1
     _lld_ok || return 1
@@ -370,16 +375,94 @@ _llvm_ok() {
     _libclang_ok "$cfg"
 }
 
+_llvm_ok() { _llvm_ok_for "$LLVM_VER"; }
+
+_alpine_installed_llvm_major() {
+    local tool actual dir
+    for tool in "clang-${LLVM_VER}" clang; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ -n "$actual" ]] && { echo "$actual"; return 0; }
+    done
+    for dir in /usr/lib/llvm[0-9]*; do
+        [[ -d "$dir" ]] || continue
+        echo "${dir##*llvm}"
+    done | sort -V | tail -1
+}
+
+_alpine_uses_default_llvm_fallback() {
+    # Alpine 3.23+ has the pinned LLVM major in main. Older supported Alpine
+    # releases use the distro default LLVM from the fallback branch below.
+    local version major rest minor
+    version=$(cat /etc/alpine-release 2>/dev/null || true)
+    major="${version%%.*}"
+    rest="${version#*.}"
+    minor="${rest%%.*}"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    (( major < 3 || (major == 3 && minor < 23) ))
+}
+
+_alpine_llvm_ok() {
+    local installed_ver
+    _llvm_ok && return 0
+    _alpine_uses_default_llvm_fallback || return 1
+    installed_ver=$(_alpine_installed_llvm_major)
+    [[ -n "$installed_ver" ]] || return 1
+    _llvm_ok_for "$installed_ver"
+}
+
+_llvm_check_ok() {
+    if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+        _alpine_llvm_ok
+    else
+        _llvm_ok
+    fi
+}
+
+install_alpine_static_llvm_libs() {
+    local installed_ver="$1"
+    [[ -n "$installed_ver" ]] || return 0
+
+    # Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
+    # in document_metadata uses bindgen-static, which links clang-sys statically).
+    # compiler-rt: the python test venv builds its sdist-only deps with clang
+    # (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
+    # needs the runtime present.
+    apk_install "llvm${installed_ver}-static" ncurses-static zlib-static zstd-static compiler-rt
+
+    # Alpine ships component .a files but no combined libLLVM-<ver>.a.
+    # clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
+    # libLLVM-<ver>.a. GNU ar's thin-archive mode (`ar rcT`) flattens the nested
+    # component archives into member headers ld.lld cannot parse ("could not get
+    # the buffer for a child of the archive"), so provide a GROUP() linker script
+    # instead — both ld.lld and GNU ld accept a text script in place of an
+    # archive, and it costs no disk space.
+    if [[ ! -e "/usr/lib/llvm${installed_ver}/lib/libLLVM-${installed_ver}.a" ]]; then
+        # Build the GROUP() from a glob expanded at run/paste time (not baked in
+        # now — that produced a ~200-path one-liner in dry-run). The glob still
+        # expands before tee creates the output file, so the archive never lists
+        # itself. shellcheck disable=SC2086
+        _sh "libs=\$(echo /usr/lib/llvm${installed_ver}/lib/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee /usr/lib/llvm${installed_ver}/lib/libLLVM-${installed_ver}.a > /dev/null"
+    fi
+}
+
 # list: record the LLVM toolchain (build-critical) presence; dry-run: print the
 # install command it would run, gated on presence; real: unchanged. This script
 # installs clang + llvm-config + lld as one unit, and _llvm_ok verifies the
 # right-version toolchain is usable — so record both `clang` and `llvm`.
 if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
-    if _llvm_ok; then DEPS_OK="$DEPS_OK clang llvm"; else DEPS_MISSING="$DEPS_MISSING clang llvm"; fi
+    if _llvm_check_ok; then
+        DEPS_OK="$DEPS_OK clang llvm"
+        if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+            install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
+        fi
+    else
+        DEPS_MISSING="$DEPS_MISSING clang llvm"
+    fi
     return 0 2>/dev/null || exit 0
 fi
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
-    if ! _llvm_ok; then
+    if ! _llvm_check_ok; then
         # LLVM's install is a multi-branch, per-OS fallback (native pkgs →
         # apt.llvm.org → official tarball, plus PATH linking) with runtime
         # decisions no static print can reproduce correctly on every OS. So emit
@@ -388,6 +471,8 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         # can't consume the rest of a pasted dry-run.
         _llvm_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/install_llvm.sh"
         _dry_line "bash \"${_llvm_script}\" ${MODE} < /dev/null"
+    elif [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+        install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
     fi
     return 0 2>/dev/null || exit 0
 fi

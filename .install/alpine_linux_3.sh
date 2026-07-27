@@ -27,36 +27,3 @@ fi
 
 # Need clang for LTO
 source "$(dirname "${BASH_SOURCE[0]}")/install_llvm.sh" $MODE
-
-# Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
-# in document_metadata uses bindgen-static, which links clang-sys statically).
-# compiler-rt: the python test venv builds its sdist-only deps with clang
-# (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
-# needs the runtime present.
-# LLVM_VER is derived from what install_llvm.sh landed. In list/dry-run no
-# install happened yet, so use the pinned LLVM major directly and keep the
-# static-library step visible.
-if [[ "${CHECK_DEPS:-0}" == 1 || "${DRY_RUN:-0}" == 1 ]]; then
-    LLVM_VER="${LLVM_VERSION:-}"
-else
-    LLVM_VER=$(ls /usr/lib/ 2>/dev/null | grep -oE 'llvm[0-9]+' | sort -V | tail -1 | tr -d 'llvm' || true)
-    LLVM_VER="${LLVM_VER:-${LLVM_VERSION:-}}"
-fi
-if [[ -n "$LLVM_VER" ]]; then
-    apk_install llvm${LLVM_VER}-static ncurses-static zlib-static zstd-static compiler-rt
-
-    # Alpine ships component .a files but no combined libLLVM-<ver>.a.
-    # clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
-    # libLLVM-<ver>.a. GNU ar's thin-archive mode (`ar rcT`) flattens the nested
-    # component archives into member headers ld.lld cannot parse ("could not get
-    # the buffer for a child of the archive"), so provide a GROUP() linker script
-    # instead — both ld.lld and GNU ld accept a text script in place of an
-    # archive, and it costs no disk space.
-    if [[ ! -e /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a ]]; then
-        # Build the GROUP() from a glob expanded at run/paste time (not baked in
-        # now — that produced a ~200-path one-liner in dry-run). The glob still
-        # expands before tee creates the output file, so the archive never lists
-        # itself. shellcheck disable=SC2086
-        _sh "libs=\$(echo /usr/lib/llvm${LLVM_VER}/lib/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee /usr/lib/llvm${LLVM_VER}/lib/libLLVM-${LLVM_VER}.a > /dev/null"
-    fi
-fi
