@@ -14,6 +14,7 @@ use std::io::{self, Read, Write};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
+use string_utils::NulTerminatedBytes;
 
 use crate::util::with_hidden_string_ref;
 use crate::{ForkGC, Frame};
@@ -100,14 +101,11 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
     Frame::Terminator.encode(writer)
 }
 
-/// A decoded missing-docs message: the field name and its GC delta.
-type MissingDocsMessage = (Box<[u8]>, GcScanDelta);
-
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<MissingDocsMessage>, HandleError> {
-    match Frame::decode(reader)? {
+) -> Result<Option<(NulTerminatedBytes, GcScanDelta)>, HandleError> {
+    match Frame::decode_nul_terminated(reader)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
             let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)?;
@@ -123,7 +121,7 @@ pub fn receive_missing_docs(
 ///
 /// Returns [`ApplyInfo`] with counters the caller can forward to [`update_stats`].
 pub fn apply_missing_docs(
-    field_name: &[u8],
+    field_name: &NulTerminatedBytes,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<ApplyInfo, HandleError> {

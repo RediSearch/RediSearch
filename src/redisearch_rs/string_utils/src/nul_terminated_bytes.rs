@@ -85,6 +85,14 @@ impl From<&[u8]> for NulTerminatedBytes {
     }
 }
 
+/// Convenience for byte-string literals (`b"..."`), which are `&[u8; N]` and so
+/// don't coerce to `&[u8]` during `From`/`into` resolution.
+impl<const N: usize> From<&[u8; N]> for NulTerminatedBytes {
+    fn from(payload: &[u8; N]) -> Self {
+        Self::from(payload.as_slice())
+    }
+}
+
 /// Takes ownership of `payload`, appending a single trailing NUL byte.
 impl From<Vec<u8>> for NulTerminatedBytes {
     fn from(mut payload: Vec<u8>) -> Self {

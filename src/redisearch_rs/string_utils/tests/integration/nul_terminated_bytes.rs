@@ -11,7 +11,7 @@ use string_utils::NulTerminatedBytes;
 
 #[test]
 fn from_slice_appends_single_nul() {
-    let buf = NulTerminatedBytes::from(b"field_name".as_slice());
+    let buf = NulTerminatedBytes::from(b"field_name");
     assert_eq!(buf.len(), b"field_name".len());
     assert!(!buf.is_empty());
     assert_eq!(buf.as_bytes(), b"field_name");
@@ -20,7 +20,7 @@ fn from_slice_appends_single_nul() {
 
 #[test]
 fn from_slice_preserves_interior_nul_bytes() {
-    let buf = NulTerminatedBytes::from(b"a\0b".as_slice());
+    let buf = NulTerminatedBytes::from(b"a\0b");
     assert_eq!(buf.len(), 3);
     assert_eq!(buf.as_bytes(), b"a\0b");
     assert_eq!(buf.as_bytes_with_nul(), b"a\0b\0");
@@ -28,7 +28,7 @@ fn from_slice_preserves_interior_nul_bytes() {
 
 #[test]
 fn empty_payload_is_just_the_nul() {
-    let buf = NulTerminatedBytes::from(b"".as_slice());
+    let buf = NulTerminatedBytes::from(b"");
     assert_eq!(buf.len(), 0);
     assert!(buf.is_empty());
     assert_eq!(buf.as_bytes(), b"");
@@ -45,7 +45,7 @@ fn from_vec_matches_from_slice() {
 
 #[test]
 fn into_parts_from_parts_round_trip() {
-    let buf = NulTerminatedBytes::from(b"a\0b".as_slice());
+    let buf = NulTerminatedBytes::from(b"a\0b");
     let (ptr, len) = buf.into_parts();
     // SAFETY: `ptr`/`len` come straight from `into_parts` above and have not
     // been freed or reconstructed.
