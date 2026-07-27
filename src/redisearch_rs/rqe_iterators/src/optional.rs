@@ -399,7 +399,7 @@ where
         // principle have replaced its `data` with a real, index-backed payload.
         // Reinterpreting that `Suspended → Active` would assert `'index` borrows
         // that `Optional` cannot re-validate (it owns no backing for this
-        // sentinel), so we fail the resume rather than risk UB. `kind() ==
+        // sentinel), so we abort the resume rather than risk UB. `kind() ==
         // Virtual` is the whole condition: `data` is the only `Rf`-parametrized
         // field, so it is all the reinterpretation touches — `metrics` are
         // `'query`-scoped and `dmd` is a plain `*const` raw pointer in both modes.
@@ -407,10 +407,7 @@ where
         // raw-pointer critical section, so a violation just drops `self` (the
         // `Box`) normally.
         if self.result.kind() != RSResultKind::Virtual {
-            return Err(RQEIteratorError::IoError(std::io::Error::other(
-                "Optional resume: result is no longer a virtual sentinel; its \
-                 index-backed data cannot be re-validated",
-            )));
+            return Ok(ResumeOutcome::Aborted);
         }
 
         let raw = Box::into_raw(self);
