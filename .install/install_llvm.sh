@@ -122,8 +122,9 @@ export_path_gha() {
 }
 
 llvm_major() {
-    "$1" --version 2>/dev/null | head -1 | sed -En \
+    { "$1" --version 2>/dev/null || true; } | head -1 | sed -En \
         -e 's/.*[Vv]ersion[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/.*[[:space:]]LLD[[:space:]]+([0-9]+).*/\1/p' \
         -e 's/^LLD[[:space:]]+([0-9]+).*/\1/p'
 }
 
@@ -219,6 +220,12 @@ install_llvm() {
             chmod +x /tmp/llvm.sh
             if $MODE /tmp/llvm.sh "$LLVM_VER"; then
                 rm -f /tmp/llvm.sh
+                # llvm.sh installs the toolchain but does not always leave the
+                # libclang development package/symlink that clang-sys and the
+                # list-mode verifier require.
+                apt_get_cmd "$MODE" install -y --no-install-recommends \
+                    "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                    "llvm-${LLVM_VER}"
             else
                 # 3) Last resort: official pre-built tarball.
                 echo ">>> apt.llvm.org failed — falling back to official tarball"
