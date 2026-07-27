@@ -37,4 +37,4 @@ clientconfig:
     - requests: 100000
     - reporting-period: 1s
     - duration: 120s
-    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-100K-heavy-json/groupby-collect-entity-events-100K-heavy-json.redisjson.commands.BENCH.QUERY_collect-fields-explicit-k50.csv"
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/groupby-collect-entity-events-10K-heavy-json/groupby-collect-entity-events-10K-heavy-json.redisjson.commands.BENCH.QUERY_collect-fields-explicit-k50.csv"
