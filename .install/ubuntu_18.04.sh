@@ -18,7 +18,7 @@ if ! dpkg-query -W -f='${Status}' gcc-11 2>/dev/null | grep -q 'ok installed' ||
     # Import the ubuntu-toolchain-r/test PPA signing keys.
     _sh "wget -qO- \"https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x1E9377A2BA9EF27F\" | $MODE gpg --batch --no-tty --yes --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg || true"
     _sh "wget -qO- \"https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2C277A0A352154E5\" | $MODE gpg --batch --no-tty --yes --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r-2.gpg || true"
-    _sh "echo \"deb https://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu bionic main\" | $MODE tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list"
+    _sh "echo \"deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu bionic main\" | $MODE tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list"
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" update -qq
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" upgrade -yqq
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" dist-upgrade -yqq

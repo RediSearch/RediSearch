@@ -26,10 +26,10 @@ fi
 apt_install software-properties-common
 
 if [[ "$_need_gcc11_repo" == 1 ]]; then
-    _sh "echo \"deb https://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu focal main\" | $MODE tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list"
+    _sh "echo \"deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main\" | $MODE tee /etc/apt/sources.list.d/ubuntu-toolchain-r-test.list"
     # Import the ubuntu-toolchain-r/test PPA signing key.
     _run apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 1E9377A2BA9EF27F
-    _sh "echo \"deb https://ppa.launchpad.net/deadsnakes/ppa/ubuntu focal main\" | $MODE tee /etc/apt/sources.list.d/deadsnakes.list"
+    _sh "echo \"deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu focal main\" | $MODE tee /etc/apt/sources.list.d/deadsnakes.list"
     # Import the deadsnakes PPA signing key.
     _run apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F23C5A6CF475977595C89F51BA6932366A755776
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" update -qq
