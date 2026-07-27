@@ -11,7 +11,10 @@
 #include <math.h>
 #include <limits.h>
 #include <string.h>
-#include <features.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
 #include <stdio.h>
 #include <strings.h>
 #include <sys/param.h>

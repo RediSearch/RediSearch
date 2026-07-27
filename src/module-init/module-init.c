@@ -8,7 +8,10 @@
 */
 
 #include <dlfcn.h>
-#include <features.h>
+// __USE_GNU; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
 #include <stdbool.h>
 #include <string.h>
 

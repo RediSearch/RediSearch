@@ -9,7 +9,10 @@
 #include "vector_index.h"
 
 #include <string.h>
-#include <features.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h> // IWYU pragma: keep
