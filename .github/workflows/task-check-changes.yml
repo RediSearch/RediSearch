@@ -56,6 +56,8 @@ jobs:
           files_ignore: |
                 .github/**
                 .skills/**
+                **/.skills/**
+                **/.claude/**
                 docs/**
                 tests/**
                 **/*.md
@@ -105,6 +107,8 @@ jobs:
           files: |
               src/redisearch_rs/**
           files_ignore: |
+              **/.skills/**
+              **/.claude/**
               **/*.md
               **/*.markdown
               **/README
