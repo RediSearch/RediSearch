@@ -433,7 +433,7 @@ fn validity_and_expiration_compose() {
     assert_eq!(got, vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
 }
 
-/// A clock context whose deadline is already in the past, probed on every call.
+/// A clock context whose deadline is already in the past.
 fn expired_clock() -> DeadlineTimeoutChecker {
     DeadlineTimeoutChecker::new(Duration::from_nanos(1), 1)
 }
@@ -566,13 +566,14 @@ impl TimeoutOnce {
 
 impl TimeoutContext for TimeoutOnce {
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        if !self.fired {
-            if self.succeed_first == 0 {
-                self.fired = true;
-                return Err(RQEIteratorError::TimedOut);
-            }
-            self.succeed_first -= 1;
+        if self.fired {
+            return Ok(());
         }
+        if self.succeed_first == 0 {
+            self.fired = true;
+            return Err(RQEIteratorError::TimedOut);
+        }
+        self.succeed_first -= 1;
         Ok(())
     }
 
