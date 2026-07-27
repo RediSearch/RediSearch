@@ -1374,6 +1374,13 @@ static bool validateFieldNameAndPath(const char *fieldName, size_t namelen, cons
 
   return true;
 }
+
+static void IndexSpec_RestoreFieldIdToIndexLen(IndexSpec *sp, uint32_t len) {
+  uint32_t curLen = array_len(sp->fieldIdToIndex);
+  RS_LOG_ASSERT(len <= curLen, "Cannot restore field id mapping to a longer length");
+  sp->fieldIdToIndex = array_trimm_len(sp->fieldIdToIndex, curLen - len);
+}
+
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
  * restore the schema state that was mutated while parsing this field batch.
@@ -1562,7 +1569,7 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
-  array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
+  IndexSpec_RestoreFieldIdToIndexLen(sp, prevFieldIdToIndexLen);
   if (sp->suffix && sp->suffix != prevSuffix) {
     TrieType_Free(sp->suffix);
   }
