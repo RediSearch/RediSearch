@@ -4528,10 +4528,16 @@ def test_cluster_set_errors(env: Env):
     env.expect('SEARCH.CLUSTERSET', 'HASHFUNC').error().contains('Missing value for HASHFUNC')
     env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS').error().contains('Missing value for NUMSLOTS')
 
-    # Any 3-argument invocation is dispatched to the short form (`SEARCH.CLUSTERSET AUTH <password>`)
-    env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
-    env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
-    env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
+    # These 3-arg forms dispatch to the short form (`SEARCH.CLUSTERSET AUTH <pass>`) only
+    # when the `RedisModule_GetClusterNodeSlotRanges` module API is present — added by
+    # Redis #14953 (OSS 8.10; RE 8.4+ via a later patch). Our pinned enterprise Redis
+    # predates that patch, so the API is absent and these fall through to the long-form
+    # keyword parser ("Bad value for ...") rather than the short-form "Expected `AUTH`"
+    # error. TODO(MOD-17151): un-gate once the RoR pin advances past the patch.
+    if not RS_TEST_ENTERPRISE:
+        env.expect('SEARCH.CLUSTERSET', 'HASHFUNC', 'yes please').error().contains('Expected `AUTH` but got `HASHFUNC`')
+        env.expect('SEARCH.CLUSTERSET', 'RANGES', '-1').error().contains('Expected `AUTH` but got `RANGES`')
+        env.expect('SEARCH.CLUSTERSET', 'NUMSLOTS', '0').error().contains('Expected `AUTH` but got `NUMSLOTS`')
 
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'HASHFUNC', 'yes please').error().contains('Bad value for HASHFUNC: yes please')
     env.expect('SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', 'yes please').error().contains('Bad value for RANGES: yes please')

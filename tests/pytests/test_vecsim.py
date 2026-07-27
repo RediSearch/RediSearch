@@ -2548,7 +2548,7 @@ def test_tiered_index_gc():
 
     # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    forceInvokeGC(env, 'idx')
 
     debug_info = get_debug_info()
     env.assertEqual(to_dict(debug_info['v1']['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
