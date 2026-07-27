@@ -9,6 +9,7 @@
 
 //! An owned byte buffer with a trailing NUL.
 
+use std::fmt;
 use std::ops::Deref;
 
 /// An owned, heap-allocated buffer holding a byte payload followed by exactly
@@ -100,5 +101,13 @@ impl Deref for NulTerminatedBytes {
 
     fn deref(&self) -> &[u8] {
         self.as_bytes()
+    }
+}
+
+/// Renders the payload (excluding the trailing NUL) as a string, lossily
+/// replacing any non-UTF-8 bytes — the payload is usually text.
+impl fmt::Debug for NulTerminatedBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&String::from_utf8_lossy(self.as_bytes()), f)
     }
 }

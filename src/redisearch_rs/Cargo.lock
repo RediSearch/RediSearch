@@ -1835,6 +1835,7 @@ name = "query_term"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "string_utils",
  "workspace_hack",
 ]
 
