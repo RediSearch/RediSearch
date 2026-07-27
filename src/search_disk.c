@@ -223,7 +223,7 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
-void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, void *brc) {
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
     RS_ASSERT(disk);
     disk->basic.asyncLoaderSetSyncCtx(rp, brc);
 }

@@ -31,6 +31,9 @@ typedef struct RLookupKey RLookupKey;
 // Forward declaration for HiddenString
 typedef struct HiddenString HiddenString;
 
+// Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
+typedef struct BlockedRequestCtx BlockedRequestCtx;
+
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
 typedef const void* RedisSearchDiskIndexSpec;
@@ -336,11 +339,11 @@ typedef struct BasicDiskAPI {
    *
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
-   * @param brc Opaque `struct BlockedRequestCtx *`, or NULL to clear.
+   * @param brc `BlockedRequestCtx *`, or NULL to clear.
    *
    * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
-  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, void *brc);
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, BlockedRequestCtx *brc);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
