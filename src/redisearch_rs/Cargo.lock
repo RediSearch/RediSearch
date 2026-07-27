@@ -3458,6 +3458,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "string_utils",
  "thiserror",
  "tracing",
  "tracing_assert",

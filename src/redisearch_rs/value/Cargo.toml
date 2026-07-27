@@ -11,6 +11,7 @@ cheadergen.workspace = true
 ffi.workspace = true
 libc.workspace = true
 query_error.workspace = true
+string_utils.workspace = true
 workspace_hack.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

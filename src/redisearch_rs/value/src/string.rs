@@ -10,6 +10,7 @@
 use ffi::RedisModule_Free;
 use std::ffi::c_char;
 use std::fmt;
+use string_utils::NulTerminatedBytes;
 
 /// An [`String`] is meant to store string data with support for rust allocated data, C
 /// allocated data or borrowed data, and support for a max length of `u32::MAX`.
@@ -47,12 +48,10 @@ impl String {
     /// # Panic
     ///
     /// Panics when the size is larger than `u32::MAX`.
-    pub fn from_vec(mut vec: Vec<u8>) -> Self {
-        let len = vec.len();
-        assert!(len <= u32::MAX as usize);
+    pub fn from_vec(vec: Vec<u8>) -> Self {
+        assert!(vec.len() <= u32::MAX as usize);
 
-        vec.push(b'\0');
-        let ptr = Box::into_raw(vec.into_boxed_slice());
+        let (ptr, len) = NulTerminatedBytes::from(vec).into_parts();
 
         Self {
             ptr: ptr.cast(),
@@ -127,12 +126,14 @@ impl Drop for String {
     fn drop(&mut self) {
         match self.kind {
             StringKind::RustGlobalAlloc => {
-                let slice = std::ptr::slice_from_raw_parts_mut(
-                    self.ptr.cast_mut().cast::<u8>(),
-                    (self.len as usize) + 1,
-                );
-                // Safety: Boxed slice was created in `Self::from_vec` which has `len + 1` bytes.
-                drop(unsafe { Box::from_raw(slice) });
+                // Safety: `ptr`/`len` were produced by `NulTerminatedBytes::into_parts`
+                // in `Self::from_vec` and have not been freed.
+                drop(unsafe {
+                    NulTerminatedBytes::from_parts(
+                        self.ptr.cast_mut().cast::<u8>(),
+                        self.len as usize,
+                    )
+                });
             }
             StringKind::RedisModuleAlloc => {
                 // Safety: Accessing a global function pointer initialized during module load.
