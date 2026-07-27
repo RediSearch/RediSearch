@@ -38,9 +38,11 @@ static_assert(
 );
 
 // Record a background-indexing failure on the scanner's spec so clients see it. See the
-// header for the full contract. Promotes the scanner's spec and, while it is alive,
-// records `error` as the spec's last indexing error (visible in FT.INFO "Index Errors"),
-// so a partially-built index is not silently treated as complete. When `oom` is set it
+// header for the full contract. Promotes the scanner's spec and, while it is alive AND this
+// scanner is still the spec's current one (a newer scan may have superseded it while the GIL
+// was released — see the inline note), records `error` as the spec's last indexing error
+// (visible in FT.INFO "Index Errors"), so a partially-built index is not silently treated as
+// complete. When `oom` is set it
 // additionally marks the failure as out-of-memory: it sets the spec's scan_failed_OOM
 // flag (consulted at query time to warn results may be incomplete, aggregated in
 // FT.INFO) and raises the OOM background-index status flag — pass false for non-OOM
@@ -70,12 +72,33 @@ void IndexesScanner_RecordBackgroundFailure(RedisModuleCtx *ctx, IndexesScanner 
   StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
   IndexSpec *sp = StrongRef_Get(curr_run_ref);
   if (sp) {
-    // Error message does not contain user data. scanner->OOMkey may be NULL when no
-    // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
-    IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-    if (oom) {
-      sp->scan_failed_OOM = true;
-      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+    // A newer scan may have superseded this one while the GIL was released (the async OOM path
+    // drops it between aborting the cursor and re-taking it here): a recovery FT.ALTER would have
+    // run IndexesScanner_New, which cancels this scanner, installs a replacement as sp->scanner,
+    // and cleared the OOM state. Recording this stale scanner's failure now would clobber that
+    // fresh state — re-raising scan_failed_OOM makes IndexSpec_UpdateDoc reject the replacement
+    // scan's keys, leaving the index permanently partial. So only record while this scanner is
+    // still the spec's current one. Both this function and IndexesScanner_New run under the GIL.
+    if (sp->scanner == scanner) {
+      // Error message does not contain user data. scanner->OOMkey may be NULL when no
+      // single key is to blame; IndexError_AddError falls back to the NA sentinel then.
+      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
+      if (oom) {
+        sp->scan_failed_OOM = true;
+        // Freeze how far the aborted scan got: once IndexesScanner_Free clears the
+        // scanner, IndexesScanner_IndexedPercent would otherwise default to 1.0 and hide
+        // the incomplete build. Store the raw scanned-key count (the scanner is still
+        // alive here); IndexesScanner_IndexedPercent divides it by the live DbSize so the
+        // partial build is not reported as complete.
+        sp->scan_failed_OOM_scanned_keys = scanner->scannedKeys;
+        IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+      }
+    } else {
+      RedisModule_Log(ctx, "notice",
+                      "Scanning index %s in background: %s but a newer scan superseded it; "
+                      "not recording the failure",
+                      scanner->spec_name_for_logs,
+                      oom ? "cancelled due to OOM" : "failed");
     }
     StrongRef_Release(curr_run_ref);
   } else {
@@ -129,20 +152,23 @@ bool isAsyncBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
 }
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
-  if (scanner || sp->scan_in_progress) {
-    if (scanner) {
-      size_t totalKeys = RedisModule_DbSize(ctx);
-      // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
-      // at-least-once) can push it past totalKeys; clamp so the reported percent never
-      // exceeds 100%.
-      double pct = totalKeys > 0 ? (double)scanner->scannedKeys / totalKeys : 0;
-      return pct > 1.0 ? 1.0 : pct;
-    } else {
-      return 0;
-    }
+  // Pick the scanned-key count to measure against the current DbSize:
+  size_t scannedKeys;
+  if (scanner) {
+    scannedKeys = scanner->scannedKeys;             // active scan: live progress
+  } else if (sp->scan_in_progress) {
+    return 0.0;                                     // scan pending, no scanner yet: 0%
+  } else if (sp->scan_failed_OOM) {
+    scannedKeys = sp->scan_failed_OOM_scanned_keys; // last build OOM-aborted: frozen progress
   } else {
-    return 1.0;
+    return 1.0;                                     // no scan pending: build completed
   }
+  size_t totalKeys = RedisModule_DbSize(ctx);
+  // scannedKeys counts every delivery, so duplicate deliveries (SCAN/AsyncScan are
+  // at-least-once) can push it past totalKeys; clamp so the reported percent never
+  // exceeds 100%.
+  double pct = totalKeys > 0 ? (double)scannedKeys / totalKeys : 0.0;
+  return pct > 1.0 ? 1.0 : pct;
 }
 
 IndexesScanner *IndexesScanner_NewGlobal() {
@@ -178,6 +204,14 @@ IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
+  // A fresh scan supersedes any earlier OOM-aborted build: clear the persisted OOM state so
+  // percent_indexed, FT.INFO's background-indexing status, and the new-document write-block in
+  // IndexSpec_UpdateDoc reflect this run rather than the old failure. If this scan also aborts on
+  // OOM, IndexesScanner_RecordBackgroundFailure re-sets them (and its supersession guard keeps a
+  // stale, superseded scanner from re-setting them behind this scan's back).
+  spec->scan_failed_OOM = false;
+  spec->scan_failed_OOM_scanned_keys = 0;
+  IndexError_ClearBackgroundIndexFailureFlag(&spec->stats.indexError);
 
   return scanner;
 }
