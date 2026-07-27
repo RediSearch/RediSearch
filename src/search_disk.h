@@ -492,6 +492,14 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
 /**
+ * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
+ *
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
+ */
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
+
+/**
  * @brief Replace the key name in document metadata for a given document ID
  *
  * Used when a Redis key is renamed - updates the document metadata to reflect
@@ -644,6 +652,15 @@ void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec
 void SearchDisk_FreeVectorIndex(void *vecIndex);
 
 /**
+ * @brief Check whether a disk vector index contains data.
+ *
+ * @param vecIndex VecSimIndex* handle
+ * @param takeLocks Whether to synchronize with concurrent index mutations
+ * @return true when the index contains data, false otherwise
+ */
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks);
+
+/**
  * @brief Stream the in-memory state of a quiesced VecSimIndex* directly into
  *        the field's RedisModuleIO RDB stream.
  *
@@ -652,9 +669,10 @@ void SearchDisk_FreeVectorIndex(void *vecIndex);
  *
  * @param vecIndex VecSimIndex* handle
  * @param rdb RedisModuleIO stream to write into
+ * @param takeLocks Whether to synchronize with concurrent index mutations
  * @return true on success, false otherwise
  */
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb);
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
 /**
  * @brief Create a VecSimIndex with no SpeedB storage bound.

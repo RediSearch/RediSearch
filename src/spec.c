@@ -2363,7 +2363,8 @@ fail:
   return REDISMODULE_ERR;
 }
 
-static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags) {
+static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags,
+                              bool takeLocks) {
   HiddenString_SaveToRdb(f->fieldName, rdb);
   if (HiddenString_Compare(f->fieldPath, f->fieldName) != 0) {
     RedisModule_SaveUnsigned(rdb, 1);
@@ -2402,11 +2403,12 @@ static void FieldSpec_RdbSave(RedisModuleIO *rdb, FieldSpec *f, int contextFlags
       RS_ASSERT(SearchDisk_IsEnabled());
       RS_ASSERT(f->vectorOpts.diskCtx.storage);
 
-      const bool vecSimWithData = f->vectorOpts.vecSimIndex &&
-                               VecSimIndex_IndexSize(f->vectorOpts.vecSimIndex) > 0;
+      const bool vecSimWithData =
+          f->vectorOpts.vecSimIndex &&
+          SearchDisk_VectorIndexHasData(f->vectorOpts.vecSimIndex, takeLocks);
       RedisModule_SaveUnsigned(rdb, vecSimWithData ? 1 : 0);
       if (vecSimWithData) {
-        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb);
+        bool ok = SearchDisk_SaveVectorIndexToRDB(f->vectorOpts.vecSimIndex, rdb, takeLocks);
         RS_LOG_ASSERT_ALWAYS(ok, "Failed to stream vector index to RDB");
       }
     }
@@ -2959,7 +2961,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   RedisModule_SaveUnsigned(rdb, (uint64_t)sp->flags);
   RedisModule_SaveUnsigned(rdb, sp->numFields);
   for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags);
+    FieldSpec_RdbSave(rdb, &sp->fields[i], contextFlags, needLock);
   }
 
   SchemaRule_RdbSave(sp->rule, rdb);
@@ -3622,6 +3624,7 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
+  // Only a missing representable term is fatal; UNSUPPORTED (never insertable) is a no-op.
   RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
   return result == TRIE_DECR_DELETED;
 }

@@ -25,6 +25,11 @@
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 
+// COLLECT option keywords, in their normalized (uppercase) spelling.
+#define COLLECT_NUM_KEYWORDS 6
+static const char *const collectKeywords[COLLECT_NUM_KEYWORDS] = {
+    "FIELDS", "SORTBY", SORT_DIR_ASC, SORT_DIR_DESC, "LIMIT", "DISTINCT"};
+
 typedef struct {
   CollectArgs *args;
   const ReducerOptions *options;
@@ -284,6 +289,15 @@ void CollectArgs_Free(CollectArgs *args) {
   args->field_names = NULL;
   array_free(args->sort_names);
   args->sort_names = NULL;
+}
+
+const char *CollectArgs_NormalizedKeyword(const char *tok) {
+  for (size_t i = 0; i < COLLECT_NUM_KEYWORDS; i++) {
+    if (!strcasecmp(tok, collectKeywords[i])) {
+      return collectKeywords[i];
+    }
+  }
+  return NULL;
 }
 
 // ===== Post-parse key resolution (side-effectful: opens RLookupKeys) =====

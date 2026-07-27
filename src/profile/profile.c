@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "profile.h"
+#include "result_processor.h"
 #include "types_ffi.h"
 #include "iterators/iterator_api.h"
 #include "iterators_ffi.h"
@@ -77,6 +78,12 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
+  // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
+  if (printProfileClock && rp->upstream &&
+      (rp->upstream->type == RP_LOADER || rp->upstream->type == RP_SAFE_LOADER)) {
+    RPLoader_ReplyProfileFields(reply, rp->upstream);
+  }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }

@@ -654,6 +654,20 @@ typedef struct IndexDiskAPI {
    * @param index Pointer to the disk index spec
    */
   void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Debug: dump a numeric field's in-memory bucket routing map.
+   *
+   * Writes a JSON array describing every bucket of the field's map (max
+   * value, state, entry count) into memory obtained from `allocate`, so the
+   * caller owns the result through its own allocator. Returns NULL when the
+   * field has no numeric index on this handle.
+   *
+   * @param index Pointer to the disk index spec
+   * @param fieldIndex The numeric field's index
+   * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
+   */
+  char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -860,6 +874,15 @@ typedef struct VectorDiskAPI {
   void (*freeVectorIndex)(void* vecIndex);
 
   /**
+   * @brief Check whether a disk vector index contains data.
+   *
+   * @param vecIndex VecSimIndex* handle for the field
+   * @param takeLocks Whether to synchronize with concurrent index mutations
+   * @return true when the index contains data, false otherwise
+   */
+  bool (*vectorIndexHasData)(void *vecIndex, bool takeLocks);
+
+  /**
    * @brief Stream the in-memory state of a quiesced VecSimIndex* directly
    *        into a RedisModuleIO RDB stream.
    *
@@ -870,9 +893,10 @@ typedef struct VectorDiskAPI {
    *
    * @param vecIndex VecSimIndex* handle for the field
    * @param rdb RedisModuleIO stream to write into
+   * @param takeLocks Whether to synchronize with concurrent index mutations
    * @return true on success, false on serialization failure
    */
-  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb);
+  bool (*saveVectorIndexToRDB)(void *vecIndex, RedisModuleIO *rdb, bool takeLocks);
 
   /**
    * @brief Create a VecSimIndex without any SpeedB storage bound.

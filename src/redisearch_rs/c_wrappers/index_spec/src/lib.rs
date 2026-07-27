@@ -197,6 +197,18 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
+    /// Return the spec's `missingFieldDict` as a typed [`Dict`].
+    pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
+        debug_assert!(
+            !self.0.missingFieldDict.is_null(),
+            "missingFieldDict must not be null"
+        );
+        // SAFETY: missingFieldDict is a valid non-null dict* created with
+        // dictTypeHeapHiddenStrings (MissingFieldDictType::as_ptr()), so
+        // interpreting it as Dict<MissingFieldDictType> is sound.
+        unsafe { Dict::from_raw_mut(self.0.missingFieldDict) }
+    }
+
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
     ///
     /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.
