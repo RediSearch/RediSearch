@@ -175,6 +175,117 @@ impl NumericFloatCompression {
     const FLOAT_COMPRESSION_THRESHOLD: f64 = 0.01;
 }
 
+/// An encoder that decides how it will represent a numeric value before writing it.
+///
+/// The representation cannot always hold the value it was given —
+/// [`NumericFloatCompression`] stores an `f32` when the precision loss is below its
+/// threshold, and even [`Numeric`] normalizes `-0.0` to `+0.0` by encoding it as a
+/// tiny integer. That decision is made inside [`Encoder::encode`], so callers who
+/// derive anything from a value — cardinality estimates, range bounds, routing
+/// decisions — would otherwise be reasoning about a value the index never returns.
+///
+/// This trait exposes the decision on its own ([`prepare`](Self::prepare)) and lets
+/// it be handed back for writing ([`encode_prepared`](Self::encode_prepared)), so a
+/// caller that needs to know the outcome up front does not force the encoder to work
+/// it out twice.
+pub trait NumericEncoder: Encoder {
+    /// Decide how `value` will be represented. Writes nothing.
+    fn prepare(value: f64) -> PreparedValue;
+
+    /// Write a value whose representation has already been decided.
+    ///
+    /// Equivalent to [`Encoder::encode`] on a record holding the same value, down to
+    /// the bytes.
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize>;
+
+    /// The value a reader will decode after `value` is encoded by this encoder.
+    ///
+    /// Idempotent: the stored form of a stored value is itself.
+    fn stored_value(value: f64) -> f64 {
+        Self::prepare(value).stored_value().get()
+    }
+}
+
+impl NumericEncoder for Numeric {
+    fn prepare(value: f64) -> PreparedValue {
+        PreparedValue(Value::from(value, false))
+    }
+
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize> {
+        encode_value(writer, delta, prepared.0)
+    }
+}
+
+impl NumericEncoder for NumericFloatCompression {
+    fn prepare(value: f64) -> PreparedValue {
+        PreparedValue(Value::from(value, true))
+    }
+
+    fn encode_prepared<W: Write + std::io::Seek>(
+        writer: W,
+        delta: Self::Delta,
+        prepared: PreparedValue,
+    ) -> std::io::Result<usize> {
+        encode_value(writer, delta, prepared.0)
+    }
+}
+
+/// How a numeric encoder will represent a value: decided, but not yet written.
+///
+/// Produced by [`NumericEncoder::prepare`] and consumed by
+/// [`NumericEncoder::encode_prepared`]. Carrying the decision around lets a caller
+/// learn the [`stored_value`](Self::stored_value) *and* write the entry while the
+/// encoder classifies the value only once.
+///
+/// Not parameterized by encoder on purpose: the byte layout records which
+/// representation was used, so either numeric encoder can write a decision the other
+/// one made, and any numeric decoder reads it back. Preparing with a different
+/// encoder than the index uses is therefore harmless, if pointless.
+#[derive(Debug, Clone, Copy)]
+pub struct PreparedValue(Value);
+
+impl PreparedValue {
+    /// The value a reader will decode for this representation.
+    pub const fn stored_value(self) -> StoredValue {
+        StoredValue(self.0.to_f64())
+    }
+}
+
+/// A numeric value in the exact form an index stores — and therefore returns — it.
+///
+/// Wrapping the value makes the lossy step visible in the type system: a plain
+/// `f64` cannot be mistaken for something the index will hand back, so statistics
+/// and routing decisions cannot accidentally be computed over an input value that
+/// the encoder is about to change.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct StoredValue(f64);
+
+impl StoredValue {
+    /// Wrap a value that came out of a numeric index.
+    ///
+    /// Decoded values are already in stored form, so this is free — no
+    /// classification is needed, which is what keeps read-only paths (the GC scan,
+    /// bounds and cardinality rebuilds) cheap. The caller is responsible for that
+    /// provenance: pass only values read back through a numeric [`Decoder`], never an
+    /// input value on its way in.
+    pub const fn from_decoded(value: f64) -> Self {
+        Self(value)
+    }
+
+    /// The wrapped value.
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}
+
 /// The [`Numeric`] encoder only supports encoding deltas that fit within 7 bytes
 #[derive(Debug, PartialEq)]
 pub struct NumericDelta(u64);
@@ -237,7 +348,7 @@ impl Encoder for NumericFloatCompression {
 }
 
 fn encode<W: Write + std::io::Seek>(
-    mut writer: W,
+    writer: W,
     delta: NumericDelta,
     record: &RSIndexResult,
     compress_floats: bool,
@@ -246,6 +357,19 @@ fn encode<W: Write + std::io::Seek>(
         .as_numeric()
         .expect("numeric encoder will only be called for numeric records");
 
+    encode_value(writer, delta, Value::from(num_record, compress_floats))
+}
+
+/// Write a value whose representation has already been decided.
+///
+/// The single writer for both entry points: [`Encoder::encode`] classifies and calls
+/// this, [`NumericEncoder::encode_prepared`] passes on a classification the caller
+/// already has.
+fn encode_value<W: Write + std::io::Seek>(
+    mut writer: W,
+    delta: NumericDelta,
+    value: Value,
+) -> std::io::Result<usize> {
     let delta = delta.pack();
 
     // Trim trailing zeros from delta so that we store as little as possible
@@ -253,7 +377,7 @@ fn encode<W: Write + std::io::Seek>(
     let delta = &delta[..end];
     let delta_bytes = delta.len() as _;
 
-    let bytes_written = match Value::from(num_record, compress_floats) {
+    let bytes_written = match value {
         Value::TinyInteger(i) => {
             let header = Header {
                 delta_bytes,
@@ -613,7 +737,7 @@ impl FromSlice for f64 {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Value {
     TinyInteger(u8),
     IntegerPositive(u64),
@@ -666,6 +790,27 @@ impl Value {
                     }
                 }
             }
+        }
+    }
+
+    /// The `f64` a reader decodes for this representation.
+    ///
+    /// Mirrors [`decode`] arm for arm. `decode` deliberately does not go through
+    /// `Value` — it is on the read hot path and reconstructs the number straight
+    /// from the bytes — so the two are kept in agreement by
+    /// `numeric_stored_value_matches_encode_decode` in the integration tests
+    /// rather than by sharing code.
+    const fn to_f64(self) -> f64 {
+        match self {
+            Value::TinyInteger(i) => i as f64,
+            Value::IntegerPositive(i) => i as f64,
+            Value::IntegerNegative(i) => (i as f64).copysign(-1.0),
+            Value::Float32Positive(f) => f as f64,
+            Value::Float32Negative(f) => f.copysign(-1.0) as f64,
+            Value::Float64Positive(f) => f,
+            Value::Float64Negative(f) => f.copysign(-1.0),
+            Value::FloatInfinity => f64::INFINITY,
+            Value::FloatNegInfinity => f64::NEG_INFINITY,
         }
     }
 }

@@ -17,7 +17,7 @@ use index_result::RSIndexResult;
 use inverted_index::{
     EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore,
     debug::Summary,
-    numeric::{Numeric, NumericFloatCompression},
+    numeric::{Numeric, NumericEncoder, NumericFloatCompression, PreparedValue},
 };
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
@@ -45,17 +45,48 @@ impl NumericIndex {
         }
     }
 
-    /// Add a record to the index. Returns `(memory_growth, blocks_added)` — see
-    /// [`InvertedIndex::add_record`][inverted_index::InvertedIndex::add_record].
+    /// Ask this index's encoder how it will represent `value`.
+    ///
+    /// The returned [`PreparedValue`] carries both what a reader will decode
+    /// ([`PreparedValue::stored_value`], which is what statistics and routing must be
+    /// computed on) and the decision needed to write the entry — so the value is
+    /// classified once per add rather than once per question.
+    pub fn prepare(&self, value: f64) -> PreparedValue {
+        match self {
+            NumericIndex::Uncompressed(_) => Numeric::prepare(value),
+            NumericIndex::Compressed(_) => NumericFloatCompression::prepare(value),
+        }
+    }
+
+    /// [`Self::prepare`] for callers that hold the `compress_floats` flag rather than
+    /// an index — the tree prepares on the way in, before it has descended to the leaf
+    /// whose index will write the entry.
+    ///
+    /// Kept next to [`Self::new`] so the flag-to-encoder mapping lives in one place.
+    pub fn prepare_for(compress_floats: bool, value: f64) -> PreparedValue {
+        if compress_floats {
+            NumericFloatCompression::prepare(value)
+        } else {
+            Numeric::prepare(value)
+        }
+    }
+
+    /// Add an entry whose representation was already decided by [`Self::prepare`].
+    /// Returns `(memory_growth, blocks_added)` — see
+    /// [`InvertedIndex::add_prepared_record`][inverted_index::InvertedIndex::add_prepared_record].
     ///
     /// # Panics
     ///
     /// Panics if the underlying write fails. This should never happen with
     /// in-memory inverted indexes, so a panic indicates a bug.
-    pub fn add_record(&mut self, record: &RSIndexResult) -> inverted_index::AddRecordOutcome {
+    pub fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+    ) -> inverted_index::AddRecordOutcome {
         let result = match self {
-            NumericIndex::Uncompressed(idx) => idx.add_record(record),
-            NumericIndex::Compressed(idx) => idx.add_record(record),
+            NumericIndex::Uncompressed(idx) => idx.add_prepared_record(doc_id, prepared),
+            NumericIndex::Compressed(idx) => idx.add_prepared_record(doc_id, prepared),
         };
         result.expect("in-memory inverted index write cannot fail")
     }

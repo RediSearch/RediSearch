@@ -12,11 +12,15 @@
 use ffi::{DocTable_Exists, RedisSearchCtx};
 use inverted_index::GcScanDelta;
 use numeric_range_tree::{
-    CompactIfSparseResult, IndexedReversePreOrderDfsIterator, NodeGcDelta, NodeIndex,
-    NumericRangeTree, SingleNodeGcResult,
+    CompactIfSparseResult, GcSurvivorStats, IndexedReversePreOrderDfsIterator, NodeGcDelta,
+    NodeIndex, NumericRangeTree, SingleNodeGcResult,
 };
 use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
+
+/// Size of the fixed-width trailer that follows the msgpack-encoded delta:
+/// the survivor statistics with the last block, then the ones without it.
+const TRAILER_SIZE: usize = 2 * GcSurvivorStats::WIRE_SIZE;
 
 /// Conditionally trim empty leaves and compact the node slab.
 ///
@@ -58,7 +62,7 @@ pub struct NumericGcNodeEntry {
     /// The node's slab generation.
     /// The second half of a [`NodeIndex`].
     pub node_generation: u32,
-    /// Pointer to the serialized entry data (msgpack delta + HLL registers).
+    /// Pointer to the serialized entry data (msgpack delta + survivor statistics).
     pub data: *const u8,
     /// Length of the serialized entry data in bytes.
     pub data_len: usize,
@@ -71,7 +75,7 @@ pub struct NumericGcNodeEntry {
 ///
 /// Each call to `Next` scans the next node in DFS order via
 /// [`NumericRangeNode::scan_gc`][numeric_range_tree::NumericRangeNode::scan_gc]
-/// and serializes the delta + HLL registers into an internal buffer.
+/// and serializes the delta + survivor statistics into an internal buffer.
 /// The caller can then write the entry data to the pipe immediately,
 /// avoiding buffering all deltas in memory.
 pub struct NumericGcScanner<'tree> {
@@ -124,9 +128,9 @@ pub unsafe extern "C" fn NumericGcScanner_New<'tree>(
 
 /// Advance the scanner to the next node with GC work.
 ///
-/// Scans nodes in DFS order, skipping those without GC work. When a node
-/// with work is found, its delta and HLL registers are serialized into the
-/// scanner's internal buffer.
+/// Scans nodes in DFS order, skipping those without GC work. When a node with work
+/// is found, its delta and the statistics recomputed over the surviving entries are
+/// serialized into the scanner's internal buffer.
 ///
 /// Returns `true` if an entry was produced (and `*entry` is populated),
 /// `false` when all nodes have been visited.
@@ -136,8 +140,12 @@ pub unsafe extern "C" fn NumericGcScanner_New<'tree>(
 /// # Wire format for `entry.data`
 ///
 /// ```text
-/// [delta_msgpack][64-byte hll_with][64-byte hll_without]
+/// [delta_msgpack][stats_with_last_block][stats_without_last_block]
 /// ```
+///
+/// where each `stats_*` block is `[64-byte hll registers][f64 min][f64 max]`, the
+/// bounds in native byte order. The trailer is fixed-width, so the parent recovers
+/// the msgpack payload by trimming [`TRAILER_SIZE`] bytes off the end.
 ///
 /// # Safety
 ///
@@ -175,12 +183,8 @@ pub unsafe extern "C" fn NumericGcScanner_Next(
             continue;
         }
 
-        scanner
-            .buffer
-            .extend_from_slice(&delta.registers_with_last_block);
-        scanner
-            .buffer
-            .extend_from_slice(&delta.registers_without_last_block);
+        delta.with_last_block.write_to(&mut scanner.buffer);
+        delta.without_last_block.write_to(&mut scanner.buffer);
 
         // SAFETY: Caller ensures `entry` is valid
         let entry = unsafe { &mut *entry };
@@ -253,7 +257,7 @@ pub struct ApplyGcEntryResult {
 ///
 /// The entry data must have the wire format produced by [`NumericGcScanner_Next`]:
 /// ```text
-/// [delta_msgpack][64-byte hll_with][64-byte hll_without]
+/// [delta_msgpack][stats_with_last_block][stats_without_last_block]
 /// ```
 ///
 /// Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
@@ -274,16 +278,14 @@ pub unsafe extern "C" fn NumericRangeTree_ApplyGcEntry(
     debug_assert!(!tree.is_null(), "tree cannot be NULL");
     debug_assert!(!entry_data.is_null(), "entry_data cannot be NULL");
 
-    const HLL_REGISTER_SIZE: usize = 64;
-
     // SAFETY: Caller ensures pointers are valid
     let tree = unsafe { &mut *tree };
     // SAFETY: Caller ensures entry_data is valid for entry_len bytes
     let data = unsafe { std::slice::from_raw_parts(entry_data, entry_len) };
 
-    // The entry format is: [delta_msgpack][64-byte hll_with][64-byte hll_without]
-    // We need at least 128 bytes for the two HLL register arrays.
-    if data.len() < HLL_REGISTER_SIZE * 2 {
+    // The entry format is: [delta_msgpack][stats_with_last_block][stats_without_last_block]
+    // We need at least the fixed-width trailer holding the two statistics blocks.
+    if data.len() < TRAILER_SIZE {
         tracing::warn!(
             node_position = node_position,
             node_generation = node_generation,
@@ -297,10 +299,28 @@ pub unsafe extern "C" fn NumericRangeTree_ApplyGcEntry(
         };
     }
 
-    let hll_start = data.len() - HLL_REGISTER_SIZE * 2;
-    let msgpack_data = &data[..hll_start];
-    let hll_with = &data[hll_start..hll_start + HLL_REGISTER_SIZE];
-    let hll_without = &data[hll_start + HLL_REGISTER_SIZE..];
+    let trailer_start = data.len() - TRAILER_SIZE;
+    let msgpack_data = &data[..trailer_start];
+    let (with, without) = data[trailer_start..].split_at(GcSurvivorStats::WIRE_SIZE);
+    // Both halves are exactly `WIRE_SIZE` long by construction, so these reads cannot
+    // fail — but this function is `extern "C"`, so it reports the impossible case
+    // instead of unwinding into C.
+    let (Some(with_last_block), Some(without_last_block)) = (
+        GcSurvivorStats::read_from(with),
+        GcSurvivorStats::read_from(without),
+    ) else {
+        tracing::warn!(
+            node_position = node_position,
+            node_generation = node_generation,
+            entry_len = entry_len,
+            tree_id = %tree.unique_id(),
+            "Skipping a GcEntry whose survivor statistics could not be decoded."
+        );
+        return ApplyGcEntryResult {
+            status: ApplyGcEntryStatus::DeserializationError,
+            ..Default::default()
+        };
+    };
 
     let delta: GcScanDelta = match GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(
         &mut std::io::Cursor::new(msgpack_data),
@@ -322,15 +342,10 @@ pub unsafe extern "C" fn NumericRangeTree_ApplyGcEntry(
         }
     };
 
-    let mut regs_with = [0u8; HLL_REGISTER_SIZE];
-    let mut regs_without = [0u8; HLL_REGISTER_SIZE];
-    regs_with.copy_from_slice(hll_with);
-    regs_without.copy_from_slice(hll_without);
-
     let node_gc_delta = NodeGcDelta {
         delta,
-        registers_with_last_block: regs_with,
-        registers_without_last_block: regs_without,
+        with_last_block,
+        without_last_block,
     };
 
     match tree.apply_gc_to_node(

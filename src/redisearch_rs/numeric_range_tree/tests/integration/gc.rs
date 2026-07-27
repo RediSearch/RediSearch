@@ -301,6 +301,165 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
 }
 
 // ============================================================================
+// Value bounds recomputation
+// ============================================================================
+
+#[rstest]
+fn gc_tightens_leaf_bounds(#[values(false, true)] compress_floats: bool) {
+    // Values are powers of two so float compression stores them losslessly and the
+    // assertions can compare exactly.
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for (doc_id, value) in [(1, 8.0), (2, 16.0), (3, 32.0), (4, 64.0)] {
+        tree.add(doc_id, value, false, 0);
+    }
+    let range = tree.root().range().unwrap();
+    assert_eq!((range.min_val(), range.max_val()), (8.0, 64.0));
+
+    // Delete the documents holding both extremes.
+    gc_all_ranges(&mut tree, &|doc_id| doc_id == 2 || doc_id == 3);
+
+    let range = tree.root().range().unwrap();
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (16.0, 32.0),
+        "bounds should shrink to the surviving values"
+    );
+}
+
+#[rstest]
+fn gc_emptying_a_leaf_resets_its_bounds(#[values(false, true)] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for doc_id in 1..=10 {
+        tree.add(doc_id, 42.0, false, 0);
+    }
+
+    // Delete every document.
+    gc_all_ranges(&mut tree, &|_| false);
+
+    let range = tree.root().range().unwrap();
+    assert_eq!(range.num_docs(), 0);
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (f64::INFINITY, f64::NEG_INFINITY),
+        "an emptied range should be back to the inverted bounds of a fresh range"
+    );
+    assert!(
+        !range.overlaps(0.0, 100.0),
+        "an emptied range should no longer overlap the filter its old bounds matched"
+    );
+    assert_eq!(tree.empty_leaves(), 1);
+}
+
+#[test]
+fn gc_keeps_the_bounds_of_ranges_retained_on_internal_nodes() {
+    // Ranges retained on internal nodes must stay a superset of their subtree.
+    // Entries are applied ancestor-first, so tightening them would transiently
+    // publish an ancestor range narrower than its own children.
+    let n = SPLIT_TRIGGER * 2;
+    let mut tree = build_tree(n, false, 2);
+
+    let retained_before: Vec<_> = tree
+        .indexed_iter()
+        .filter(|(_, node)| !node.is_leaf())
+        .filter_map(|(idx, node)| node.range().map(|r| (idx, r.min_val(), r.max_val())))
+        .collect();
+    assert!(
+        !retained_before.is_empty(),
+        "max_depth_range=2 should retain at least one internal range"
+    );
+
+    // Delete the lower half of the documents — the smallest values go away.
+    gc_all_ranges(&mut tree, &|doc_id| doc_id > n / 2);
+
+    for (idx, min_before, max_before) in retained_before {
+        let range = tree
+            .node(idx)
+            .range()
+            .expect("GC should not drop a retained range");
+        assert_eq!(
+            (range.min_val(), range.max_val()),
+            (min_before, max_before),
+            "the range retained on internal node {idx:?} should keep its bounds"
+        );
+    }
+}
+
+#[rstest]
+fn gc_bounds_cover_entries_written_to_new_blocks_after_the_fork(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Two full blocks, so post-scan writes start a new block and leave the scanned
+    // last block untouched — the `blocks_since_fork` rescan path.
+    let n = ENTRIES_PER_BLOCK * 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for doc_id in 1..=n {
+        tree.add(doc_id, 42.0, false, 0);
+    }
+
+    let delta = scan_node_delta(&tree, tree.root_index(), &|doc_id| {
+        doc_id > ENTRIES_PER_BLOCK
+    })
+    .expect("should have GC work");
+
+    // Parent writes after the fork, outside the surviving range on both ends.
+    tree.add(n + 1, 4.0, false, 0);
+    tree.add(n + 2, 128.0, false, 0);
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+    assert!(
+        !result.index_gc_info.ignored_last_block,
+        "the scanned last block was full, so post-fork writes went to a new block"
+    );
+
+    let range = tree.root().range().unwrap();
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (4.0, 128.0),
+        "bounds must cover the entries the scan never saw"
+    );
+}
+
+#[rstest]
+fn gc_bounds_cover_an_ignored_last_block(#[values(false, true)] compress_floats: bool) {
+    // Block 0 (full): 42.0. Block 1 (partial): 64.0, except its final document,
+    // which holds the largest value in the range.
+    let partial = ENTRIES_PER_BLOCK / 2;
+    let n = ENTRIES_PER_BLOCK + partial;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for doc_id in 1..=n {
+        let value = if doc_id <= ENTRIES_PER_BLOCK {
+            42.0
+        } else if doc_id == n {
+            1024.0
+        } else {
+            64.0
+        };
+        tree.add(doc_id, value, false, 0);
+    }
+
+    // Delete only the document holding 1024.0, which lives in the last block.
+    let delta = scan_node_delta(&tree, tree.root_index(), &|doc_id| doc_id != n)
+        .expect("should have GC work");
+
+    // A post-scan write into the same (partial) block makes the apply step ignore
+    // that block's repair, so the 1024.0 entry stays in the index.
+    tree.add(n + 1, 64.0, false, 0);
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+    assert!(
+        result.index_gc_info.ignored_last_block,
+        "the last block changed after the scan, so its repair must be ignored"
+    );
+
+    let range = tree.root().range().unwrap();
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (42.0, 1024.0),
+        "bounds must still cover the entry whose repair was ignored"
+    );
+}
+
+// ============================================================================
 // GC repopulation and intensive delete tests
 // ============================================================================
 
@@ -455,8 +614,8 @@ fn gc_on_node_without_range() {
             tree.root_index(),
             NodeGcDelta {
                 delta: delta.delta,
-                registers_with_last_block: delta.registers_with_last_block,
-                registers_without_last_block: delta.registers_without_last_block,
+                with_last_block: delta.with_last_block,
+                without_last_block: delta.without_last_block,
             },
         )
         .unwrap();

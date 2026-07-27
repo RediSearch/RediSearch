@@ -17,26 +17,33 @@ use rqe_core::DocId;
 use std::collections::HashMap;
 
 use index_result::RSIndexResult;
+use inverted_index::numeric::StoredValue;
 use inverted_index::{GcApplyInfo, GcScanDelta};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
-use crate::range::Hll;
+use crate::range::{GcBoundsUpdate, GcSurvivorStats, Hll, ValueBounds};
 
 /// GC delta data for a single node, as computed by the child process.
 ///
-/// Contains the inverted index GC delta plus the HyperLogLog registers
-/// captured during the scan. One `NodeGcDelta` is produced per DFS node
-/// that had GC work.
+/// Contains the inverted index GC delta plus the per-range statistics
+/// ([`GcSurvivorStats`]: cardinality registers and value bounds) recomputed over
+/// the surviving entries. One `NodeGcDelta` is produced per DFS node that had GC
+/// work.
+///
+/// The statistics come in two flavours because the parent may have appended to the
+/// last block after the fork, in which case the apply step ignores that block's
+/// repair and the parent rescans it instead — see
+/// [`NumericRange::reset_stats_after_gc`][crate::NumericRange::reset_stats_after_gc].
 #[derive(Debug)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
-    /// HLL registers including the last scanned block's cardinality.
-    pub registers_with_last_block: [u8; Hll::size()],
-    /// HLL registers excluding the last scanned block's cardinality.
-    pub registers_without_last_block: [u8; Hll::size()],
+    /// Survivor statistics including the last scanned block.
+    pub with_last_block: GcSurvivorStats,
+    /// Survivor statistics excluding the last scanned block.
+    pub without_last_block: GcSurvivorStats,
 }
 
 /// Result of applying GC to a single node.
@@ -71,8 +78,12 @@ pub struct CompactIfSparseResult {
 impl NumericRangeNode {
     /// Scan a single node's inverted index for GC work.
     ///
-    /// Scan the inverted index associated with its range for deleted
-    /// documents, and computes HLL registers for cardinality re-estimation.
+    /// Scan the inverted index associated with its range for deleted documents, and
+    /// recompute the cardinality registers and the value bounds over the entries that
+    /// survive the scan.
+    ///
+    /// The scan visits every block, so the recomputed statistics cover the whole
+    /// index — not just the blocks that need repairing.
     ///
     /// Returns `Some(NodeGcDelta)` if the node had GC work, `None` otherwise
     /// (either the node has no range, or no documents were deleted).
@@ -80,27 +91,32 @@ impl NumericRangeNode {
         let range = self.range()?;
 
         // The logical index of the last block — used inside the repair closure to route
-        // each entry's HLL contribution into the correct accumulator. Comparing by
+        // each entry's contribution into the correct accumulator. Comparing by
         // logical index instead of pointer equality is robust to future changes that
         // produce blocks via owned snapshots (where block addresses can shift).
         let last_block_idx = range.entries().num_blocks().saturating_sub(1);
 
-        // HLL tracking for cardinality (re)estimation.
+        // Cardinality and bounds tracking, split so that the parent can drop the last
+        // block's contribution if it turns out to have changed since the fork.
         //
-        // `majority_hll` accumulates all blocks except the last one.
-        // `last_block_hll` accumulates only the last block.
+        // The `majority_*` accumulators cover all blocks except the last one.
+        // The `last_block_*` accumulators cover only the last block.
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
+        let mut majority_bounds = ValueBounds::EMPTY;
+        let mut last_block_bounds = ValueBounds::EMPTY;
 
         let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
             // SAFETY: We know this is a numeric index result
-            let value = unsafe { res.as_numeric_unchecked() };
-            let target = if ctx.block_idx == last_block_idx {
-                &mut last_block_hll
+            // Scanned straight out of the index, so already in stored form.
+            let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
+            let (hll, bounds) = if ctx.block_idx == last_block_idx {
+                (&mut last_block_hll, &mut last_block_bounds)
             } else {
-                &mut majority_hll
+                (&mut majority_hll, &mut majority_bounds)
             };
-            target.add(&value.into());
+            hll.add(&value.into());
+            bounds.observe(value);
         };
 
         let delta = range
@@ -109,13 +125,21 @@ impl NumericRangeNode {
             .ok()
             .flatten()?;
 
-        // Merge majority into last_block to get "with last block" registers.
+        // Merge majority into last_block to get the "with last block" statistics.
         last_block_hll.merge(&majority_hll);
+        let mut with_last_block_bounds = last_block_bounds;
+        with_last_block_bounds.merge(majority_bounds);
 
         Some(NodeGcDelta {
             delta,
-            registers_with_last_block: *last_block_hll.registers(),
-            registers_without_last_block: *majority_hll.registers(),
+            with_last_block: GcSurvivorStats {
+                registers: *last_block_hll.registers(),
+                bounds: with_last_block_bounds,
+            },
+            without_last_block: GcSurvivorStats {
+                registers: *majority_hll.registers(),
+                bounds: majority_bounds,
+            },
         })
     }
 }
@@ -124,8 +148,9 @@ impl NumericRangeTree {
     /// Apply a GC delta to a single node by index.
     ///
     /// Looks up the node in the arena, applies the delta to its range's
-    /// inverted index, resets cardinality via HLL, and updates tree-level
-    /// stats (`num_entries`, `inverted_indexes_size`, `empty_leaves`).
+    /// inverted index, reinstalls the range's cardinality estimate and value
+    /// bounds, and updates tree-level stats (`num_entries`,
+    /// `inverted_indexes_size`, `empty_leaves`).
     ///
     /// Returns per-node GC statistics, if there is a node with the given index.
     /// Returns `None` if there isn't one.
@@ -154,12 +179,21 @@ impl NumericRangeTree {
         // Apply GC delta to the index.
         let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
 
-        // Reset cardinality with proper HLL recalculation.
-        range.reset_cardinality_after_gc(
+        // Reinstall the cardinality estimate and — for leaves — the value bounds the
+        // child recomputed over the surviving entries. Ranges retained on internal
+        // nodes keep their bounds: they must stay a superset of the whole subtree,
+        // and this routine is called on an ancestor before its descendants.
+        let bounds_update = if is_leaf {
+            GcBoundsUpdate::Tighten
+        } else {
+            GcBoundsUpdate::Keep
+        };
+        range.reset_stats_after_gc(
             info.ignored_last_block,
             n_new_blocks_since_fork,
-            &delta.registers_with_last_block,
-            &delta.registers_without_last_block,
+            &delta.with_last_block,
+            &delta.without_last_block,
+            bounds_update,
         );
 
         // Track empty ranges (only count leaves, and only on transition to empty).

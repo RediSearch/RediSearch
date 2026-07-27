@@ -28,27 +28,6 @@ typedef struct InvertedIndexNumeric InvertedIndexNumeric;
 typedef struct ReversePreOrderDfsIterator ReversePreOrderDfsIterator;
 
 /**
- * A numeric range is a leaf-level storage unit in the numeric range tree.
- *
- * It stores document IDs and their associated numeric values in an inverted index,
- * along with metadata for range queries and cardinality estimation.
- *
- * # Structure
- *
- * - **Bounds** (`min_val`, `max_val`): Track the actual value range for overlap
- *   and containment tests during queries.
- * - **Cardinality** (`hll`): HyperLogLog estimator for the number of distinct
- *   values, used to decide when to split.
- * - **Entries** (`entries`): Inverted index storing (docId, value) pairs.
- *
- * # Initialization
- *
- * New ranges start with inverted bounds (`min_val = +∞`, `max_val = -∞`) so
- * the first added value correctly sets both bounds.
- */
-typedef struct NumericRange NumericRange;
-
-/**
  * A numeric range tree for efficient range queries over numeric values.
  *
  * The tree organizes documents by their numeric field values into a balanced
@@ -82,6 +61,27 @@ typedef struct NumericRange NumericRange;
  * [`Self::MAXIMUM_DEPTH_IMBALANCE`].
  */
 typedef struct NumericRangeTree NumericRangeTree;
+
+/**
+ * A numeric range is a leaf-level storage unit in the numeric range tree.
+ *
+ * It stores document IDs and their associated numeric values in an inverted index,
+ * along with metadata for range queries and cardinality estimation.
+ *
+ * # Structure
+ *
+ * - **Bounds** (`min_val`, `max_val`): Track the actual value range for overlap
+ *   and containment tests during queries.
+ * - **Cardinality** (`hll`): HyperLogLog estimator for the number of distinct
+ *   values, used to decide when to split.
+ * - **Entries** (`entries`): Inverted index storing (docId, value) pairs.
+ *
+ * # Initialization
+ *
+ * New ranges start with inverted bounds (`min_val = +∞`, `max_val = -∞`) so
+ * the first added value correctly sets both bounds.
+ */
+typedef struct NumericRange NumericRange;
 
 /**
  * A node in the numeric range tree.
