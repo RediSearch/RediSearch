@@ -87,24 +87,40 @@ jobs:
           BENCHMARK_GLOB: ${{ inputs.benchmark_glob }}
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
-        run: redisbench-admin run-remote
-              --module_path ../../${{ inputs.module_path }}
-              --required-module search
-              --github_actor ${{ github.triggering_actor }}
-              --github_repo ${{ github.event.repository.name }}
-              --github_org ${{ github.repository_owner }}
-              --module_path ../../${{ inputs.rejson_module_path }}
-              --required-module ReJSON
-              --github_sha ${{ github.sha }}
-              --github_branch ${{ github.head_ref || github.ref_name }}
-              --upload_results_s3
-              --triggering_env ${{ inputs.triggering_env }}
-              --allowed-envs ${{ inputs.allowed_envs }}
-              --allowed-setups ${{ inputs.allowed_setups }}
-              --push_results_redistimeseries
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+          MODULE_PATH: ${{ inputs.module_path }}
+          REJSON_MODULE_PATH: ${{ inputs.rejson_module_path }}
+          TRIGGERING_ENV: ${{ inputs.triggering_env }}
+          ALLOWED_ENVS: ${{ inputs.allowed_envs }}
+          ALLOWED_SETUPS: ${{ inputs.allowed_setups }}
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          # actions/checkout uses github.sha by default, so report the same
+          # commit that was built by this workflow.
+          GITHUB_SHA_RESOLVED: ${{ github.sha }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+        run: |
+          redisbench-admin run-remote \
+              --module_path "../../$MODULE_PATH" \
+              --required-module search \
+              --github_actor "$GITHUB_ACTOR_NAME" \
+              --github_repo "$GITHUB_REPO_NAME" \
+              --github_org "$GITHUB_ORG_NAME" \
+              --module_path "../../$REJSON_MODULE_PATH" \
+              --required-module ReJSON \
+              --github_sha "$GITHUB_SHA_RESOLVED" \
+              --github_branch "$GITHUB_BRANCH_NAME" \
+              --upload_results_s3 \
+              --triggering_env "$TRIGGERING_ENV" \
+              --allowed-envs "$ALLOWED_ENVS" \
+              --allowed-setups "$ALLOWED_SETUPS" \
+              --push_results_redistimeseries \
+              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
+              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH"
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
