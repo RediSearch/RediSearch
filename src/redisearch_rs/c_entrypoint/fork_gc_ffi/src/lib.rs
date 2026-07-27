@@ -21,6 +21,7 @@ use std::{
 };
 
 use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
+use string_utils::NulTerminatedBytes;
 
 use tracing::Level;
 use tracing_log_error::log_error;
@@ -159,9 +160,10 @@ pub unsafe extern "C" fn FGC_recvFixed(
 /// On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
 /// `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
 /// end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
-/// writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+/// writes `0` and a null pointer. Otherwise allocates a payload buffer,
 /// writing its pointer and length to `*buf` / `*len`; the caller is
-/// responsible for releasing it with [`FGC_freeBuffer`].
+/// responsible for releasing it with [`FGC_freeBuffer`]. The payload is
+/// NUL-terminated (one byte past `*len`).
 ///
 /// On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
 /// and leaves `*buf` / `*len` unchanged.
@@ -182,7 +184,7 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
 
-    let frame = match Frame::decode(&mut fgc.reader()) {
+    let frame = match Frame::decode_nul_terminated(&mut fgc.reader()) {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame");
@@ -203,7 +205,9 @@ pub unsafe extern "C" fn FGC_recvBuffer(
 /// Receive a field header (field name + unique id).
 ///
 /// Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
-/// or an error variant on pipe failure.
+/// or an error variant on pipe failure. On success, the field name written to
+/// `*field_name` is NUL-terminated (one byte past `*field_name_len`).
+/// Release it with [`FGC_freeBuffer`].
 ///
 /// # Safety
 ///
@@ -224,7 +228,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
     let mut reader = fgc.reader();
 
-    let frame = match Frame::decode(&mut reader) {
+    let frame = match Frame::decode_nul_terminated(&mut reader) {
         Ok(frame) => frame,
         Err(e) => {
             log_error!(e, level: Level::WARN, "ForkGC pipe read error: failed to read frame for field header");
@@ -269,7 +273,10 @@ pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
         return;
     }
 
-    let ptr = std::ptr::slice_from_raw_parts_mut(buf.cast::<u8>(), len);
+    // The buffer was leaked by `util::frame_into_c_buffer` via
+    // `NulTerminatedBytes::into_parts`, so hand the same `(ptr, len)` pair back
+    // to `from_parts` to reconstruct and drop it (reclaiming the `len + 1`
+    // allocation).
     // SAFETY: caller guarantees (1).
-    drop(unsafe { Box::from_raw(ptr) });
+    drop(unsafe { NulTerminatedBytes::from_parts(buf.cast::<u8>(), len) });
 }

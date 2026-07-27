@@ -199,9 +199,10 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
  * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
  * `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
  * end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
- * writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+ * writes `0` and a null pointer. Otherwise allocates a payload buffer,
  * writing its pointer and length to `*buf` / `*len`; the caller is
- * responsible for releasing it with [`FGC_freeBuffer`].
+ * responsible for releasing it with [`FGC_freeBuffer`]. The payload is
+ * NUL-terminated (one byte past `*len`).
  *
  * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
  * and leaves `*buf` / `*len` unchanged.
@@ -219,7 +220,9 @@ int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
  * Receive a field header (field name + unique id).
  *
  * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
- * or an error variant on pipe failure.
+ * or an error variant on pipe failure. On success, the field name written to
+ * `*field_name` is NUL-terminated (one byte past `*field_name_len`).
+ * Release it with [`FGC_freeBuffer`].
  *
  * # Safety
  *
