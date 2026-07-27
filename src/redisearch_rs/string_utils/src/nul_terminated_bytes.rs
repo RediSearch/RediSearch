@@ -1,0 +1,104 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! An owned byte buffer with a trailing NUL.
+
+use std::ops::Deref;
+
+/// An owned, heap-allocated buffer holding a byte payload followed by exactly
+/// one trailing NUL byte.
+///
+/// Unlike a [`CString`], the payload may contain interior NUL bytes: the
+/// trailing NUL is only a C-ABI convenience, not a length marker.
+///
+/// [`CString`]: std::ffi::CString
+#[derive(PartialEq, Eq)]
+pub struct NulTerminatedBytes(Box<[u8]>);
+
+impl NulTerminatedBytes {
+    /// Reconstruct a buffer previously leaked by [`Self::into_parts`].
+    ///
+    /// # Safety
+    ///
+    /// `ptr` and `len` must be the exact pair returned by a prior
+    /// [`Self::into_parts`] call whose buffer has not since been freed or
+    /// reconstructed. Passing a mismatched length, a pointer from a different
+    /// allocation, or a pair that was already reclaimed is undefined behaviour.
+    pub unsafe fn from_parts(ptr: *mut u8, len: usize) -> Self {
+        // `into_parts` leaked a `len + 1`-byte boxed slice (payload plus the
+        // NUL), so rebuild the fat pointer with that same length for the box to
+        // deallocate the whole allocation. `len` originates from a real
+        // allocation, so `len + 1` cannot overflow.
+        let ptr = std::ptr::slice_from_raw_parts_mut(ptr, len + 1);
+        // SAFETY: upheld by the caller (see the contract above).
+        Self(unsafe { Box::from_raw(ptr) })
+    }
+
+    /// Leak the buffer, transferring ownership to the caller as a raw pointer to
+    /// its first byte plus the payload length (excluding the trailing NUL).
+    ///
+    /// The caller must eventually reclaim it with [`Self::from_parts`] to avoid
+    /// leaking. The length is returned alongside the pointer because it cannot
+    /// be recovered from the pointer alone — the payload may contain interior
+    /// NUL bytes.
+    pub fn into_parts(self) -> (*mut u8, usize) {
+        let len = self.len();
+        (Box::into_raw(self.0).cast::<u8>(), len)
+    }
+
+    /// Payload length, i.e. the buffer length excluding the trailing NUL.
+    pub fn len(&self) -> usize {
+        self.0.len() - 1
+    }
+
+    /// Whether the payload is empty, i.e. the buffer is just the trailing NUL.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The payload bytes, excluding the trailing NUL.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0[..self.len()]
+    }
+
+    /// The full buffer, including the trailing NUL byte.
+    pub fn as_bytes_with_nul(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Copies `payload` into a fresh `len + 1`-byte buffer, appending a single trailing NUL.
+impl From<&[u8]> for NulTerminatedBytes {
+    fn from(payload: &[u8]) -> Self {
+        let mut data = Vec::with_capacity(payload.len() + 1);
+        data.extend_from_slice(payload);
+        data.push(0);
+
+        Self(data.into_boxed_slice())
+    }
+}
+
+/// Takes ownership of `payload`, appending a single trailing NUL byte.
+impl From<Vec<u8>> for NulTerminatedBytes {
+    fn from(mut payload: Vec<u8>) -> Self {
+        payload.push(0);
+
+        Self(payload.into_boxed_slice())
+    }
+}
+
+/// Dereferences to the payload bytes, *excluding* the trailing NUL — the same
+/// view as [`as_bytes`](NulTerminatedBytes::as_bytes).
+impl Deref for NulTerminatedBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}

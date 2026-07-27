@@ -12,6 +12,9 @@
 //! These are pure-Rust replacements for C helpers that were previously
 //! implemented using `libnu` for Unicode operations.
 
+pub mod nul_terminated_bytes;
 pub mod runes;
 pub mod tag;
 pub mod unicode;
+
+pub use nul_terminated_bytes::NulTerminatedBytes;
