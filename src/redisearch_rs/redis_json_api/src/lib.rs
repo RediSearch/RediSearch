@@ -33,11 +33,6 @@ pub use value::{JsonType, JsonValue, JsonValueRef};
 /// provider allocates a shorter vtable (ending after the V7 `getArray` slot), so
 /// accepting V7 here would read past the allocation — undefined behavior,
 /// independent of which fields are read.
-///
-/// V7 handling lives entirely in the C paths (e.g.
-/// [`ffi::JSON_GetJsonFromHandleCompat`]); the Rust JSON path is not wired into
-/// production. Lift this to a raw prefix-pointer design if the Rust wrapper ever
-/// needs to run against a real V7 provider.
 pub const MIN_API_VERSION: i32 = 8;
 
 /// Latest API version (V8).
@@ -203,11 +198,8 @@ impl RedisJsonApi {
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
-    /// Works with both RedisJSON API v8+ (via the `getJsonFromHandle` slot) and
-    /// v7 (via the `isJSON` + `RedisModule_ModuleTypeGetValue` fallback). The
-    /// version dispatch lives in the C helper [`ffi::JSON_GetJsonFromHandleCompat`]
-    /// so that the V8-only vtable slot is never read against a genuine V7 vtable
-    /// (which would read past its end).
+    /// Delegates to the C helper [`ffi::JSON_GetJsonFromHandleCompat`], which
+    /// handles the V7/V8 version dispatch (see its docs).
     ///
     /// # Safety
     ///
