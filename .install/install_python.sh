@@ -23,11 +23,17 @@ export PATH="$UV_INSTALL_DIR:$PATH"
 # from the system or a previous manual install.
 have_ver="$(uv --version 2>/dev/null | awk '/^uv / {print $2; exit}' || true)"
 
-# list: uv is required by the default Python test dependency flow; when that
-# flow is skipped, keep it optional. dry-run prints the installer if absent.
-# Never write /etc/profile.d or GITHUB_PATH in list/dry-run mode.
+# list: python3 is a build-time requirement; uv is required by the default
+# Python test dependency flow, and optional when that flow is skipped. dry-run
+# prints the uv installer if absent. Never write /etc/profile.d or GITHUB_PATH
+# in list/dry-run mode.
 if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
     set +x
+    if command -v python3 >/dev/null 2>&1; then
+        DEPS_OK="$DEPS_OK python3"
+    else
+        DEPS_MISSING="$DEPS_MISSING python3"
+    fi
     if [[ -n "$have_ver" ]] && version_ge "$have_ver" "$MIN_UV_VERSION"; then
         if [[ "${SKIP_PYTHON_TEST_DEPS:-0}" != 1 ]]; then
             DEPS_OK="$DEPS_OK uv"
