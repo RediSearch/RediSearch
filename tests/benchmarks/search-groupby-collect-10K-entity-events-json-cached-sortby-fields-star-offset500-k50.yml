@@ -1,5 +1,5 @@
 version: 0.5
-name: "search-groupby-collect-100K-entity-events-json-cached-sortby-fields-star-offset500-k50"
+name: "search-groupby-collect-10K-entity-events-json-cached-sortby-fields-star-offset500-k50"
 description: "GROUPBY + COLLECT JSON benchmark with FIELDS * and LIMIT 500 50."
 
 metadata:
