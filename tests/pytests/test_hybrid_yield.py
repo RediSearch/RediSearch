@@ -250,7 +250,9 @@ def test_hybrid_combine_yield_score_as_both_forms():
     produce the same results."""
     env = Env()
     setup_basic_index(env)
-    query_vector = np.array([0.0, 0.0]).astype(np.float32).tobytes()
+    # Use a non-tied vector so cluster result ordering does not depend on
+    # arbitrary tie-breaking between equally distant documents.
+    query_vector = np.array([0.0, 0.25]).astype(np.float32).tobytes()
 
     # Counted form: count 4 covers CONSTANT 60 YIELD_SCORE_AS search_score
     counted, _ = get_results_from_hybrid_response(env.cmd(
