@@ -178,7 +178,8 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   const bool borrowedKey = options->openKey && (type == DocumentType_Hash || type == DocumentType_Json);
   if (borrowedKey) {
     if (type == DocumentType_Json) {
-      key = japi ? (void *)japi->getJsonFromHandle(options->openKey) : NULL;
+      RS_ASSERT(japi && japi->isJSON(options->openKey));
+      key = (void *)JSON_GetJsonFromHandleCompat(options->openKey);
     } else {
       key = options->openKey;
     }
