@@ -211,7 +211,13 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
       return 1;
 
     case PARAM_TERM_CASE:
-      *(char**)param->target = rm_strdup(val);
+      // Copy all `val_len` bytes (the value is binary-safe and may contain
+      // interior NULs) with a trailing NUL terminator, keeping `target_len`
+      // consistent with the allocation. `rm_strdup` stops at the first interior
+      // NUL, which would leave `*target_len == val_len` describing a range past
+      // the end of the allocation.
+      *(char**)param->target = rm_calloc(1, val_len + 1);
+      memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
       return 1;
 
