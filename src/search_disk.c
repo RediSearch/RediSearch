@@ -223,6 +223,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
@@ -388,6 +393,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && handle);
+    return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
 }
 
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {

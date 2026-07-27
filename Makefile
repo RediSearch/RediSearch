@@ -284,6 +284,14 @@ rust-tests: $(BUILD_SCRIPT)
 	@echo "Running Rust tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_RUST_TESTS
 
+archive-rust-tests: $(BUILD_SCRIPT)
+	@echo "Archiving Rust tests into a nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) ARCHIVE_RUST_TESTS
+
+rust-tests-from-archive: $(BUILD_SCRIPT)
+	@echo "Running Rust tests from nextest archive at $$RUST_TEST_ARCHIVE_PATH..."
+	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_ARCHIVED_RUST_TESTS
+
 pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
@@ -483,7 +491,7 @@ test-linkcheck:
 	fi
 	@python3 scripts/test_link_checker.py
 
-.PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests pytest
+.PHONY: list dry-run bootstrap-modes help bootstrap fetch build clean test unit-tests rust-tests archive-rust-tests rust-tests-from-archive pytest
 .PHONY: run lint fmt license-check pack upload-artifacts
 .PHONY: benchmark micro-benchmarks vecsim-bench callgrind parsers verify-deps
 .PHONY: check-links check-links-verbose test-linkcheck

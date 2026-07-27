@@ -15,10 +15,11 @@
 use ffi::IndexFlags_Index_StoreNumeric;
 use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, IndexReaderCore, NumericReader,
+    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore,
     debug::Summary,
     numeric::{Numeric, NumericFloatCompression},
 };
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 /// Enum to hold either compressed or uncompressed numeric index.
@@ -156,14 +157,60 @@ impl NumericIndex {
     }
 }
 
-/// Iterate over the entries stored in a numeric index.
+/// Iterate over the entries stored in a numeric index, parameterised over a
+/// [`Ref`] mode.
 ///
-/// This abstracts over whether the underlying index is compressed or uncompressed.
-pub enum NumericIndexReader<'a> {
+/// Abstracts over whether the underlying index is compressed or uncompressed.
+/// `RawNumericIndexReader<Active<'index>>` (aliased [`NumericIndexReader`]) and
+/// `RawNumericIndexReader<Suspended>` are layout-identical, so the owning
+/// `RawInvIndIterator` can suspend/resume by a same-allocation reinterpretation —
+/// the [`SuspendableReader`](inverted_index::SuspendableReader) /
+/// [`ResumableReader`](inverted_index::ResumableReader) contract. This holds
+/// because `Rf` flows only through the per-variant [`RawIndexReaderCore`]
+/// payloads, each itself layout-compatible (invariant 1 on that type). Enforced
+/// by the `const _` proof below.
+#[repr(C)]
+pub enum RawNumericIndexReader<Rf: Ref> {
     /// Reader over uncompressed entries.
-    Uncompressed(IndexReaderCore<'a, Numeric>),
+    Uncompressed(RawIndexReaderCore<Rf, Numeric>),
     /// Reader over compressed entries.
-    Compressed(IndexReaderCore<'a, NumericFloatCompression>),
+    Compressed(RawIndexReaderCore<Rf, NumericFloatCompression>),
+}
+
+/// Active-form alias of [`RawNumericIndexReader`] — the live numeric reader.
+pub type NumericIndexReader<'index> = RawNumericIndexReader<Active<'index>>;
+
+// Compile-time proof that the `Active` and `Suspended` instantiations of
+// `RawNumericIndexReader` are layout-identical. As an enum we assert size and
+// alignment equality; the per-variant `RawIndexReaderCore` payloads are
+// layout-compatible by their own invariant 1, so a divergence here is a build error.
+const _: () = {
+    use std::mem::{align_of, size_of};
+    type A = RawNumericIndexReader<Active<'static>>;
+    type S = RawNumericIndexReader<Suspended>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
+// SAFETY: `RawNumericIndexReader<Active>` and `<Suspended>` are layout-identical
+// (const proof above), as `SuspendableReader` requires.
+unsafe impl<'a> inverted_index::SuspendableReader for NumericIndexReader<'a> {
+    type Suspended = RawNumericIndexReader<Suspended>;
+}
+
+// SAFETY: layout-compatible for the same reason as the `SuspendableReader` impl above.
+unsafe impl inverted_index::ResumableReader for RawNumericIndexReader<Suspended> {
+    type Resumed<'a> = NumericIndexReader<'a>;
+
+    unsafe fn refresh_pointers(&mut self) -> inverted_index::RefreshOutcome {
+        match self {
+            // SAFETY: our caller upholds `ResumableReader::refresh_pointers`'s
+            // read-lock obligation, which we forward unchanged to the inner reader.
+            Self::Uncompressed(r) => unsafe { r.refresh_pointers() },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.refresh_pointers() },
+        }
+    }
 }
 
 /// Marker trait for readers producing numeric values.
