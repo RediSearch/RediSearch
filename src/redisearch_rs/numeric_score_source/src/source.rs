@@ -426,7 +426,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // `ranges` and `timeout` are disjoint fields; the split borrow lets the
         // materialization loop poll the deadline once per record.
-        let Some(mut batch) = self
+        let Some(batch) = self
             .ranges
             .next_n(self.range_batch_size, &mut self.timeout)?
         else {
