@@ -12,6 +12,7 @@
 #include <features.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h> // IWYU pragma: keep
 #include <strings.h>
 #include <time.h>
 
@@ -42,6 +43,7 @@
 #include "util/timeout.h"
 
 #if defined(__x86_64__) && defined(__GLIBC__)
+#include <cpuid.h> // IWYU pragma: keep
 #define CPUID_AVAILABLE 1
 #endif
 
