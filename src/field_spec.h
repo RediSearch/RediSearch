@@ -143,6 +143,11 @@ typedef struct FieldSpec {
 
   // The index error for this field
   IndexError indexError;
+
+  // Compiled JSONPath handle (japi->pathParse), built lazily on first index and
+  // reused across documents. NULL for hash / non-$ paths. Indexing runs on the
+  // main thread, so no synchronization is needed.
+  const void *compiledPath;
 } FieldSpec;
 
 #define FIELD_IS(f, t) (((f)->types) & (t))

@@ -274,7 +274,21 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
+    // Compile each schema JSONPath once (cached on the FieldSpec) and reuse the
+    // handle across documents via getWithPath, instead of re-parsing the path
+    // string on every document. Indexing runs on the main thread, so no locking.
+    const char *fieldPath = HiddenString_GetUnsafe(field->fieldPath, NULL);
+    if (*fieldPath == '$') {
+      if (!field->compiledPath) {
+        RedisModuleString *perr = NULL;
+        field->compiledPath = japi->pathParse(fieldPath, RSDummyContext, &perr);
+        if (perr) RedisModule_FreeString(RSDummyContext, perr);
+      }
+      jsonIter = field->compiledPath ? japi->getWithPath(jsonRoot, field->compiledPath)
+                                     : japi->get(jsonRoot, fieldPath);
+    } else {
+      jsonIter = japi->get(jsonRoot, fieldPath);
+    }
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
       continue;
