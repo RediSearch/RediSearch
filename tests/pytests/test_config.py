@@ -1470,7 +1470,7 @@ def _registerModuleLoadexStringParamTests():
         def _makeTest(configName, argName, testValueRel, testName):
             # Enterprise rejects extension loading via MODULE LOADEX outright,
             # so search-ext-load's LOADEX scenarios don't apply there.
-            @skip(cluster=True, redis_less_than='7.9.227', enterprise=(configName == 'search-ext-load'))
+            @skip(cluster=True, redis_less_than='7.9.227', enterprise=True if configName == 'search-ext-load' else None)
             def _test():
                 _testModuleLoadexStringParam(configName, argName, testValueRel)
             _test.__name__ = testName

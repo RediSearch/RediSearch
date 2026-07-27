@@ -735,7 +735,7 @@ def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
     """
     return ((cluster is not None) or macos or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json or enterprise)
+            or gc_no_fork or no_json or (enterprise is not None))
 
 
 def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch, no_json, enterprise):
@@ -758,7 +758,7 @@ def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch, no_j
         return True
     if no_json and not REJSON:
         return True
-    if enterprise and RS_TEST_ENTERPRISE:
+    if enterprise is not None and enterprise == RS_TEST_ENTERPRISE:
         return True
     return False
 
@@ -778,7 +778,7 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=False):
+def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
     static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
                          min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
