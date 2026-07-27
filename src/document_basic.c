@@ -258,11 +258,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
   // module type and returns the root without opening the key a second time by name.
-  if (japi_ver >= 8) {
-    jsonRoot = japi->getJsonFromHandle(k);
-  } else {
-    jsonRoot = japi->isJSON(k) ? RedisModule_ModuleTypeGetValue(k) : NULL;
-  }
+  jsonRoot = JSON_GetJsonFromHandleCompat(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;

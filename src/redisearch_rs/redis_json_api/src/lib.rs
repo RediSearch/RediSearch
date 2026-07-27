@@ -186,7 +186,11 @@ impl RedisJsonApi {
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
-    /// Only available with RedisJSON API v8 and later.
+    /// Works with both RedisJSON API v8+ (via the `getJsonFromHandle` slot) and
+    /// v7 (via the `isJSON` + `RedisModule_ModuleTypeGetValue` fallback). The
+    /// version dispatch lives in the C helper [`ffi::JSON_GetJsonFromHandleCompat`]
+    /// so that the V8-only vtable slot is never read against a genuine V7 vtable
+    /// (which would read past its end).
     ///
     /// # Safety
     ///
@@ -197,13 +201,8 @@ impl RedisJsonApi {
         &self,
         redis_key: *mut ffi::RedisModuleKey,
     ) -> Option<JsonValueRef<'_>> {
-        let vtable = self.vtable();
-        let get_json_from_handle = vtable
-            .getJsonFromHandle
-            .expect("RedisJSON API function `getJsonFromHandle` not available");
-
-        // Safety: ensured by caller (1.)
-        let ptr = unsafe { get_json_from_handle(redis_key) };
+        // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
+        let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
 
         if ptr.is_null() {
             None

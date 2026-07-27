@@ -47,6 +47,17 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
+/* Get the RedisJSON root from an already-open RedisModuleKey handle, handling
+ * both the V8+ `getJsonFromHandle` API and the V7 `isJSON` +
+ * `RedisModule_ModuleTypeGetValue` fallback. The V8-only vtable slot is only
+ * read when the acquired RedisJSON API is V8 or later, so this is safe to call
+ * against a genuine V7 provider.
+ *
+ * Returns NULL if RedisJSON is not loaded, the key is NULL, or it does not
+ * hold JSON. The caller owns the key handle and must keep it open while using
+ * the returned root. */
+RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key);
+
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 
 /* Creates a Redis Module String from JSONType string, int, double, bool */
