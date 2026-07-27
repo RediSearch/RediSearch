@@ -39,14 +39,11 @@ static void yieldCallback(void *yieldCtx) {
 static void workersThreadPool_OnActivation(size_t new_num) {
   // Log that we've enabled the thread pool.
   RedisModule_Log(RSDummyContext, "notice", "Enabled workers threadpool of size %lu", new_num);
-  // Change VecSim write mode temporarily for fast RDB loading of vector index (if needed).
-  VecSim_SetWriteMode(VecSim_WriteAsync);
 }
 
 /* Configure here anything that needs to know it cannot use the thread pool anymore */
 static void workersThreadPool_OnDeactivation(size_t old_num) {
   RedisModule_Log(RSDummyContext, "notice", "Disabled workers threadpool of size %lu", old_num);
-  VecSim_SetWriteMode(VecSim_WriteInPlace);
 }
 
 // set up workers' thread pool
@@ -60,6 +57,8 @@ int workersThreadPool_CreatePool(size_t worker_count) {
   } else {
     workersThreadPool_OnDeactivation(worker_count);
   }
+  // Set the shared SVS thread pool size to match the worker pool.
+  VecSim_UpdateThreadPoolSize(worker_count);
   return REDISMODULE_OK;
 }
 
@@ -102,6 +101,10 @@ void workersThreadPool_SetNumWorkers() {
     RedisModule_Log(RSDummyContext, "notice", "Scheduling config_reduce_threads_job to remove %zu threads ASAP", curr_workers - worker_count);
     redisearch_thpool_schedule_config_reduce_threads_job(_workers_thpool, curr_workers - worker_count, false);
   }
+
+  // Notify VecSim of the (possibly new) pool size. VecSim_UpdateThreadPoolSize handles all
+  // transitions: 0 sets in-place mode, >0 sets async mode and resizes the shared SVS thread pool.
+  VecSim_UpdateThreadPoolSize(worker_count);
 }
 
 // return number of currently working threads
