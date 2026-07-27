@@ -31,6 +31,7 @@ pub struct JsonDocumentFormat<'a> {
 
 pub struct JsonFieldLoader<'a> {
     ctx: NonNull<ffi::RedisModuleCtx>,
+    japi: &'a RedisJsonApi,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
     api_version: u32,
@@ -75,6 +76,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 
         Ok(JsonFieldLoader {
             ctx: self.ctx,
+            japi: self.japi,
             value,
             key_name,
             api_version: self.api_version,
@@ -98,6 +100,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 
         Ok(JsonFieldLoader {
             ctx: self.ctx,
+            japi: self.japi,
             value,
             key_name,
             api_version: self.api_version,
@@ -148,7 +151,14 @@ impl FieldLoader for JsonFieldLoader<'_> {
         // For per-field loads, "field absent" is not an error — we just leave it unset
         // and continue. Only hard failures bubble up as `Err`.
         let val = if path.to_bytes().starts_with(JSON_ROOT.to_bytes()) {
-            let Some(iter) = self.value.get(path) else {
+            // Compile once, cached on the key, and reuse across documents. A path
+            // that does not compile is a no-match, like the string `get` it replaces.
+            // SAFETY: `self.ctx` is a valid Redis module context held for the loader's lifetime.
+            let Some(compiled) = (unsafe { key.compiled_path(self.japi, self.ctx.as_ptr()) })
+            else {
+                return Ok(());
+            };
+            let Some(iter) = self.value.get_with_path(compiled) else {
                 // JSONPath did not match any value in the document — skip silently.
                 return Ok(());
             };

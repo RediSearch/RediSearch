@@ -11,7 +11,7 @@
 
 use crate::RedisJsonApi;
 use std::cell::RefCell;
-use std::ffi::{CStr, c_char, c_int, c_longlong, c_void};
+use std::ffi::{CStr, CString, c_char, c_int, c_longlong, c_void};
 use std::ptr::{self, NonNull};
 
 /// Per-invocation mock state, owned by the [`with_json_api`] stack frame.
@@ -84,8 +84,8 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     getString: Some(get_string),
     getJSON: Some(get_json),
     isJSON: None,
-    pathParse: None,
-    pathFree: None,
+    pathParse: Some(path_parse),
+    pathFree: Some(path_free),
     pathIsSingle: None,
     pathHasDefinedOrder: None,
     getJSONFromIter: Some(get_json_from_iter),
@@ -99,6 +99,7 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     freeJson: Some(free_json),
     getArray: None,
     getJsonFromHandle: Some(get_json_from_handle),
+    getWithPath: Some(get_with_path),
 };
 
 /// View a `RedisJSON` handle as the `serde_json::Value` node it points at.
@@ -210,6 +211,24 @@ struct Results {
     pos: usize,
 }
 
+/// Evaluate `path` against `json`. A null return signals "no match", which the
+/// wrapper maps to absence.
+///
+/// # Safety
+///
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe fn results_iter(json: ffi::RedisJSON, path: &str) -> ffi::JSONResultsIterator {
+    // SAFETY: ensured by caller (1.)
+    let json = unsafe { node(json) };
+    let items = eval_path(json, path);
+    if items.is_empty() {
+        return ptr::null();
+    }
+    Box::into_raw(Box::new(Results { items, pos: 0 })).cast()
+}
+
 /// # Safety
 ///
 /// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
@@ -222,13 +241,56 @@ unsafe extern "C" fn get(json: ffi::RedisJSON, path: *const c_char) -> ffi::JSON
         return ptr::null();
     };
     // SAFETY: ensured by caller (1.)
-    let json = unsafe { node(json) };
-    let items = eval_path(json, path);
-    if items.is_empty() {
-        // A null iterator signals "no match"; the wrapper maps it to absence.
+    unsafe { results_iter(json, path) }
+}
+
+/// Compile a path. The mock's "compiled handle" is simply the boxed path string;
+/// [`get_with_path`] later re-derives it and evaluates it exactly like [`get`].
+///
+/// # Safety
+///
+/// 1. `path` must be a [valid], non-null pointer to a null-terminated c string.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn path_parse(
+    path: *const c_char,
+    _ctx: *mut ffi::RedisModuleCtx,
+    _err_msg: *mut *mut ffi::RedisModuleString,
+) -> ffi::JSONPath {
+    // SAFETY: ensured by caller (1.)
+    let owned = unsafe { CStr::from_ptr(path) }.to_owned();
+    Box::into_raw(Box::new(owned)).cast()
+}
+
+/// # Safety
+///
+/// 1. `path` must be a [valid], non-null handle created by [`path_parse`].
+/// 2. this function must be called exactly once, for a given `path`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn path_free(path: ffi::JSONPath) {
+    // SAFETY: ensured by caller (1., 2.)
+    drop(unsafe { Box::from_raw(path.cast::<CString>().cast_mut()) });
+}
+
+/// Like [`get`], but takes a compiled handle (a boxed path string) from [`path_parse`].
+///
+/// # Safety
+///
+/// 1. `json` must be a [valid], non-null pointer to a mock JSON object created by this module.
+/// 2. `path` must be a [valid], non-null handle created by [`path_parse`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+unsafe extern "C" fn get_with_path(
+    json: ffi::RedisJSON,
+    path: ffi::JSONPath,
+) -> ffi::JSONResultsIterator {
+    // SAFETY: ensured by caller (2.)
+    let Ok(path) = unsafe { &*path.cast::<CString>() }.to_str() else {
         return ptr::null();
-    }
-    Box::into_raw(Box::new(Results { items, pos: 0 })).cast()
+    };
+    // SAFETY: ensured by caller (1.)
+    unsafe { results_iter(json, path) }
 }
 
 /// # Safety

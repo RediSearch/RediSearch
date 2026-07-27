@@ -98,3 +98,44 @@ def test_doc_level_load_returns_root_for_matching_document(env):
     env.assertEqual(res[0], 1)
     env.assertEqual(res[1], "doc:1")
     env.assertGreater(len(res[2]), 0)
+
+
+@skip(no_json=True)
+def test_per_field_load_resolves_each_document_across_many(env):
+    """The returned field's JSONPath is compiled once and reused for every
+    document in the result — each document must still resolve to its own value,
+    not a stale or shared one."""
+    env.expect(
+        "FT.CREATE",
+        "idx",
+        "ON",
+        "JSON",
+        "SCHEMA",
+        "$.name",
+        "AS",
+        "name",
+        "TEXT",
+        "$.city",
+        "AS",
+        "city",
+        "TEXT",
+    ).ok()
+
+    n = 50
+    for i in range(n):
+        env.cmd("JSON.SET", "doc:%d" % i, "$", '{"name": "n%d", "city": "city%d"}' % (i, i))
+    waitForIndex(env, "idx")
+
+    res = env.cmd("FT.SEARCH", "idx", "*", "RETURN", "1", "city", "LIMIT", "0", str(n))
+
+    env.assertEqual(res[0], n)
+    # res: [count, key1, fields1, key2, fields2, ...]. Every document must map to
+    # its own `city`, confirming the reused compiled path is evaluated per-doc.
+    seen = 0
+    for k in range(1, len(res), 2):
+        key, fields = res[k], res[k + 1]
+        fields_dict = dict(zip(fields[::2], fields[1::2]))
+        i = int(key.split(":")[1])
+        env.assertEqual(fields_dict.get("city"), "city%d" % i)
+        seen += 1
+    env.assertEqual(seen, n)
