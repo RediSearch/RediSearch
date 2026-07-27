@@ -56,7 +56,7 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 }
 
 RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key) {
-  if (!japi) {
+  if (!japi || !key) {
     return NULL;
   }
   // getJsonFromHandle is a V8 addition; only read that vtable slot when the
