@@ -11,7 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <limits.h>
-#include <sys/errno.h>
+#include <errno.h>
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
@@ -744,7 +744,7 @@ static int cmdParser_Parse(CmdSchemaNode *node, CmdArg **parent, CmdString *argv
 
   // this is the root schema
 
-  // skipe the node name if it's named
+  // skip the node name if it's named
   if (node->type == CmdSchemaNode_NamedArg || node->type == CmdSchemaNode_Schema) {
     (*pos)++;
   }
@@ -995,7 +995,7 @@ size_t CmdArg_NumChildren(CmdArg *arg) {
  *  - l: Will be parsed as a long integer
  *  - d: Will be parsed as a double
  *  - !: will be skipped
- *  - ?: means evrything after is optional
+ *  - ?: means everything after is optional
  */
 
 int CmdArg_ArrayAssign(CmdArray *arg, const char *fmt, ...) {
