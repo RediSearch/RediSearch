@@ -11,8 +11,26 @@ extern crate redisearch_rs;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use hidden_string::HiddenString;
+use hidden_string::{HiddenString, OwnedHiddenString};
 use pretty_assertions::assert_eq;
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn owned_wrapper_borrows_buffer_and_frees_on_drop() {
+    let bytes = c"Ab#123!";
+    let hidden = OwnedHiddenString::new(bytes);
+
+    // Deref to `HiddenString` exposes the same secret value as the backing buffer.
+    assert_eq!(hidden.secret_value(), c"Ab#123!");
+
+    // Dropping `hidden` frees the `ffi::HiddenString` wrapper (no manual
+    // `HiddenString_Free`); the borrowed `bytes` buffer is left untouched.
+    drop(hidden);
+    assert_eq!(bytes, c"Ab#123!");
+}
 
 #[test]
 #[cfg_attr(

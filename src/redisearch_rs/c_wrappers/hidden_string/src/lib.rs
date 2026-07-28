@@ -7,11 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Safe wrapper around [`ffi::HiddenString`].
+//! Safe wrappers around [`ffi::HiddenString`].
 
 use std::{
     ffi::CStr,
     fmt::{self, Debug, Pointer},
+    marker::PhantomData,
+    ops::Deref,
+    ptr::NonNull,
 };
 
 /// A safe wrapper around `ffi::HiddenString`
@@ -73,5 +76,54 @@ impl Debug for HiddenString {
 impl Pointer for HiddenString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Pointer::fmt(&self.as_ptr(), f)
+    }
+}
+
+/// An owned [`ffi::HiddenString`] that borrows its backing buffer.
+///
+/// On drop it frees the `ffi::HiddenString` wrapper (`takeOwnership = false`, so
+/// the borrowed buffer is left untouched). [`Deref`]s to [`HiddenString`] for
+/// read access.
+pub struct OwnedHiddenString<'a> {
+    ptr: NonNull<ffi::HiddenString>,
+    _phantom: PhantomData<&'a CStr>,
+}
+
+impl<'a> OwnedHiddenString<'a> {
+    /// Create an `OwnedHiddenString` borrowing `bytes` for `'a`.
+    ///
+    /// The underlying `ffi::HiddenString` points directly at `bytes` rather than
+    /// duplicating it, so `bytes` must outlive the returned value.
+    pub fn new(bytes: &'a CStr) -> Self {
+        // Safety:
+        // - `bytes.as_ptr()` is valid for reads of `bytes.count_bytes() + 1` bytes (payload
+        //   plus the trailing NUL) for at least `'a`.
+        // - `takeOwnership = false` makes the C implementation point directly at `bytes`
+        //   instead of duplicating it, which is why we tie the returned value to `'a`.
+        let ptr = unsafe { ffi::NewHiddenString(bytes.as_ptr(), bytes.count_bytes(), false) };
+
+        Self {
+            ptr: NonNull::new(ptr).expect("NewHiddenString should never return a null pointer"),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl Deref for OwnedHiddenString<'_> {
+    type Target = HiddenString;
+
+    fn deref(&self) -> &HiddenString {
+        // Safety: `self.ptr` is a valid `ffi::HiddenString` created in `new`; the returned
+        // reference borrows `self`, so it cannot outlive the owner.
+        unsafe { HiddenString::from_raw(self.ptr.as_ptr()) }
+    }
+}
+
+impl Drop for OwnedHiddenString<'_> {
+    fn drop(&mut self) {
+        // Safety: `self.ptr` was allocated by `NewHiddenString` with `takeOwnership = false`
+        // in `OwnedHiddenString::new`, so freeing it here with `tookOwnership = false` releases
+        // the `ffi::HiddenString` wrapper only, leaving the borrowed buffer untouched.
+        unsafe { ffi::HiddenString_Free(self.ptr.as_ptr(), false) };
     }
 }
