@@ -660,18 +660,19 @@ def BatchesNumberOnTimeout(env):
              'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
              't', 'TEXT').ok()
 
-  # Only a handful of documents carry the filter term, so a `KNN 10` can never
-  # be satisfied early: collection has to walk the whole index in tiny batches.
-  num_docs = 20000
+  # Only a handful of documents carry the filter term, so a `KNN 10` cannot be
+  # satisfied by the batch that the timeout lands in.
+  num_docs = 1000
   num_matching = 5
   for i in range(num_docs):
     conn.execute_command('HSET', f'doc{i}', 'v', 'bababada',
                          't', 'hello' if i < num_matching else 'other')
 
-  res = conn.execute_command(
-    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
-    '(@t:hello)=>[KNN 10 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 10]',
-    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'NOCONTENT', 'TIMEOUT', '1')
+  with vecsimMockTimeoutContext(env):
+    res = conn.execute_command(
+      'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+      '(@t:hello)=>[KNN 10 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+      'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'NOCONTENT')
 
   shard_profile = to_dict(res[1][1][0])
   env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
@@ -702,7 +703,7 @@ def testProfileNumericOptimizerKeySet(env):
   so a change here must be a deliberate one.
   """
   conn = getConnectionByEnv(env)
-  env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
+  # Drops the `Time` entries, so the profile carries only the key set under test.
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
