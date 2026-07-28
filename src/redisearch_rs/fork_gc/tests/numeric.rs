@@ -226,3 +226,43 @@ fn numeric_and_geo_fields_are_both_collected() {
         assert_eq!(field.entries.len(), 1);
     }
 }
+
+#[cfg(not(miri))]
+mod round_trip {
+    use super::*;
+    use inverted_index::GcScanDelta;
+    use numeric_range_tree::{Hll, NodeGcDelta};
+    use proptest::prelude::*;
+
+    proptest! {
+        /// A `NumericNodeDelta` survives a full `encode` → `decode` round trip unchanged.
+        #[test]
+        fn numeric_node_delta_round_trips(
+            position in any::<u32>(),
+            generation in any::<u32>(),
+            registers_with_last_block in any::<[u8; Hll::size()]>(),
+            registers_without_last_block in any::<[u8; Hll::size()]>(),
+        ) {
+            let node = NumericNodeDelta {
+                position,
+                generation,
+                delta: NodeGcDelta {
+                    delta: GcScanDelta::empty_for_testing(),
+                    registers_with_last_block,
+                    registers_without_last_block,
+                },
+            };
+
+            let mut buf = Vec::new();
+            node.encode(&mut buf).unwrap();
+
+            let mut cursor = Cursor::new(&buf);
+            let decoded = NumericNodeDelta::decode(&mut cursor)
+                .unwrap()
+                .expect("a data node, not the stream terminator");
+
+            prop_assert_eq!(decoded, node);
+            prop_assert_eq!(cursor.position(), buf.len() as u64, "decode left trailing bytes");
+        }
+    }
+}

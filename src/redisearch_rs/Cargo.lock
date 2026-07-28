@@ -736,6 +736,7 @@ dependencies = [
  "libc",
  "nix",
  "numeric_range_tree",
+ "proptest",
  "redis-module",
  "redis_mock",
  "redisearch_rs",

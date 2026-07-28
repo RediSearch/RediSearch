@@ -29,7 +29,7 @@ use crate::range::Hll;
 /// Contains the inverted index GC delta plus the HyperLogLog registers
 /// captured during the scan. One `NodeGcDelta` is produced per DFS node
 /// that had GC work.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,

@@ -20,6 +20,7 @@ use numeric_range_tree::{Hll, NodeGcDelta};
 use crate::Frame;
 
 /// A single node entry in the numeric GC wire protocol.
+#[derive(Debug, PartialEq, Eq)]
 pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
@@ -28,7 +29,7 @@ pub struct NumericNodeDelta {
 
 impl NumericNodeDelta {
     /// Write this node entry to `writer`.
-    pub fn encode(self, writer: &mut impl Write) -> io::Result<()> {
+    pub fn encode(&self, writer: &mut impl Write) -> io::Result<()> {
         let mut delta_data = Vec::new();
         self.delta
             .delta
