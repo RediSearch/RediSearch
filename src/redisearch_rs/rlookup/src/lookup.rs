@@ -452,6 +452,7 @@ impl<'a> RLookup<'a> {
                     keys_to_load,
                     true,
                     open_key,
+                    None,
                 )
             }
             DocumentType::Json => {
@@ -471,6 +472,7 @@ impl<'a> RLookup<'a> {
                     keys_to_load,
                     true,
                     open_key,
+                    None,
                 )
             }
             DocumentType::Unsupported => unimplemented!("unsupported document type"),

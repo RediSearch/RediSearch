@@ -328,7 +328,7 @@ fn borrow_loads_field_like_open() {
         // Safety: the test is single-threaded and the mock vtable is 'static.
         let (saved_api, saved_ver) = unsafe { (ffi::japi, ffi::japi_ver) };
         unsafe {
-            ffi::japi = std::ptr::from_ref(japi.vtable()).cast_mut();
+            ffi::japi = japi.vtable().as_ptr();
             ffi::japi_ver = redis_json_api::LATEST_API_VERSION;
         }
 
