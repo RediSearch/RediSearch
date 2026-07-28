@@ -635,6 +635,16 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
 
     match res {
         Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) if err.is_stale_document() => {
+            tracing::debug!(
+                ?lookup,
+                ?dst_row,
+                ?search_ctx,
+                "rlookup::load_rule_fields skipped stale document: {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
         Err(err) => {
             tracing::error!(
                 ?lookup,
