@@ -887,9 +887,9 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
-  # Set sanitizer mode if requested
-  if [[ "$SAN" == "address" ]]; then
-    export SAN="address"
+  # Set sanitizer mode if requested.
+  if [[ -n "$SAN" ]]; then
+    export SAN
   fi
 
   # Call the unit-tests script from the sbin directory

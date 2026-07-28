@@ -35,6 +35,13 @@ on:
       unit-tests:
         type: boolean
         default: true
+      rust-unit-tests:
+        type: boolean
+        default: true
+      unit-test-filter:
+        description: 'Optional C/C++ unit-test filter forwarded as TEST.'
+        type: string
+        default: ''
       rejson:
         type: boolean
         default: true
@@ -244,7 +251,7 @@ jobs:
           github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
-          build-redis: ${{ !inputs.skip-tests }}
+          build-redis: ${{ !inputs.skip-tests && (inputs.standalone || inputs.coordinator) }}
           redis-ref: ${{ inputs.redis-ref }}
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
@@ -302,6 +309,7 @@ jobs:
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
+          TEST: ${{ inputs.unit-test-filter }}
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
@@ -309,7 +317,7 @@ jobs:
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
-        if: ${{ inputs.unit-tests }}
+        if: ${{ inputs.unit-tests && inputs.rust-unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
