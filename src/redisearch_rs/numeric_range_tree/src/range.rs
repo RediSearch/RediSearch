@@ -16,20 +16,24 @@
 use hyperloglog::{HyperLogLog6, WyHasher};
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
+use inverted_index::numeric::{PreparedValue, StoredValue};
 use rqe_core::DocId;
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
 /// Newtype around [`f64`] that hashes via native-endian bytes.
 ///
-/// Ensures HLL cardinality estimation uses a consistent raw bit representation,
-/// so `-0.0` and `+0.0` are distinct and no float comparison is involved.
+/// Ensures HLL cardinality estimation uses a consistent raw bit representation, so
+/// no float comparison is involved.
+///
+/// Only constructible from a [`StoredValue`], so inputs the encoder maps onto the
+/// same stored value count once — including `-0.0` and `+0.0`.
 #[derive(Debug, Clone, Copy)]
 pub struct NumericValue(f64);
 
-impl From<f64> for NumericValue {
-    fn from(value: f64) -> Self {
-        Self(value)
+impl From<StoredValue> for NumericValue {
+    fn from(value: StoredValue) -> Self {
+        Self(value.get())
     }
 }
 
@@ -67,16 +71,16 @@ pub struct NumericRange {
     /// The minimum value stored in this range.
     /// Initialized to `f64::INFINITY` so any value will be smaller.
     ///
-    /// This is a monotone *lower bound*, not necessarily the smallest value the
-    /// range currently stores: it is lowered when a smaller value is added, but
-    /// never raised. GC removes entries without tightening it, so after the
-    /// documents holding the smallest value are collected it sits strictly below
-    /// every surviving value.
+    /// A monotone *lower bound* in [`StoredValue`] form, not necessarily the smallest
+    /// value the range currently stores: it is lowered when a smaller value is added,
+    /// but never raised. GC removes entries without tightening it, so once the
+    /// documents holding the smallest value are collected it sits strictly below every
+    /// surviving value.
     min_val: f64,
     /// The maximum value stored in this range.
     /// Initialized to `f64::NEG_INFINITY` so any value will be larger.
     ///
-    /// Monotone *upper bound*, with the same caveat as `min_val`: GC never
+    /// Monotone *upper bound*, with the same caveat as [`Self::min_val`]: GC never
     /// lowers it.
     max_val: f64,
     /// HyperLogLog for estimating the number of distinct values (cardinality).
@@ -107,9 +111,12 @@ impl NumericRange {
     /// reporting how many bytes the inverted index grew by and how many new index blocks the
     /// write created.
     ///
+    /// Takes the encoder's decision from [`NumericIndex::prepare`], so both statistics
+    /// describe what the index will return.
+    ///
     /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
-    pub fn add(&mut self, doc_id: DocId, value: f64) -> inverted_index::AddRecordOutcome {
-        self.hll.add(&value.into());
+    pub fn add(&mut self, doc_id: DocId, value: PreparedValue) -> inverted_index::AddRecordOutcome {
+        self.hll.add(&value.stored_value().into());
         self.add_without_cardinality(doc_id, value)
     }
 
@@ -128,19 +135,18 @@ impl NumericRange {
     pub fn add_without_cardinality(
         &mut self,
         doc_id: DocId,
-        value: f64,
+        value: PreparedValue,
     ) -> inverted_index::AddRecordOutcome {
-        // Update bounds
-        if value < self.min_val {
-            self.min_val = value;
+        let stored = value.stored_value().get();
+
+        if stored < self.min_val {
+            self.min_val = stored;
         }
-        if value > self.max_val {
-            self.max_val = value;
+        if stored > self.max_val {
+            self.max_val = stored;
         }
 
-        // Add to inverted index
-        let record = RSIndexResult::build_numeric(value).doc_id(doc_id).build();
-        self.entries.add_record(&record)
+        self.entries.add_prepared_record(doc_id, value)
     }
 
     /// Get the estimated cardinality (number of distinct values).
@@ -255,7 +261,8 @@ impl NumericRange {
         while reader.next_record(&mut result).unwrap_or(false) {
             // SAFETY: We know the result contains numeric data
             let value = unsafe { result.as_numeric_unchecked() };
-            self.hll.add(&value.into());
+            // Read back out of the index, so already in stored form.
+            self.hll.add(&StoredValue::from_decoded(value).into());
         }
     }
 }

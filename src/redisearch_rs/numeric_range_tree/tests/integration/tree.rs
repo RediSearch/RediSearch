@@ -201,23 +201,16 @@ fn test_split_with_identical_values() {
     );
 }
 
-/// Regression test for the `empty_leaves` underflow crash (MOD-16877, a
-/// production crash on 8.6.6): a split that creates an empty child leaf must
-/// count it.
+/// Distinct f64s that collapse onto one stored f32 must count as one value.
 ///
-/// With float compression enabled, cardinality is estimated over the original
-/// f64 values while entries are stored — and split-redistributed — as compressed
-/// f32. When enough distinct f64 values collapse to a single f32, the split is
-/// triggered (HLL sees them as distinct) but every stored value is identical, so
-/// all entries are redistributed to one child and the other child leaf is created
-/// empty. That empty leaf must be reflected in `empty_leaves`; otherwise a later
-/// add routed to it decrements the counter below zero and aborts the process via
-/// the non-unwinding FFI boundary.
+/// Estimating cardinality over the inputs instead made such a leaf look
+/// high-cardinality, split it, and strand an empty child — the compression route into
+/// the MOD-16877 crash. Preparing values on the way in closes it: no split fires.
 ///
-/// Compression is not the only way to get an empty child leaf — see
-/// `test_split_after_gc_stale_min_counts_empty_leaf`.
+/// The stale-`min_val` route is still open here, which is why `split_node` keeps
+/// counting empty children — see `test_split_after_gc_stale_min_counts_empty_leaf`.
 #[test]
-fn test_split_with_compression_collapse_counts_empty_leaf() {
+fn test_compression_collapse_does_not_inflate_cardinality() {
     let mut tree = NumericRangeTree::new(true); // float compression ON
 
     // Distinct f64 values tightly clustered within a single f32 rounding bucket
@@ -228,42 +221,39 @@ fn test_split_with_compression_collapse_counts_empty_leaf() {
     // 0.01 compression threshold.
     let value_at = |i: u64| 100.5 + (i - 1) as f64 * 1e-7;
 
-    // Add distinct-but-collapsing values until the first split fires. Because the
-    // stored values are all identical (f32 100.5), the redistribution sends every
-    // entry to the left child and leaves the right child empty. This empty leaf
-    // must be counted; before the fix, `empty_leaves` stayed 0 here (caught by the
-    // `check_tree_invariants` assertion inside `add`).
-    let mut split_at = None;
+    // Well past the point where the old cardinality estimate would have split.
     for i in 1..=(SPLIT_TRIGGER + 8) {
         tree.add(i, value_at(i), false, 0);
-        if tree.num_leaves() == 2 {
-            split_at = Some(i);
-            break;
-        }
     }
-    let split_at = split_at.expect("compressed-but-distinct values should trigger a split");
 
-    // Right after the split, before any further add re-populates it:
+    assert!(
+        tree.root().is_leaf(),
+        "collapsing values are one stored value, so no split should fire (got {} leaves)",
+        tree.num_leaves()
+    );
+
+    let range = tree.root().range().unwrap();
     assert_eq!(
-        tree.empty_leaves(),
+        range.cardinality(),
         1,
-        "the empty child leaf created by the split must be counted"
+        "cardinality must count stored values, not the inputs that collapsed onto them"
     );
-
-    // Routing uses the *original* f64 value, so the next (larger) value is routed
-    // to the empty right child and re-populates it. Before the fix this decremented
-    // `empty_leaves` from 0, underflowing the counter and aborting the process.
-    let next = split_at + 1;
-    tree.add(next, value_at(next), false, 0);
     assert_eq!(
-        tree.empty_leaves(),
-        0,
-        "re-populating the empty leaf should bring the counter back to zero"
+        (range.min_val(), range.max_val()),
+        (100.5, 100.5),
+        "bounds must describe the stored value a reader will decode"
     );
+    assert_eq!(tree.empty_leaves(), 0);
+
+    // The add that used to hit the underflow. Nothing was ever stranded, so the
+    // counter is not touched.
+    let next = SPLIT_TRIGGER + 9;
+    tree.add(next, value_at(next), false, 0);
+    assert_eq!(tree.empty_leaves(), 0);
 }
 
 /// Same `empty_leaves` underflow as
-/// `test_split_with_compression_collapse_counts_empty_leaf` (MOD-16877), reached
+/// `test_compression_collapse_does_not_inflate_cardinality` (MOD-16877), reached
 /// with float compression *disabled* — compression is not required to strand an
 /// empty child leaf.
 ///
@@ -471,4 +461,48 @@ fn test_max_depth_range_removes_deep_ranges(#[values(false, true)] compress_floa
             );
         }
     });
+}
+
+/// A leaf holding nothing but comparably-equal zeros must not split.
+///
+/// Under float compression, alternating `±5e-324` collapses onto `+0.0` and `-0.0`.
+/// Every comparison in the tree treats those as equal, so there is no split point that
+/// separates them: the size-triggered split path needs `cardinality > 1`, and if
+/// cardinality counts the two zeros separately the split fires anyway and strands an
+/// empty child — the degenerate shape this work exists to remove.
+#[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
+fn test_compressed_signed_zero_collapse_does_not_split() {
+    let mut tree = NumericRangeTree::new(true); // float compression ON
+
+    // One past the size-triggered split threshold, alternating the sign.
+    let n = NumericRangeTree::MAXIMUM_RANGE_SIZE as u64 + 1;
+    for doc_id in 1..=n {
+        let value = if doc_id % 2 == 0 { 5e-324 } else { -5e-324 };
+        tree.add(doc_id, value, false, 0);
+    }
+
+    if let Some((left, right)) = tree.root().child_indices() {
+        let docs = |idx| tree.node(idx).range().map_or(0, |r| r.num_docs());
+        panic!(
+            "split with no value to split on: children hold {} and {} documents, \
+             and empty_leaves is {}",
+            docs(left),
+            docs(right),
+            tree.empty_leaves(),
+        );
+    }
+
+    let range = tree.root().range().expect("a leaf keeps its range");
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (0.0, 0.0),
+        "every stored value compares equal to zero"
+    );
+    assert_eq!(
+        range.cardinality(),
+        1,
+        "the two signed zeros must count as one value"
+    );
+    assert_eq!(tree.empty_leaves(), 0);
 }
