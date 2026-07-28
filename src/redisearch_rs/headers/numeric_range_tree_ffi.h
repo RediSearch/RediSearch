@@ -46,7 +46,7 @@ typedef struct NumericFilter NumericFilter;
  *
  * Each call to `Next` scans the next node in DFS order via
  * [`NumericRangeNode::scan_gc`][numeric_range_tree::NumericRangeNode::scan_gc]
- * and serializes the delta + HLL registers into an internal buffer.
+ * and serializes the delta + survivor statistics into an internal buffer.
  * The caller can then write the entry data to the pipe immediately,
  * avoiding buffering all deltas in memory.
  */
@@ -78,7 +78,7 @@ typedef struct NumericGcNodeEntry {
    */
   uint32_t node_generation;
   /**
-   * Pointer to the serialized entry data (msgpack delta + HLL registers).
+   * Pointer to the serialized entry data (msgpack delta + survivor statistics).
    */
   const uint8_t *data;
   /**
@@ -464,9 +464,9 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
 /**
  * Advance the scanner to the next node with GC work.
  *
- * Scans nodes in DFS order, skipping those without GC work. When a node
- * with work is found, its delta and HLL registers are serialized into the
- * scanner's internal buffer.
+ * Scans nodes in DFS order, skipping those without GC work. When a node with work
+ * is found, its delta and the statistics recomputed over the surviving entries are
+ * serialized into the scanner's internal buffer.
  *
  * Returns `true` if an entry was produced (and `*entry` is populated),
  * `false` when all nodes have been visited.
@@ -476,8 +476,12 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
  * # Wire format for `entry.data`
  *
  * ```text
- * [delta_msgpack][64-byte hll_with][64-byte hll_without]
+ * [delta_msgpack][stats_with_last_block][stats_without_last_block]
  * ```
+ *
+ * where each `stats_*` block is `[64-byte hll registers][f64 min][f64 max]`, the
+ * bounds in native byte order. The trailer is fixed-width, so the parent recovers
+ * the msgpack payload by trimming [`TRAILER_SIZE`] bytes off the end.
  *
  * # Safety
  *
@@ -561,10 +565,7 @@ size_t NumericRangeTree_BaseSize(void);
 /**
  * Parse a serialized GC entry and apply it to the specified node.
  *
- * The entry data must have the wire format produced by [`NumericGcScanner_Next`]:
- * ```text
- * [delta_msgpack][64-byte hll_with][64-byte hll_without]
- * ```
+ * `entry_data` must be in the wire format [`NumericGcScanner_Next`] documents.
  *
  * Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
  * indicates success, node-not-found, or deserialization error.
