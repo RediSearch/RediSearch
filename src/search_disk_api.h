@@ -1019,18 +1019,6 @@ typedef struct MetricsDiskAPI {
   uint64_t (*getInvertedIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Get total vector index memory for a specific index
-   *
-   * Returns disk-side vector index memory in bytes from the latest collected snapshot.
-   * Does not include RAM-only accounting from non-disk paths.
-   *
-   * @param disk Pointer to the disk context
-   * @param index Pointer to the index spec
-   * @return Vector index memory in bytes
-   */
-  uint64_t (*getVectorIndexTotalMemory)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
-
-  /**
    * @brief Get the disk-owned total number of records for a specific index
    *
    * Returns the disk-side num_records counter used by FT.INFO.

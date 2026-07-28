@@ -577,11 +577,6 @@ uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index)
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
 }
 
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
-}
-
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->metrics.getNumRecords(index);
