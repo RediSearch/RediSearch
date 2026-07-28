@@ -223,10 +223,9 @@ jobs:
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
           llvm-full-config: 'false'
-          build-redis: 'true'
-          redis-ref: ${{ inputs.redis-ref }}
-          coverage: ${{ inputs.coverage }}
-          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
+          # No compilation happens in this job, Redis included: the build job
+          # ships its redis-install tree in the artifact and we unpack it below.
+          build-redis: 'false'
 
       - name: Set Artifact Names
         id: artifact-names
@@ -262,6 +261,37 @@ jobs:
           du -sh bin
           echo "Module binaries:"
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
+
+      - name: Restore Redis from build artifact
+        # Same install tree, same toolchain as the module under test. The
+        # `--version` check mirrors what RLTest parses to decide the server
+        # version (it wants a "v=<version>" field on stdout): assert it here so a
+        # server that can't start fails this step with its own diagnostics,
+        # instead of every test reporting the downstream symptom
+        # ("Could not extract Redis version") with the cause nowhere in sight.
+        # The exit code is deliberately ignored — a sanitizer build can exit
+        # non-zero from a leak report while still having printed the banner.
+        run: |
+          set -euo pipefail
+          tar -xzf redis-install.tar.gz
+          rm redis-install.tar.gz
+          PREFIX="$GITHUB_WORKSPACE/redis-install"
+          VERSION=$("$PREFIX/bin/redis-server" --version || true)
+          echo "$VERSION"
+          if [[ "$VERSION" != *"v="* ]]; then
+            echo "redis-server did not report a usable version; RLTest cannot run against it" >&2
+            exit 1
+          fi
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+          echo "REDIS_SERVER=$PREFIX/bin/redis-server" >> "$GITHUB_ENV"
+          # Some container images ship an /etc/profile that unconditionally
+          # rewrites PATH for root, wiping the GITHUB_PATH addition above for
+          # the steps that run under `bash -l`. Re-prepend it from profile.d,
+          # like the build-redis action does.
+          if [[ -d /etc/profile.d && ( -w /etc/profile.d || $(id -u) -eq 0 ) ]]; then
+            printf 'export PATH="%s:$PATH"\n' "$PREFIX/bin" > /etc/profile.d/redis-prefix.sh
+            chmod 0644 /etc/profile.d/redis-prefix.sh
+          fi
 
       # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
       # spec per line). Needed to shard and as the input to flaky filtering.
