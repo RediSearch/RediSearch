@@ -66,9 +66,18 @@ pub type Hll = HyperLogLog6<NumericValue, WyHasher>;
 pub struct NumericRange {
     /// The minimum value stored in this range.
     /// Initialized to `f64::INFINITY` so any value will be smaller.
+    ///
+    /// This is a monotone *lower bound*, not necessarily the smallest value the
+    /// range currently stores: it is lowered when a smaller value is added, but
+    /// never raised. GC removes entries without tightening it, so after the
+    /// documents holding the smallest value are collected it sits strictly below
+    /// every surviving value.
     min_val: f64,
     /// The maximum value stored in this range.
     /// Initialized to `f64::NEG_INFINITY` so any value will be larger.
+    ///
+    /// Monotone *upper bound*, with the same caveat as `min_val`: GC never
+    /// lowers it.
     max_val: f64,
     /// HyperLogLog for estimating the number of distinct values (cardinality).
     /// Used to decide when to split the range.
