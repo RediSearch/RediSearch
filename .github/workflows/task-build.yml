@@ -340,6 +340,22 @@ jobs:
           echo "Tarball size:"
           ls -lh bin.tar.gz
 
+      # Ship the Redis install tree alongside the module. The flow-test jobs used
+      # to obtain it from the shared Actions cache that the step above populates,
+      # but a cache miss there (eviction, a re-run after the entry aged out) made
+      # them build Redis themselves — with the default compiler rather than the
+      # sanitizer clang used here, producing a redis-server that aborts with
+      # "ASan runtime does not come first in initial library list". Shipping it in
+      # the artifact makes the toolchain match by construction, so the cache is a
+      # build-time optimisation only and can never change what the tests run.
+      # tar (not the artifact zip) to preserve the executable bits.
+      - name: Package Redis install tree
+        run: |
+          set -euo pipefail
+          tar -czf redis-install.tar.gz redis-install
+          echo "Redis tarball size:"
+          ls -lh redis-install.tar.gz
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -347,6 +363,7 @@ jobs:
           path: |
             bin.tar.gz
             nextest-archive.tar.zst
+            redis-install.tar.gz
           if-no-files-found: error
           retention-days: 1
 

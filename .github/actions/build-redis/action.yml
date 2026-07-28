@@ -64,7 +64,14 @@ runs:
         SAN_LABEL="${SAN:-none}"
         # Sanitize platform id for use in a cache key.
         PLATFORM_SAFE=$(echo "$PLATFORM_ID" | sed 's#[^A-Za-z0-9_.-]#-#g')
-        KEY="redis-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV}-tls_${TLS}"
+        # The compiler is part of the ABI of the produced binary, not just of
+        # how fast it built: a sanitizer Redis built by clang links the ASan
+        # runtime statically, while a gcc one loads libasan dynamically. Mixing
+        # the two across jobs yields a redis-server that aborts at startup with
+        # "ASan runtime does not come first in initial library list", so entries
+        # built with different compilers must never share a cache key.
+        CC_ID=$(basename "${CC:-cc}" | sed 's#[^A-Za-z0-9_.-]#-#g')
+        KEY="redis-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV}-tls_${TLS}-cc_${CC_ID}"
         echo "key=$KEY" >> "$GITHUB_OUTPUT"
         echo "Cache key: $KEY"
 

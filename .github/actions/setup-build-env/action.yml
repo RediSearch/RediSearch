@@ -226,6 +226,7 @@ runs:
       shell: bash -l -eo pipefail {0}
       env:
         LLVM_FULL_CONFIG: ${{ inputs.llvm-full-config }}
+        BUILD_REDIS: ${{ inputs.build-redis }}
       run: |
         CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
         if [[ -z "$CLANG_BIN" ]]; then
@@ -235,8 +236,11 @@ runs:
         CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
         echo "Using LLVM version: $CLANG_VERSION"
         # task-build / task-test / task-test-unit pin the C/C++ compiler to the
-        # sanitizer-enabled clang; task-test-flow only needs the symbolizer.
-        if [[ "$LLVM_FULL_CONFIG" == "true" ]]; then
+        # sanitizer-enabled clang; jobs that only run tests need the symbolizer.
+        # A job that may compile Redis here always needs the pinned clang too,
+        # whatever it asked for: a gcc-built sanitizer redis-server aborts at
+        # startup ("ASan runtime does not come first in initial library list").
+        if [[ "$LLVM_FULL_CONFIG" == "true" || "$BUILD_REDIS" == "true" ]]; then
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
           echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
