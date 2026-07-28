@@ -27,7 +27,7 @@ pub(crate) fn frame_into_c_buffer(frame: Frame<NulTerminatedBytes>) -> (*mut c_v
         Frame::Terminator => (ptr::null_mut(), usize::MAX),
         Frame::Empty => (ptr::null_mut(), 0),
         Frame::Data(data) => {
-            let (ptr, len) = data.into_inner().into_parts();
+            let (ptr, len) = data.into_inner().into_raw_parts();
             (ptr.cast(), len)
         }
     }

@@ -51,7 +51,7 @@ impl String {
     pub fn from_vec(vec: Vec<u8>) -> Self {
         assert!(vec.len() <= u32::MAX as usize);
 
-        let (ptr, len) = NulTerminatedBytes::from(vec).into_parts();
+        let (ptr, len) = NulTerminatedBytes::from(vec).into_raw_parts();
 
         Self {
             ptr: ptr.cast(),
@@ -126,10 +126,10 @@ impl Drop for String {
     fn drop(&mut self) {
         match self.kind {
             StringKind::RustGlobalAlloc => {
-                // Safety: `ptr`/`len` were produced by `NulTerminatedBytes::into_parts`
+                // Safety: `ptr`/`len` were produced by `NulTerminatedBytes::into_raw_parts`
                 // in `Self::from_vec` and have not been freed.
                 drop(unsafe {
-                    NulTerminatedBytes::from_parts(
+                    NulTerminatedBytes::from_raw_parts(
                         self.ptr.cast_mut().cast::<u8>(),
                         self.len as usize,
                     )

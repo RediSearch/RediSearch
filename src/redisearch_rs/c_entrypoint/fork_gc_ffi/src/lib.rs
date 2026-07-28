@@ -274,9 +274,9 @@ pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
     }
 
     // The buffer was leaked by `util::frame_into_c_buffer` via
-    // `NulTerminatedBytes::into_parts`, so hand the same `(ptr, len)` pair back
-    // to `from_parts` to reconstruct and drop it (reclaiming the `len + 1`
+    // `NulTerminatedBytes::into_raw_parts`, so hand the same `(ptr, len)` pair back
+    // to `from_raw_parts` to reconstruct and drop it (reclaiming the `len + 1`
     // allocation).
     // SAFETY: caller guarantees (1).
-    drop(unsafe { NulTerminatedBytes::from_parts(buf.cast::<u8>(), len) });
+    drop(unsafe { NulTerminatedBytes::from_raw_parts(buf.cast::<u8>(), len) });
 }

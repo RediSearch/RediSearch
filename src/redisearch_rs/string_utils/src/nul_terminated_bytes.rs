@@ -12,63 +12,65 @@
 use std::fmt;
 use std::ops::Deref;
 
-/// An owned, heap-allocated buffer holding a byte payload followed by exactly
-/// one trailing NUL byte.
+/// An owned, heap-allocated bytes buffer with a trailing NUL byte.
 ///
-/// Unlike a [`CString`], the payload may contain interior NUL bytes: the
-/// trailing NUL is only a C-ABI convenience, not a length marker.
+/// The trailing NUL exists for C-ABI compatibility, preventing out-of-bounds
+/// reads and undefined behavior when passing the buffer's raw pointer to C functions
+/// that expect a nul-terminated string.
 ///
-/// [`CString`]: std::ffi::CString
+/// Note that if the buffer contains interior NUL bytes, C functions will treat
+/// the first NUL as the end of the string and truncate the payload early. This
+/// can lead to logic bugs, but it remains memory safe.
 #[derive(PartialEq, Eq)]
 pub struct NulTerminatedBytes(Box<[u8]>);
 
 impl NulTerminatedBytes {
-    /// Reconstruct a buffer previously leaked by [`Self::into_parts`].
+    /// Reconstruct a buffer previously leaked by [`Self::into_raw_parts`].
     ///
     /// # Safety
     ///
-    /// `ptr` and `len` must be the exact pair returned by a prior
-    /// [`Self::into_parts`] call whose buffer has not since been freed or
-    /// reconstructed. Passing a mismatched length, a pointer from a different
-    /// allocation, or a pair that was already reclaimed is undefined behaviour.
-    pub unsafe fn from_parts(ptr: *mut u8, len: usize) -> Self {
-        // `into_parts` leaked a `len + 1`-byte boxed slice (payload plus the
+    /// 1. `ptr` and `len` must be the exact pair returned by a prior
+    ///    [`Self::into_raw_parts`] call whose buffer has not since been freed or
+    ///    reconstructed. Passing a mismatched length, a pointer from a different
+    ///    allocation, or a pair that was already reclaimed is undefined behaviour.
+    pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
+        // `into_raw_parts` leaked a `len + 1`-byte boxed slice (payload plus the
         // NUL), so rebuild the fat pointer with that same length for the box to
         // deallocate the whole allocation. `len` originates from a real
         // allocation, so `len + 1` cannot overflow.
         let ptr = std::ptr::slice_from_raw_parts_mut(ptr, len + 1);
-        // SAFETY: upheld by the caller (see the contract above).
+
+        // SAFETY: caller guarantees (1).
         Self(unsafe { Box::from_raw(ptr) })
     }
 
-    /// Leak the buffer, transferring ownership to the caller as a raw pointer to
+    /// Consumes the buffer, transferring ownership to the caller as a raw pointer to
     /// its first byte plus the payload length (excluding the trailing NUL).
     ///
-    /// The caller must eventually reclaim it with [`Self::from_parts`] to avoid
+    /// The caller must eventually reclaim it with [`Self::from_raw_parts`] to avoid
     /// leaking. The length is returned alongside the pointer because it cannot
-    /// be recovered from the pointer alone — the payload may contain interior
-    /// NUL bytes.
-    pub fn into_parts(self) -> (*mut u8, usize) {
+    /// be recovered from the pointer alone.
+    pub fn into_raw_parts(self) -> (*mut u8, usize) {
         let len = self.len();
         (Box::into_raw(self.0).cast::<u8>(), len)
     }
 
-    /// Payload length, i.e. the buffer length excluding the trailing NUL.
+    /// Buffer length excluding the trailing NUL.
     pub fn len(&self) -> usize {
         self.0.len() - 1
     }
 
-    /// Whether the payload is empty, i.e. the buffer is just the trailing NUL.
+    /// Whether the buffer is empty, i.e. the buffer is just the trailing NUL.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// The payload bytes, excluding the trailing NUL.
+    /// The buffer's bytes excluding the trailing NUL.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0[..self.len()]
     }
 
-    /// The full buffer, including the trailing NUL byte.
+    /// The full buffer including the trailing NUL byte.
     pub fn as_bytes_with_nul(&self) -> &[u8] {
         &self.0
     }

@@ -44,12 +44,12 @@ fn from_vec_matches_from_slice() {
 }
 
 #[test]
-fn into_parts_from_parts_round_trip() {
+fn into_raw_parts_from_raw_parts_round_trip() {
     let buf = NulTerminatedBytes::from(b"a\0b");
-    let (ptr, len) = buf.into_parts();
-    // SAFETY: `ptr`/`len` come straight from `into_parts` above and have not
+    let (ptr, len) = buf.into_raw_parts();
+    // SAFETY: `ptr`/`len` come straight from `into_raw_parts` above and have not
     // been freed or reconstructed.
-    let buf = unsafe { NulTerminatedBytes::from_parts(ptr, len) };
+    let buf = unsafe { NulTerminatedBytes::from_raw_parts(ptr, len) };
     assert_eq!(buf.len(), 3);
     assert_eq!(buf.as_bytes_with_nul(), b"a\0b\0");
 }
