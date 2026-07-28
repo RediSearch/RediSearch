@@ -93,6 +93,16 @@ typedef struct {
 } GCConfig;
 
 // Configuration parameters related to aggregate request.
+//
+// Per-request lifecycle contract:
+// 1. Captured once at request construction (AREQ_New, HybridRequest_Init) as
+//    a snapshot of RSGlobalConfig.requestConfigParams — the request's
+//    defaults. Construction runs on the main thread.
+// 2. Parse overrides the snapshot only from explicit arguments (e.g. TIMEOUT
+//    -> queryTimeoutMS plus the foreground cap, DIALECT -> dialectVersion).
+// 3. After parse the config is read-only. Nothing may re-read RSGlobalConfig
+//    for the request's lifetime: execution may be on a BG thread, and a
+//    concurrent FT.CONFIG SET must not change an in-flight request.
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;

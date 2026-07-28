@@ -1,4 +1,5 @@
 #include "hybrid/hybrid_request.h"
+#include "config.h"
 #include <stdatomic.h>
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
@@ -276,6 +277,11 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
+    // Capture request-scoped config once, on the constructing thread — the
+    // main thread, now that dispatch allocates requests before blocking. See
+    // the RequestConfig contract in config.h: after parse the config is
+    // read-only and nothing may re-read RSGlobalConfig.
+    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -291,7 +297,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
