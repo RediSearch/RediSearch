@@ -207,6 +207,24 @@ typedef struct MetricRequest {
 } MetricRequest;
 
 /**
+ * Per-key load profiling counters, one entry per explicit `LOAD` key.
+ *
+ * Populated by [`load_specific_keys`] when profiling is requested,
+ * read back by the `FT.PROFILE` reply in `result_processor.c`.
+ * The array is allocated and owned by C.
+ */
+typedef struct LoadFieldProfile {
+  /**
+   * Accumulated wall-clock time spent loading this field, in nanoseconds.
+   */
+  uint64_t load_time_ns;
+  /**
+   * Number of times this field was loaded.
+   */
+  uint64_t load_count;
+} LoadFieldProfile;
+
+/**
  * An opaque lookup row which can be passed by value to C.
  *
  * The size and alignment of this struct must match the Rust `RLookupRow`
