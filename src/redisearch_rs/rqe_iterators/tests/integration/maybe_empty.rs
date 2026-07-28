@@ -18,26 +18,60 @@ use rqe_iterators::{
 #[repr(C)]
 struct Infinite<'index>(index_result::RSIndexResult<'index>);
 
-/// Suspended counterpart of [`Infinite`]. The mock holds only owned data
-/// (no live index borrows), so the suspended form is byte-identical to the
-/// active form at any lifetime.
+/// Suspended counterpart of [`Infinite`].
+///
+/// Parameterised by the query lifetime `'query` and holding the `Suspended`
+/// representation of the result — *not* an `RSIndexResult<'static>`. `current()`
+/// hands out `&mut RSIndexResult`, so a caller may populate the result with
+/// borrowed query data (a term or metric); widening that to `'static` would let
+/// the suspended value outlive the borrow. Carrying the real `'query` and
+/// transitioning through [`RSIndexResult::into_suspended`] keeps the borrow
+/// correctly tracked, matching the real iterators.
+///
+/// `#[repr(C)]` so the byte layout matches [`Infinite`] for the in-place field
+/// transition in `suspend`/`resume` (proven layout-identical by the `const _`
+/// block below).
 #[repr(C)]
-struct InfiniteSuspended(index_result::RSIndexResult<'static>);
+struct InfiniteSuspended<'query>(index_result::SuspendedIndexResult<'query>);
+
+// Compile-time proof that `Infinite` and its suspended counterpart are
+// layout-identical, so the in-place field transition can reinterpret the same
+// allocation. Both are single-field tuple structs over `RawIndexResult<Rf>`
+// (layout-compatible across `Rf`, proven in `index_result`), so field 0 sits at
+// offset 0 in both and only size/alignment need pinning here.
+const _: () = {
+    type A<'a> = Infinite<'a>;
+    type S<'a> = InfiniteSuspended<'a>;
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
 
 impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
-    type Suspended = InfiniteSuspended;
+    type Suspended = InfiniteSuspended<'index>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         let raw = Box::into_raw(self);
-        // SAFETY: `Infinite<'index>` and `InfiniteSuspended` are both
-        // `#[repr(C)]` over `RSIndexResult`; the mock holds no live index
-        // borrows, so the lifetime parameter is phantom and the layouts
-        // are byte-identical. Box::from_raw reuses the same heap.
-        unsafe { Box::from_raw(raw as *mut InfiniteSuspended) }
+        // Transition the `result` field to its `Suspended` representation in
+        // place, reusing the allocation — rather than casting the whole struct's
+        // lifetime to `'static`. Reusing the allocation also keeps the box (and
+        // the result it hands out) at a stable address across the cycle.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, uniquely owned). `&raw mut` forms a field pointer to the
+        // `result` slot without creating a reference.
+        let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
+        // and is unaliased; `into_suspended_in_place` is a safe widening
+        // conversion with no further precondition.
+        unsafe { <index_result::RSIndexResult<'index>>::into_suspended_in_place(result_slot) };
+        // SAFETY: `Infinite<'index>` and `InfiniteSuspended<'index>` are
+        // layout-identical (const proof above); the allocation is reused, so the
+        // box address is preserved and the field is now the suspended form.
+        unsafe { Box::from_raw(raw as *mut InfiniteSuspended<'index>) }
     }
 }
 
-impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended {
+impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
     type Resumed<'a>
         = Infinite<'a>
     where
@@ -51,7 +85,23 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended {
         'query: 'a,
     {
         let raw = Box::into_raw(self);
-        // SAFETY: layout-identical — see [`Infinite::suspend`].
+        // Mirror `suspend`: transition the `result` field back to its active form
+        // in place, reusing the allocation.
+        //
+        // SAFETY: `raw` came from `Box::into_raw`; `&raw mut` forms a field
+        // pointer to the `result` slot without creating a reference.
+        let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` points at an initialised
+        // `SuspendedIndexResult<'query>` and is unaliased. `into_active`'s
+        // preconditions hold: this mock only ever stores a virtual result over
+        // owned data (it just bumps `doc_id`), so there are no index-backed
+        // pointers to re-validate; any borrowed query-pipeline data is covered by
+        // the `'query: 'a` bound.
+        unsafe {
+            <index_result::SuspendedIndexResult<'query>>::into_active_in_place::<'a>(result_slot)
+        };
+        // SAFETY: layout-identical (const proof above); the allocation is reused,
+        // so the box address is preserved and the field is now active for `'a`.
         let active = unsafe { Box::from_raw(raw as *mut Infinite<'a>) };
         Ok(ResumeOutcome::Ok(active))
     }
