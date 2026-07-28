@@ -51,9 +51,10 @@ typedef const void* RedisSearchDiskRdbState;
 // Opaque handle for a consistent point-in-time view of the disk database.
 //
 // Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
-// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
-// so all iterators in a query observe the same database state. The snapshot must outlive
-// every iterator created from it, and must not outlive the originating index spec.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` and to the Rust-side
+// numeric/wildcard iterator entry points so all iterators in a query observe the same
+// database state. The snapshot must outlive every iterator created from it, and must
+// not outlive the originating index spec.
 typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
@@ -520,9 +521,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
    *
-   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
-   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
-   * iterator created for one query observes the same database state. Must be released by
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
+   * the Rust-side numeric/wildcard iterator entry points so that every iterator
+   * created for one query observes the same database state. Must be released by
    * `freeSnapshot` when no iterator is still using it.
    *
    * @param index Pointer to the index spec
@@ -538,26 +539,6 @@ typedef struct IndexDiskAPI {
    * @param snapshot Snapshot handle returned by `createSnapshot`
    */
   void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
-
-  /**
-   * @brief Creates a new iterator over a numeric range on the disk-backed index
-   *
-   * Enumerates the in-memory ordered map's buckets that overlap `filter`'s range
-   * and opens one Speedb-snapshot-backed iterator per candidate bucket, with a
-   * per-yielded-entry value filter of `effective_range ∩ filter_range`. The
-   * candidate iterators are heap-merged by `doc_id` via a union iterator, which
-   * also collapses any transient duplicates that the in-flight split protocol
-   * may produce.
-   *
-   * @param index Pointer to the index
-   * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
-   * @param fieldIndex Field index for the numeric field
-   * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
-   * @param status QueryError to populate with the cause when creation fails (may be NULL)
-   * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
-   */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
