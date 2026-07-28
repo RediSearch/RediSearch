@@ -101,6 +101,18 @@ runs:
         COVERAGE: ${{ inputs.coverage }}
         BUILD_TLS: ${{ inputs.build_tls }}
       run: |
+        # A sanitizer Redis must be built by the same clang that builds the
+        # module. gcc's -fsanitize=address links libasan dynamically, and the
+        # resulting redis-server aborts on startup with "ASan runtime does not
+        # come first in initial library list" — which surfaces far downstream as
+        # RLTest failing to read the server version. Refuse to build the broken
+        # thing: the caller is responsible for putting the sanitizer toolchain in
+        # CC (setup-build-env does this for every workflow that gets here).
+        if [[ "$SAN" == "address" && "$(basename "${CC:-cc}")" != clang* ]]; then
+          echo "SANITIZER=address requires CC to point at clang, got '${CC:-<unset>}'." >&2
+          echo "Configure the sanitizer toolchain before this action runs." >&2
+          exit 1
+        fi
         EXTRA=()
         if [[ "$BUILD_TLS" == "true" ]]; then
           EXTRA+=("BUILD_TLS=yes")
@@ -109,6 +121,27 @@ runs:
           EXTRA+=("REDIS_CFLAGS=-DCOVERAGE_TEST")
         fi
         make PREFIX="$PREFIX" install "${EXTRA[@]}" SANITIZER="$SAN"
+
+    - name: Verify redis-server runs
+      # Guards both ways into this point: a fresh build and a restored cache
+      # entry (which may predate the current key scheme, or have been written by
+      # a job with a different toolchain). "v=<version>" is what RLTest parses
+      # out of the banner, so checking for it here means a server that cannot
+      # start fails this step, with its own output, rather than every test in
+      # every downstream flow job failing on a symptom.
+      # The exit code is ignored on purpose: a sanitizer build can exit non-zero
+      # from a leak report after printing the banner.
+      shell: bash
+      env:
+        PREFIX: ${{ steps.resolve.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        VERSION=$("$PREFIX/bin/redis-server" --version || true)
+        echo "$VERSION"
+        if [[ "$VERSION" != *"v="* ]]; then
+          echo "redis-server did not report a usable version." >&2
+          exit 1
+        fi
 
     - name: Save Redis to cache
       if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
