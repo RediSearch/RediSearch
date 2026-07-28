@@ -44,6 +44,19 @@ fn from_vec_matches_from_slice() {
 }
 
 #[test]
+fn into_c_string_succeeds_without_interior_nul() {
+    let buf = NulTerminatedBytes::from(b"field_name");
+    let c_string = buf.into_c_string().unwrap();
+    assert_eq!(c_string, c"field_name");
+}
+
+#[test]
+fn into_c_string_fails_with_interior_nul() {
+    let buf = NulTerminatedBytes::from(b"a\0b");
+    assert!(buf.into_c_string().is_err());
+}
+
+#[test]
 fn into_raw_parts_from_raw_parts_round_trip() {
     let buf = NulTerminatedBytes::from(b"a\0b");
     let (ptr, len) = buf.into_raw_parts();

@@ -9,6 +9,7 @@
 
 //! An owned byte buffer with a trailing NUL.
 
+use std::ffi::{CString, FromVecWithNulError};
 use std::fmt;
 use std::ops::Deref;
 
@@ -73,6 +74,13 @@ impl NulTerminatedBytes {
     /// The full buffer including the trailing NUL byte.
     pub fn as_bytes_with_nul(&self) -> &[u8] {
         &self.0
+    }
+
+    /// Converts into a [`CString`], consuming `self`.
+    ///
+    /// Fails if the payload contains an interior NUL byte.
+    pub fn into_c_string(self) -> Result<CString, FromVecWithNulError> {
+        CString::from_vec_with_nul(self.0.into_vec())
     }
 }
 
