@@ -645,6 +645,80 @@ def testProfileTimeoutDuringQueryBuild():
     message="FT.PROFILE hard-failed on a pre-execution timeout instead of embedding a Warning"
   ).apply(str).contains('Timeout limit was reached')
 
+def BatchesNumberOnTimeout(env):
+  """
+  A batched hybrid vector query that times out mid-collection must still report
+  the batches it consumed. The batch counter is bumped on entry to every batch
+  iteration, so any run that reached collection reports at least one batch,
+  whatever the timeout policy.
+  """
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', '2')
+
+  env.expect('FT.CREATE', 'idx', 'SCHEMA',
+             'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+             't', 'TEXT').ok()
+
+  # Only a handful of documents carry the filter term, so a `KNN 10` can never
+  # be satisfied early: collection has to walk the whole index in tiny batches.
+  num_docs = 20000
+  num_matching = 5
+  for i in range(num_docs):
+    conn.execute_command('HSET', f'doc{i}', 'v', 'bababada',
+                         't', 'hello' if i < num_matching else 'other')
+
+  res = conn.execute_command(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+    '(@t:hello)=>[KNN 10 @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 10]',
+    'SORTBY', '__v_score', 'PARAMS', '2', 'vec', 'aaaaaaaa', 'NOCONTENT', 'TIMEOUT', '1')
+
+  shard_profile = to_dict(res[1][1][0])
+  env.assertEqual(shard_profile['Warning'], ['Timeout limit was reached'])
+
+  iterators_profile = to_dict(shard_profile['Iterators profile'])
+  env.assertEqual(iterators_profile['Type'], 'VECTOR')
+  env.assertEqual(iterators_profile['Vector search mode'], 'HYBRID_BATCHES')
+  env.assertGreater(iterators_profile['Batches number'], 0,
+                    message='batch counter was cleared by the timeout abort path')
+  # The batch counters are mutually derived: a non-zero batch count alongside a
+  # zero-sized largest batch would be internally inconsistent.
+  env.assertGreater(iterators_profile['Largest batch size'], 0)
+
+@skip(cluster=True)
+def testBatchesNumberOnTimeout_nonStrict():
+  BatchesNumberOnTimeout(Env(moduleArgs="ON_TIMEOUT RETURN"))
+
+@skip(cluster=True)
+def testBatchesNumberOnTimeout_strict():
+  BatchesNumberOnTimeout(Env(moduleArgs="ON_TIMEOUT FAIL"))
+
+@skip(cluster=True)
+def testProfileNumericOptimizerKeySet(env):
+  """
+  Pins the exact `FT.PROFILE` key set of the numeric optimizer iterator: `Type`,
+  the read counter, `Optimizer mode` and the child — no batch counters. The
+  key set is the contract any replacement implementation has to reconcile with,
+  so a change here must be a deliberate one.
+  """
+  conn = getConnectionByEnv(env)
+  env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+
+  env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+  for i in range(0, 20000, 2):
+    conn.execute_command('HSET', i, 't', 'foo', 'n', i % 100)
+    conn.execute_command('HSET', i + 1, 't', 'bar', 'n', i % 100)
+
+  # `SORTBY` a numeric field plus `WITHOUTCOUNT` is what elects the optimizer.
+  res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]',
+                'SORTBY', 'n', 'NOCONTENT', 'WITHOUTCOUNT')
+  iterators_profile = to_dict(res[1][1][0])['Iterators profile']
+
+  env.assertEqual(iterators_profile[::2],
+                  ['Type', 'Number of reading operations', 'Optimizer mode', 'Child iterator'])
+  env.assertEqual(to_dict(iterators_profile)['Type'], 'OPTIMIZER')
+
 def TimedoutTest_resp3(env):
   """Tests that the `Timedout` value of the profile response is correct"""
 
