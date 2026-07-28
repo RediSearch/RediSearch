@@ -759,19 +759,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
- * @brief Get vector index memory for a disk index
- *
- * Returns disk-side vector index memory in bytes from the latest collected snapshot.
- * Does not include RAM-only accounting from non-disk paths.
- * Call SearchDisk_CollectIndexMetrics(index) before this getter.
- * Requires initialized SearchDisk and non-null index (RS_ASSERT).
- *
- * @param index Pointer to the disk index spec
- * @return Vector index memory in bytes
- */
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
-
-/**
  * @brief Get the disk-owned total number of records for a disk index
  *
  * Returns the disk-side num_records counter used by FT.INFO.
