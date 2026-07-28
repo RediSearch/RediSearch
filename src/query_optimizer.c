@@ -356,6 +356,11 @@ void QOptimizer_UpdateTotalResults(AREQ *req) {
     size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
     size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+    // Fold the loader-drop correction into the total before offset/limit rewrites it,
+    // then clear it so it isn't subtracted again at reply time. This keeps the
+    // skippedResults <= totalResults invariant that QITR_ReportedTotal asserts.
+    qctx->totalResults = QITR_ReportedTotal(qctx);
+    qctx->skippedResults = 0;
     qctx->totalResults = qctx->totalResults > reqOffset ?
                               qctx->totalResults - reqOffset : 0;
     if(qctx->totalResults > reqLimit) {

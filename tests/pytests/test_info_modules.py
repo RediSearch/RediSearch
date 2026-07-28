@@ -421,7 +421,10 @@ def test_redis_info():
   env.assertGreater(res['search_largest_memory_index_human'], 0)
   env.assertGreater(res['search_smallest_memory_index'], 0)
   env.assertGreater(res['search_smallest_memory_index_human'], 0)
-  env.assertEqual(res['search_used_memory_vector_index'], 0)
+  # search_used_memory_vector_index folds in the process-wide shared SVS thread
+  # pool memory, which has a small non-zero baseline once the pool singleton is
+  # initialized — even for indexes without vector fields.
+  env.assertGreaterEqual(res['search_used_memory_vector_index'], 0)
   # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
 
   # ========== Cursors statistics ==========
@@ -617,9 +620,14 @@ def test_redis_info_modules_vecsim():
     set_doc(f'doc_svs:{i}')
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
+  # search_used_memory_vector_index aggregates per-index MEMORY across all vector
+  # fields plus VecSim_GetSharedMemory() (folded in once).
+  expected_vec_mem = lambda field_infos: (sum(int(fi['MEMORY']) for fi in field_infos) +
+                                          int(field_infos[0]['SHARED_MEMORY']))
+
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   # Validate that vector indexes are accounted in the total index memory
   env.assertGreater(info['search_used_memory_indexes'], info['search_used_memory_vector_index'])
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
@@ -629,7 +637,7 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   # 3 vectors were marked as deleted (1 for each hnsw index and 1 for svs)
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 3)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
@@ -642,7 +650,7 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 5)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], expected_vec_mem(field_infos))
   env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
@@ -1194,7 +1202,13 @@ class testWarningsAndErrorsCluster:
 
   def test_timeout_cluster(self):
     # In cluster mode, test both shard-level and coordinator-level timeouts.
-    # HYBRID debug is not supported in cluster.
+
+    # Insert enough vec docs so every shard has VSIM data for HYBRID timeout testing.
+    conn = getConnectionByEnv(self.env)
+    for i in range(30):
+      conn.execute_command('HSET', f'vec:timeout_{i}', 'vector', np.array([float(i), 0.0]).astype(np.float32).tobytes())
+
+    query_vec = np.array([1.0, 0.0]).astype(np.float32).tobytes()
 
     # ---------- Timeout Errors ----------
     allShards_change_timeout_policy(self.env, 'FAIL')
@@ -1243,6 +1257,20 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
                          message="Coordinator timeout error should be +1 after AGG coordinator timeout")
 
+    # Test timeout error in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).error().contains('Timeout limit was reached')
+    # Shards: +1 each (total +4)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 4),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout error should be +4")
+    # Coord: +4
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 4),
+                         message="Coordinator timeout error should be +4 after FT.HYBRID")
+
     # ---------- Timeout Warnings ----------
     allShards_change_timeout_policy(self.env, 'RETURN')
 
@@ -1263,6 +1291,18 @@ class testWarningsAndErrorsCluster:
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn_coord),
                          message="Coordinator timeout warning should not change after FT.SEARCH")
+
+    # Test timeout warning in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
+    # In RETURN mode, the shard increments timeout_warning twice per hybrid query:
+    # once from the internal AREQ subquery timeout and once from replyWithCursors.
+    # Shards: +2 each (total: SEARCH +1, HYBRID +2 = +3)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
     # Test other metrics not changed (on shards)
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]

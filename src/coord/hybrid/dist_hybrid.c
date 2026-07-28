@@ -10,6 +10,8 @@
 #include "dist_hybrid.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_exec.h"
+#include "aggregate/reply_empty.h"
+#include "hybrid/hybrid_debug.h"
 #include "hybrid/dist_hybrid_plan.h"
 #include "hybrid/parse_hybrid.h"
 #include "dist_plan.h"
@@ -219,11 +221,60 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
   }
 }
 
+// Append a reconstructed, old-shard-compatible COMBINE clause built from the
+// coordinator's resolved scoring parameters. All scoring arguments are emitted
+// explicitly with a positive, even argument count and YIELD_SCORE_AS (when
+// present) counted inside the block, so shards of any version parse it and never
+// fall back on their own (possibly different) defaults.
+static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
+  if (!cp || !cp->scoringCtx) {
+    return;
+  }
+  const HybridScoringContext *sc = cp->scoringCtx;
+  const bool hasAlias = cp->scoreAlias != NULL;
+  char numBuf[32];
+  const size_t numBufSize = sizeof(numBuf);
+  int n;
+
+  MRCommand_Append(xcmd, "COMBINE", strlen("COMBINE"));
+  if (sc->scoringType == HYBRID_SCORING_RRF) {
+    // COMBINE RRF <count> CONSTANT <c> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 6 : 4);
+    MRCommand_Append(xcmd, "RRF", strlen("RRF"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "CONSTANT", strlen("CONSTANT"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->rrfCtx.constant);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->rrfCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  } else {
+    // COMBINE LINEAR <count> ALPHA <a> BETA <b> WINDOW <w> [YIELD_SCORE_AS <alias>]
+    n = snprintf(numBuf, numBufSize, "%d", hasAlias ? 8 : 6);
+    MRCommand_Append(xcmd, "LINEAR", strlen("LINEAR"));
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "ALPHA", strlen("ALPHA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[0]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "BETA", strlen("BETA"));
+    n = snprintf(numBuf, numBufSize, "%.17g", sc->linearCtx.linearWeights[1]);
+    MRCommand_Append(xcmd, numBuf, n);
+    MRCommand_Append(xcmd, "WINDOW", strlen("WINDOW"));
+    n = snprintf(numBuf, numBufSize, "%zu", sc->linearCtx.window);
+    MRCommand_Append(xcmd, numBuf, n);
+  }
+  if (hasAlias) {
+    MRCommand_Append(xcmd, "YIELD_SCORE_AS", strlen("YIELD_SCORE_AS"));
+    MRCommand_Append(xcmd, cp->scoreAlias, strlen(cp->scoreAlias));
+  }
+}
+
 // The function transforms FT.HYBRID index SEARCH query VSIM field vector
 // into _FT.HYBRID index SEARCH query VSIM field vector WITHCURSOR
 // _NUM_SSTRING _INDEX_PREFIXES ...
 void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
                             ProfileOptions profileOptions,
+                            const HybridCombineWireParams *combineParams,
                             MRCommand *xcmd, arrayof(char*) serialized,
                             IndexSpec *sp, const VectorQuery *vq,
                             size_t numShards) {
@@ -263,28 +314,16 @@ void HybridRequest_buildMRCommand(RedisModuleString **argv, int argc,
     }
   }
 
-  int combineOffset = RMUtil_ArgIndex("COMBINE", argv + vsimOffset, argc - vsimOffset);
-  combineOffset = combineOffset != -1 ? combineOffset + vsimOffset : -1;
-  bool hasCombine = combineOffset != -1;
-
-  // Add COMBINE
-  if (combineOffset != -1) {
-    MRCommand_AppendRstr(xcmd, argv[combineOffset]);
-    // Add RRF/LINEAR and its arguments
-    argOffset = RMUtil_ArgIndex("RRF", argv + vsimOffset, argc - vsimOffset);
-    if (argOffset == -1) {
-      argOffset = RMUtil_ArgIndex("LINEAR", argv + vsimOffset, argc - vsimOffset);
-    }
-    argOffset = argOffset != -1 ? argOffset + vsimOffset : -1;
-    if (argOffset != -1 && argOffset < argc - 2) {
-      long long nargs;
-      RedisModule_StringToLongLong(argv[argOffset + 1], &nargs);
-
-      for (int i = 0; i < nargs + 2; ++i) {
-        MRCommand_AppendRstr(xcmd, argv[argOffset + i]);
-      }
-    }
-  }
+  // Always reconstruct and forward the coordinator's resolved COMBINE clause
+  // (in the legacy counted form).
+  // Forwarding it unconditionally - even when the client omitted COMBINE and
+  // the coordinator filled in defaults - pins every shard to identical fusion
+  // parameters (constant/weights/window), so hybrid results stay consistent
+  // across shards of different versions during a rolling upgrade rather than
+  // each shard falling back on its own (possibly changed) defaults. This also
+  // normalizes the positional YIELD_SCORE_AS form and a zero argument count
+  // into the counted form that all shard versions accept.
+  MRCommand_appendCombine(xcmd, combineParams);
 
   if (serialized) {
     for (size_t ii = 0; ii < array_len(serialized); ++ii) {
@@ -570,7 +609,8 @@ void printDistHybridProfile(RedisModule_Reply *reply, void *ctx) {
 
 static int HybridRequest_prepareForExecution(HybridRequest *hreq,
         RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
-        size_t numShards, QueryError *status) {
+        size_t numShards, QueryError *status,
+        const HybridDebugParams *debugParams) {
 
     hreq->tailPipeline->qctx.err = status;
     hreq->profile = printDistHybridProfile;
@@ -632,6 +672,16 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     setupCoordinatorArrangeSteps(hreq->requests[SEARCH_INDEX], hreq->requests[VECTOR_INDEX], &hybridParams);
     RLookup *lookups[HYBRID_REQUEST_NUM_SUBQUERIES] = {0};
 
+    // Capture the resolved COMBINE parameters now, before BuildDistributedPipeline
+    // hands scoringCtx ownership to the merger and nulls the local pointer. The
+    // scoring context object itself is kept alive by the merger, so borrowing it
+    // here is safe. Used to reconstruct an old-shard-compatible COMBINE clause
+    // when building the per-shard command below.
+    HybridCombineWireParams combineParams = {
+        .scoringCtx = hybridParams.scoringCtx,
+        .scoreAlias = hybridParams.aggregationParams.common.scoreAlias,
+    };
+
     arrayof(char*) serialized = HybridRequest_BuildDistributedPipeline(hreq, &hybridParams, lookups, status);
     if (!serialized) {
       return REDISMODULE_ERR;
@@ -646,13 +696,25 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     const AREQ *vectorRequest = hreq->requests[VECTOR_INDEX];
     const VectorQuery *vq = (vectorRequest->ast.root && vectorRequest->ast.root->type == QN_VECTOR)
                       ? vectorRequest->ast.root->vn.vq : NULL;
-    HybridRequest_buildMRCommand(argv, argc, profileOptions, &xcmd, serialized,
+    HybridRequest_buildMRCommand(argv, argc, profileOptions, &combineParams, &xcmd, serialized,
                                  sp, vq, numShards);
 
     xcmd.protocol = HYBRID_RESP_PROTOCOL_VERSION;
     xcmd.forCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
     xcmd.forProfiling = profileOptions != EXEC_NO_FLAGS;
     xcmd.rootCommand = C_READ;
+
+    // For debug commands, wrap the shard command with _FT.DEBUG prefix and
+    // append the debug parameters so the shard-side debug handler can apply them.
+    if (debugParams) {
+      MRCommand_Insert(&xcmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+      int debug_argv_count = (int)debugParams->debug_params_count + 2;
+      for (int i = 0; i < debug_argv_count; i++) {
+        size_t n;
+        const char *arg = RedisModule_StringPtrLen(debugParams->debug_argv[i], &n);
+        MRCommand_Append(&xcmd, arg, n);
+      }
+    }
 
     // UPDATED: Use new start function with mappings (no dispatcher needed)
     HybridRequest_buildDistRPChain(hreq->requests[0], &xcmd, lookups[0], rpnetNext_StartWithMappings);
@@ -700,7 +762,10 @@ static int HybridRequest_executePlan(HybridRequest *hreq, struct ConcurrentCmdCt
     MRCommand *cmd = &searchRPNet->cmd;
 
     const RSOomPolicy oomPolicy = hreq->reqConfig.oomPolicy;
-    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy)) {
+    const RSTimeoutPolicy timeoutPolicy = hreq->reqConfig.timeoutPolicy;
+    const struct timespec *deadline =
+        hreq->sctx ? (const struct timespec *)&hreq->sctx->time.timeout : NULL;
+    if (!ProcessHybridCursorMappings(cmd, searchMappingsRef, vsimMappingsRef, hreq->tailPipeline->qctx.err, oomPolicy, timeoutPolicy, deadline)) {
         // Handle error
         StrongRef_Release(searchMappingsRef);
         StrongRef_Release(vsimMappingsRef);
@@ -752,9 +817,19 @@ static void DistHybridCleanups(RedisModuleCtx *ctx,
 
     RS_ASSERT(QueryError_HasError(status));
 
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
-
-    QueryError_ReplyAndClear(ctx, status);
+    if (hreq && QueryError_GetCode(status) == QUERY_ETIMEDOUT &&
+        hreq->reqConfig.timeoutPolicy != TimeoutPolicy_Fail) {
+        // A cursor-setup timeout under RETURN must not surface as an
+        // error: no cursor mappings were established, so reply an empty result set
+        // carrying the timeout warning (and the FT.PROFILE envelope when applicable),
+        // matching the read-phase RETURN behavior.
+        common_hybrid_query_reply_empty_into(reply, QUERY_ETIMEDOUT, false,
+                                             hreq->tailPipeline->qctx.isProfile);
+        QueryError_ClearError(status);
+    } else {
+        QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(status), 1, COORD_ERR_WARN);
+        QueryError_ReplyAndClear(ctx, status);
+    }
     WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
     if (sp) {
         IndexSpecRef_Release(*strong_ref);
@@ -793,7 +868,66 @@ void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
 
-    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status) != REDISMODULE_OK) {
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, argc, sp, numShards, &status, NULL) != REDISMODULE_OK) {
+      DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+      return;
+    }
+
+    if (HybridRequest_executePlan(hreq, cmdCtx, reply, &status) != REDISMODULE_OK) {
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
+        return;
+    }
+    WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    IndexSpecRef_Release(strong_ref);
+    RedisModule_EndReply(reply);
+}
+
+void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                            struct ConcurrentCmdCtx *cmdCtx) {
+
+    RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+    RedisModule_Reply *reply = &_reply;
+    QueryError status = QueryError_Default();
+
+    // Parse debug params from the end of argv
+    HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
+    if (QueryError_HasError(&status)) {
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      return;
+    }
+    if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
+      DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+      return;
+    }
+
+    // Strip debug params from argc for parsing
+    int stripped_argc = argc - (int)debugParams.debug_params_count - 2;
+
+    const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+    if (!sctx) {
+        QueryError_SetWithUserDataFmt(&status, QUERY_ENOINDEX, "Index not found", ": %s", indexname);
+        DistHybridCleanups(ctx, cmdCtx, NULL, NULL, NULL, reply, &status);
+        return;
+    }
+
+    StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+    IndexSpec *sp = StrongRef_Get(strong_ref);
+    if (!sp) {
+        SearchCtx_Free(sctx);
+        QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+        DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, NULL, reply, &status);
+        return;
+    }
+
+    HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+
+    size_t numShards = ConcurrentCmdCtx_GetNumShards(cmdCtx);
+
+    // Use stripped_argc so parsing doesn't see debug params;
+    // pass debugParams so the MR command gets _FT.DEBUG prefix + debug args.
+    if (HybridRequest_prepareForExecution(hreq, ctx, argv, stripped_argc, sp, numShards,
+                                          &status, &debugParams) != REDISMODULE_OK) {
       DistHybridCleanups(ctx, cmdCtx, sp, &strong_ref, hreq, reply, &status);
       return;
     }

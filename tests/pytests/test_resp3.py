@@ -113,6 +113,57 @@ def test_search():
     }
     env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_sortby_limit_offset():
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'count', 'NUMERIC', 'SORTABLE')
+    for i in range(30):
+        conn.execute_command('HSET', f'cdoc{{{i}}}', 'count', i)
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'count', 'ASC', 'LIMIT', '20', '10', 'NOCONTENT')
+    ids = [row['id'] for row in res['results']]
+    env.assertEqual(ids, [f'cdoc{{{i}}}' for i in range(20, 30)])
+
+def _search_knn_limit_offset(protocol):
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(30):
+        conn.execute_command('HSET', f'vdoc{{{i:02d}}}', 'v',
+                             np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '0', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10)])
+
+    res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 20 @v $B]', 'PARAMS', '2', 'B', blob,
+                  'LIMIT', '10', '10', 'NOCONTENT', 'DIALECT', '2')
+    if protocol == 3:
+        ids = [row['id'] for row in res['results']]
+    else:
+        ids = res[1:]
+    env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(10, 20)])
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp2():
+    _search_knn_limit_offset(protocol=2)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_limit_offset_resp3():
+    _search_knn_limit_offset(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
@@ -458,7 +509,9 @@ def test_info():
       'sortable_values_size_mb': 0.0,
       'geoshapes_sz_mb': 0.0,
       'total_inverted_index_blocks': ANY,
-      'vector_index_sz_mb': 0.0,
+      # vector_index_sz_mb folds in the process-wide shared SVS thread pool memory,
+      # which has a small non-zero baseline once the pool singleton is initialized.
+      'vector_index_sz_mb': ANY,
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
@@ -1263,9 +1316,18 @@ def test_ft_info():
       initial_doc_table_size_mb = 16072 / (1024 * 1024)
       # Size of an empty TrieMap
       key_table_sz_mb = 24 / (1024 * 1024)
-      total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
+      per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
+      # The FT.INFO vector_index_sz_mb field folds in VecSim_GetSharedMemory()
+      # (process-wide vector allocations not tied to any single index). For an
+      # index without vector fields IndexSpec_VectorIndexesSize() is 0, so
+      # vector_index_sz_mb is exactly that global overhead. In cluster mode it's
+      # already aggregated across shards. We pin to the response value so
+      # total_index_memory_sz_mb stays exact (rather than an ANY match).
+      global_vector_mem_mb = res['vector_index_sz_mb']
+      total_index_memory_sz_mb = per_node_index_memory_sz_mb + global_vector_mem_mb
 
       exp = {
         'attributes': [
@@ -1340,7 +1402,7 @@ def test_ft_info():
         'geoshapes_sz_mb': 0.0,
         'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0.0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
@@ -1405,7 +1467,10 @@ def test_ft_info():
         'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
+        # global_vector_mem_mb is already aggregated across shards (FT.INFO sums
+        # vector_index_sz_mb from each shard), so it's added once — not multiplied
+        # by `nodes` — to the per-node base * nodes.
+        'total_index_memory_sz_mb': nodes * per_node_index_memory_sz_mb + global_vector_mem_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
@@ -1419,7 +1484,7 @@ def test_ft_info():
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
         'total_inverted_index_blocks': 0,
-        'vector_index_sz_mb': 0.0,
+        'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',

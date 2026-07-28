@@ -309,6 +309,9 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
+
+    rm_free(req->debugParams);
+
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
         sdsfree(req->args[ii]);
