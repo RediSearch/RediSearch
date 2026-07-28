@@ -67,6 +67,13 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
+def compare_optimized_to_not_nocontent(env, query, params, msg=None):
+    """Same as `compare_optimized_to_not`, for NOCONTENT queries returning bare ids."""
+    not_res = env.cmd(*query, 'WITHCOUNT', *params)
+    opt_res = env.cmd(*query, 'WITHOUTCOUNT', *params)
+    env.assertEqual(not_res[1:], opt_res[1:], message=msg)
+
+
 @skip(cluster=True)
 def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
@@ -617,6 +624,109 @@ def testRetryWindowFillsRequestedLimit(env):
 
     env.assertEqual(len(optimized), limit)
     env.assertEqual(optimized, env.cmd(*query, 'WITHCOUNT')[1:])
+
+
+def load_sparse_matches(conn, num_docs, is_match):
+    """Index `num_docs` hashes with unique `n` values, tagging matches with `t:foo`."""
+    for i in range(num_docs):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if is_match(i) else 'bar')
+
+
+@skip(cluster=True)
+def testRewindWidensWindow(env):
+    """A second collection pass runs when the first numeric window finds nothing.
+
+    The optimizer sizes its first numeric window from the child's estimate, so
+    with all matches sitting above the initial window the first pass collects
+    nothing. It must then widen the window and keep iterating, rather than
+    yielding an empty heap.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    first_match = num_docs // 2
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    limit = 10
+    expected = [str(i) for i in range(first_match, first_match + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal(
+                   [limit] + [str(i) for i in range(num_docs - 1, num_docs - 1 - limit, -1)])
+
+
+@skip(cluster=True)
+def testDeletedDocsDuringCollection(env):
+    """Documents deleted before their index entries are collected are skipped.
+
+    With GC held off, the inverted index still lists the deleted ids, so the
+    optimizer has to drop them while filling its heap and keep collecting.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    env.cmd(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx')
+
+    num_docs = 10000
+    first_match = num_docs // 2
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    deleted = 20
+    for i in range(first_match, first_match + deleted):
+        conn.execute_command('del', i)
+
+    limit = 10
+    expected = [str(i) for i in range(first_match + deleted, first_match + deleted + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+
+
+@skip(cluster=True)
+def testScorerTypes(env):
+    """Every scorer name is classified when deciding whether to optimize."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo')
+
+    params = ['limit', 0, 3, 'NOCONTENT']
+    for scorer in ['BM25STD', 'TFIDF', 'TFIDF.DOCNORM', 'DISMAX', 'BM25', 'DOCSCORE', 'HAMMING']:
+        compare_optimized_to_not_nocontent(env, ['ft.search', 'idx', 'foo', 'SCORER', scorer],
+                                           params, 'scorer ' + scorer)
+
+
+@skip(cluster=True)
+def testNotOptimizedQueries(env):
+    """Query shapes that opt out of the numeric sortby optimization still answer correctly."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    # An empty index has no numeric entries to estimate a window from.
+    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'limit', 0, 5,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([0])
+
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    params = ['limit', 0, 5, 'NOCONTENT']
+
+    # A second numeric predicate on the sortby field: the optimizer cannot pick
+    # one of them to drive the iteration.
+    compare_optimized_to_not_nocontent(
+        env, ['ft.search', 'idx', '@n:[0 60] @n:[20 80]', 'SORTBY', 'n', 'DIALECT', 2],
+        params, 'two numeric predicates')
+
+    # A weighted intersection has to be scored, so it is not optimized away.
+    compare_optimized_to_not_nocontent(
+        env, ['ft.search', 'idx', '(@n:[0 60] foo)=>{$weight: 2.0}', 'SORTBY', 'n', 'DIALECT', 2],
+        params, 'weighted phrase')
+
+    # SORTBY on a non-numeric field.
+    compare_optimized_to_not_nocontent(
+        env, ['ft.search', 'idx', 'foo', 'SORTBY', 't'], params, 'sortby text field')
 
 
 @skip()  # TODO: solve flakiness (MOD-5257)
