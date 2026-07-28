@@ -8,13 +8,12 @@
 */
 
 #include "shard_window_ratio.h"
-#include "param.h"
-#include "util/strconv.h"
+
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include "vector_index.h"
+
+#include "util/strconv.h"
+#include "query_error_ffi.h"
+#include "rmr/command.h"
 
 bool validateShardKRatio(const char *value, double *ratio, QueryError *status) {
   if (!ParseDouble(value, ratio, 1)) {

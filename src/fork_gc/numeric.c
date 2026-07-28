@@ -7,13 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "pipe.h"
-#include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
 #include "redis_index.h"
-#include "rmutil/rm_assert.h"
 #include "obfuscation/hidden.h"
 #include "iterators_ffi.h"
+#include "field_spec.h"
+#include "fork_gc.h"
+#include "fork_gc_ffi.h"
+#include "inverted_index.h"
+#include "numeric_range_tree.h"
+#include "redismodule.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
 
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);

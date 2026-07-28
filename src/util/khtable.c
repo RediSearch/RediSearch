@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "khtable.h"
-#include <stdlib.h>
+
 #include <string.h>
+
 #include "rmalloc.h"
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
