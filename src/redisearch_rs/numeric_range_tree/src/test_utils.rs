@@ -12,7 +12,6 @@
 //! Gated behind the `test_utils` feature so that production builds do not
 //! include these utilities.
 
-use index_result::RSIndexResult;
 use inverted_index::{Encoder, numeric::Numeric};
 
 use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
@@ -114,6 +113,10 @@ pub fn build_tree_at_split_edge() -> (NumericRangeTree, u64) {
 ///
 /// Uses zeroed HLL registers. For accurate HLL values, use
 /// [`NumericRangeNode::scan_gc`] directly or [`scan_node_delta_with_hll`].
+///
+/// The recomputed value bounds are always accurate — a delta carrying empty bounds
+/// would tell the parent that nothing survived, which is a different scenario from
+/// "cardinality was not computed".
 pub fn scan_node_delta(
     tree: &NumericRangeTree,
     node_idx: NodeIndex,
@@ -129,30 +132,11 @@ pub fn scan_node_delta_with_hll(
     doc_exist: &dyn Fn(u64) -> bool,
     hll_fn: impl Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
 ) -> Option<NodeGcDelta> {
-    let node = tree.node(node_idx);
-    node.range()
-        .and_then(|range| -> Option<inverted_index::GcScanDelta> {
-            range
-                .entries()
-                .scan_gc(
-                    doc_exist,
-                    None::<
-                        for<'index> fn(
-                            &RSIndexResult<'index>,
-                            &inverted_index::RepairContext<'index>,
-                        ),
-                    >,
-                )
-                .expect("scan_gc should not fail")
-        })
-        .map(|delta| {
-            let (hll_with, hll_without) = hll_fn(&delta);
-            NodeGcDelta {
-                delta,
-                registers_with_last_block: hll_with,
-                registers_without_last_block: hll_without,
-            }
-        })
+    let mut delta = tree.node(node_idx).scan_gc(doc_exist)?;
+    let (hll_with, hll_without) = hll_fn(&delta.delta);
+    delta.with_last_block.registers = hll_with;
+    delta.without_last_block.registers = hll_without;
+    Some(delta)
 }
 
 /// Scan all nodes in the tree and collect GC deltas for nodes that have work.

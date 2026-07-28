@@ -291,8 +291,8 @@ impl NumericRangeTree {
     /// all entries would go to the right child, leaving the left empty.
     ///
     /// The adjustment relies on `min_val` matching the smallest value the range
-    /// stores. Adds maintain that; GC does not, so a split can still leave one child
-    /// empty — see the `newly_empty` comment in the body.
+    /// stores, which holds because values are prepared before they reach a range and
+    /// GC recomputes the bounds over the surviving entries.
     ///
     /// # Note
     ///
@@ -361,19 +361,21 @@ impl NumericRangeTree {
         }
         drop(result);
 
-        // A split strands an empty child leaf when every entry falls on the same side
-        // of `split`, which still happens while GC leaves `min_val` stale: the guard
-        // above cannot fire against a bound no surviving entry holds. It must be
-        // counted, or a later add routed to that leaf underflows `empty_leaves` and
-        // aborts the process across the non-unwinding FFI boundary (MOD-16877). The
-        // parent had >= 1 entry, so at most one child can come out empty.
+        // A split strands an empty child leaf when every entry falls on the same side of
+        // `split`. Exact per-leaf statistics should make that unreachable: a split needs
+        // two distinct stored values, encoders keep distinct stored values numerically
+        // distinct, and the adjustment above then sends the smallest left and something
+        // larger right. The one gap is `NaN`, which compares equal to nothing and so has
+        // no split point at all. The count stays as a net either way — an uncounted empty
+        // leaf underflows `empty_leaves` on the next add routed to it and aborts the
+        // process across the non-unwinding FFI boundary (MOD-16877).
         let newly_empty = [left_idx, right_idx]
             .into_iter()
             .filter(|&i| nodes[i].range().is_some_and(|r| r.num_docs() == 0))
             .count();
         debug_assert!(
-            newly_empty <= 1,
-            "a non-empty parent must yield at least one non-empty child"
+            newly_empty == 0 || split.is_nan(),
+            "a split on comparable values must leave both children non-empty"
         );
         *empty_leaves += newly_empty;
 
@@ -392,6 +394,9 @@ impl NumericRangeTree {
     }
 
     /// Compute the median value from a range's entries.
+    ///
+    /// Returns a plain `f64`: the median is a comparison threshold from here on, and
+    /// may be adjusted with `next_up` into a value no entry holds.
     fn compute_median(range: &NumericRange) -> f64 {
         let num_entries = range.num_entries();
         if num_entries == 0 {

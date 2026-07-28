@@ -49,6 +49,151 @@ impl std::hash::Hash for NumericValue {
 /// on precision, error rate, and memory usage.
 pub type Hll = HyperLogLog6<NumericValue, WyHasher>;
 
+/// The smallest and largest value observed over a set of numeric entries.
+///
+/// Starts inverted (`min = +∞`, `max = -∞`) so the first observed value sets both
+/// ends. An interval that never observed a value stays inverted, which is exactly
+/// the sentinel [`NumericRange`] uses for "no entries".
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValueBounds {
+    min: f64,
+    max: f64,
+}
+
+impl ValueBounds {
+    /// Bounds that have observed no value at all.
+    pub const EMPTY: Self = Self {
+        min: f64::INFINITY,
+        max: f64::NEG_INFINITY,
+    };
+
+    /// Build bounds from a previously extracted `(min, max)` pair — pass
+    /// [`Self::EMPTY`]'s components to denote "no value observed".
+    pub const fn from_min_max(min: f64, max: f64) -> Self {
+        Self { min, max }
+    }
+
+    /// Widen the bounds to include `value`.
+    ///
+    /// `NaN` compares false against everything, so it never moves either end.
+    pub const fn observe(&mut self, value: StoredValue) {
+        let value = value.get();
+        if value < self.min {
+            self.min = value;
+        }
+        if value > self.max {
+            self.max = value;
+        }
+    }
+
+    /// Widen the bounds to include everything `other` observed.
+    ///
+    /// Merging [`Self::EMPTY`] is a no-op — its inverted ends must not be mistaken
+    /// for observed values.
+    pub const fn merge(&mut self, other: Self) {
+        if other.min < self.min {
+            self.min = other.min;
+        }
+        if other.max > self.max {
+            self.max = other.max;
+        }
+    }
+
+    /// The smallest observed value, or `f64::INFINITY` if none was observed.
+    pub const fn min(&self) -> f64 {
+        self.min
+    }
+
+    /// The largest observed value, or `f64::NEG_INFINITY` if none was observed.
+    pub const fn max(&self) -> f64 {
+        self.max
+    }
+}
+
+impl Default for ValueBounds {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Per-range statistics recomputed over the surviving entries during a GC scan.
+///
+/// The GC child cannot mutate the parent's ranges, so it ships these numbers back
+/// over the pipe and the parent installs them via
+/// [`NumericRange::reset_stats_after_gc`]. Cardinality and bounds travel together
+/// because they are derived from the same pass over the surviving entries and must
+/// be applied together.
+#[derive(Debug, Clone, Copy)]
+pub struct GcSurvivorStats {
+    /// HyperLogLog registers covering the surviving entries.
+    pub registers: [u8; Hll::size()],
+    /// Value bounds covering the surviving entries.
+    pub bounds: ValueBounds,
+}
+
+impl GcSurvivorStats {
+    /// Statistics for a scan that observed no surviving entry.
+    pub const EMPTY: Self = Self {
+        registers: [0; Hll::size()],
+        bounds: ValueBounds::EMPTY,
+    };
+
+    /// Length of the byte string produced by [`Self::write_to`].
+    pub const WIRE_SIZE: usize = Hll::size() + 2 * size_of::<f64>();
+
+    /// Append the wire representation of these statistics to `buffer`.
+    ///
+    /// Bounds use native byte order: the only reader is the parent of the fork that
+    /// produced them, so both ends always agree on endianness.
+    pub fn write_to(&self, buffer: &mut Vec<u8>) {
+        buffer.extend_from_slice(&self.registers);
+        buffer.extend_from_slice(&self.bounds.min().to_ne_bytes());
+        buffer.extend_from_slice(&self.bounds.max().to_ne_bytes());
+    }
+
+    /// Rebuild statistics from the [`Self::write_to`] representation.
+    ///
+    /// Returns `None` unless `bytes` is exactly [`Self::WIRE_SIZE`] long. The values
+    /// themselves are trusted: they come from this process's own GC child.
+    pub fn read_from(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != Self::WIRE_SIZE {
+            return None;
+        }
+
+        let (registers, bounds) = bytes.split_at(Hll::size());
+        let (min, max) = bounds.split_at(size_of::<f64>());
+
+        let mut stats = Self {
+            registers: [0; Hll::size()],
+            bounds: ValueBounds::from_min_max(
+                f64::from_ne_bytes(min.try_into().expect("min is 8 bytes long")),
+                f64::from_ne_bytes(max.try_into().expect("max is 8 bytes long")),
+            ),
+        };
+        stats.registers.copy_from_slice(registers);
+        Some(stats)
+    }
+}
+
+impl Default for GcSurvivorStats {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Whether a GC apply may tighten a range's value bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GcBoundsUpdate {
+    /// Shrink the bounds to what the surviving entries need. Correct for leaf
+    /// ranges, whose bounds describe exactly their own entries.
+    Tighten,
+    /// Leave the bounds untouched. Used for the ranges retained on internal nodes:
+    /// those must stay a superset of their whole subtree, and the descendants are
+    /// applied *after* the ancestor, so tightening here would leave the tree
+    /// temporarily claiming an ancestor range narrower than its children.
+    Keep,
+}
+
 /// A numeric range is a leaf-level storage unit in the numeric range tree.
 ///
 /// It stores document IDs and their associated numeric values in an inverted index,
@@ -71,17 +216,15 @@ pub struct NumericRange {
     /// The minimum value stored in this range.
     /// Initialized to `f64::INFINITY` so any value will be smaller.
     ///
-    /// A monotone *lower bound* in [`StoredValue`] form, not necessarily the smallest
-    /// value the range currently stores: it is lowered when a smaller value is added,
-    /// but never raised. GC removes entries without tightening it, so once the
-    /// documents holding the smallest value are collected it sits strictly below every
-    /// surviving value.
+    /// A [`StoredValue`] lowered by [`Self::add_without_cardinality`] when a smaller
+    /// value arrives and raised by [`Self::reset_stats_after_gc`] when GC removes the
+    /// entries that were holding it. Always a valid *lower bound*; only exactly the
+    /// smallest stored value if the last GC pass tightened it.
     min_val: f64,
     /// The maximum value stored in this range.
     /// Initialized to `f64::NEG_INFINITY` so any value will be larger.
     ///
-    /// Monotone *upper bound*, with the same caveat as [`Self::min_val`]: GC never
-    /// lowers it.
+    /// Upper bound, maintained symmetrically to [`Self::min_val`].
     max_val: f64,
     /// HyperLogLog for estimating the number of distinct values (cardinality).
     /// Used to decide when to split the range.
@@ -211,58 +354,86 @@ impl NumericRange {
         &self.hll
     }
 
-    /// Reset the HLL cardinality after garbage collection.
+    /// Reset the cardinality estimate and the value bounds after garbage collection.
     ///
-    /// This sets the HLL registers from GC scan results and re-adds entries
-    /// from blocks that were added since the fork.
+    /// The GC child recomputed both over the entries that survived its scan. This
+    /// installs those numbers, then rescans the blocks the scan could not account
+    /// for — blocks the parent appended after the fork, plus the last block when the
+    /// apply step had to ignore it — so that neither statistic misses an entry that
+    /// is still in the index.
     ///
-    /// # Arguments
+    /// `ignored_last_block` comes from the [`GcApplyInfo`] the apply step returned.
+    /// Pass [`GcBoundsUpdate::Keep`] to skip the bounds update; see that variant.
     ///
-    /// * `ignored_last_block` - Whether the last block was ignored during GC scan (from `GcApplyInfo`)
-    /// * `blocks_since_fork` - Number of new blocks added since the fork
-    /// * `registers_with_last_block` - HLL registers including the last block's cardinality
-    /// * `registers_without_last_block` - HLL registers excluding the last block's cardinality
-    pub(crate) fn reset_cardinality_after_gc(
+    /// # Bounds only tighten
+    ///
+    /// Adds and scans both observe values in stored form, so the recomputed interval
+    /// is always contained in the one already reported — asserted below, so a future
+    /// divergence surfaces here rather than as a range that stops covering its own
+    /// entries.
+    ///
+    /// [`GcApplyInfo`]: inverted_index::GcApplyInfo
+    pub(crate) fn reset_stats_after_gc(
         &mut self,
         ignored_last_block: bool,
         blocks_since_fork: usize,
-        registers_with_last_block: &[u8; Hll::size()],
-        registers_without_last_block: &[u8; Hll::size()],
+        with_last_block: &GcSurvivorStats,
+        without_last_block: &GcSurvivorStats,
+        bounds_update: GcBoundsUpdate,
     ) {
         let mut blocks_to_rescan = blocks_since_fork;
 
-        if ignored_last_block {
-            self.hll.set_registers(*registers_without_last_block);
+        let mut bounds = if ignored_last_block {
+            self.hll.set_registers(without_last_block.registers);
             blocks_to_rescan += 1; // The last block was ignored, so re-add it too
+            without_last_block.bounds
         } else {
-            self.hll.set_registers(*registers_with_last_block);
-            if blocks_to_rescan == 0 {
-                return; // No new blocks since fork, we're done
+            self.hll.set_registers(with_last_block.registers);
+            with_last_block.bounds
+        };
+
+        if blocks_to_rescan > 0 {
+            // Get the starting point for the update - iterate entries added since fork
+            let num_blocks = self.entries.num_blocks();
+            debug_assert!(
+                blocks_to_rescan <= num_blocks,
+                "The number of blocks should never decrease in between two GC runs, \
+                therefore the number of blocks to rescan can never be greater than the current number of blocks"
+            );
+            let start_idx = num_blocks - blocks_to_rescan;
+
+            if let Some(start_id) = self.entries.block_first_id(start_idx) {
+                // Iterate entries added since fork and fold them into the cardinality
+                // estimation and the bounds.
+                let mut reader = self.entries.reader();
+                reader.skip_to(start_id);
+                let mut result = RSIndexResult::build_numeric(0.0).build();
+                while reader.next_record(&mut result).unwrap_or(false) {
+                    // SAFETY: We know the result contains numeric data
+                    let value = unsafe { result.as_numeric_unchecked() };
+                    // Read back out of the index, so already in stored form.
+                    let value = StoredValue::from_decoded(value);
+                    self.hll.add(&value.into());
+                    bounds.observe(value);
+                }
             }
         }
 
-        // Get the starting point for HLL update - iterate entries added since fork
-        let num_blocks = self.entries.num_blocks();
-        debug_assert!(
-            blocks_to_rescan <= num_blocks,
-            "The number of blocks should never decrease in between two GC runs, \
-            therefore the number of blocks to rescan can never be greater than the current number of blocks"
-        );
-        let start_idx = num_blocks - blocks_to_rescan;
-        let Some(start_id) = self.entries.block_first_id(start_idx) else {
-            return;
-        };
+        if bounds_update == GcBoundsUpdate::Tighten {
+            // See "Bounds only tighten" above. An empty interval (nothing survived) is
+            // inverted, so it trivially satisfies both comparisons.
+            debug_assert!(
+                bounds.min() >= self.min_val && bounds.max() <= self.max_val,
+                "recomputed bounds [{}, {}] must be contained in the reported bounds [{}, {}] — \
+                 both are observed in stored form",
+                bounds.min(),
+                bounds.max(),
+                self.min_val,
+                self.max_val,
+            );
 
-        // Iterate entries added since fork and update the cardinality estimation
-        // via HLL.
-        let mut reader = self.entries.reader();
-        reader.skip_to(start_id);
-        let mut result = RSIndexResult::build_numeric(0.0).build();
-        while reader.next_record(&mut result).unwrap_or(false) {
-            // SAFETY: We know the result contains numeric data
-            let value = unsafe { result.as_numeric_unchecked() };
-            // Read back out of the index, so already in stored form.
-            self.hll.add(&StoredValue::from_decoded(value).into());
+            self.min_val = bounds.min();
+            self.max_val = bounds.max();
         }
     }
 }

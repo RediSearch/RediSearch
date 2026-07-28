@@ -11,14 +11,19 @@
 
 use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
-use inverted_index::numeric::PreparedValue;
-use numeric_range_tree::{NumericIndex, NumericRange};
+use inverted_index::numeric::{PreparedValue, StoredValue};
+use numeric_range_tree::{GcSurvivorStats, NumericIndex, NumericRange, ValueBounds};
 use rstest::rstest;
 
 /// Ask an uncompressed encoder how it will represent `value` — the form
 /// [`NumericRange::add`] takes.
 fn prepared(value: f64) -> PreparedValue {
     NumericIndex::prepare_for(false, value)
+}
+
+/// The value an uncompressed range will store for `value`, for [`ValueBounds`].
+fn stored(value: f64) -> StoredValue {
+    prepared(value).stored_value()
 }
 
 #[test]
@@ -215,6 +220,73 @@ fn test_inverted_index_size() {
 }
 
 // ============================================================================
+// ValueBounds / GcSurvivorStats
+// ============================================================================
+
+#[test]
+fn test_value_bounds_observe_and_merge() {
+    let mut bounds = ValueBounds::EMPTY;
+    assert_eq!(bounds.min(), f64::INFINITY);
+    assert_eq!(bounds.max(), f64::NEG_INFINITY);
+
+    bounds.observe(stored(5.0));
+    assert_eq!((bounds.min(), bounds.max()), (5.0, 5.0));
+    bounds.observe(stored(-2.0));
+    bounds.observe(stored(7.0));
+    assert_eq!((bounds.min(), bounds.max()), (-2.0, 7.0));
+
+    // NaN never moves either end.
+    bounds.observe(stored(f64::NAN));
+    assert_eq!((bounds.min(), bounds.max()), (-2.0, 7.0));
+
+    // Merging empty bounds must not drag the ends out to the inverted sentinels.
+    bounds.merge(ValueBounds::EMPTY);
+    assert_eq!((bounds.min(), bounds.max()), (-2.0, 7.0));
+
+    let mut other = ValueBounds::EMPTY;
+    other.observe(stored(-10.0));
+    other.observe(stored(3.0));
+    bounds.merge(other);
+    assert_eq!((bounds.min(), bounds.max()), (-10.0, 7.0));
+
+    // Merging into empty bounds adopts the other interval.
+    let mut empty = ValueBounds::EMPTY;
+    empty.merge(bounds);
+    assert_eq!((empty.min(), empty.max()), (-10.0, 7.0));
+}
+
+#[test]
+fn test_gc_survivor_stats_wire_round_trip() {
+    let mut bounds = ValueBounds::EMPTY;
+    bounds.observe(stored(-1.5));
+    bounds.observe(stored(1024.25));
+    let stats = GcSurvivorStats {
+        registers: std::array::from_fn(|i| i as u8),
+        bounds,
+    };
+
+    let mut buffer = Vec::new();
+    stats.write_to(&mut buffer);
+    assert_eq!(buffer.len(), GcSurvivorStats::WIRE_SIZE);
+
+    let decoded = GcSurvivorStats::read_from(&buffer).expect("a full-size buffer should decode");
+    assert_eq!(decoded.registers, stats.registers);
+    assert_eq!(decoded.bounds, stats.bounds);
+
+    // The empty sentinel survives the round trip too — the parent must be able to
+    // tell "nothing survived" from "bounds unknown".
+    let mut buffer = Vec::new();
+    GcSurvivorStats::EMPTY.write_to(&mut buffer);
+    let decoded = GcSurvivorStats::read_from(&buffer).expect("a full-size buffer should decode");
+    assert_eq!(decoded.bounds, ValueBounds::EMPTY);
+
+    // Anything but an exact-size buffer is rejected.
+    assert!(GcSurvivorStats::read_from(&buffer[..buffer.len() - 1]).is_none());
+    buffer.push(0);
+    assert!(GcSurvivorStats::read_from(&buffer).is_none());
+}
+
+// ============================================================================
 // Stored-value quantization
 // ============================================================================
 
@@ -264,9 +336,9 @@ fn test_signed_zeros_are_one_stored_value(#[values(false, true)] compress_floats
 
 #[rstest]
 fn test_geohash_values_are_stored_exactly(#[values(false, true)] compress_floats: bool) {
-    // GEO fields share this tree: `encodeGeo` yields a 52-bit integral geohash, which
-    // takes the encoder's integer path and is never rounded — with or without float
-    // compression. Quantization must therefore be the identity here.
+    // GEO fields share this tree: `encodeGeo` yields a 52-bit integer as an f64,
+    // which takes the encoder's integer path and is never rounded — with or without
+    // float compression. Quantization must therefore be the identity here.
     let geohashes = [0.0, 1.0, 3_659_155_824_453_222.0, (1u64 << 52) as f64 - 1.0];
 
     let index = NumericIndex::new(compress_floats);
@@ -274,7 +346,7 @@ fn test_geohash_values_are_stored_exactly(#[values(false, true)] compress_floats
         assert_eq!(
             index.prepare(geohash).stored_value().get(),
             geohash,
-            "geohash {geohash} must survive preparation unchanged"
+            "geohash {geohash} must survive quantization unchanged"
         );
     }
 

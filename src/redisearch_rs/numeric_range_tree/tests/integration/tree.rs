@@ -206,16 +206,13 @@ fn test_split_with_identical_values() {
 /// Estimating cardinality over the inputs instead made such a leaf look
 /// high-cardinality, split it, and strand an empty child — the compression route into
 /// the MOD-16877 crash. Preparing values on the way in closes it: no split fires.
-///
-/// The stale-`min_val` route is still open here, which is why `split_node` keeps
-/// counting empty children — see `test_split_after_gc_stale_min_counts_empty_leaf`.
 #[test]
 fn test_compression_collapse_does_not_inflate_cardinality() {
     let mut tree = NumericRangeTree::new(true); // float compression ON
 
     // Distinct f64 values tightly clustered within a single f32 rounding bucket
     // around 100.5 (exactly representable in f32). Each differs from the next by
-    // 1e-7 — far above the f64 ULP near 100.5 (~1e-14), so they are distinct to
+    // 1e-7 — far above the f64 ULP near 100.5 (~1e-14), so they were distinct to
     // the HLL cardinality estimator, but far below the f32 ULP near 100.5
     // (~7.6e-6), so all round to the same stored f32 (100.5), well within the
     // 0.01 compression threshold.
@@ -252,21 +249,15 @@ fn test_compression_collapse_does_not_inflate_cardinality() {
     assert_eq!(tree.empty_leaves(), 0);
 }
 
-/// Same `empty_leaves` underflow as
-/// `test_compression_collapse_does_not_inflate_cardinality` (MOD-16877), reached
-/// with float compression *disabled* — compression is not required to strand an
-/// empty child leaf.
+/// A leaf whose smallest-valued documents were all collected must not strand an empty
+/// child when it splits.
 ///
-/// The other ingredient is a stale `min_val`. GC removes entries from a range but
-/// never raises its bounds, so a leaf whose smallest-valued documents were all
-/// collected keeps reporting the old minimum. `split_node`'s
-/// `split == min_val` guard then compares the median of the *surviving* entries
-/// against a bound no surviving entry has, so it does not fire. If a majority of
-/// the survivors share the smallest surviving value, that value *is* the median
-/// and becomes the split point, so every entry satisfies `value >= split` and
-/// lands in the right child — leaving the left child empty.
+/// While GC left `min_val` stale, `split_node`'s guard compared the median of the
+/// survivors against a bound no survivor held, so it split *at* the smallest surviving
+/// value and sent every entry one way — the compression-free route into the MOD-16877
+/// crash. Recomputing the bounds over the survivors closes it.
 #[test]
-fn test_split_after_gc_stale_min_counts_empty_leaf() {
+fn test_split_after_gc_does_not_strand_empty_leaf() {
     let mut tree = NumericRangeTree::new(false); // float compression OFF
 
     /// Number of documents sharing the value 100.0. They must remain a majority of
@@ -284,8 +275,8 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     assert!(tree.root().is_leaf());
     assert_eq!(tree.empty_leaves(), 0, "the root leaf holds every document");
 
-    // Delete doc 1 and collect it. Its entry is physically removed and the HLL is
-    // re-estimated over the survivors, but `min_val` stays 0.0.
+    // Delete doc 1 and collect it. Its entry is physically removed and both the HLL
+    // and the bounds are recomputed over the survivors.
     gc_all_ranges(&mut tree, &|doc_id| doc_id != 1);
     assert_eq!(tree.num_entries(), MAJORITY as usize);
     assert_eq!(
@@ -295,8 +286,8 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     );
     assert_eq!(
         tree.root().range().unwrap().min_val(),
-        0.0,
-        "GC must not raise a range's lower bound — that staleness is the trigger"
+        100.0,
+        "GC must raise the lower bound to the smallest surviving value"
     );
 
     // Push cardinality over the split threshold using distinct values strictly
@@ -313,30 +304,26 @@ fn test_split_after_gc_stale_min_counts_empty_leaf() {
     }
     assert!(split_fired, "distinct values should trigger a split");
 
-    // The split point is the median (100.0), not `next_up(min_val)`, so every
-    // entry went right and the left leaf is empty.
-    assert_eq!(tree.root().split_value(), Some(100.0));
-    let (left_idx, _) = tree.root().child_indices().unwrap();
-    assert_eq!(
-        tree.node(left_idx).range().unwrap().num_docs(),
-        0,
-        "the split should have left the left child empty"
-    );
+    // The median now equals the (tightened) `min_val`, so the split point is
+    // `next_up(100.0)`: the block of 100.0s goes left, everything above goes right.
+    assert_eq!(tree.root().split_value(), Some(100.0f64.next_up()));
+    let (left_idx, right_idx) = tree.root().child_indices().unwrap();
+    for (label, idx) in [("left", left_idx), ("right", right_idx)] {
+        assert!(
+            tree.node(idx).range().unwrap().num_docs() > 0,
+            "the {label} child should have received entries"
+        );
+    }
     assert_eq!(
         tree.empty_leaves(),
-        1,
-        "the empty child leaf created by the split must be counted"
+        0,
+        "the split should not strand an empty leaf at all"
     );
 
-    // Any later value below the split point is routed to that empty leaf. Before
-    // the fix this decremented `empty_leaves` from 0, underflowing the counter and
-    // aborting the process across the non-unwinding FFI boundary.
+    // The add that used to hit the underflow: a value below the split point. It is
+    // routed to a populated leaf now, so the counter is never decremented.
     tree.add(doc_id, 50.0, false, 0);
-    assert_eq!(
-        tree.empty_leaves(),
-        0,
-        "re-populating the empty leaf should bring the counter back to zero"
-    );
+    assert_eq!(tree.empty_leaves(), 0);
 }
 
 #[test]
