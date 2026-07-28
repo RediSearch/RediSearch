@@ -11,7 +11,7 @@ extern crate redisearch_rs;
 
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-use hidden_string::HiddenStringRef;
+use hidden_string::HiddenString;
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -22,11 +22,9 @@ use pretty_assertions::assert_eq;
 fn get_secret_value() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
-    let sut = unsafe { HiddenStringRef::from_raw(ffi_hs) };
+    let sut = unsafe { HiddenString::from_raw(ffi_hs) };
 
-    let actual = sut.into_secret_value();
-
-    assert_eq!(actual, input);
+    assert_eq!(sut.secret_value(), input);
 
     unsafe { ffi::HiddenString_Free(ffi_hs, false) };
 }
@@ -39,11 +37,9 @@ fn get_secret_value() {
 fn debug_output() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
-    let hs = unsafe { HiddenStringRef::from_raw(ffi_hs) };
+    let hs = unsafe { HiddenString::from_raw(ffi_hs) };
 
-    let actual = format!("{hs:?}");
-
-    assert_eq!(actual, "HiddenStringRef(****)");
+    assert_eq!(format!("{hs:?}"), "HiddenString(****)");
 
     unsafe { ffi::HiddenString_Free(ffi_hs, false) };
 }
@@ -56,11 +52,9 @@ fn debug_output() {
 fn pointer_output() {
     let input = c"Ab#123!";
     let ffi_hs = unsafe { ffi::NewHiddenString(input.as_ptr(), input.count_bytes(), false) };
-    let hs = unsafe { HiddenStringRef::from_raw(ffi_hs) };
+    let hs = unsafe { HiddenString::from_raw(ffi_hs) };
 
-    let actual = format!("{hs:p}");
-
-    assert!(actual.starts_with("0x"));
+    assert!(format!("{hs:p}").starts_with("0x"));
 
     unsafe { ffi::HiddenString_Free(ffi_hs, false) };
 }

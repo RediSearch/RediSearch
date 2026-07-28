@@ -12,53 +12,45 @@
 use std::{
     ffi::CStr,
     fmt::{self, Debug, Pointer},
-    marker::PhantomData,
-    ptr::NonNull,
 };
 
-/// A safe wrapper around a non-null `ffi::HiddenString` reference.
-#[derive(Clone, Copy)]
+/// A safe wrapper around `ffi::HiddenString`
 #[repr(transparent)]
-pub struct HiddenStringRef<'a>(
-    NonNull<ffi::HiddenString>,
-    PhantomData<&'a ffi::HiddenString>,
-);
+pub struct HiddenString(ffi::HiddenString);
 
-impl<'a> HiddenStringRef<'a> {
-    /// Create a `HiddenStringRef` wrapper from a non-null pointer.
+impl HiddenString {
+    /// Get a [`HiddenString`] reference from a raw pointer.
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to an `ffi::HiddenString` that is properly initialized.
-    ///    This also applies to any of its subfields.
-    /// 2. The pointed to `ffi::HiddenString` must not be mutated for the entire lifetime of the returned `HiddenStringRef`.
-    ///
-    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw(ptr: *const ffi::HiddenString) -> Self {
-        Self(
-            NonNull::new(ptr.cast_mut()).expect("HiddenString ptr must be non-null"),
-            PhantomData,
-        )
+    /// 1. `ptr` must be a valid, non-null pointer to a properly initialized
+    ///    `ffi::HiddenString`, including its subfields.
+    /// 2. The pointee must not be mutated for the entire lifetime `'a`.
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
+        // SAFETY: Ensured by caller (1., 2.)
+        unsafe {
+            ptr.cast::<Self>()
+                .as_ref()
+                .expect("HiddenString ptr must be non-null")
+        }
     }
 
     /// Return the raw pointer to the underlying [`ffi::HiddenString`].
-    pub const fn as_ptr(&self) -> *mut ffi::HiddenString {
-        self.0.as_ptr()
+    pub const fn as_ptr(&self) -> *const ffi::HiddenString {
+        &raw const self.0
     }
 
     /// Get the secret (aka. "unsafe" in C land) value from the underlying [`ffi::HiddenString`].
     ///
     /// This is safe **only if** the C function returns a pointer that stays valid
     /// for at least the lifetime of `self`, and the memory contains a NUL at `len`.
-    ///
-    /// This consumes the `HiddenStringRef` and can only be called once.
-    pub fn into_secret_value(self) -> &'a CStr {
+    pub fn secret_value(&self) -> &CStr {
         let mut len = 0;
 
         // Safety:
-        // - `len` is a local variable that we just allocated and is not being referenced anywhere else.
-        // - `self.0` is a valid non-null pointer to an `ffi::HiddenString` due to creation with `HiddenStringRef::from_raw`
-        let data = unsafe { ffi::HiddenString_GetUnsafe(self.0.as_ptr(), &mut len) };
+        // - `len` is a local variable that is not referenced anywhere else.
+        // - `self.as_ptr()` is a valid, non-null `ffi::HiddenString`.
+        let data = unsafe { ffi::HiddenString_GetUnsafe(self.as_ptr(), &mut len) };
         debug_assert!(!data.is_null(), "data must not be null");
 
         // The length doesn't include the nul terminator so we need to add one.
@@ -70,16 +62,16 @@ impl<'a> HiddenStringRef<'a> {
     }
 }
 
-impl Debug for HiddenStringRef<'_> {
+impl Debug for HiddenString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("HiddenStringRef")
+        f.debug_tuple("HiddenString")
             .field(&format_args!("****"))
             .finish()
     }
 }
 
-impl Pointer for HiddenStringRef<'_> {
+impl Pointer for HiddenString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Pointer::fmt(&self.0, f)
+        Pointer::fmt(&self.as_ptr(), f)
     }
 }

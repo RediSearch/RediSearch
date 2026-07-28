@@ -91,7 +91,7 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
             continue;
         };
 
-        let field_name = entry.key().into_secret_value();
+        let field_name = entry.key().secret_value();
         Frame::data(field_name.to_bytes()).encode(writer)?;
         deltas
             .serialize(&mut rmp_serde::Serializer::new(&mut *writer))

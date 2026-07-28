@@ -113,7 +113,7 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         .filter_map(|fs| fs.tree().map(|tree| (fs, tree)))
     {
         // Send field header: Frame::Data(field_name) + raw u64 unique_id.
-        let field_name = fs.field_name().into_secret_value().to_bytes();
+        let field_name = fs.field_name().secret_value().to_bytes();
         Frame::data(field_name).encode(writer)?;
         // The C side stores the u32 tree ID in a u64 before sending (zero-extends).
         let unique_id: u64 = u32::from(tree.unique_id()).into();
