@@ -9,7 +9,8 @@ Features:
 - Processes extracted tar shards directly
 - HASH (HSET) or JSON (JSON.SET) document format via --doc-format
 - Adds 64 tags with varying cardinality (HIGH/MEDIUM/LOW)
-- Deterministic tag assignment via CRC32 hash
+- Adds 4 NUMERIC fields (n_uniform, n_uniform_small, n_cat, doc_len)
+- Deterministic tag/numeric assignment via CRC32 hash
 - Buffered I/O for fast disk writes
 
 Usage:
@@ -124,6 +125,51 @@ def generate_tags_for_doc(doc_id: str) -> str:
         tags.append(ALL_TAGS[base_hash & 7])  # Fast modulo 8
 
     return ",".join(tags)
+
+
+# =============================================================================
+# NUMERIC FIELD GENERATION (deterministic, like tags)
+# =============================================================================
+
+# Suffix-hashed like the tags so the synthetic fields stay statistically
+# decoupled — reusing base_hash % k directly for several fields would couple
+# them arithmetically (e.g. n_cat would be a function of n_uniform).
+N_UNIFORM_HI_SUFFIX = b":n_uniform_hi"
+N_UNIFORM_LO_SUFFIX = b":n_uniform"
+N_UNIFORM_SMALL_SUFFIX = b":n_uniform_small"
+N_CAT_SUFFIX = b":n_cat"
+
+# n_uniform spans [-100_000_000, 100_000_000] inclusive.
+N_UNIFORM_SPAN = 200_000_001
+N_UNIFORM_OFFSET = 100_000_000
+
+
+def generate_numeric_fields_for_doc(doc_id: str, body: str) -> Tuple[int, int, int, int]:
+    """
+    Deterministic NUMERIC field values for a document.
+
+    Returns (n_uniform, n_uniform_small, n_cat, doc_len):
+    - n_uniform: uniform in [-100000000, 100000000] — large scale, mostly
+      unique values (~2e8 possible values vs ~6M docs); exact selectivities
+      for range queries.
+    - n_uniform_small: uniform in [0, 100000) — same uniformity at lower
+      cardinality (~60 docs share each value at 6M docs), isolating the
+      duplicates-per-value axis at matched selectivities.
+    - n_cat: uniform in [0, 10) — extreme duplication, ~10% of docs per value
+    - doc_len: raw body length — natural skewed distribution. Computed from
+      the raw body (before HASH escaping / JSON normalization) so the value is
+      identical across both document formats.
+    """
+    base_hash = zlib.crc32(doc_id.encode('utf-8'))
+    # Two independent CRC32s combined into 64 bits: a single 32-bit hash
+    # taken modulo ~2e8 would carry a ~2.5% modulo bias, breaking the exact
+    # selectivity guarantee.
+    hi = zlib.crc32(N_UNIFORM_HI_SUFFIX, base_hash)
+    lo = zlib.crc32(N_UNIFORM_LO_SUFFIX, base_hash)
+    n_uniform = ((hi << 32) | lo) % N_UNIFORM_SPAN - N_UNIFORM_OFFSET
+    n_uniform_small = zlib.crc32(N_UNIFORM_SMALL_SUFFIX, base_hash) % 100_000
+    n_cat = zlib.crc32(N_CAT_SUFFIX, base_hash) % 10
+    return n_uniform, n_uniform_small, n_cat, len(body)
 
 
 def escape_redis_string(s: str) -> str:
@@ -268,8 +314,10 @@ def generate_setup_commands_from_shards(
             if doc_count >= doc_limit:
                 break
 
-            # Generate tags for this document
+            # Generate tags and numeric fields for this document
             tags = generate_tags_for_doc(doc_id)
+            n_uniform, n_uniform_small, n_cat, doc_len = generate_numeric_fields_for_doc(
+                doc_id, doc.get("body") or "")
 
             # Track tag distribution
             for tag in tags.split(","):
@@ -293,6 +341,11 @@ def generate_setup_commands_from_shards(
                     "headings": normalize_text(doc.get("headings", "")),
                     "body": normalize_text(doc.get("body", "")),
                     "tags": tags,
+                    # JSON numbers (not strings) so NUMERIC indexing works.
+                    "n_uniform": n_uniform,
+                    "n_uniform_small": n_uniform_small,
+                    "n_cat": n_cat,
+                    "doc_len": doc_len,
                 })
                 writer.writerow([
                     "WRITE", "W1", "1", "JSON.SET", doc_key, "$", json_doc
@@ -312,7 +365,11 @@ def generate_setup_commands_from_shards(
                     "title", title,
                     "headings", headings,
                     "body", body,
-                    "tags", tags
+                    "tags", tags,
+                    "n_uniform", n_uniform,
+                    "n_uniform_small", n_uniform_small,
+                    "n_cat", n_cat,
+                    "doc_len", doc_len
                 ])
 
             doc_count += 1
@@ -357,6 +414,38 @@ BENCHMARK_QUERIES = {
         "@tags:{t01} covid",
         "(@tags:{t01|t02}) @title:diabetes",
         "@tags:{t01} health -@url:wikipedia",
+    ],
+    # Selectivities on the synthetic fields are exact by construction
+    # (n_uniform is uniform over the 2e8+1 values in [-1e8, 1e8],
+    # n_uniform_small over [0, 100000), n_cat over [0, 10)); doc_len
+    # selectivities are approximate (natural distribution). Numeric ranges
+    # are valid under the default dialect — no DIALECT argument needed.
+    "numeric": [
+        # n_uniform (large scale, mostly unique values): selectivity ladder
+        "@n_uniform:[0 1999]",                       # needle range, 0.001%
+        "@n_uniform:[0 199999]",                     # 0.1%
+        "@n_uniform:[0 1999999]",                    # 1%
+        "@n_uniform:[0 19999999]",                   # 10%
+        "@n_uniform:[0 99999999]",                   # 50%
+        # n_uniform: operator shapes at fixed selectivity
+        "@n_uniform:[-999999 999999]",               # crosses zero, ~1%
+        "@n_uniform:[-inf -80000001]",               # open lower, 10%
+        "@n_uniform:[80000001 +inf]",                # open upper, 10%
+        "@n_uniform:[(0 (2000000]",                  # exclusive bounds, ~1%
+        "-@n_uniform:[-100000000 79999999]",         # NOT, 10%
+        "(@n_uniform:[0 1999999] | @n_uniform:[50000000 51999999])",  # OR, 2%
+        # n_uniform_small (~60 docs/value at 6M docs): duplicates-per-value
+        # axis at selectivities matched to the n_uniform ladder
+        "@n_uniform_small:[500 500]",                # point w/ duplicates, 0.001%
+        "@n_uniform_small:[0 999]",                  # 1%, vs n_uniform 1%
+        # n_cat (10 distinct values): huge per-value postings
+        "@n_cat:[3 3]",                              # single value, 10%
+        "@n_cat:[3 7]",                              # 5 of 10 values, 50%
+        # doc_len (natural skew): realistic value distribution
+        "@doc_len:[0 1000]",                         # short docs (approx. selectivity)
+        "@doc_len:[50000 +inf]",                     # long-tail docs (approx. selectivity)
+        # cross-field compound
+        "(@n_uniform:[0 19999999] @n_cat:[3 3])",    # AND, 1%
     ],
 }
 
@@ -573,7 +662,7 @@ def main():
         print("\n")
         # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
         # category — including tag predicates — is valid for both formats.
-        query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "all"]
+        query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "numeric", "all"]
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
             generate_query_commands(query_file, category, args.index_name, args.num_queries)
@@ -591,18 +680,26 @@ def main():
     print(f"\nSchema for FT.CREATE:")
     if args.doc_format == "json":
         print(f"  FT.CREATE {args.index_name} ON JSON PREFIX 1 {args.key_prefix} SCHEMA \\")
-        print(f"    $.url      AS url      TEXT \\")
-        print(f"    $.title    AS title    TEXT \\")
-        print(f"    $.headings AS headings TEXT \\")
-        print(f"    $.body     AS body     TEXT \\")
-        print(f'    $.tags     AS tags     TAG SEPARATOR ","')
+        print(f"    $.url       AS url       TEXT \\")
+        print(f"    $.title     AS title     TEXT \\")
+        print(f"    $.headings  AS headings  TEXT \\")
+        print(f"    $.body      AS body      TEXT \\")
+        print(f'    $.tags            AS tags            TAG SEPARATOR "," \\')
+        print(f"    $.n_uniform       AS n_uniform       NUMERIC \\")
+        print(f"    $.n_uniform_small AS n_uniform_small NUMERIC \\")
+        print(f"    $.n_cat           AS n_cat           NUMERIC \\")
+        print(f"    $.doc_len         AS doc_len         NUMERIC")
     else:
         print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
         print(f"    url TEXT \\")
         print(f"    title TEXT \\")
         print(f"    headings TEXT \\")
         print(f"    body TEXT \\")
-        print(f'    tags TAG SEPARATOR ","')
+        print(f'    tags TAG SEPARATOR "," \\')
+        print(f"    n_uniform NUMERIC \\")
+        print(f"    n_uniform_small NUMERIC \\")
+        print(f"    n_cat NUMERIC \\")
+        print(f"    doc_len NUMERIC")
     # tags is stored as a comma-separated scalar string in both HASH and JSON and
     # indexed as TAG. JSON TAG fields default to no separator, so the explicit
     # SEPARATOR "," is required for JSON to split the scalar identically to HASH.
