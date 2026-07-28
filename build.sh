@@ -220,6 +220,8 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$SAN" == "alignment" ]]; then
+    FLAVOR="debug-alignment"
   elif [[ "$RUN_MIRI" == "1" ]]; then
     FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
@@ -588,8 +590,8 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
   fi
 
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
   if [[ -n "$SAN" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
   fi
 

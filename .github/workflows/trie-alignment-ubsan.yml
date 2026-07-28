@@ -1,0 +1,51 @@
+name: Trie Alignment UBSan
+
+on:
+  pull_request:
+    paths:
+      - CMakeLists.txt
+      - build.sh
+      - sbin/unit-tests
+      - src/trie/**
+      - tests/cpptests/test_cpp_trie.cpp
+      - .github/workflows/trie-alignment-ubsan.yml
+  workflow_dispatch:
+
+jobs:
+  trie-alignment-ubsan:
+    name: Trie child-key alignment UBSan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    env:
+      REDISEARCH_GENERATE_HEADERS: "0"
+      RUST_BACKTRACE: full
+      RUSTFLAGS: "-Dwarnings"
+
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          install-script: "true"
+          rust-cache: "true"
+          rust-cache-key: trie-alignment-ubsan
+          rust-test-deps: "true"
+          github-token: ${{ github.token }}
+
+      - name: Run trie child-key alignment repro
+        env:
+          ENABLE_ASSERT: 1
+          SAN: alignment
+          VERBOSE_UTESTS: 1
+        run: ./build.sh RUN_UNIT_TESTS SAN=alignment TEST='TrieTest.test.*ScansPackedChildKeys'
