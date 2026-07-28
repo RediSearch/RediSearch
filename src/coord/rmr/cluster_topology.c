@@ -8,13 +8,16 @@
 */
 
 #include "cluster_topology.h"
+
+#include <netinet/in.h>
+#include <stdbool.h>
+
 #include "endpoint.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
-
-#include <arpa/inet.h>
+#include "rmr/node.h"
 
 MRClusterShard MR_NewClusterShard(MRClusterNode *node, RedisModuleSlotRangeArray *slotRanges) {
   MRClusterShard ret = (MRClusterShard){

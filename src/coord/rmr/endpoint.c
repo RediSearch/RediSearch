@@ -8,9 +8,10 @@
 */
 #include <string.h>
 #include <stdlib.h>
+
 #include "endpoint.h"
-#include "hiredis/hiredis.h"
 #include "rmalloc.h"
+#include "hiredis/read.h"
 
 int MREndpoint_Parse(const char *addr, MREndpoint *ep) {
   // zero out the endpoint, assuming it's uninitialized. This is important for freeing it later.

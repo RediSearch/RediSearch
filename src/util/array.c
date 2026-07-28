@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "array.h"
+
+#include <string.h>
+
 #include "rmalloc.h"
 #include "util/minmax.h"
 

@@ -6,13 +6,37 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+#include <time.h>
+
 #include "document.h"
-#include "stemmer.h"
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
-#include "obfuscation/obfuscation_api.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "config.h"
+#include "document_rs.h"
+#include "field_spec.h"
+#include "json.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rejson_api.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "spec.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/arr/arr.h"
+#include "value_ffi.h"
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000

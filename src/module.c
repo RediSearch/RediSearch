@@ -8,14 +8,18 @@
 */
 #define REDISMODULE_MAIN
 
-#include <assert.h>
-#include "triemap_ffi.h"
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/param.h>
-#include <time.h>
+#include <errno.h>
+#include <math.h>
+#include <pthread.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <strings.h>
 
+#include "triemap_ffi.h"
 #include "commands.h"
 #include "command_info/command_info.h"
 #include "document.h"
@@ -30,10 +34,8 @@
 #include "spec.h"
 #include "indexes.h"
 #include "indexes_scan.h"
-#include "util/logging.h"
 #include "util/workers.h"
 #include "util/references.h"
-#include "util/mempool.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
 #include "rmalloc.h"
@@ -46,15 +48,11 @@
 #include "alias.h"
 #include "module.h"
 #include "info/info_command.h"
-#include "rejson_api.h"
-#include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
 #include "query_error_ffi.h"
 #include "coord/rmr/rmr.h"
 #include "shard_window_ratio.h"
-
-#include "hiredis/async.h"
 #include "coord/rmr/reply.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/rmr/redise.h"
@@ -67,7 +65,6 @@
 #include "coord/cluster_spell_check.h"
 #include "coord/info_command.h"
 #include "info/global_stats.h"
-#include "util/units.h"
 #include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
 #include "info/info_redis/threads/current_thread.h"
@@ -86,7 +83,44 @@
 #include "aggregate/reply_empty.h"
 #include "module_init_ffi.h"
 #include "asm_state_machine.h"
-#include "config.h"
+#include "VecSim/vec_sim_common.h"
+#include "aggregate/functions/function.h"
+#include "concurrent_ctx.h"
+#include "doc_table.h"
+#include "extension.h"
+#include "field_spec.h"
+#include "gc.h"
+#include "hiredis/alloc.h"
+#include "indexes_scanner.h"
+#include "info/index_error.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "param.h"
+#include "query_flags.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "rmr/cluster_topology.h"
+#include "rmr/command.h"
+#include "rmutil/rm_assert.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_options.h"
+#include "slots_tracker_ffi.h"
+#include "special_case_ctx.h"
+#include "stopwords.h"
+#include "synonym_map.h"
+#include "trie/trie.h"
+#include "util/arr/arr.h"
+#include "util/dict/dict.h"
+#include "util/heap.h"
+#include "util/khash.h"
+#include "util/mempool/mempool.h"
+#include "vector_index.h"
+#include "version.h"
+
+struct ConcurrentCmdCtx;
+struct MRCtx;
 #ifdef ENABLE_ASSERT
 #include <unistd.h>  // for usleep in coordinator reduce pause
 #endif
@@ -2114,6 +2148,7 @@ typedef struct {
 } searchResult;
 
 struct searchReducerCtx; // Predecleration
+
 typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx, RedisModuleCtx *ctx);
 typedef void (*postProcessReplyCB)( struct searchReducerCtx *rCtx);
 
