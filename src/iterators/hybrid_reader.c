@@ -274,8 +274,13 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
 
   // Normalize query vector for cosine metric (RAM path only - disk handles this internally).
   if (hr->indexMetric == VecSimMetric_Cosine) {
-    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
-    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    size_t vec_size = hr->dimension * VecSimType_sizeof(hr->vecType);
+    // For some cases blob_size may be larger than vec_size.
+    // For example, for INT8/UINT8, VecSim_Normalize appends the norm (a float) at the
+    // end of the blob.
+    size_t blob_size = VecSimParams_GetQueryBlobSize(hr->vecType, hr->dimension, hr->indexMetric);
+    qvector = rm_malloc(blob_size);
+    memcpy(qvector, hr->query.vector, vec_size);
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 
