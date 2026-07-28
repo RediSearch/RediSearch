@@ -1,0 +1,9 @@
+type: '@gdesmott/cargo-nextest'
+typeVersion: 2026.08.06.1
+id: 60e649c9-c47a-4a27-b297-ef14c7bf6cc3
+name: rust-tests
+version: 1
+tags: {}
+globalArguments:
+  workingDir: src/redisearch_rs
+methods: {}
