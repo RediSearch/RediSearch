@@ -277,10 +277,8 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
-    // Capture request-scoped config once, on the constructing thread — the
-    // main thread, now that dispatch allocates requests before blocking. See
-    // the RequestConfig contract in config.h: after parse the config is
-    // read-only and nothing may re-read RSGlobalConfig.
+    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
+    // the request's lifetime.
     hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
