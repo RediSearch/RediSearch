@@ -58,13 +58,8 @@ impl<'a> KeyValuesIterator<'a> {
         api: &'a RedisJsonApi,
         len: usize,
     ) -> Self {
-        let vtable = api.vtable();
-        let next = vtable
-            .nextKeyValue
-            .expect("RedisJSON API function `nextKeyValue` not available");
-        let free = vtable
-            .freeKeyValuesIter
-            .expect("RedisJSON API function `freeKeyValuesIter` not available");
+        let next = vtable_fn!(api, nextKeyValue);
+        let free = vtable_fn!(api, freeKeyValuesIter);
 
         Self {
             ptr,
