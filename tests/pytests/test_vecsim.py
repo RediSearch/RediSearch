@@ -2630,3 +2630,45 @@ def test_vector_index_ptr_valid(env):
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()
+
+
+def test_hybrid_adhoc_int8_uint8_cosine():
+    """
+    Test hybrid ad-hoc brute force search with INT8/UINT8 vectors and Cosine metric.
+    This covers query-vector normalization in computeDistances_RAM.
+    """
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    dim = 4
+    qty = 10
+    k = 3
+
+    for data_type in ('INT8', 'UINT8'):
+        index_args = ['TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'COSINE']
+        conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT',
+                             len(index_args), *index_args, 't', 'TEXT')
+
+        query_vec = None
+        for i in range(1, qty + 1):
+            type_limit = 127 if data_type == 'INT8' else 255
+            vector_values = [min(type_limit, i + j) for j in range(dim)]
+            query_vec = create_np_array_typed(vector_values, data_type)
+            conn.execute_command('HSET', i, 'v', query_vec.tobytes(), 't', 'text')
+
+        res = env.cmd('FT.SEARCH', 'idx', f'(text)=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                      'SORTBY', '__v_score',
+                      'PARAMS', 2, 'vec_param', query_vec.tobytes(),
+                      'RETURN', 2, 't', '__v_score')
+
+        env.assertEqual(res[0], k, message=f'{data_type}: expected {k} results')
+        debug_info = to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v'))
+        env.assertEqual(debug_info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=data_type)
+
+        env.assertEqual(res[1], str(qty),
+                        message=f'{data_type}: expected doc {qty} to be the closest result. res = {res}')
+        first_res_values = res[2]
+        first_res_dist = first_res_values[first_res_values.index('__v_score') + 1]
+        env.assertEqual(float(first_res_dist), 0,
+                        message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
+
+        conn.execute_command('FLUSHALL')
