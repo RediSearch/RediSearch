@@ -288,7 +288,11 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     rs_wall_clock_init(&now);
 
     // Initialize error tracking for each individual request
-    hybridReq->errors = array_new(QueryError, nrequests);
+    // array_newlen, not array_new: the elements are written by direct indexing
+    // rather than appended, so a capacity-only array would keep array_len at 0 and
+    // HybridRequest_Free's array_free_ex would clear none of them, leaking any
+    // message stored in errors[i].
+    hybridReq->errors = array_newlen(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states
