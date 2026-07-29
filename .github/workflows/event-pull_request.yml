@@ -51,6 +51,14 @@ jobs:
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml
 
+  # Deliberately not gated on check-what-changed: it runs in seconds, and a check
+  # whose entire subject is .github/** should not be skipped based on what else
+  # the PR touched.
+  zizmor:
+    permissions:
+      contents: read # actions/checkout
+    uses: ./.github/workflows/task-zizmor.yml
+
   # ------------------------------------------------------------------
   # Per-job-type pipelines. Each runs its own build → test fan-out
   # independently of the others.
@@ -143,6 +151,7 @@ jobs:
       - get-latest-redis-tag
       - check-what-changed
       - spellcheck
+      - zizmor
       - lint
       - basic-test
       - coverage

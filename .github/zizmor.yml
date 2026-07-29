@@ -2,12 +2,12 @@
 # Reference: https://docs.zizmor.sh/configuration/
 #
 # This file is policy only: which action references may stay on a moving tag, and
-# which audits are deliberately suppressed. The CI job that runs zizmor is wired
-# up separately, and gates PRs at --min-severity=high --min-confidence=high — so
-# the audits we have not triaged yet (artipacked, secrets-inherit, medium
-# excessive-permissions, github-env, unpinned-images, dangerous-triggers) do not
-# block PRs. Lowering either threshold is how you pick the next batch up; expect
-# findings.
+# which audits are deliberately suppressed. The job that runs zizmor is
+# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=high
+# --min-confidence=high — so the audits we have not triaged yet (artipacked,
+# secrets-inherit, medium excessive-permissions, github-env, unpinned-images,
+# dangerous-triggers) do not block PRs. Lowering either threshold is how you pick
+# the next batch up; expect findings.
 rules:
   github-app:
     ignore:
