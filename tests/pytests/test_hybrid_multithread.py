@@ -1,4 +1,3 @@
-import glob
 import numpy as np
 import threading
 from RLTest import Env
@@ -100,18 +99,16 @@ def test_hybrid_multithread():
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 
 
-@skip(cluster=True)
+# Skipped on musl, which admits a reader past a queued writer, so the try-lock
+# never fails there. glibc (writer-preferring, see IndexSpec_InitLock) and Darwin
+# both fail it.
+@skip(cluster=True, musl=True)
 def test_hybrid_depleter_lock_failure_replies_error():
     """A depleter that loses the spec try-lock to a queued writer must reply
     SEARCH_SAFE_DEPLETER_FAILURE.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
-    # musl admits a reader past a queued writer, so the try-lock never fails there
-    # and the failure cannot be provoked. glibc (writer-preferring, see
-    # IndexSpec_InitLock) and Darwin both fail it.
-    if glob.glob('/lib/ld-musl-*.so.1'):
-        env.skip()
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
