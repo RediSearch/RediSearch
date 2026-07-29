@@ -31,8 +31,9 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 /// makes each populated tree produce a GC delta.
 struct TestSpec {
     spec: ffi::IndexSpec,
-    // Keeps the heap buffer `spec.fields` points at alive; never read directly.
-    _field_specs: Vec<ffi::FieldSpec>,
+    // Keeps the heap buffer `spec.fields` points at alive, and owns the
+    // `HiddenString` each field name/path points at (freed in `Drop`).
+    field_specs: Vec<ffi::FieldSpec>,
     // Owns the trees the field specs point at; each `Box` is a fixed heap
     // allocation, so the raw pointers stored in `fs.tree` stay valid as more
     // trees are pushed.
@@ -66,7 +67,7 @@ impl TestSpec {
 
         TestSpec {
             spec,
-            _field_specs: field_specs,
+            field_specs,
             trees,
         }
     }
@@ -76,6 +77,20 @@ impl TestSpec {
         // SAFETY: `spec` is a valid IndexSpec that outlives the guard, and this
         // single-threaded test never mutates it while the guard is held.
         unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
+    }
+}
+
+impl Drop for TestSpec {
+    fn drop(&mut self) {
+        // Free the `HiddenString` allocated by `NewHiddenString` for each field.
+        // `FieldSpecBuilder::new` sets `fieldName == fieldPath` (a single
+        // allocation, taking ownership of the name), so free it exactly once per
+        // field. Leaking it instead makes the tests hang under LeakSanitizer.
+        for fs in &self.field_specs {
+            // SAFETY: `fieldName` was created by `NewHiddenString(.., true)` and
+            // equals `fieldPath`, so this frees the one owned allocation once.
+            unsafe { ffi::HiddenString_Free(fs.fieldName, true) };
+        }
     }
 }
 
