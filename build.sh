@@ -646,7 +646,18 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+    # CMake stores compiler paths in the cache as absolute paths. Passing the
+    # bare executable names again on every reconfigure makes CMake consider
+    # the compiler changed and delete its cache. Resolve the executables before
+    # passing them so repeated build.sh invocations use stable cache values.
+    local macos_c_compiler
+    local macos_cxx_compiler
+    macos_c_compiler=$(command -v clang)
+    macos_cxx_compiler=$(command -v clang++)
+
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
+        -DCMAKE_C_COMPILER:FILEPATH=$macos_c_compiler \
+        -DCMAKE_CXX_COMPILER:FILEPATH=$macos_cxx_compiler"
   fi
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
