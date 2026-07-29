@@ -1,10 +1,9 @@
 name: Release an OSS Version
 
-# Added these to use JWT token to connect with AWS
-permissions:
-  id-token:       write   # This is required for requesting the JWT
-  contents:       write   # This is required for actions/checkout (read) and to push commits (write)
-  pull-requests:  write   # This is required for creating a PR
+# Every job below declares exactly what it needs. This empty default is the floor
+# rather than a grant: without it a job added later would inherit the repository's
+# default workflow permissions, which can be broader than anything here.
+permissions: {}
 
 on:
   push:
@@ -26,6 +25,8 @@ jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read # actions/checkout, plus `git branch`/`rev-parse` below
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -98,6 +99,9 @@ jobs:
     runs-on: ubuntu-slim
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
+    permissions:
+      contents: write      # push the bump-version branch with checkout's credentials
+      pull-requests: write # `gh pr create --reviewer` below, via github.token
     env:
       BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
       # Common environment variables for security (shell injection prevention)
@@ -178,6 +182,8 @@ jobs:
           gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --auto
 
   generate-matrix:
+    # Pure computation: no checkout, no API calls.
+    permissions: {}
     uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: all,!intel
@@ -186,6 +192,10 @@ jobs:
   set-artifacts:
     needs: [validate-tag, generate-matrix]
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      # OIDC JWT for the ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME path below. This job
+      # never checks the repository out, so it needs nothing else.
+      id-token: write
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
