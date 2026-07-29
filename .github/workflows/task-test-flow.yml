@@ -344,9 +344,11 @@ jobs:
         id: flaky
         if: ${{ env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs }}
         continue-on-error: true
-        # First-party shared CI: tracked by the moving `v1` tag on purpose so
-        # org-wide fixes propagate without a bump here. See .github/zizmor.yml.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@v1
+        # Pinned to the commit SHA that `v1` points to. SonarCloud's "External
+        # GitHub Actions and workflows should be pinned to a commit hash" rule is
+        # a hard gate on any line a PR touches, so these do not get the moving-tag
+        # exemption that .github/zizmor.yml grants redislabsdev/*.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           tests: ${{ steps.enumerate.outputs.specs }}
@@ -442,9 +444,10 @@ jobs:
       - name: Record failures to flaky DB
         if: ${{ always() && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        # First-party shared CI: tracked by the moving `v1` tag on purpose so
-        # org-wide fixes propagate without a bump here. See .github/zizmor.yml.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
+        # Pinned to the commit SHA that `v1` points to — see the flaky-filter step
+        # above for why these two keep the hash while other redislabsdev/* refs
+        # stay on the tag.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
