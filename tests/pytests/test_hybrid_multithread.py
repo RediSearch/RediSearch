@@ -100,14 +100,13 @@ def test_hybrid_multithread():
 
 
 @skip(cluster=True)
-def test_hybrid_depleter_lock_failure_never_replies_success():
-    """A depleter whose try-lock loses to a queued writer must abort the command,
-    never reply a successful empty result set warning "Success (not an error)".
+def test_hybrid_depleter_lock_failure_replies_error():
+    """A depleter that loses the spec try-lock to a queued writer must reply
+    SEARCH_SAFE_DEPLETER_FAILURE.
 
     Whether a *queued* writer (rather than a lock-holding one) fails a try-lock is
-    libc-dependent — glibc and Darwin fail it, musl does not — so both outcomes are
-    accepted; the invariant asserted is that the OK-code default never ships either
-    way.
+    libc-dependent — glibc and Darwin fail it, musl does not — so where the depleters
+    win the lock instead, the query must simply return its results.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
@@ -152,4 +151,4 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
     if kind == 'err':
         env.assertContains('Failed to acquire index lock for background depletion', payload)
     else:
-        env.assertNotContains('Success (not an error)', str(payload))
+        env.assertGreater(payload[recursive_index(payload, 'total_results')[-1] + 1], 0)

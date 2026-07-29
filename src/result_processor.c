@@ -1849,7 +1849,6 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
 
-// Shared by both drain paths so the two cannot drift.
 #define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
   "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
   "Please retry."
