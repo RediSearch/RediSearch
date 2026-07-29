@@ -44,6 +44,18 @@ RediSearch.
    window in which history can be rewritten — see
    [/commit-guidelines](../commit-guidelines/SKILL.md). That is a fair trade, but it means
    getting the branch into the shape you want *before* step 6, not after.
+
+   Always pass `--head` and `--base` explicitly:
+
+   ```bash
+   gh pr create --base master --head <bookmark-or-branch> \
+     --title "<title>" --body-file <path>
+   ```
+
+   `gh` otherwise defaults `--head` to the current Git branch, which in a colocated `jj`
+   workspace is routinely detached or left on something unrelated — the bookmark you
+   pushed in step 6 is the head you want. Without it the PR is opened from the wrong
+   branch, or `gh` drops into an interactive prompt that cannot be answered.
 8. Concurrently, using sub-agents:
    1. Verify the final PR body, title, base, and head.
    2. Load and follow the [/verify](../verify/SKILL.md) skill.
