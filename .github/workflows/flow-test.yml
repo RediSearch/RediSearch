@@ -15,10 +15,6 @@ on:
         description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": "", "ubsan": ""}''). Use empty string for full tests.'
         type: string
         default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
-      unit-test-filter:
-        description: 'Optional C/C++ unit-test filter used by unit-test jobs.'
-        type: string
-        default: ''
       ubsan-unit-test-filter:
         description: 'Optional C/C++ unit-test filter used by UBSan unit-test jobs.'
         type: string
@@ -36,7 +32,7 @@ on:
         default: coordinator,standalone,unit-tests,rejson,fail-fast
         description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, ubsan, skip-tests'
       ubsan:
-        description: 'Run C/C++ unit tests under alignment UBSan'
+        description: 'Run selected C/C++ unit tests under alignment UBSan'
         type: boolean
         default: false
       separate-coordinator-job:
@@ -80,10 +76,6 @@ on:
         description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
         type: string
         default: QUICK=1
-      unit-test-filter:
-        description: Optional C/C++ unit-test filter
-        type: string
-        default: ''
       ubsan-unit-test-filter:
         description: Optional C/C++ unit-test filter for UBSan jobs
         type: string
@@ -117,7 +109,7 @@ on:
         type: boolean
         default: true
       ubsan:
-        description: 'Run C/C++ unit tests under alignment UBSan'
+        description: 'Run selected C/C++ unit tests under alignment UBSan'
         type: boolean
         default: false
       separate-coordinator-job:
@@ -159,11 +151,11 @@ jobs:
       rejson-branch: ${{ inputs.rejson-branch }}
       # skip-tests is explicit: build the selected matrix, but disable every test step
       # even if another test option is present through defaults or manual input.
-      coordinator: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' && matrix.test-mode != 'unit' }}
-      standalone: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'standalone') || inputs.standalone == true) && matrix.test-mode != 'coordinator' && matrix.test-mode != 'unit' }}
+      coordinator: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'coordinator') || inputs.cluster == true) && (matrix.test-mode == 'coordinator' || matrix.test-mode == 'all') }}
+      standalone: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'standalone') || inputs.standalone == true) && (matrix.test-mode == 'standalone' || matrix.test-mode == 'all') }}
       unit-tests: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
       rust-unit-tests: ${{ matrix.job-type != 'ubsan' }}
-      unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || inputs.unit-test-filter }}
+      unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || '' }}
       test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}

@@ -74,6 +74,9 @@ jobs:
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       job-test-config: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1", "ubsan": "QUICK=1"}'
       options: unit-tests,coordinator,standalone,rejson,fail-fast,ubsan
+      # Full alignment UBSan currently exposes unrelated pre-existing UB in the
+      # C/C++ suite. Keep the merge-queue lane focused on the trie regression
+      # until those findings are fixed separately.
       ubsan-unit-test-filter: 'TrieTest.test.*ScansPackedChildKeys'
       separate-coordinator-job: true
       rejson-branch: master

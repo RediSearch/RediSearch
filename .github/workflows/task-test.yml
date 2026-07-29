@@ -36,6 +36,7 @@ on:
         type: boolean
         default: true
       rust-unit-tests:
+        description: "Run Rust unit tests. Disabled by C/C++-only sanitizer lanes."
         type: boolean
         default: true
       unit-test-filter:
