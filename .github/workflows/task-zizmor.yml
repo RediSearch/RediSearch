@@ -26,7 +26,7 @@ jobs:
       - name: Checkout
         # No submodules — the vendored deps under deps/ ship their own workflows
         # and are not ours to audit.
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # Nothing here pushes, and a persisted credential in .git/config is
           # exactly what zizmor's own artipacked audit warns about.

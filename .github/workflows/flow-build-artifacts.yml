@@ -65,7 +65,7 @@ jobs:
       beta-version: ${{ inputs.force_beta && steps.beta-version.outputs.BETA_VERSION || '' }}
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - id: get-redis

@@ -25,7 +25,7 @@ runs:
       id: aws-credentials
       if: ${{ inputs.aws-role != '' && inputs.s3-bucket != '' && inputs.s3-region != '' && inputs.s3-key-prefix != '' }}
       continue-on-error: true
-      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6
+      uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
       with:
         role-to-assume: ${{ inputs.aws-role }}
         aws-region: ${{ inputs.s3-region }}
