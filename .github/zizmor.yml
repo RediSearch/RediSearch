@@ -3,12 +3,46 @@
 #
 # This file is policy only: which action references may stay on a moving tag, and
 # which audits are deliberately suppressed. The job that runs zizmor is
-# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=high
-# --min-confidence=medium — so the audits we have not triaged yet (artipacked,
-# secrets-inherit, medium excessive-permissions, github-env, unpinned-images) do
-# not block PRs. Lowering the severity threshold is how you pick the next batch
-# up; expect findings.
+# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=medium
+# --min-confidence=medium. What that still leaves out is low-severity artipacked
+# (28) and the low-confidence github-env and unpinned-images tiers; dropping
+# either threshold further is how you pick the next batch up, and it will surface
+# findings.
 rules:
+  secrets-inherit:
+    # Every one of these is a call into a reusable workflow in *this* repository,
+    # so the callee is code reviewed in the same PR rather than a third party.
+    # Replacing `secrets: inherit` with explicit lists is still worth doing — it
+    # is what stops a future edit to a leaf workflow from reading a secret it has
+    # no business seeing — but it is not a small change: the call graph is three
+    # levels deep (event-* -> flow-* -> task-* -> composite actions), secrets are
+    # consumed at the leaves, and there are 31 of them, so every callee needs a
+    # `secrets:` declaration in its `workflow_call` block and every caller needs
+    # to pass them through. Getting it wrong tends to fail quietly (a skipped
+    # coverage upload, a benchmark that cannot reach RedisTimeSeries) on paths a
+    # pull request never runs.
+    #
+    # Deferred to its own change rather than accepted: this suppression should be
+    # deleted, not extended.
+    ignore:
+      - benchmark-runner.yml
+      - benchmark-trigger.yml
+      - event-deploy-snapshots.yml
+      - event-merge-to-queue.yml
+      - event-nightly.yml
+      - event-periodic-master-validation.yml
+      - event-periodic-msmarco-e2e-benchmarks.yml
+      - event-pull_request.yml
+      - event-push-to-integ.yml
+      - event-weekly.yml
+      - flow-build-artifacts.yml
+      - flow-micro-benchmarks.yml
+      - flow-pr-pipeline.yml
+      - flow-redis-build-sanity.yml
+      - flow-temp.yml
+      - flow-test.yml
+      - task-redis-build-sanity.yml
+      - task-test.yml
   dangerous-triggers:
     # `pull_request_target` and `workflow_run` are dangerous because they run with
     # a writable token against a *base-branch* checkout while being triggered by

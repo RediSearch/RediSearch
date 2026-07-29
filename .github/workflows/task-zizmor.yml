@@ -44,7 +44,7 @@ jobs:
           inputs: .github/workflows .github/actions .github/dependabot.yml
           # Only fail on findings we have actually triaged to zero. The tiers
           # below still have known findings — see .github/zizmor.yml.
-          min-severity: high
+          min-severity: medium
           min-confidence: medium
           # Uploading SARIF needs `security-events: write`, which a pull_request
           # from a fork does not get, and this repository accepts fork PRs (see
