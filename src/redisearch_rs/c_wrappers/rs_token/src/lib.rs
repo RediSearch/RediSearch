@@ -275,6 +275,7 @@ impl<'a> RSTokenRef<'a, false> {
     ///   makes no immutability promise — but a view returned by an accessor must
     ///   not be used after the token is mutated or freed (see the type-level note).
     pub const unsafe fn from_ffi(tok: *const ffi::RSToken) -> Self {
+        debug_assert!(!tok.is_null(), "token pointer must not be null");
         // SAFETY: the caller guarantees `tok` is non-null.
         Self::new(unsafe { NonNull::new_unchecked(tok.cast_mut()) })
     }
@@ -293,6 +294,7 @@ impl<'a> RSTokenRef<'a, true> {
     /// allocation spans at least `len + 1` bytes (a C string of content
     /// length `len`).
     pub const unsafe fn from_nul_terminated_ffi(tok: *const ffi::RSToken) -> Self {
+        debug_assert!(!tok.is_null(), "token pointer must not be null");
         // In debug builds, sanity-check the NUL-termination the caller promised.
         // Read the fields through the raw pointer, forming no reference.
         #[cfg(debug_assertions)]
