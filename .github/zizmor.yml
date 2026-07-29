@@ -4,11 +4,31 @@
 # This file is policy only: which action references may stay on a moving tag, and
 # which audits are deliberately suppressed. The job that runs zizmor is
 # .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=high
-# --min-confidence=high — so the audits we have not triaged yet (artipacked,
-# secrets-inherit, medium excessive-permissions, github-env, unpinned-images,
-# dangerous-triggers) do not block PRs. Lowering either threshold is how you pick
-# the next batch up; expect findings.
+# --min-confidence=medium — so the audits we have not triaged yet (artipacked,
+# secrets-inherit, medium excessive-permissions, github-env, unpinned-images) do
+# not block PRs. Lowering the severity threshold is how you pick the next batch
+# up; expect findings.
 rules:
+  dangerous-triggers:
+    # `pull_request_target` and `workflow_run` are dangerous because they run with
+    # a writable token against a *base-branch* checkout while being triggered by
+    # untrusted PRs — so the hazard is checking out or executing PR head code.
+    # None of the three below do that: each checkout either takes the default ref
+    # or is explicitly the base branch, and none passes `ref:` from the event
+    # payload. Each also needs its trigger for a reason no other event provides.
+    ignore:
+      # workflow_run: the only event that fires after "Pull Request Flow" finishes
+      # and can read that run's logs. pull_request_target: labeled, so a maintainer
+      # can trigger triage on an already-failed PR — `pull_request` would not have
+      # access to the run. Checks out with persist-credentials: false, no `ref:`.
+      - event-pr-validation-triage.yml
+      # pull_request_target: closed is what makes "backport on merge" possible;
+      # `pull_request` does not fire for merges from forks. Cherry-picks commits
+      # onto the release branch without executing them.
+      - task-backport_pr.yml
+      # Same trigger for the same reason; its checkout is explicitly the PR's base
+      # branch (see the comment at that step).
+      - task-backport_pr-agent.yml
   github-app:
     ignore:
       # task-take-shift.yml runs `gh variable set`, which needs GitHub's
