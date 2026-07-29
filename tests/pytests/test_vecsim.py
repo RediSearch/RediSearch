@@ -2594,6 +2594,47 @@ def test_max_knn_k():
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
 
+def test_knn_k_exceeds_max_results():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    # Create an index and insert vectors.
+    dim = 2
+    vec_fieldname = 'VEC'
+    conn.execute_command(
+        'FT.CREATE', 'idx',
+        'SCHEMA', vec_fieldname, 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+    num_docs = 11
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}', vec_fieldname,
+                             create_np_array_typed([i] * dim).tobytes())
+    waitForIndex(env, 'idx')
+
+    # Set max search/aggregate results to a small value.
+    max_search_results = 3
+    max_aggregate_results = 4
+    verify_command_OK_on_all_shards(
+        env, config_cmd(), 'SET', 'MAXSEARCHRESULTS', max_search_results)
+    verify_command_OK_on_all_shards(
+        env, config_cmd(), 'SET', 'MAXAGGREGATERESULTS', max_aggregate_results)
+
+    # Verify that KNN K parameter that exceeds max results is rejected.
+    k = max(max_search_results, max_aggregate_results) + 1
+    with env.assertResponseError(
+            contained=f'LIMIT exceeds maximum of {max_search_results}'):
+        conn.execute_command(
+            'FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+            'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+            'NOCONTENT', 'LIMIT', 0, 20)
+
+    with env.assertResponseError(
+            contained=f'LIMIT exceeds maximum of {max_aggregate_results}'):
+        conn.execute_command(
+            'FT.AGGREGATE', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB]',
+            'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+            'LIMIT', 0, 20)
+
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
     # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter

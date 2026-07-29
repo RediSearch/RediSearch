@@ -153,3 +153,44 @@ def test_hybrid_range_invalid_syntax():
         'VSIM' ,'@embedding', '$BLOB',
         'RANGE', 2, 'EPSILON', 0.1
     ).error().contains('Missing required argument RADIUS')
+
+
+def test_hybrid_zero_max_results():
+    """
+    FT.HYBRID must not hang or crash when MAXSEARCHRESULTS or MAXAGGREGATERESULTS is 0.
+    """
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+
+    blob = np.array([0.3, 0.3]).astype(np.float32).tobytes()
+    hybrid_cmd = ('FT.HYBRID', 'idx', 'SEARCH', 'hello',
+                'VSIM', '@embedding', '$BLOB',
+                'PARAMS', '2', 'BLOB', blob)
+
+    # Baseline: both legs contribute, so we get rows.
+    baseline = to_dict(env.cmd(*hybrid_cmd))
+    env.assertGreater(len(baseline['results']), 0, message='baseline returns rows')
+
+    # MAXSEARCHRESULTS=0 only -> the single hybrid cap is 0 -> both legs yield
+    # nothing -> empty result set.
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0')
+    res = to_dict(env.cmd(*hybrid_cmd))
+    env.assertEqual(res['results'], [], message='MAXSEARCHRESULTS=0 -> no rows')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXSEARCHRESULTS', '-1')
+
+    # MAXAGGREGATERESULTS=0 only -> inert for FT.HYBRID -> results unchanged.
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0')
+    res = to_dict(env.cmd(*hybrid_cmd))
+    env.assertEqual(len(res['results']), len(baseline['results']),
+                    message='MAXAGGREGATERESULTS=0 alone -> results unchanged')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '-1')
+
+    # Both at 0 -> MAXSEARCHRESULTS=0 dominates -> empty result set, no hang.
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0')
+    res = to_dict(env.cmd(*hybrid_cmd))
+    env.assertIn('total_results', res, message='both=0')
+    # Both subqueries capped to 0 rows: no rows are serialized, mirroring how
+    # FT.SEARCH / FT.AGGREGATE return an empty result set under MAX*RESULTS 0.
+    env.assertEqual(res['results'], [], message='both=0 serializes no rows')
+

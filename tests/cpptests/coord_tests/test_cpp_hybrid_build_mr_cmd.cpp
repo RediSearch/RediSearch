@@ -42,23 +42,28 @@ static std::vector<std::string> expectedCombineTokens(const HybridCombineWirePar
   }
   const HybridScoringContext *sc = cp.scoringCtx;
   const bool hasAlias = cp.scoreAlias != nullptr;
+  // WINDOW is omitted when it resolves to 0 (MAXSEARCHRESULTS=0), mirroring
+  // MRCommand_appendCombine: 0 is outside the shard-side input range and the
+  // count/tokens must reflect its absence.
+  const size_t window = HybridScoringContext_GetWindow(sc);
+  const bool hasWindow = window > 0;
   t.emplace_back("COMBINE");
   if (sc->scoringType == HYBRID_SCORING_RRF) {
     t.emplace_back("RRF");
-    t.push_back(std::to_string(hasAlias ? 6 : 4));
+    t.push_back(std::to_string(2 + (hasWindow ? 2 : 0) + (hasAlias ? 2 : 0)));
     t.emplace_back("CONSTANT");
     t.push_back(fmtWireDouble(sc->rrfCtx.constant));
-    t.emplace_back("WINDOW");
-    t.push_back(std::to_string(sc->rrfCtx.window));
   } else {
     t.emplace_back("LINEAR");
-    t.push_back(std::to_string(hasAlias ? 8 : 6));
+    t.push_back(std::to_string(4 + (hasWindow ? 2 : 0) + (hasAlias ? 2 : 0)));
     t.emplace_back("ALPHA");
     t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[0]));
     t.emplace_back("BETA");
     t.push_back(fmtWireDouble(sc->linearCtx.linearWeights[1]));
+  }
+  if (hasWindow) {
     t.emplace_back("WINDOW");
-    t.push_back(std::to_string(sc->linearCtx.window));
+    t.push_back(std::to_string(window));
   }
   if (hasAlias) {
     t.emplace_back("YIELD_SCORE_AS");
@@ -78,6 +83,16 @@ static HybridCombineWireParams linearWireParams(HybridScoringContext *sc, double
   sc->linearCtx.linearWeights = weights;
   sc->linearCtx.numWeights = 2;
   sc->linearCtx.window = window;
+  return HybridCombineWireParams{sc, alias};
+}
+
+// Fill a caller-owned HybridScoringContext for an RRF wire clause. `sc` must
+// outlive the returned params.
+static HybridCombineWireParams rrfWireParams(HybridScoringContext *sc, double constant,
+                                             size_t window, const char *alias = nullptr) {
+  sc->scoringType = HYBRID_SCORING_RRF;
+  sc->rrfCtx.constant = constant;
+  sc->rrfCtx.window = window;
   return HybridCombineWireParams{sc, alias};
 }
 
@@ -124,6 +139,25 @@ static int verifyArgsPreservedWithReconstructedCombine(
     ii++;
   }
   return oi;
+}
+
+// Extract the reconstructed COMBINE clause tokens from a built MR command. The
+// clause is self-delimiting: COMBINE <method> <count> <count args...>. Returns
+// an empty vector if no COMBINE clause is present.
+static std::vector<std::string> extractReconstructedCombineClause(const MRCommand *xcmd) {
+  std::vector<std::string> out;
+  for (int i = 0; i < xcmd->num; i++) {
+    if (xcmd->lens[i] == strlen("COMBINE") &&
+        strncasecmp(xcmd->strs[i], "COMBINE", xcmd->lens[i]) == 0) {
+      int count = (i + 2 < xcmd->num) ? atoi(xcmd->strs[i + 2]) : 0;
+      int end = i + 3 + count;
+      for (int j = i; j < end && j < xcmd->num; j++) {
+        out.emplace_back(xcmd->strs[j], xcmd->lens[j]);
+      }
+      break;
+    }
+  }
+  return out;
 }
 
 class HybridBuildMRCommandTest : public ::testing::Test {
@@ -305,21 +339,37 @@ protected:
         EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
         verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, &cp);
 
-        for (int i = 0; i < xcmd.num; i++) {
-            if (xcmd.lens[i] == strlen("COMBINE") &&
-                strncasecmp(xcmd.strs[i], "COMBINE", xcmd.lens[i]) == 0) {
-                int count = (i + 2 < xcmd.num) ? atoi(xcmd.strs[i + 2]) : 0;
-                int end = i + 3 + count;
-                for (int j = i; j < end && j < xcmd.num; j++) {
-                    out.emplace_back(xcmd.strs[j], xcmd.lens[j]);
-                }
-                break;
-            }
-        }
+        out = extractReconstructedCombineClause(&xcmd);
 
         MRCommand_Free(&xcmd);
         HybridScoringContext_Free(hybridParams.scoringCtx);
         HybridRequest_Free(hreq);
+        return out;
+    }
+
+    // Build the per-shard MR command from an explicit, caller-provided scoring
+    // context (bypassing the parser) and return the reconstructed COMBINE clause
+    // tokens found in the output.
+    // Use this to pin wire output for a specific *resolved* scoring context
+    // directly. The motivating case is a resolved window of 0 (MAXSEARCHRESULTS=0),
+    // to avoid mutating the global configuration.
+    std::vector<std::string> buildAndExtractCombineClauseDirect(
+        const std::vector<const char*>& inputArgs, const HybridCombineWireParams *cp) {
+        std::vector<const char*> argsWithNull = inputArgs;
+        argsWithNull.push_back(nullptr);
+        RMCK::ArgvList args(ctx, argsWithNull.data(), inputArgs.size());
+
+        MRCommand xcmd;
+        extern size_t NumShards;
+        HybridRequest_buildMRCommand(args, args.size(), EXEC_NO_FLAGS,
+                                     cp, &xcmd, nullptr, testIndexSpec, nullptr, NumShards);
+
+        EXPECT_STREQ(xcmd.strs[0], "_FT.HYBRID");
+        verifyArgsPreservedWithReconstructedCombine(&xcmd, inputArgs, cp);
+
+        std::vector<std::string> out = extractReconstructedCombineClause(&xcmd);
+
+        MRCommand_Free(&xcmd);
         return out;
     }
 
@@ -753,6 +803,61 @@ TEST_F(HybridBuildMRCommandTest, testNoCombineForwardsResolvedDefault) {
         "PARAMS", "2", "BLOB", TEST_BLOB_DATA
     });
     std::vector<std::string> expected = {"COMBINE", "RRF", "4", "CONSTANT", "60", "WINDOW", "20"};
+    EXPECT_EQ(clause, expected);
+}
+
+// A resolved window of 0 (MAXSEARCHRESULTS=0) must NOT be serialized: 0 is
+// outside the shard-side WINDOW input range [1, maxWindow] and old/new shards
+// reject it. The reconstructed clause drops WINDOW and shrinks the counted
+// argument count accordingly, so the wire form stays parseable.
+TEST_F(HybridBuildMRCommandTest, testCombineRRFZeroWindowOmitsWindow) {
+    HybridScoringContext sc = {};
+    HybridCombineWireParams cp = rrfWireParams(&sc, /*constant=*/50, /*window=*/0);
+    auto clause = buildAndExtractCombineClauseDirect({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
+    }, &cp);
+    std::vector<std::string> expected = {"COMBINE", "RRF", "2", "CONSTANT", fmtWireDouble(50)};
+    EXPECT_EQ(clause, expected);
+}
+
+// Same for RRF with an alias: WINDOW is dropped but YIELD_SCORE_AS stays counted.
+TEST_F(HybridBuildMRCommandTest, testCombineRRFZeroWindowWithAliasOmitsWindow) {
+    HybridScoringContext sc = {};
+    HybridCombineWireParams cp = rrfWireParams(&sc, /*constant=*/40, /*window=*/0, "s");
+    auto clause = buildAndExtractCombineClauseDirect({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
+    }, &cp);
+    std::vector<std::string> expected = {
+        "COMBINE", "RRF", "4", "CONSTANT", fmtWireDouble(40), "YIELD_SCORE_AS", "s"};
+    EXPECT_EQ(clause, expected);
+}
+
+// LINEAR with a resolved window of 0 likewise omits WINDOW.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroWindowOmitsWindow) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, /*alpha=*/0.4,
+                                                  /*beta=*/0.6, /*window=*/0);
+    auto clause = buildAndExtractCombineClauseDirect({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
+    }, &cp);
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "4", "ALPHA", fmtWireDouble(0.4), "BETA", fmtWireDouble(0.6)};
+    EXPECT_EQ(clause, expected);
+}
+
+// LINEAR zero window with an alias: WINDOW dropped, YIELD_SCORE_AS stays counted.
+TEST_F(HybridBuildMRCommandTest, testCombineLinearZeroWindowWithAliasOmitsWindow) {
+    HybridScoringContext sc = {};
+    double w[2];
+    HybridCombineWireParams cp = linearWireParams(&sc, w, /*alpha=*/0.3,
+                                                /*beta=*/0.7, /*window=*/0, "s");
+    auto clause = buildAndExtractCombineClauseDirect({
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", TEST_BLOB_DATA
+    }, &cp);
+    std::vector<std::string> expected = {
+        "COMBINE", "LINEAR", "6", "ALPHA", fmtWireDouble(0.3),
+        "BETA", fmtWireDouble(0.7), "YIELD_SCORE_AS", "s"};
     EXPECT_EQ(clause, expected);
 }
 

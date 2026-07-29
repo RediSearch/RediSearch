@@ -304,8 +304,12 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             unsigned long long ulong_val;
             rv = AC_GetUnsignedLongLong(parser->cursor, &ulong_val, 0);
             if (rv == AC_OK && def->target) {
-                // Range validation (only max makes sense for unsigned)
-                if (def->options.numeric.has_max && ulong_val > (unsigned long long)def->options.numeric.max_val) {
+                // Range validation
+                if (def->options.numeric.has_min && ulong_val < def->options.numeric.uint_min_val) {
+                    set_error(parser, "Value below minimum", def->name);
+                    return AC_ERR_ELIMIT;
+                }
+                if (def->options.numeric.has_max && ulong_val > def->options.numeric.uint_max_val) {
                     set_error(parser, "Value above maximum", def->name);
                     return AC_ERR_ELIMIT;
                 }
@@ -318,6 +322,15 @@ static int parse_single_arg(ArgParser *parser, ArgDefinition *def) {
             double double_val;
             rv = AC_GetDouble(parser->cursor, &double_val, 0);
             if (rv == AC_OK && def->target) {
+                // Range validation
+                if (def->options.numeric.has_min && double_val < def->options.numeric.min_double_val) {
+                    set_error(parser, "Value below minimum", def->name);
+                    return AC_ERR_ELIMIT;
+                }
+                if (def->options.numeric.has_max && double_val > def->options.numeric.max_double_val) {
+                    set_error(parser, "Value above maximum", def->name);
+                    return AC_ERR_ELIMIT;
+                }
                 *(double*)def->target = double_val;
             }
             break;
@@ -638,6 +651,9 @@ static void apply_defaults(ArgParser *parser) {
             case ARG_TYPE_LONG_LONG:
                 *(long long*)def->target = def->defaults.int_default;
                 break;
+            case ARG_TYPE_ULONG_LONG:
+                *(unsigned long long*)def->target = def->defaults.uint_default;
+                break;
             case ARG_TYPE_DOUBLE:
                 *(double*)def->target = def->defaults.double_default;
                 break;
@@ -678,10 +694,23 @@ static void apply_variadic_options(ArgParser *parser, va_list args) {
             }
 
             case ARG_OPT_RANGE:
-                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG_LONG ||
-                    def->type == ARG_TYPE_ULONG_LONG) {
+                if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG_LONG) {
                     def->options.numeric.min_val = va_arg(args, long long);
                     def->options.numeric.max_val = va_arg(args, long long);
+                    def->options.numeric.has_min = true;
+                    def->options.numeric.has_max = true;
+                } else if (def->type == ARG_TYPE_DOUBLE) {
+                    def->options.numeric.min_double_val = va_arg(args, double);
+                    def->options.numeric.max_double_val = va_arg(args, double);
+                    def->options.numeric.has_min = true;
+                    def->options.numeric.has_max = true;
+                }
+                break;
+
+            case ARG_OPT_RANGE_ULONG_LONG:
+                if (def->type == ARG_TYPE_ULONG_LONG) {
+                    def->options.numeric.uint_min_val = va_arg(args, unsigned long long);
+                    def->options.numeric.uint_max_val = va_arg(args, unsigned long long);
                     def->options.numeric.has_min = true;
                     def->options.numeric.has_max = true;
                 }
@@ -703,6 +732,13 @@ static void apply_variadic_options(ArgParser *parser, va_list args) {
             case ARG_OPT_DEFAULT_INT:
                 if (def->type == ARG_TYPE_INT || def->type == ARG_TYPE_LONG_LONG) {
                     def->defaults.int_default = va_arg(args, long long);
+                    def->has_default = true;
+                }
+                break;
+
+            case ARG_OPT_DEFAULT_ULONG_LONG:
+                if (def->type == ARG_TYPE_ULONG_LONG) {
+                    def->defaults.uint_default = va_arg(args, unsigned long long);
                     def->has_default = true;
                 }
                 break;
