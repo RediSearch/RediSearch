@@ -1098,9 +1098,8 @@ DEBUG_COMMAND(DiskFlush) {
 }
 
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
-// Seal the index's memtables and schedule a flush without waiting for it to
-// complete. Test-support primitive for observing flush-state metrics while
-// background work is paused.
+// Seal the index's memtables and schedule a flush without waiting for it.
+// Runs regardless of whether background work is enabled or disabled.
 DEBUG_COMMAND(DiskFlushNoWait) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
