@@ -33,6 +33,8 @@ typedef struct {
 
 void RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                         struct ConcurrentCmdCtx *cmdCtx);
+void DEBUG_RSExecDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                            struct ConcurrentCmdCtx *cmdCtx);
 
 int DistHybridTimeoutFailClient(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int DistHybridReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

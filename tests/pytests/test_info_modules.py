@@ -1202,7 +1202,13 @@ class testWarningsAndErrorsCluster:
 
   def test_timeout_cluster(self):
     # In cluster mode, test both shard-level and coordinator-level timeouts.
-    # HYBRID debug is not supported in cluster.
+
+    # Insert enough vec docs so every shard has VSIM data for HYBRID timeout testing.
+    conn = getConnectionByEnv(self.env)
+    for i in range(30):
+      conn.execute_command('HSET', f'vec:timeout_{i}', 'vector', np.array([float(i), 0.0]).astype(np.float32).tobytes())
+
+    query_vec = np.array([1.0, 0.0]).astype(np.float32).tobytes()
 
     # ---------- Timeout Errors ----------
     allShards_change_timeout_policy(self.env, 'FAIL')
@@ -1249,6 +1255,22 @@ class testWarningsAndErrorsCluster:
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 3),
                          message="Coordinator timeout error should be +1 after AGG coordinator timeout")
 
+    # Test timeout error in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).error().contains('SEARCH_TIMEOUT Timeout limit was reached')
+    # Shards: +1 each (total +4)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_ERROR_SHARD_METRIC], str(base_err_shards[shardId] + 4),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout error should be +4")
+    # Coord: +5 — on 8.6-rse each dist-hybrid FAIL error is counted twice:
+    # DistHybridCleanups counts it when storing the error, and
+    # DistHybridReplyCallback counts it again when replying it.
+    info_coord = info_modules_to_dict(self.env)
+    self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC], str(base_err_coord + 5),
+                         message="Coordinator timeout error should be +5 after FT.HYBRID (double-counted on 8.6-rse)")
+
     # ---------- Timeout Warnings ----------
     allShards_change_timeout_policy(self.env, 'RETURN')
 
@@ -1269,6 +1291,18 @@ class testWarningsAndErrorsCluster:
     info_coord = info_modules_to_dict(self.env)
     self.env.assertEqual(info_coord[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn_coord),
                          message="Coordinator timeout warning should not change after FT.SEARCH")
+
+    # Test timeout warning in FT.HYBRID (shards via TIMEOUT_AFTER_N_VSIM)
+    self.env.expect(debug_cmd(), 'FT.HYBRID', 'idx_vec', 'SEARCH', 'hello world',
+                    'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vec,
+                    'TIMEOUT_AFTER_N_VSIM', 1, 'DEBUG_PARAMS_COUNT', 2).noError()
+    # In RETURN mode, the shard increments timeout_warning twice per hybrid query:
+    # once from the internal AREQ subquery timeout and once from replyWithCursors.
+    # Shards: +2 each (total: SEARCH +1, HYBRID +2 = +3)
+    for shardId in range(1, self.env.shardsCount + 1):
+      shard_conn = self.env.getConnection(shardId)
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
+                           msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
     # Test other metrics not changed (on shards)
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
