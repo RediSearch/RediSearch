@@ -13,27 +13,6 @@
 #include "rqe_core.h"
 
 /**
- * Status of a [`NumericRangeTree_ApplyGcEntry`] call.
- */
-typedef enum ApplyGcEntryStatus {
-  /**
-   * The node was found and GC was applied successfully.
-   * `gc_result` contains the result.
-   */
-  Ok,
-  /**
-   * The target node no longer exists in the tree
-   * (e.g. removed between scan and apply).
-   */
-  NodeNotFound,
-  /**
-   * The entry data could not be deserialized.
-   * The child probably crashed or corrupted the pipe.
-   */
-  DeserializationError,
-} ApplyGcEntryStatus;
-
-/**
  * Filter details to apply to numeric values
  */
 typedef struct NumericFilter NumericFilter;
@@ -53,26 +32,6 @@ typedef struct IndexReader IndexReader;
  * freed or mutated while this iterator exists.
  */
 typedef struct ReversePreOrderDfsIterator NumericRangeTreeIterator;
-
-/**
- * Result of [`NumericRangeTree_ApplyGcEntry`].
- *
- * Wraps [`SingleNodeGcResult`] with a [`status`](ApplyGcEntryStatus) field
- * so C callers can distinguish success, node-not-found, and deserialization
- * errors.
- */
-typedef struct ApplyGcEntryResult {
-  /**
-   * The GC result for the node. Only meaningful when `status` is
-   * [`ApplyGcEntryStatus::Ok`].
-   */
-  struct SingleNodeGcResult gc_result;
-  /**
-   * Whether the operation succeeded, the node was missing, or the data
-   * could not be deserialized.
-   */
-  enum ApplyGcEntryStatus status;
-} ApplyGcEntryResult;
 
 /**
  * Result of [`NumericRangeTree_Find`] - an array of range pointers.
@@ -154,21 +113,6 @@ const struct NumericRange *NumericRangeNode_GetRange(const struct NumericRangeNo
  * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugSummary(RedisModuleCtx *ctx, const struct NumericRangeTree *t);
-
-/**
- * Conditionally trim empty leaves and compact the node slab.
- *
- * Checks if the number of empty leaves exceeds half the total number of
- * leaves. If so, trims empty leaves, compacts the slab to reclaim freed
- * slots, and returns the number of bytes freed. Returns 0 if no trimming
- * was needed.
- *
- * # Safety
- *
- * - `t` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - No iterators should be active on this tree while calling this function.
- */
-struct CompactIfSparseResult NumericRangeTree_CompactIfSparse(struct NumericRangeTree *t);
 
 /**
  * Get the estimated cardinality (number of distinct values) for a range.
@@ -313,19 +257,6 @@ void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *it);
 size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
 
 /**
- * Get the inverted index entries from a range.
- *
- * Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
- * stored inside the range. The returned pointer is valid until the tree is modified or freed.
- *
- * # Safety
- *
- * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
- * - The returned pointer points to memory owned by the range; do not free it.
- */
-const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericRange *range);
-
-/**
  * Create a new [`NumericRangeTree`].
  *
  * Returns an opaque pointer to the newly created tree.
@@ -338,23 +269,17 @@ const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericR
 struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
 
 /**
- * Parse a serialized GC entry and apply it to the specified node.
+ * Get the inverted index entries from a range.
  *
- * The entry data must have the wire format produced by the numeric child
- * collector (`fork_gc::numeric::collect_numeric`):
- * ```text
- * [delta_msgpack][64-byte hll_with][64-byte hll_without]
- * ```
- *
- * Returns an [`ApplyGcEntryResult`] whose [`status`](ApplyGcEntryStatus)
- * indicates success, node-not-found, or deserialization error.
+ * Returns a pointer to the [`InvertedIndexNumeric`] (which is a `NumericIndex` enum)
+ * stored inside the range. The returned pointer is valid until the tree is modified or freed.
  *
  * # Safety
  *
- * - `tree` must point to a valid mutable [`NumericRangeTree`] and cannot be NULL.
- * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
+ * - `range` must point to a valid [`NumericRange`] and cannot be NULL.
+ * - The returned pointer points to memory owned by the range; do not free it.
  */
-struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree, uint32_t node_position, uint32_t node_generation, const uint8_t *entry_data, size_t entry_len);
+const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericRange *range);
 
 /**
  * Get the total size of inverted indexes in the tree.

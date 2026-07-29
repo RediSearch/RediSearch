@@ -31,9 +31,25 @@ pub struct GcApplyStats {
     /// Number of last blocks skipped to avoid data races. Increments the GC's
     /// `gcBlocksDenied`.
     pub blocks_denied: u64,
+    /// Numeric tree nodes that had vanished by the time the parent tried to
+    /// apply their delta. Increments the GC's `gcNumericNodesMissed`.
+    pub numeric_nodes_missed: u64,
 }
 
 impl GcApplyStats {
+    /// Fold `other` into this tally.
+    ///
+    /// Scanners that apply many deltas under separate write locks accumulate
+    /// the per-delta results here, then flush the total once.
+    pub const fn record(&mut self, other: GcApplyStats) {
+        self.records_removed += other.records_removed;
+        self.bytes_collected += other.bytes_collected;
+        self.bytes_allocated += other.bytes_allocated;
+        self.block_count_delta += other.block_count_delta;
+        self.blocks_denied += other.blocks_denied;
+        self.numeric_nodes_missed += other.numeric_nodes_missed;
+    }
+
     /// Apply this delta to both the spec-level and GC-level statistics.
     ///
     /// Combines the spec stats update (done under the write lock) and the GC
@@ -49,6 +65,7 @@ impl GcApplyStats {
             self.bytes_collected,
             self.bytes_allocated,
             self.blocks_denied,
+            self.numeric_nodes_missed,
         );
     }
 }

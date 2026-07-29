@@ -7,7 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "inverted_index.h"
 
 /**
  * Enum to hold either compressed or uncompressed numeric index.
@@ -141,45 +140,6 @@ typedef struct AddResult {
    */
   int32_t block_count_delta;
 } AddResult;
-
-/**
- * Result of applying GC to a single node.
- *
- * Returned by [`NumericRangeTree::apply_gc_to_node`].
- */
-typedef struct SingleNodeGcResult {
-  /**
-   * Information about the outcome of garbage collection on
-   * the inverted index stored within this node.
-   */
-  struct II_GCScanStats index_gc_info;
-  /**
-   * Whether this node became empty after GC.
-   */
-  bool became_empty;
-} SingleNodeGcResult;
-
-/**
- * Returned by [`NumericRangeTree::compact_if_sparse`].
- */
-typedef struct CompactIfSparseResult {
-  /**
-   * The change in the tree's inverted index memory usage, in bytes.
-   * Positive values indicate growth, negative values indicate shrinkage.
-   * This tracks only inverted index memory, not node/range struct overhead.
-   */
-  int64_t inverted_index_size_delta;
-  /**
-   * The change in the tree's node memory usage, in bytes.
-   * Positive values indicate growth, negative values indicate shrinkage.
-   */
-  int64_t node_size_delta;
-  /**
-   * Net change in inverted-index block count across all dropped leaves. Always non-positive
-   * (trimming only removes blocks).
-   */
-  int32_t block_count_delta;
-} CompactIfSparseResult;
 
 /**
  * Result of trimming empty leaves from the tree.

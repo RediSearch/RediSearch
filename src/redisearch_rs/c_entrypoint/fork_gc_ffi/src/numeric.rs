@@ -7,8 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use fork_gc::{ForkGC, io_result_ext::IoResultExt, numeric::collect_numeric};
+use fork_gc::{
+    ForkGC,
+    io_result_ext::IoResultExt,
+    numeric::{collect_numeric, handle_numeric},
+};
 use index_spec::IndexSpecReadGuard;
+
+use crate::{FGCError, util::into_fgc_error};
 
 /// Collect GC delta data for every numeric and geo field in the spec and send
 /// it to the parent process over the pipe.
@@ -46,4 +52,29 @@ pub unsafe extern "C" fn FGC_childCollectNumeric(
     let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
     collect_numeric(&mut fgc.writer(), &guard).unwrap_or_exit();
+}
+
+/// Receive and apply the GC deltas for one numeric or geo field.
+///
+/// Reads a field header from the pipe followed by that field's per-node
+/// deltas, applying each to the field's numeric tree under the write lock and
+/// updating statistics. Returns [`FGCError::Done`] when the child sent the
+/// global terminator instead of a field header (all fields processed),
+/// [`FGCError::Collected`] after a field's deltas were applied, or an error
+/// variant on pipe, spec, or tree-lookup failure.
+///
+/// # Panic
+///
+/// Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+///
+/// # Safety
+///
+/// 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+///    alive for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn FGC_parentHandleNumeric(gc: *mut ffi::ForkGC) -> FGCError {
+    // SAFETY: caller guarantees (1).
+    let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+
+    into_fgc_error(handle_numeric(fgc), "numeric")
 }

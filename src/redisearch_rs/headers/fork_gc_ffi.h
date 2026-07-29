@@ -41,28 +41,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Collect GC delta data for every numeric and geo field in the spec and send
- * it to the parent process over the pipe.
- *
- * For each NUMERIC or GEO field whose tree has been initialised, sends the
- * field name and unique ID as a header, followed by one entry per tree node
- * with GC work, then a per-field terminator. A final terminator is sent once
- * all fields have been processed.
- *
- * # Panic
- *
- * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
- *
- * # Safety
- *
- * 1. `gc` must point to a valid [`ffi::ForkGC`].
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
- * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
- */
-void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
-
-/**
  * Collect GC delta data for the spec's `existingDocs` inverted index and
  * send it to the parent process over the pipe.
  *
@@ -104,6 +82,28 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  */
 void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
+ * Collect GC delta data for every numeric and geo field in the spec and send
+ * it to the parent process over the pipe.
+ *
+ * For each NUMERIC or GEO field whose tree has been initialised, sends the
+ * field name and unique ID as a header, followed by one entry per tree node
+ * with GC work, then a per-field terminator. A final terminator is sent once
+ * all fields have been processed.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
  * Write exactly `len` bytes from `buff` to the FGC pipe.
@@ -159,6 +159,27 @@ enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
  *    alive for the duration of this call.
  */
 enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
+
+/**
+ * Receive and apply the GC deltas for one numeric or geo field.
+ *
+ * Reads a field header from the pipe followed by that field's per-node
+ * deltas, applying each to the field's numeric tree under the write lock and
+ * updating statistics. Returns [`FGCError::Done`] when the child sent the
+ * global terminator instead of a field header (all fields processed),
+ * [`FGCError::Collected`] after a field's deltas were applied, or an error
+ * variant on pipe, spec, or tree-lookup failure.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ */
+enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
 
 /**
  * Write a length-prefixed buffer frame: a native-endian `size_t` header

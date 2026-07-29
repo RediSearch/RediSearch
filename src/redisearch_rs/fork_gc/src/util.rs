@@ -13,12 +13,45 @@ use std::{
     time::Duration,
 };
 
-use index_spec::IndexSpecWriteGuard;
+use index_spec::{IndexSpecWeakRef, IndexSpecWriteGuard};
 use nix::poll::{PollFd, PollFlags};
 use redis_module::raw::RedisModule_ExitFromChild;
 
 use crate::fork_gc::ForkGCPipeReader;
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+
+/// Provides closure-scoped access to a live, write-locked [`IndexSpec`](index_spec::IndexSpec).
+///
+/// The closure prevents the [`IndexSpecWriteGuard`] from outliving the strong
+/// reference that keeps the spec alive. Test implementations can provide the
+/// same scope over an exclusively owned synthetic spec.
+pub trait SpecWriteAccess {
+    /// Promote and lock the spec, returning `None` if it has been deleted.
+    fn with_write<T>(&mut self, apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T)
+    -> Option<T>;
+
+    /// [`with_write`](Self::with_write) for a fallible `apply`, reporting a
+    /// deleted spec as [`HandleError::SpecDeleted`].
+    ///
+    /// Flattens the nested `Option<Result<..>>` the plain accessor would produce.
+    fn try_with_write<T, C>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
+    ) -> Result<T, HandleError<C>> {
+        self.with_write(apply).ok_or(HandleError::SpecDeleted)?
+    }
+}
+
+impl SpecWriteAccess for IndexSpecWeakRef {
+    fn with_write<T>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> T,
+    ) -> Option<T> {
+        let mut spec_ref = self.promote()?;
+        let mut guard = spec_ref.write();
+        Some(apply(&mut guard))
+    }
+}
 
 /// Run the single-shot GC handler protocol shared by the per-index scanners
 /// that apply one message per call (existing-docs, missing-docs):
