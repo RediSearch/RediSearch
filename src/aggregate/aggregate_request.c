@@ -951,7 +951,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
 
   long long nproperties;
   int rv = AC_GetLongLong(ac, &nproperties, AC_F_GE0);
-  if (rv != AC_OK || nproperties > UINT32_MAX) {
+  if (rv != AC_OK || nproperties > MAX_GROUPBY_PROPERTIES) {
     rv = rv != AC_OK ? rv : AC_ERR_ELIMIT;
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;

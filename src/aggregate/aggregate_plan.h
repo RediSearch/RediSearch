@@ -8,6 +8,7 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
+#include <stdint.h>
 #include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
@@ -37,6 +38,9 @@ typedef enum {
 } PLN_StepType;
 
 #define PLANTYPE_ANY_REDUCER (PLN_T__MAX + 1)
+
+// GROUPBY keys are addressed through RLookupKey.dstidx, which is uint16_t.
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
 
 typedef enum {
   PLN_F_ALIAS = 0x01,  // Plan step has an alias
