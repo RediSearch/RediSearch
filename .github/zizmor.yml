@@ -1,14 +1,52 @@
 # zizmor configuration — static analysis for our GitHub Actions workflows.
 # Reference: https://docs.zizmor.sh/configuration/
 #
-# This file is policy only: which action references may stay on a moving tag, and
-# which audits are deliberately suppressed. The job that runs zizmor is
-# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=high
-# --min-confidence=high — so the audits we have not triaged yet (artipacked,
-# secrets-inherit, medium excessive-permissions, github-env, unpinned-images,
-# dangerous-triggers) do not block PRs. Lowering either threshold is how you pick
-# the next batch up; expect findings.
+# Policy only: which action references may stay on a moving tag, and which audits
+# are suppressed. The gate that applies it, thresholds included, is
+# .github/workflows/task-zizmor.yml.
 rules:
+  secrets-inherit:
+    # Deferred: threading secrets explicitly across three levels of nested
+    # workflow invocations is fragile.
+    ignore:
+      - benchmark-runner.yml
+      - benchmark-trigger.yml
+      - event-deploy-snapshots.yml
+      - event-merge-to-queue.yml
+      - event-nightly.yml
+      - event-periodic-master-validation.yml
+      - event-periodic-msmarco-e2e-benchmarks.yml
+      - event-pull_request.yml
+      - event-push-to-integ.yml
+      - event-weekly.yml
+      - flow-build-artifacts.yml
+      - flow-micro-benchmarks.yml
+      - flow-pr-pipeline.yml
+      - flow-redis-build-sanity.yml
+      - flow-temp.yml
+      - flow-test.yml
+      - task-redis-build-sanity.yml
+      - task-test.yml
+  dangerous-triggers:
+    # `pull_request_target` and `workflow_run` are dangerous because they run with
+    # a writable token against a *base-branch* checkout while being triggered by
+    # untrusted PRs — so the hazard is checking out or executing PR head code.
+    # None of the three below do that: each checkout either takes the default ref
+    # or is explicitly the base branch, and none passes `ref:` from the event
+    # payload. Each also needs its trigger for a reason no other event provides.
+    ignore:
+      # workflow_run: the only event that fires after "Pull Request Flow" finishes
+      # and can read that run's logs. pull_request_target: labeled, so a maintainer
+      # can trigger triage on an already-failed PR — `pull_request` would not have
+      # access to the run. Checks out with persist-credentials: false, no `ref:`.
+      - event-pr-validation-triage.yml
+      # pull_request_target: closed is what makes "backport on merge" possible;
+      # `pull_request` does not fire for merges from forks. Cherry-picks commits
+      # onto the release branch without executing them.
+      - task-backport_pr.yml
+      # Same trigger for the same reason; its checkout is explicitly the PR's base
+      # branch (see the comment at that step).
+      - task-backport_pr-agent.yml
   github-app:
     ignore:
       # task-take-shift.yml runs `gh variable set`, which needs GitHub's

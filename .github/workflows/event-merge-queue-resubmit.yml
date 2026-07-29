@@ -317,7 +317,7 @@ jobs:
 
       - name: Notify Slack about unchanged merge queue resubmission
         if: steps.check.outputs.resubmit == 'true'
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           errors: true
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_ISSUES }}

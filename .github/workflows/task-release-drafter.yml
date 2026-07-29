@@ -10,6 +10,9 @@ on:
 
 jobs:
   update_release_draft:
+    permissions: # release-drafter writes the draft release and reads merged PRs
+      contents: write
+      pull-requests: read
     runs-on: ubuntu-slim
     steps:
       # Drafts your next Release notes as Pull Requests are merged into "master"
