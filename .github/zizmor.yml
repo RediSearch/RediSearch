@@ -1,0 +1,24 @@
+# zizmor configuration — static analysis for our GitHub Actions workflows.
+# Reference: https://docs.zizmor.sh/configuration/
+#
+# This file is policy only: which action references may stay on a moving tag, and
+# which audits are deliberately suppressed. The CI job that runs zizmor is wired
+# up separately, and gates PRs at --min-severity=high --min-confidence=high — so
+# the audits we have not triaged yet (artipacked, secrets-inherit, medium
+# excessive-permissions, github-env, unpinned-images, dangerous-triggers) do not
+# block PRs. Lowering either threshold is how you pick the next batch up; expect
+# findings.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # First-party shared CI lives in the public redislabsdev/redisearch-ci-common
+        # repository and is tracked by a moving major tag on purpose, so org-wide CI
+        # fixes propagate without a bump here. `ref-pin` still rejects an outright
+        # unpinned or branch-tracking reference.
+        redislabsdev/*: ref-pin
+        # Everything else must be a full commit SHA: a tag is mutable, and whoever
+        # controls the upstream repository can repoint it at code that then runs with
+        # this workflow's token and secrets. Dependabot keeps the pins current
+        # (see .github/dependabot.yml).
+        "*": hash-pin
