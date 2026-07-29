@@ -525,12 +525,9 @@ where
         // `data` is `Rf`-parametrized, so `kind() == Virtual` is the whole
         // condition (`dmd`/`metrics` are not touched by the reinterpretation).
         // Checked safely via `&self`, before `Box::into_raw`, so a violation just
-        // drops `self`.
+        // drops `self`; we abort the resume rather than risk UB.
         if self.virt.kind() != RSResultKind::Virtual {
-            return Err(RQEIteratorError::IoError(std::io::Error::other(
-                "OptionalOptimized resume: virt is no longer a virtual sentinel; \
-                 its index-backed data cannot be re-validated",
-            )));
+            return Ok(ResumeOutcome::Aborted);
         }
 
         // Capture pre-resume positions for the post-resume logic below (both reads
@@ -563,10 +560,14 @@ where
         // there is no manual teardown and no uninitialised-slot window.
         let shell = FreeSuspendedShell { raw };
 
-        // Resume both children unconditionally (a `wcii` abort must not
-        // short-circuit the child — mirrors `revalidate`, which drove both). They
-        // are owned values, so `?` / early return drop them (and, via `shell`,
-        // `virt` + the allocation) with zero manual teardown.
+        // Resume both children up front. This differs from `revalidate`, which
+        // drives the child only *after* the `wcii` outcome and skips it entirely
+        // on a `wcii` abort or move-to-EOF; resuming both here keeps the
+        // move-out/write-back teardown uniform and is benign — a `wcii` abort
+        // still wins (its outcome is consumed first, below), and the child is
+        // simply dropped in that case. They are owned values, so `?` / early
+        // return drop them (and, via `shell`, `virt` + the allocation) with zero
+        // manual teardown.
         let wcii_out = Box::new(wcii).resume(guard);
         let child_out = Box::new(child).resume(guard);
 
@@ -589,6 +590,13 @@ where
         // original slots (preserving their addresses — and `virt`'s, which never
         // moved), then reinterpret the reused allocation as the active form.
         std::mem::forget(shell);
+        // Statically enforce the size/alignment invariant the in-place writes
+        // below rely on. `WildcardIterator` and the child are public safe traits,
+        // so a custom impl whose resumed type differs in layout would corrupt the
+        // slot; a mismatch fails to compile here, mirroring the guard inside
+        // `resume_child_slot_in_place`/`suspend_child_slot_in_place`.
+        const { crate::boxed::assert_layout_compatible::<WS, WS::Resumed<'a>>() };
+        const { crate::boxed::assert_layout_compatible::<MaybeEmpty<IS>, MaybeEmpty<IS::Resumed<'a>>>() };
         // SAFETY: the `wcii` slot is uninitialised; `&raw mut` forms a field
         // pointer to it.
         let wcii_slot = unsafe { &raw mut (*raw).wcii };
@@ -657,8 +665,20 @@ where
         // result, so nothing about running past the end is recorded here; the next
         // `read` sees `!has_next()` and sets `past_end` there.
         active.last_doc_id = wcii_doc_id;
+
         if active.child.last_doc_id() != wcii_doc_id {
+            // Virtual hit: wcii has a doc ID but the child does not.
             active.virt.doc_id = wcii_doc_id;
+        } else {
+            // Real hit: apply the optional weight to the child result, mirroring
+            // `read`/`skip_to` — otherwise a moved-to real hit surfaces the child's
+            // unweighted score.
+            let weight = active.weight;
+            let result = active
+                .child
+                .current()
+                .expect("child has a result at wcii_doc_id");
+            result.weight = weight;
         }
         Ok(ResumeOutcome::Moved(active))
     }
