@@ -1188,6 +1188,10 @@ DEBUG_COMMAND(DiskResumeBackgroundWork) {
     return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
   }
 
+  if (!SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(ctx, "Background work is not paused");
+  }
+
   SearchDisk_ContinueBackgroundWork(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
