@@ -232,7 +232,7 @@ jobs:
           append_output("covered_prs", covered_prs_text)
 
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Triage only needs the local workflow/action files. Codex then reads
           # untrusted CI logs and emits external output, so don't leave a usable
@@ -252,7 +252,7 @@ jobs:
 
       - name: Notify CIE failure triage
         if: always()
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_POST_MERGE_VALIDATION_FAILED }}
           webhook-type: webhook-trigger

@@ -127,7 +127,7 @@ jobs:
           permission-workflows: write
 
       - name: Checkout master (with full history)
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
           # Pin to master explicitly. On `pull_request_target` the default
@@ -185,7 +185,7 @@ jobs:
         # The trailing comment records the human-readable version so future
         # bumps are easy to review. To upgrade: look up `openai/codex-action`
         # tags, set the SHA the new tag resolves to, and update the comment.
-        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
         env:
           # The agent uses `gh` and `git push` — both need the App token. `gh`
           # picks it up from GH_TOKEN; the checkout step has already wired the
