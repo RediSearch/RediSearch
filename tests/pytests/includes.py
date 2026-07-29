@@ -25,5 +25,4 @@ RS_TEST_ENTERPRISE = os.getenv('RS_TEST_ENTERPRISE', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
-# platform.system() reports the kernel, so it cannot tell musl from glibc.
 MUSL = 'musl' in (sysconfig.get_config_var('MULTIARCH') or '')

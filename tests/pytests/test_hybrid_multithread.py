@@ -100,8 +100,7 @@ def test_hybrid_multithread():
 
 
 # Skipped on musl, which admits a reader past a queued writer, so the try-lock
-# never fails there. glibc (writer-preferring, see IndexSpec_InitLock) and Darwin
-# both fail it.
+# never fails there.
 @skip(cluster=True, musl=True)
 def test_hybrid_depleter_lock_failure_replies_error():
     """A depleter that loses the spec try-lock to a queued writer must reply
