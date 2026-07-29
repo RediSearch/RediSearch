@@ -957,7 +957,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   }
 
   uint32_t propertyCount = (uint32_t)AC_NumArgs(&propertiesAC);
-  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+  if (propertyCount > MAX_GROUPBY_PROPERTIES || propertyCount == 0) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
     return REDISMODULE_ERR;
   }
