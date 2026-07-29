@@ -209,7 +209,7 @@ jobs:
           $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
       - name: Setup build environment
@@ -244,7 +244,7 @@ jobs:
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz lands in the working directory; unpacked in the next step.
@@ -344,8 +344,10 @@ jobs:
         id: flaky
         if: ${{ env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs }}
         continue-on-error: true
-        # Pinned to the full commit SHA that the `v1` tag points to (external
-        # actions must be pinned to a commit hash, not a moving tag).
+        # Pinned to the commit SHA that `v1` points to. SonarCloud's "External
+        # GitHub Actions and workflows should be pinned to a commit hash" rule is
+        # a hard gate on any line a PR touches, so these do not get the moving-tag
+        # exemption that .github/zizmor.yml grants redislabsdev/*.
         uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
@@ -442,8 +444,9 @@ jobs:
       - name: Record failures to flaky DB
         if: ${{ always() && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        # Pinned to the full commit SHA that the `v1` tag points to (external
-        # actions must be pinned to a commit hash, not a moving tag).
+        # Pinned to the commit SHA that `v1` points to — see the flaky-filter step
+        # above for why these two keep the hash while other redislabsdev/* refs
+        # stay on the tag.
         uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
@@ -478,7 +481,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -529,7 +532,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
@@ -550,7 +553,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.test-mode == 'standalone'
-        uses: codecov/codecov-action@v6 # NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -559,7 +562,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && inputs.test-mode == 'coordinator'
-        uses: codecov/codecov-action@v6 # NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
