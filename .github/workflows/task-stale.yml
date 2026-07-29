@@ -10,6 +10,10 @@ jobs:
     permissions: # actions/stale comments on and closes stale issues and PRs
       issues: write
       pull-requests: write
+      # `operations-per-run: 1000` below is a finite budget, so a large backlog can
+      # exhaust it; actions/stale then saves its cursor to the Actions cache and
+      # resumes on the next run. Its own restricted-permissions example lists this.
+      actions: write
     runs-on: ubuntu-slim
     steps:
       - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10

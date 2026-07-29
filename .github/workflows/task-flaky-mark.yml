@@ -30,7 +30,11 @@ on:
 
 jobs:
   mark:
-    permissions: {} # the shared workflow only needs the Redis URL secret
+    permissions:
+      # The shared workflow checks out redislabsdev/redisearch-ci-common (for
+      # flaky_db.py) with the inherited token, and a caller's permissions are the
+      # ceiling for the workflow it calls.
+      contents: read
     uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-mark.yml@v1
     with:
       branch: ${{ inputs.branch }}
