@@ -71,7 +71,7 @@ impl Decoder for FieldsOnly {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let field_mask = loop {
             let [delta, field_mask] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -80,18 +80,18 @@ impl Decoder for FieldsOnly {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
 
             base += delta as DocId;
 
             if base >= target {
                 break field_mask;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.field_mask = field_mask as FieldMask;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 
@@ -146,7 +146,7 @@ impl Decoder for FieldsOnlyWide {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let field_mask = loop {
             let delta = match u32::read_as_varint(cursor) {
                 Ok(delta) => delta,
@@ -155,7 +155,6 @@ impl Decoder for FieldsOnlyWide {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
             let field_mask = u128::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -163,11 +162,12 @@ impl Decoder for FieldsOnlyWide {
             if base >= target {
                 break field_mask;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.field_mask = field_mask;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 

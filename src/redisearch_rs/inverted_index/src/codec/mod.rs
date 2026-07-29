@@ -124,25 +124,22 @@ pub trait Decoder {
     /// the rest of the record.
     ///
     /// Returns `Ok(None)` if the end of the cursor was reached before finding a document equal to,
-    /// or bigger than, the target. On success returns `Ok(Some(advanced))`, where `advanced` is the
-    /// number of entries traversed from the cursor's starting position up to and including the
-    /// landed entry (i.e. the landed entry's ordinal within the block is
-    /// `starting_ordinal + advanced - 1`). The reader uses this to locate the entry in the block's
-    /// `expiration_bits` side bitset.
+    /// or bigger than, the target. On success returns the number of entries skipped before the
+    /// landed entry, so the reader can align its per-block entry cursor with the result.
     fn seek<'index>(
         cursor: &mut Cursor<&'index [u8]>,
         mut base: DocId,
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         loop {
             match Self::decode(cursor, base, result) {
                 Ok(_) => {
-                    advanced += 1;
                     if result.doc_id >= target {
-                        return Ok(Some(advanced));
+                        return Ok(Some(skipped));
                     }
+                    skipped += 1;
                     base = result.doc_id;
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),

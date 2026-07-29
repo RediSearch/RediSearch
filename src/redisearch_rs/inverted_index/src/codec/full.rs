@@ -146,7 +146,7 @@ impl Decoder for Full {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, field_mask, offsets_sz] = match qint_decode::<4, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -155,13 +155,13 @@ impl Decoder for Full {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
 
             base += delta as DocId;
 
             if base >= target {
                 break (freq, field_mask as FieldMask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -176,7 +176,7 @@ impl Decoder for Full {
             offsets_sz,
             result,
         )?;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 
@@ -241,7 +241,7 @@ impl Decoder for FullWide {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let (freq, field_mask, offsets_sz) = loop {
             let [delta, freq, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -250,7 +250,6 @@ impl Decoder for FullWide {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
             let field_mask = FieldMask::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -258,13 +257,14 @@ impl Decoder for FullWide {
             if base >= target {
                 break (freq, field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
         };
 
         decode_term_record_offsets(cursor, base, 0, field_mask, freq, offsets_sz, result)?;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 

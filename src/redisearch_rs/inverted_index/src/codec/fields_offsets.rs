@@ -90,7 +90,7 @@ impl Decoder for FieldsOffsets {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, field_mask, offsets_sz] = match qint_decode::<3, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -99,13 +99,13 @@ impl Decoder for FieldsOffsets {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
 
             base += delta as DocId;
 
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -120,7 +120,7 @@ impl Decoder for FieldsOffsets {
             offsets_sz,
             result,
         )?;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 
@@ -191,7 +191,7 @@ impl Decoder for FieldsOffsetsWide {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let (field_mask, offsets_sz) = loop {
             let [delta, offsets_sz] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -200,7 +200,6 @@ impl Decoder for FieldsOffsetsWide {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
             let field_mask = FieldMask::read_as_varint(cursor)?;
 
             base += delta as DocId;
@@ -208,6 +207,7 @@ impl Decoder for FieldsOffsetsWide {
             if base >= target {
                 break (field_mask, offsets_sz);
             }
+            skipped += 1;
 
             // Skip the offsets
             cursor.seek(SeekFrom::Current(offsets_sz as i64))?;
@@ -222,7 +222,7 @@ impl Decoder for FieldsOffsetsWide {
             offsets_sz,
             result,
         )?;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 

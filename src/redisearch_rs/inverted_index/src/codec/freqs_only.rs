@@ -60,7 +60,7 @@ impl Decoder for FreqsOnly {
         target: DocId,
         result: &mut RSIndexResult<'index>,
     ) -> std::io::Result<Option<u16>> {
-        let mut advanced: u16 = 0;
+        let mut skipped: u16 = 0;
         let freq = loop {
             let [delta, freq] = match qint_decode::<2, _>(cursor) {
                 Ok((decoded_values, _bytes_consumed)) => decoded_values,
@@ -69,18 +69,18 @@ impl Decoder for FreqsOnly {
                 }
                 Err(error) => return Err(error),
             };
-            advanced += 1;
 
             base += delta as DocId;
 
             if base >= target {
                 break freq;
             }
+            skipped += 1;
         };
 
         result.doc_id = base;
         result.freq = freq;
-        Ok(Some(advanced))
+        Ok(Some(skipped))
     }
 }
 

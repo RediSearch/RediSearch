@@ -390,7 +390,11 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     where
         Self: 'r,
     {
-        RSIndexResult::build_metric(score).doc_id(doc_id).build()
+        let mut result = RSIndexResult::build_metric(score).doc_id(doc_id).build();
+        // Vector results are not decoded from an inverted-index block, so they
+        // conservatively force field-expiration verification when it is enabled.
+        result.has_field_expiration = true;
+        result
         // TODO: MOD-14210: push the score to `result.metrics`. This needs `self` to know its key.
     }
 
@@ -536,6 +540,21 @@ mod tests {
             "begin_adhoc must drop the batch iterator before taking adhoc locks"
         );
         source.end_adhoc();
+
+        drop(source);
+        // SAFETY: no live references to the index remain.
+        unsafe { VecSimIndex_Free(index.as_ptr()) };
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn build_result_marks_field_expiration_for_ttl_check() {
+        let index = build_flat_index(1, 1);
+        // SAFETY: index is freed after the source is dropped at end of scope.
+        let source = unsafe { flat_source(index, 1, 1) };
+
+        let result = source.build_result(1, 0.0);
+        assert!(result.has_field_expiration);
 
         drop(source);
         // SAFETY: no live references to the index remain.

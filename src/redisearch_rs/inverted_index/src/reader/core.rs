@@ -289,17 +289,15 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
-        let advanced = D::seek(&mut cursor, base, doc_id, result)?;
+        let skipped = D::seek(&mut cursor, base, doc_id, result)?;
         self.buf_pos = cursor.position();
 
-        match advanced {
-            Some(advanced) => {
-                // `advanced` entries were traversed from the entry we were positioned on, so the
-                // landed entry sits at ordinal `entry_in_block + advanced - 1` within the block.
-                let landed = self.entry_in_block + advanced - 1;
+        match skipped {
+            Some(skipped) => {
+                self.entry_in_block += skipped;
                 result.has_field_expiration =
-                    ii.blocks[self.current_block_idx].expiration_bit(landed);
-                self.entry_in_block = landed + 1;
+                    ii.blocks[self.current_block_idx].expiration_bit(self.entry_in_block);
+                self.entry_in_block += 1;
                 self.last_doc_id = result.doc_id;
                 Ok(true)
             }
