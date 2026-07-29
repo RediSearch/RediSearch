@@ -958,9 +958,11 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   }
 
   uint32_t propertyCount = (uint32_t)nproperties;
-  if (propertyCount > AC_NumRemaining(ac)) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments",
-                                  " for GROUPBY: %s", AC_Strerror(AC_ERR_NOARG));
+
+  ArgsCursor propertiesAC = {0};
+  rv = AC_GetSlice(ac, &propertiesAC, propertyCount);
+  if (rv != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
@@ -968,7 +970,7 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
     size_t propertyLen;
-    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    rv = AC_GetString(&propertiesAC, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       array_free(properties);

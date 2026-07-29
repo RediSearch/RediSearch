@@ -1541,6 +1541,13 @@ TEST_F(ParseHybridTest, testGroupByNoProperties) {
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "GROUPBY: Failed to parse the argument count");
 }
 
+TEST_F(ParseHybridTest, testGroupByRejectsTooManyProperties) {
+  const std::string too_many_properties = std::to_string(MAX_GROUPBY_PROPERTIES + 1);
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA,
+                      "GROUPBY", too_many_properties.c_str(), "@title");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "GROUPBY: Invalid argument count");
+}
+
 TEST_F(ParseHybridTest, testGroupByPropertyMissingAtPrefix) {
   // Test GROUPBY with property missing @ prefix
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "GROUPBY", "1", "title");
