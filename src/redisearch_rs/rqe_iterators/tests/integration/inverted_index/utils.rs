@@ -150,8 +150,16 @@ impl<E: Encoder> BaseTest<E> {
             i += 1;
         }
 
-        // Test reading after skipping to the last id
+        // Sitting on the last result: these iterators only flip `at_eof` once a
+        // read runs past it, so the two states are observable separately here.
+        let last_id = *self.doc_ids.last().unwrap();
+        assert_eq!(it.current().unwrap().doc_id, last_id);
+        assert!(!it.at_eof());
+
         assert!(matches!(it.read(), Ok(None)));
+        assert!(it.current().is_none());
+        assert!(it.at_eof());
+
         let last_doc_id = it.last_doc_id();
         assert!(matches!(it.skip_to(last_doc_id + 1), Ok(None)));
         assert!(it.at_eof());
@@ -179,9 +187,10 @@ impl<E: Encoder> BaseTest<E> {
         assert!(!it.at_eof());
         let res = it.skip_to(self.doc_ids.last().unwrap() + 1);
         assert!(matches!(res, Ok(None)));
-        // we just rewound
+        // The skip found no record, so the iterator is left unpositioned and
+        // `last_doc_id` keeps the value `rewind` gave it.
         assert_eq!(it.last_doc_id(), 0);
-        assert_eq!(it.current().unwrap().doc_id, 0);
+        assert!(it.current().is_none());
         assert!(it.at_eof());
     }
 }
@@ -797,12 +806,12 @@ pub mod via_resume {
         assert_eq!(it.current().unwrap().doc_id, last_doc_id);
 
         test.remove_document(ii, last_doc_id);
-        // The move ran off the end: the iterator is at EOF. In the resume model
-        // EOF is observed via `at_eof()` / `read()`, not `current()` (which,
-        // like the real iterators, keeps returning the last record).
+        // The move runs off the end, which `current()` reports on its own — no
+        // `at_eof()` pre-check needed to interpret it.
         let mut it = revalidate_via_resume(it, &guard)
             .expect("resume should not fail in this test")
             .expect_moved();
+        assert!(it.current().is_none());
         assert!(it.at_eof());
         assert!(it.read().expect("read should not fail").is_none());
     }

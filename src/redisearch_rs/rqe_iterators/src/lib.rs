@@ -161,6 +161,21 @@ pub trait RQEIterator<'index> {
     /// for later in time. The child iterator already has that result anyway,
     /// and it is this method which provides the ability to expose it (for later use).
     ///
+    /// # Contract
+    ///
+    /// This is a *has-current* oracle: `Some(&mut result)` while the iterator is
+    /// positioned on a result, `None` once a [`read`](Self::read) or
+    /// [`skip_to`](Self::skip_to) found nothing and left it positioned *past* its
+    /// last result. Never a stale result once exhausted — that is what lets
+    /// resume-path callers detect a move that landed at EOF.
+    ///
+    /// [`at_eof`](Self::at_eof) does not answer the same question: it is a
+    /// *look-ahead* ("the next [`read`](Self::read) returns `None`") which, for
+    /// some iterators, is already `true` while they still sit on their last
+    /// result. An iterator that clamps on its last result rather than advancing
+    /// past it therefore keeps returning `Some(last)` from here while reporting
+    /// [`at_eof`](Self::at_eof).
+    ///
     /// # Usage
     ///
     /// Calling this method before the first [`read`](Self::read) or [`skip_to`](Self::skip_to),
