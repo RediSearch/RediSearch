@@ -80,7 +80,9 @@ fn exposes_bytes_len_and_flags() {
     with_token(Some(b"Hello"), 0x2A, |tok| {
         assert_eq!(tok.len(), 5);
         assert!(!tok.is_empty());
-        assert_eq!(tok.as_bytes(), Some(&b"Hello"[..]));
+        // SAFETY: the token is a local that nothing mutates or frees while the
+        // slice lives.
+        assert_eq!(unsafe { tok.as_bytes() }, Some(&b"Hello"[..]));
         assert_eq!(tok.flags(), 0x2A);
     });
 }
@@ -89,10 +91,12 @@ fn exposes_bytes_len_and_flags() {
 fn null_string_yields_none() {
     with_nul_token(None, 0, |tok| {
         assert!(tok.is_empty());
-        assert_eq!(tok.as_bytes(), None);
+        // SAFETY (both): the token is a local that nothing mutates or frees
+        // while the (absent) views live.
+        assert_eq!(unsafe { tok.as_bytes() }, None);
         assert!(tok.as_lower_runes().is_none());
         // The token carries no string, so `as_c_str` returns `None`.
-        assert!(tok.as_c_str().is_none());
+        assert!(unsafe { tok.as_c_str() }.is_none());
     });
 }
 
@@ -100,7 +104,9 @@ fn null_string_yields_none() {
 fn exposes_nul_terminated_c_str() {
     with_nul_token(Some(b"Hello"), 0, |tok| {
         assert_eq!(tok.len(), 5);
-        let c_str = tok.as_c_str().expect("token carries a string");
+        // SAFETY: `with_nul_token` keeps the buffer alive and unmutated for the
+        // whole closure, so the `CStr` stays valid.
+        let c_str = unsafe { tok.as_c_str() }.expect("token carries a string");
         assert_eq!(c_str, c"Hello");
     });
 }

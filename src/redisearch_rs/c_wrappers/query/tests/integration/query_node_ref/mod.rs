@@ -155,7 +155,8 @@ fn as_enum_token() {
     let QueryNode::Token { tok } = node.as_enum() else {
         panic!("expected Token");
     };
-    assert!(tok.as_bytes().is_none());
+    // SAFETY: nothing evaluates or frees the node while the (absent) view lives.
+    assert!(unsafe { tok.as_bytes() }.is_none());
 }
 
 #[test]

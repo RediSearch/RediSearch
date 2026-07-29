@@ -794,16 +794,18 @@ fn eval_token<'index>(
     tok: RSTokenRef,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    // A `QN_TOKEN` node always carries a non-null term string.
-    let term_bytes = tok.as_bytes();
-    debug_assert!(term_bytes.is_some(), "token string should not be null");
-    let term_bytes = term_bytes.unwrap_or_default();
     let opts = node.opts();
     let weight = opts.weight;
     // the node's field mask narrowed to the query's.
     let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
     let token_id = ctx.next_token_id() as i32;
-    let term = RSQueryTerm::new_bytes(term_bytes, token_id, tok.flags());
+    // SAFETY: the borrowed bytes are consumed by `new_bytes`, which copies them
+    // into a Rust-owned buffer, before the node is evaluated or handed back to C,
+    // so nothing can rewrite or free the token's string while the slice is live.
+    let term_bytes = unsafe { tok.as_bytes() };
+    // A `QN_TOKEN` node always carries a non-null term string.
+    debug_assert!(term_bytes.is_some(), "token string should not be null");
+    let term = RSQueryTerm::new_bytes(term_bytes.unwrap_or_default(), token_id, tok.flags());
 
     // SAFETY: `ctx.spec().diskSpec` is either null or a valid
     // `RedisSearchDiskIndexSpec` that stays valid for `'index` (`QueryEvalContext`
@@ -894,16 +896,18 @@ fn eval_token_disk<'index>(
     // build a disk term iterator through the enterprise API.
     // SAFETY: in search-on-disk mode the terms trie is always initialised.
     debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
+    // SAFETY: the borrowed bytes are consumed by the trie lookup below, which
+    // only reads them, before the node is evaluated or handed back to C, so
+    // nothing can rewrite or free the token's string while the slice is live.
+    let term_bytes = unsafe { tok.as_bytes() };
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
-    let term_bytes = tok.as_bytes();
     debug_assert!(term_bytes.is_some(), "token string should not be null");
-    let term_bytes = term_bytes.unwrap_or_default();
 
     // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
     // outlives this lookup.
     let terms = unsafe { CTrieRef::from_raw(spec.terms) };
-    let num_docs_in_term = terms.num_docs(term_bytes);
+    let num_docs_in_term = terms.num_docs(term_bytes.unwrap_or_default());
     let num_documents = spec.stats.scoring.numDocuments;
     let idf = idf::calculate_idf(num_documents, num_docs_in_term);
     let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs_in_term);
