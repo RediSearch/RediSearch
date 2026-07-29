@@ -266,8 +266,8 @@ impl TestContext {
     /// and return the document ID assigned to it.
     ///
     /// This populates the same `DocTable` that [`qctx`](TestContext::qctx) exposes
-    /// via `docTable`, so that key-to-id resolution (e.g. `DocTable_GetId`) can be
-    /// exercised in tests.
+    /// via `docTable` (a docId -> DMD store), assigning a fresh incremental docId.
+    /// Key -> docId resolution is no longer part of the DocTable.
     pub fn add_document(&self, key: &str) -> DocId {
         // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec`, so
         // `&spec.docs` is a valid `DocTable`. The key bytes outlive the call,

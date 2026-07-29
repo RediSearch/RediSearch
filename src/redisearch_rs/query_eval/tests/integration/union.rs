@@ -165,10 +165,14 @@ mod union {
         // union is {doc_a, doc_b, doc_c}.
         let keys1: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
         let keys2: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("doc_c")];
+        // IDS nodes carry pre-resolved docIds (resolved on the main thread in
+        // production), positionally matching the keys.
+        let mut dids1 = vec![id_a, id_b];
+        let mut dids2 = vec![id_b, id_c];
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
-        c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
+        c1.set_ids(keys1.as_ptr(), dids1.as_mut_ptr(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
-        c2.set_ids(keys2.as_ptr(), std::ptr::null_mut(), keys2.len());
+        c2.set_ids(keys2.as_ptr(), dids2.as_mut_ptr(), keys2.len());
 
         let mut union = MockQueryNode::new(QueryNodeType::Union);
         union.opts_mut().weight = 1.0;
@@ -223,10 +227,11 @@ mod union {
         // child 1: QN_MISSING for a field with no missing values → None.
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
         missing_child.set_missing_field(context.field_spec());
-        // child 2: QN_IDS resolving to a real document.
+        // child 2: QN_IDS resolving to a real document (pre-resolved docId).
         let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let mut dids = vec![id_a];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
-        ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        ids_child.set_ids(keys.as_ptr(), dids.as_mut_ptr(), keys.len());
 
         let mut union = MockQueryNode::new(QueryNodeType::Union);
         union.opts_mut().weight = 1.0;

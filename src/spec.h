@@ -380,6 +380,10 @@ typedef struct IndexSpec {
   // node (replica / hot-restart) finishes the partially populated index.
   // Idempotent re-indexing (DocIdMeta skip) makes the restart a safe backfill.
   bool resume_bg_indexing;
+
+  // KEEPDOCS drop (memory mode): prune this spec's DocIdMeta from surviving keys
+  // during background teardown (see IndexSpec_PruneDocIdMeta).
+  bool pruneKeyMetaOnFree;
 } IndexSpec;
 
 typedef enum SpecOp { SpecOp_Add, SpecOp_Del } SpecOp;
@@ -579,6 +583,17 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
+// Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
+// replacement for the former in-memory DocTable key trie). Returns 0 if the key
+// is not indexed by the spec. Valid in both memory and disk mode.
+t_docId IndexSpec_GetDocIdByKeyR(const IndexSpec *sp, RedisModuleCtx *ctx, RedisModuleString *key);
+
+// Borrow the in-memory DMD for a key (memory mode only), resolving key -> docId
+// via DocIdMeta. Returns NULL if the key is not indexed. Caller must DMD_Return
+// the result. Disk mode fetches DMDs from disk instead.
+const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCtx *ctx,
+                                                    RedisModuleString *key);
+
 // (Re)index a single document into the spec.
 //
 // `openKey` is an optional already-open handle for `key`. Pass it when the
@@ -746,14 +761,13 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
 
 /**
  * @return all memory used by the index `sp`.
- * Uses the sizes of the doc-table, tag and text overhead if they are not `0`
- * (otherwise compute them in-place). Vector overhead is expected to be passed in as an argument
- * and will not be computed in-place
+ * Uses the sizes of tag and text overhead if they are not `0` (otherwise compute them in-place).
+ * Vector overhead is expected to be passed in as an argument and will not be computed in-place
  * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
  * currently it is a best effort that account only for part of the actual memory.
  */
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead,
-  size_t text_overhead, size_t vector_overhead);
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+  size_t vector_overhead);
 
 /**
 * obfuscate argument is used to determine how we will format the index name

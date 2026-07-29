@@ -17,6 +17,7 @@
 #include "indexes.h"
 #include "rdb.h"
 #include "rmutil/rm_assert.h"
+#include "search_disk.h"
 #include "util/dict/dict.h"
 #include "util/references.h"
 
@@ -120,6 +121,28 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     dictSetVal(specIdToDocId, de, DOCID_TO_VAL(DOCID_META_INVALID));
   }
   dictReleaseIterator(iter);
+}
+
+static void docIdMetaPruneRemovedSpecs(dict *specIdToDocId) {
+  dictIterator *iter = dictGetSafeIterator(specIdToDocId);
+  dictEntry *de;
+  while ((de = dictNext(iter))) {
+    uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
+    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
+    if (docId == DOCID_META_INVALID || !isSpecValid(specId)) {
+      dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+    }
+  }
+  dictReleaseIterator(iter);
+}
+
+static int docIdMetaRename(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+  REDISMODULE_NOT_USED(ctx);
+  if (*meta == 0) return 0;
+
+  dict *specIdToDocId = (dict *)*meta;
+  docIdMetaPruneRemovedSpecs(specIdToDocId);
+  return dictSize(specIdToDocId) > 0;
 }
 
 // Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
@@ -232,25 +255,44 @@ static void docIdMetaRDBSave(RedisModuleIO *rdb, void *value, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-void DocIdMeta_Init(RedisModuleCtx *ctx) {
+bool DocIdMeta_Init(RedisModuleCtx *ctx) {
+  if (!RedisModule_CreateKeyMetaClass || !RedisModule_SetKeyMeta || !RedisModule_GetKeyMeta) {
+    RedisModule_Log(ctx, "warning",
+                    "DocIdMeta requires the Redis key metadata API (Redis 8.6.0 or newer)");
+    return false;
+  }
+  RS_ASSERT(RedisModule_CreateKeyMetaClass);
+  RS_ASSERT(RedisModule_SetKeyMeta);
+  RS_ASSERT(RedisModule_GetKeyMeta);
+
+  // RDB save/load are disk-mode only: memory mode rebuilds the mapping by
+  // re-indexing on load, so persisting it would risk staleness. NULL is valid -
+  // rdb_save=NULL persists nothing, and REDISMODULE_META_ALLOW_IGNORE (flags
+  // below) makes a NULL rdb_load ignore DocIdMeta from a disk-mode RDB rather
+  // than fail the load. IsEnabledForValidation == IsEnabled() outside tests.
+  const bool onDisk = SearchDisk_IsEnabledForValidation();
   RedisModuleKeyMetaClassConfig docIdKeyMetaClassIdConfig = {
     .version = REDISMODULE_KEY_META_VERSION,
     .reset_value = 0,
     .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
     .copy = NULL, // If NULL, meta is not copied during copy operations
-    .rename = NULL, // If NULL, meta is kept during rename
+    .rename = (RedisModuleKeyMetaRenameFunc)docIdMetaRename,
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,
-    .rdb_load = (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad,
-    .rdb_save = (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave,
+    .rdb_load = onDisk ? (RedisModuleKeyMetaLoadFunc)docIdMetaRDBLoad : NULL,
+    .rdb_save = onDisk ? (RedisModuleKeyMetaSaveFunc)docIdMetaRDBSave : NULL,
     .aof_rewrite = NULL,
     .defrag = NULL,
     .mem_usage = NULL,
     .free_effort = NULL,
   };
   docIdKeyMetaClassId = RedisModule_CreateKeyMetaClass(ctx, DOCID_META_CLASS_NAME, DOCID_META_VERSION, &docIdKeyMetaClassIdConfig);
-  RS_LOG_ASSERT_ALWAYS(docIdKeyMetaClassId >= 0, "Failed to create DocIdMeta class");
+  if (docIdKeyMetaClassId < 0) {
+    RedisModule_Log(ctx, "error", "Failed to create DocIdMeta class");
+    return false;
+  }
+  return true;
 }
 
 
@@ -316,7 +358,17 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   dict *specIdToDocId = (dict *)meta;
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
-  return dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
+  // Last entry gone: reset the KeyMeta value and free the now-empty per-key
+  // dict. SetKeyMeta does not free the old value, and Redis skips the free
+  // callback once meta == reset_value(0). The current Redis module API does not
+  // remove/shrink an existing KeyMeta slot; it only resets its stored value.
+  if (rc == DICT_OK && dictSize(specIdToDocId) == 0) {
+    if (RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0) == REDISMODULE_OK) {
+      dictRelease(specIdToDocId);
+    }
+  }
+  return rc;
 }
 
 // Set docId using key name and spec incarnation ID.
