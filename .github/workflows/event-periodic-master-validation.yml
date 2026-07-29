@@ -3,6 +3,10 @@ name: Periodic Master Validation
 # Runs broad validation on master against stable dependencies. Busy-day runs
 # start after enough PRs land; the daily sweep covers low-traffic leftovers.
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -27,6 +31,9 @@ jobs:
   # Skipped validation runs still finish successfully, so this job finds the last
   # successful run that actually completed validation and batches PRs from there.
   should-run:
+    permissions: # queries /actions/runs and /repos/../compare via gh
+      contents: read
+      actions: read
     runs-on: ubuntu-slim
     outputs:
       run-validation: ${{ steps.check.outputs.run-validation }}
@@ -154,6 +161,7 @@ jobs:
   # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
   # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
+    permissions: {} # echoes a pinned SHA
     needs: should-run
     if: ${{ needs.should-run.outputs.run-validation == 'true' }}
     # uses: ./.github/workflows/task-get-latest-tag.yml

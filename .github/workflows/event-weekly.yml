@@ -2,6 +2,10 @@ name: Weekly Flow
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   schedule:
     - cron: "20 20 * * 0"
@@ -19,6 +23,8 @@ jobs:
       notify_failure: true
 
   link-check:
+    permissions: # actions/checkout
+      contents: read
     runs-on: ubuntu-slim
     timeout-minutes: 10
 

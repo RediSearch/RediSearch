@@ -8,6 +8,10 @@ name: Pull Request Flow
 # never wait on the sanitize build. MIRI runs as its own top-level job —
 # untethered from the build artifact since it can't reuse the nextest archive.
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review] # Defaults + ready_for_review
@@ -22,6 +26,7 @@ jobs:
   # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
   # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
+    permissions: {} # echoes a pinned SHA
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
@@ -32,6 +37,8 @@ jobs:
       - run: echo "Using pinned redis/redis unstable commit instead of the latest release tag"
 
   check-what-changed:
+    permissions: # actions/checkout
+      contents: read
     uses: ./.github/workflows/task-check-changes.yml
 
   lint:
@@ -49,6 +56,8 @@ jobs:
       advisories-base-ref: ${{ github.event.pull_request.base.sha }}
 
   spellcheck:
+    permissions: # actions/checkout
+      contents: read
     uses: ./.github/workflows/task-spellcheck.yml
 
   # Deliberately not gated on check-what-changed: it runs in seconds, and a check
@@ -147,6 +156,7 @@ jobs:
       partition: count:${{ matrix.shard }}/3
 
   pr-validation:
+    permissions: {} # aggregation gate: inspects needs.* only
     needs:
       - get-latest-redis-tag
       - check-what-changed

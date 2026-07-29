@@ -6,6 +6,7 @@ on:
 
 jobs:
   check-release-notes:
+    permissions: {} # reads the PR body from the event payload
     runs-on: ubuntu-slim
     steps:
       - name: Check release notes checkbox

@@ -1,5 +1,9 @@
 name: Run a Micro Benchmark Flow
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_call:
     inputs:
@@ -26,6 +30,7 @@ on:
 
 jobs:
   prepare_runner_configurations:
+    permissions: {} # builds a matrix in shell
     runs-on: ubuntu-slim
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -84,6 +89,8 @@ jobs:
       ami-id: ${{ matrix.ami-id }}
 
   compare_micro_benchmarks:
+    permissions: # actions/checkout
+      contents: read
     needs: run_micro_benchmarks
     if: github.event.number
     runs-on: ubuntu-latest

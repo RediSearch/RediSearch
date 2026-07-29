@@ -16,6 +16,9 @@ on:
 
 jobs:
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
     with:

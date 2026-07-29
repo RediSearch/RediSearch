@@ -51,6 +51,7 @@ env:
 
 jobs:
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
@@ -58,6 +59,9 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform

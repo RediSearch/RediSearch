@@ -10,6 +10,7 @@ on:
 
 jobs:
   take:
+    permissions: {} # every write goes through the App token generated below
     runs-on: ubuntu-slim
     env:
       ASSIGNEE: ${{ inputs.assignee || github.actor }}

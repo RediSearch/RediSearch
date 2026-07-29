@@ -15,6 +15,9 @@ on:
 
 jobs:
   link-check:
+    permissions: # checkout, and github-script comments on the PR when links break
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-slim
     timeout-minutes: 10
     # Run if files changed OR if 'check-links' label is added

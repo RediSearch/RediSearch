@@ -53,6 +53,7 @@ env:
 
 jobs:
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
@@ -60,6 +61,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   start-runner:
+    permissions: {} # AWS access keys, and the runner registers with an App token
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
@@ -336,6 +338,7 @@ jobs:
           PY
 
   stop-runner:
+    permissions: {} # AWS access keys, and the runner deregisters with an App token
     name: Stop self-hosted EC2 runner
     needs: [start-runner, redis-build-sanity]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}

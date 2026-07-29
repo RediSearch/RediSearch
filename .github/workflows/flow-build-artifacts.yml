@@ -1,5 +1,9 @@
 name: Trigger Build and Upload Artifacts for Environments
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_dispatch:
     inputs:
@@ -50,6 +54,8 @@ on:
 
 jobs:
   setup:
+    permissions: # actions/checkout
+      contents: read
     # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ubuntu-slim
     outputs:
@@ -112,6 +118,7 @@ jobs:
               exit(1)
 
   generate-matrix:
+    permissions: {} # generate-matrix.yml only computes a matrix
     uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: ${{ inputs.platform }},!intel

@@ -20,6 +20,7 @@ on:
 
 jobs:
   unmark:
+    permissions: {} # the shared workflow only needs the Redis URL secret
     uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-unmark.yml@v1
     with:
       branch: ${{ inputs.branch }}

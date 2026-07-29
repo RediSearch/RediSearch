@@ -2,6 +2,10 @@ name: Deploy Master or Version Branch Snapshots
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -44,6 +48,7 @@ jobs:
           prompt-file: .github/codex/prompts/snapshot-triage.md
 
   notify-failure:
+    permissions: {} # Slack webhook only
     needs: [deploy-snapshots, triage-failure]
     if: failure()
     runs-on: ubuntu-slim

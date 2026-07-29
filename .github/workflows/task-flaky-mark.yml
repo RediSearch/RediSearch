@@ -30,6 +30,7 @@ on:
 
 jobs:
   mark:
+    permissions: {} # the shared workflow only needs the Redis URL secret
     uses: redislabsdev/redisearch-ci-common/.github/workflows/flaky-mark.yml@v1
     with:
       branch: ${{ inputs.branch }}
