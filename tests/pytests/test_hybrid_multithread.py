@@ -114,7 +114,6 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
     sync_point = 'BeforeHybridResultsClaim'
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []
@@ -137,20 +136,13 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
         f'Timeout waiting for {sync_point} sync point')
 
-    # Indexing this parks on the spec write lock behind the query's read lock,
-    # which both releases the sync point and makes the depleters' try-lock fail.
-    writer_conn = env.getConnection()
-    writer_thread = threading.Thread(
-        target=lambda: writer_conn.execute_command(
-            'HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text'),
-        daemon=True)
-    writer_thread.start()
+    # Indexing this parks on the spec write lock behind the query's read lock, which
+    # both releases the sync point and makes the depleters' try-lock fail. It returns
+    # once the query has finished and dropped its read lock.
+    env.cmd('HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text')
 
     query_thread.join(timeout=30)
     env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
-    writer_thread.join(timeout=30)
-
-    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
 
     kind, payload = outcome[0]
     if kind == 'err':
