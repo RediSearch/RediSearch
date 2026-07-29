@@ -1,11 +1,9 @@
 name: Release an OSS Version
 
-# Floor for every job: enough for actions/checkout, nothing more. The two jobs
-# that need to write (update-version) or request an AWS JWT (set-artifacts)
-# raise it themselves, so a step added to any other job here does not silently
-# inherit push or PR access.
-permissions:
-  contents: read
+# Every job below declares exactly what it needs. This empty default is the floor
+# rather than a grant: without it a job added later would inherit the repository's
+# default workflow permissions, which can be broader than anything here.
+permissions: {}
 
 on:
   push:
@@ -27,6 +25,8 @@ jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    permissions:
+      contents: read # actions/checkout, plus `git branch`/`rev-parse` below
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
