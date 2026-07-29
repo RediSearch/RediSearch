@@ -3,11 +3,14 @@
 #
 # This file is policy only: which action references may stay on a moving tag, and
 # which audits are deliberately suppressed. The job that runs zizmor is
-# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=medium
-# --min-confidence=medium. What that still leaves out is low-severity artipacked
-# (28) and the low-confidence github-env and unpinned-images tiers; dropping
-# either threshold further is how you pick the next batch up, and it will surface
-# findings.
+# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=informational
+# --min-confidence=medium. Severity is at its floor, so nothing is excluded for
+# being low-impact; everything still outside the gate is outside it for being
+# low-confidence: artipacked (28 — no `persist-credentials: false` on our
+# checkouts), unpinned-images (16 — container images by tag, several of them
+# resolved from a matrix at runtime) and github-env (10, and zizmor cannot fully
+# analyse two of those files because it does not model the `python3` shell).
+# Dropping --min-confidence to low is the next step and will surface all of them.
 rules:
   secrets-inherit:
     # Every one of these is a call into a reusable workflow in *this* repository,
