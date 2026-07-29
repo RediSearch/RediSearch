@@ -6,14 +6,24 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include <redisearch.h>
-#include "value_ffi.h"
-#include "search_result_ffi.h"
 #include <result_processor.h>
-#include "pipeline/pipeline.h"
 #include <util/block_alloc.h>
 #include <util/khash.h>
+#include <stdint.h>
+#include <string.h>
+
+#include "value_ffi.h"
+#include "search_result_ffi.h"
+#include "pipeline/pipeline.h"
 #include "reducer.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rqe_core.h"
+#include "search_result.h"
+#include "util/arr/arr.h"
 
 /**
  * A group represents the allocated context of all reducers in a group, and the

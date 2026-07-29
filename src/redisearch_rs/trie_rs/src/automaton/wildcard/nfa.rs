@@ -204,8 +204,7 @@ impl<'p, S: NfaBitSet> WildcardNfa<'p, S> {
     /// in [`NfaBitSet::singleton`] / [`NfaBitSet::insert`] would shift
     /// past the backend's width and silently corrupt the active set in
     /// release builds (the underlying shift wraps modulo the type width
-    /// in Rust). Going through [`super::WildcardIter`]
-    /// guarantees this never fires.
+    /// in Rust).
     pub(crate) fn compile(pattern: &WildcardPattern<'p>) -> Self {
         assert!(
             pattern.atom_count() < S::CAPACITY,

@@ -8,9 +8,14 @@
  */
 
 #include "coord_request_ctx.h"
+
+#include <stdatomic.h>
+#include <stddef.h>
+
 #include "rmalloc.h"
 #include "info/global_stats.h"
-#include "cursor.h"
+#include "query_error_ffi.h"
+#include "rmutil/rm_assert.h"
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
 #endif
@@ -43,7 +48,7 @@ void CoordRequestCtx_Free(CoordRequestCtx *ctx) {
     if (ctx->hreq) HybridRequest_DecrRef(ctx->hreq);
   } else if (ctx->type == COMMAND_AGGREGATE) {
     if (ctx->areq) {
-      // Dispose any cursor stashed in storedReplyState.cursor by runCursor.
+      // Dispose any cursor stashed in brc->reply.cursor by runCursor.
       AREQ_CleanUpStoredCursor(ctx->areq);
       AREQ_DecrRef(ctx->areq);
     }

@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           submodules: recursive
       - name: Fix HOME Directory
@@ -95,7 +95,7 @@ jobs:
           command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
           github_token: ${{ github.token }}
       # Cache Rust packages and binaries
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           prefix-key: "v1-rust"
           # The cargo workspaces and target directory configuration.

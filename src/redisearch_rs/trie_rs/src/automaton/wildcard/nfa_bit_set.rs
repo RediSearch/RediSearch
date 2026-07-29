@@ -14,8 +14,7 @@
 //! Each `NfaBitSet` impl is a few
 //! single-register operations, so every method on
 //! [`super::nfa::WildcardNfa<S>`] inlines into a tight bitwise hot loop.
-//! [`super::WildcardBackend::for_pattern`] picks the width; patterns
-//! past 127 atoms exceed `u128`, the widest bitset.
+//! Patterns past 127 atoms exceed `u128`, the widest bitset.
 
 /// Bitmask of active NFA positions, with bit *i* set iff position *i*
 /// is in the current active set. The full set must fit in the type — implementers
@@ -27,8 +26,7 @@ pub trait NfaBitSet: Clone + Eq {
     /// Number of distinct positions this bitset can hold. A pattern with
     /// `n` atoms uses positions `0..=n` (accept included), so the backend
     /// is only sound when `n < CAPACITY`. [`super::nfa::WildcardNfa::compile`]
-    /// enforces this; the dispatcher in [`super::WildcardIter`]
-    /// picks the narrowest width that fits.
+    /// enforces this.
     const CAPACITY: usize;
 
     /// Empty set, sized for positions `0..=n_atoms`.

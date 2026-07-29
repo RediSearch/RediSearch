@@ -1,0 +1,26 @@
+version: 2
+
+# Every third-party action in .github/ is pinned to a commit SHA (enforced by
+# .github/zizmor.yml + .github/workflows/task-zizmor.yml). A pinned SHA never
+# picks up upstream fixes on its own, so Dependabot owns keeping them current —
+# it rewrites both the SHA and the `# v6` trailing comment.
+#
+# Only the actions in this repository are in scope. Dependabot does not descend
+# into the vendored submodules under deps/, which carry their own workflows.
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - "/"                    # .github/workflows/
+      - "/.github/actions/*"   # our composite actions' action.yml
+    schedule:
+      interval: weekly
+    cooldown:
+      # Don't adopt a release the moment it is published: a compromised version
+      # is usually caught and yanked within days, and we gain nothing from being
+      # first. zizmor's dependabot-cooldown audit wants at least 7 days.
+      default-days: 7
+    groups:
+      # One PR per week for all action bumps rather than ~20 separate ones.
+      github-actions:
+        patterns:
+          - "*"

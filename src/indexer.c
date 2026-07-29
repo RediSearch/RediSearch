@@ -7,18 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "indexer.h"
+
 #include "forward_index.h"
 #include "inverted_index.h"
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
-#include "geo_index.h"
 #include "vector_index.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
-#include "obfuscation/obfuscation_api.h"
 #include "redismodule.h"
 #include "debug_commands.h"
 #include "search_disk.h"
@@ -26,13 +25,35 @@
 #include "gc.h"
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
-#include "tag_index.h"
 #include "module.h"
 #include "util/workers.h"
+#include "VecSim/vec_sim.h"
+#include "byte_offsets.h"
+#include "doc_table.h"
+#include "geometry_index.h"
+#include "index_result_rs.h"
+#include "info/index_error.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redisearch.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "stemmer.h"
+#include "synonym_map.h"
+#include "ttl_table.h"
+#include "ttl_table_rs.h"
+#include "util/block_alloc.h"
+#include "util/dict/dict.h"
+#include "util/khtable.h"
+#include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
 #include <unistd.h>
+#include <stdint.h>
+#include <string.h>
 
 static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEntry *entry) {
   AddRecordOutcome r = InvertedIndex_WriteForwardIndexEntry(idx, entry);

@@ -589,6 +589,36 @@ def testTrimUnionDesc(env):
                 params, 'ASC ' + numRange)
 
 
+@skip(cluster=True)
+def testRetryWindowFillsRequestedLimit(env):
+    """A retry window holds the results the first window came up short of.
+
+    Matches sit in the two lowest numeric ranges and then far above them, so the
+    first window collects only a few and the retry has to cover the gap. The
+    optimized query returns the same top of the ordering as the unoptimized one,
+    up to the full LIMIT.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    def is_match(i):
+        if i < 833:
+            return i % 33 == 0
+        if i < 1666:
+            return i % 55 == 0
+        return i >= 8000
+
+    for i in range(10000):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if is_match(i) else 'bar')
+
+    limit = 50
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
+    optimized = env.cmd(*query, 'WITHOUTCOUNT')[1:]
+
+    env.assertEqual(len(optimized), limit)
+    env.assertEqual(optimized, env.cmd(*query, 'WITHCOUNT')[1:])
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results

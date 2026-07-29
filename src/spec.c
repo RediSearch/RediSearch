@@ -7,20 +7,24 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+
+#include <math.h>
+#include <limits.h>
+#include <string.h>
+// __GLIBC__; glibc-only header
+#if __has_include(<features.h>)
+#include <features.h>  // IWYU pragma: keep
+#endif
+#include <stdio.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "document.h"
 #include "inverted_index_ffi.h"
 #include "numeric_range_tree_ffi.h"
-#include "rlookup_load_document.h"
-
-#include <math.h>
-#include <ctype.h>
-#include <limits.h>
-
 #include "triemap_ffi.h"
 #include "util/logging.h"
 #include "util/likely.h"
-#include "util/misc.h"
-#include "rmutil/vector.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
 #include "trie/trie.h"
@@ -33,28 +37,37 @@
 #include "suffix.h"
 #include "alias.h"
 #include "module.h"
-#include "aggregate/expr/expression.h"
 #include "rules.h"
-#include "dictionary.h"
 #include "doc_types.h"
 #include "doc_id_meta.h"
 #include "rdb.h"
 #include "commands.h"
 #include "obfuscation/obfuscation_api.h"
-#include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
 #include "info/info_redis/threads/current_thread.h"
-#include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
-#include "reply_macros.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
-#include "util/redis_mem_info.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "iterators_ffi.h"
+#include "VecSim/vec_sim.h"
+#include "geometry/geometry_types.h"
+#include "geometry_index.h"
+#include "json.h"
+#include "language.h"
+#include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
+#include "query_error_ffi.h"
+#include "rejson_api.h"
+#include "search_ctx.h"
+#include "search_result_rs.h"
+#include "thpool/thpool.h"
+#include "trie/trie_node.h"
+#include "util/strconv.h"
+#include "vector_index.h"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1374,6 +1387,25 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
   return true;
 }
 
+static bool validateFieldNameAndPath(const char *fieldName, size_t namelen, const char *fieldPath,
+                                     size_t pathlen, QueryError *status) {
+  // An empty field name is unsupported.
+  if (namelen == 0) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot be empty");
+    return false;
+  }
+  if (memchr(fieldName, '\0', namelen) != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot contain null bytes");
+    return false;
+  }
+  if (fieldPath && memchr(fieldPath, '\0', pathlen) != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field path cannot contain null bytes");
+    return false;
+  }
+
+  return true;
+}
+
 static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
   if (FieldSpec_IsIndexableText(fs) && FieldSpec_HasSuffixTrie(fs)) {
     sp->suffixMask |= FIELD_BIT(fs);
@@ -1386,6 +1418,7 @@ static void IndexSpec_EnsureSuffixForField(IndexSpec *sp, const FieldSpec *fs) {
 
 /**
  * Add fields to an existing (or newly created) index. If the addition fails,
+ * restore the schema state that was mutated while parsing this field batch.
  */
 static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
                                        QueryError *status, int isNew) {
@@ -1396,7 +1429,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
   const size_t prevNumFields = sp->numFields;
   const size_t prevSortLen = sp->numSortableFields;
+  const uint32_t prevFieldIdToIndexLen = array_len(sp->fieldIdToIndex);
   const IndexFlags prevFlags = sp->flags;
+  Trie *prevSuffix = sp->suffix;
+  const t_fieldMask prevSuffixMask = sp->suffixMask;
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
@@ -1420,6 +1456,10 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       // if `AS` is not used, set the path as name
       namelen = pathlen;
       fieldPath = NULL;
+    }
+
+    if (!validateFieldNameAndPath(fieldName, namelen, fieldPath, pathlen, status)) {
+      goto reset;
     }
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
@@ -1547,6 +1587,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
   return 1;
 
 reset:
+  // Parsing may fail after appending field specs, consuming TEXT field IDs, or
+  // creating suffix-trie state. Restore every snapshot taken before this batch
+  // so failed FT.ALTER commands leave the existing schema unchanged.
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
     IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
@@ -1554,8 +1597,13 @@ reset:
 
   sp->numFields = prevNumFields;
   sp->numSortableFields = prevSortLen;
-  // TODO: Why is this masking performed?
-  sp->flags = prevFlags | (sp->flags & Index_HasSuffixTrie);
+  array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
+  if (sp->suffix && sp->suffix != prevSuffix) {
+    TrieType_Free(sp->suffix);
+  }
+  sp->suffix = prevSuffix;
+  sp->suffixMask = prevSuffixMask;
+  sp->flags = prevFlags;
   return 0;
 }
 
@@ -2190,6 +2238,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->scan_failed_OOM = false;
+  sp->scan_failed_OOM_scanned_keys = 0;
   sp->diskSpec = NULL;
   sp->pendingDiskRdbState = NULL;
   sp->diskRegistered = false;

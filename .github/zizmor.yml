@@ -1,0 +1,34 @@
+# zizmor configuration — static analysis for our GitHub Actions workflows.
+# Reference: https://docs.zizmor.sh/configuration/
+#
+# This file is policy only: which action references may stay on a moving tag, and
+# which audits are deliberately suppressed. The job that runs zizmor is
+# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=high
+# --min-confidence=high — so the audits we have not triaged yet (artipacked,
+# secrets-inherit, medium excessive-permissions, github-env, unpinned-images,
+# dangerous-triggers) do not block PRs. Lowering either threshold is how you pick
+# the next batch up; expect findings.
+rules:
+  github-app:
+    ignore:
+      # task-take-shift.yml runs `gh variable set`, which needs GitHub's
+      # "Variables" repository permission. create-github-app-token exposes no
+      # `permission-variables` input, so that token cannot be narrowed to what it
+      # actually uses (actions/create-github-app-token#231). It is already scoped
+      # to a single repository. Suppressed here rather than with an inline
+      # `# zizmor: ignore[...]` comment because that has to sit on the `uses:`
+      # line, where Dependabot rewrites the trailing version comment.
+      - task-take-shift.yml
+  unpinned-uses:
+    config:
+      policies:
+        # First-party shared CI lives in the public redislabsdev/redisearch-ci-common
+        # repository and is tracked by a moving major tag on purpose, so org-wide CI
+        # fixes propagate without a bump here. `ref-pin` still rejects an outright
+        # unpinned or branch-tracking reference.
+        redislabsdev/*: ref-pin
+        # Everything else must be a full commit SHA: a tag is mutable, and whoever
+        # controls the upstream repository can repoint it at code that then runs with
+        # this workflow's token and secrets. Dependabot keeps the pins current
+        # (see .github/dependabot.yml).
+        "*": hash-pin

@@ -8,9 +8,19 @@
 */
 
 #include "dist_utils.h"
+
+#include <stdio.h>
+#include <string.h>
+
 #include "util/misc.h"
 #include "util/strconv.h"
-#include "rpnet.h"
+#include "hiredis/read.h"
+#include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "rmr/rmr.h"
+#include "rmutil/rm_assert.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 

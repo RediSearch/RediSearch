@@ -6,25 +6,26 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include <cursor.h>
+#include <query.h>
+#include <result_processor.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/param.h>
+
 #include "aggregate.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
-#include "reducer.h"
-
-#include <cursor.h>
-#include <query.h>
-#include <extension.h>
-#include <result_processor.h>
-#include <util/arr.h>
-#include <rmutil/util.h>
-#include "ext/default.h"
 #include "extension.h"
 #include "profile/profile.h"
 #include "config.h"
-#include "util/timeout.h"
 #include "query_optimizer.h"
-#include "resp3.h"
 #include "obfuscation/hidden.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
@@ -36,6 +37,45 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "aggregate/aggregate_plan.h"
+#include "aggregate/expr/expression.h"
+#include "field_spec.h"
+#include "geo_index.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_cursor_mappings.h"
+#include "language.h"
+#include "numeric_filter.h"
+#include "param.h"
+#include "pipeline/pipeline.h"
+#include "pipeline/pipeline_construction.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "query_internal.h"
+#include "query_node.h"
+#include "query_param.h"
+#include "query_parser/tokenizer.h"
+#include "query_types.h"
+#include "redisearch.h"
+#include "redismodule.h"
+#include "rlookup.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "spec.h"
+#include "stopwords.h"
+#include "util/arr/arr.h"
+#include "util/references.h"
+#include "util/rs_atomic.h"
+
+struct MRChannel;
 
 extern RSConfig RSGlobalConfig;
 
@@ -1091,7 +1131,6 @@ AREQ *AREQ_New(void) {
   req->querySlots = NULL;
   RequestSyncState_Init(&req->syncState);
   req->brc = NULL;
-  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1113,6 +1152,7 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_init(&brc->aggregateResultsLock, NULL);
   pthread_cond_init(&brc->aggregateResultsCond, NULL);
+  brc->reply.err = QueryError_Default();
   return brc;
 }
 
@@ -1153,6 +1193,10 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
+  // Idempotent after EndCycle; still required for cycles that do not run
+  // EndCycle yet (coordinator paths until Step 5). Must run while the owned
+  // request is alive: disposing a stashed cursor clears its execState.
+  ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_Free(brc->query.areq);
@@ -1780,7 +1824,6 @@ void AREQ_Free(AREQ *req) {
     // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
     AREQ_Debug_FreeParams((AREQ_Debug *)req);
   }
-  ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
@@ -1866,9 +1909,9 @@ void AREQ_Free(AREQ *req) {
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+  if (req->brc->reply.cursor) {
+    Cursor *cursor = req->brc->reply.cursor;
+    req->brc->reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }

@@ -45,10 +45,7 @@ impl<'a> JsonPath<'a> {
         ctx: *mut ffi::RedisModuleCtx,
         api: &'a RedisJsonApi,
     ) -> Result<Self, RedisString> {
-        let vtable = api.vtable();
-        let path_parse = vtable
-            .pathParse
-            .expect("RedisJSON API function `pathParse` not available");
+        let path_parse = vtable_fn!(api, pathParse);
 
         let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
 
@@ -56,9 +53,7 @@ impl<'a> JsonPath<'a> {
         let ptr = unsafe { path_parse(path.as_ptr(), ctx, &raw mut err_msg) };
 
         if let Some(ptr) = NonNull::new(ptr as *mut c_void) {
-            let path_free = vtable
-                .pathFree
-                .expect("RedisJSON API function `pathFree` not available");
+            let path_free = vtable_fn!(api, pathFree);
 
             Ok(Self {
                 ptr,
@@ -80,10 +75,7 @@ impl<'a> JsonPath<'a> {
     ///
     /// Only available with RedisJSON API v2 and later.
     pub fn is_single(&self) -> bool {
-        let vtable = self.api.vtable();
-        let path_is_single = vtable
-            .pathIsSingle
-            .expect("RedisJSON API function `pathIsSingle` not available");
+        let path_is_single = vtable_fn!(self.api, pathIsSingle);
 
         // Safety: `ptr` is valid by construction.
         unsafe { path_is_single(self.ptr.as_ptr()) != 0 }
@@ -97,10 +89,7 @@ impl<'a> JsonPath<'a> {
     ///
     /// Only available with RedisJSON API v2 and later.
     pub fn path_has_defined_order(&self) -> bool {
-        let vtable = self.api.vtable();
-        let path_has_defined_order = vtable
-            .pathHasDefinedOrder
-            .expect("RedisJSON API function `pathHasDefinedOrder` not available");
+        let path_has_defined_order = vtable_fn!(self.api, pathHasDefinedOrder);
 
         // Safety: `ptr` is valid by construction.
         unsafe { path_has_defined_order(self.ptr.as_ptr()) != 0 }

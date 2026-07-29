@@ -8,14 +8,23 @@
 */
 
 #include "search_disk.h"
+
+#include <stdatomic.h>
+#include <string.h>
+
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
-#include <stdatomic.h>
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -221,6 +230,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           size_t nkeys, uint32_t *outStateFlags) {
     return disk->basic.newAsyncLoaderResultProcessor(sctx, reqflags, lk, keys, nkeys,
                                                      outStateFlags);
+}
+
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
 }
 
 void SearchDisk_UpdateLogObfuscation() {
@@ -561,11 +575,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index) {
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
-}
-
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
 }
 
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {

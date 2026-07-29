@@ -7,14 +7,22 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rlookup_load_document.h"
+
+#include <string.h>
+
 #include "json.h"
-#include "module.h"
 #include "document.h"
 #include "rmutil/rm_assert.h"
 #include "doc_types.h"
 #include "value_ffi.h"
-#include "util/arr.h"
 #include "rs_wall_clock.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "rejson_api.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
 
 typedef enum {
   RLOOKUP_C_STR = 0,
@@ -209,7 +217,8 @@ int loadIndividualKeys(RLookup *it, RLookupRow *dst, RLookupLoadOptions *options
   const bool borrowedKey = options->openKey && (type == DocumentType_Hash || type == DocumentType_Json);
   if (borrowedKey) {
     if (type == DocumentType_Json) {
-      key = japi ? (void *)japi->getJsonFromHandle(options->openKey) : NULL;
+      RS_ASSERT(japi && japi->isJSON(options->openKey));
+      key = (void *)JSON_GetJsonFromHandleCompat(options->openKey);
     } else {
       key = options->openKey;
     }

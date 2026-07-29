@@ -199,7 +199,11 @@ dependencies = [
 name = "c_trie"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "c_trie",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "strum",
  "workspace_hack",
 ]
@@ -677,6 +681,7 @@ dependencies = [
  "ffi",
  "field_spec",
  "hidden_string",
+ "numeric_range_tree",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
@@ -722,6 +727,7 @@ dependencies = [
  "build_utils",
  "dict",
  "ffi",
+ "field_spec",
  "fork_gc",
  "hidden_string",
  "index_result",
@@ -729,6 +735,8 @@ dependencies = [
  "inverted_index",
  "libc",
  "nix",
+ "numeric_range_tree",
+ "proptest",
  "redis-module",
  "redis_mock",
  "redisearch_rs",
@@ -1488,6 +1496,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rstest",
  "tracing",
@@ -2275,6 +2284,7 @@ dependencies = [
  "rlookup_ffi",
  "search_result",
  "sorting_vector",
+ "tracing",
  "value",
  "value_ffi",
  "workspace_hack",
