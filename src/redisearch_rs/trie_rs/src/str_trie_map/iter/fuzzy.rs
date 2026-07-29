@@ -9,11 +9,9 @@
 
 use crate::{
     TrieMap,
+    automaton::{CaseFoldLevenshtein, CaseFoldLevenshteinNfa},
     iter::AutomatonIter,
-    str_trie_map::{
-        automaton::{CaseFoldLevenshtein, CaseFoldLevenshteinNfa},
-        iter::unfiltered::key_to_string,
-    },
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
 /// Iterator over the entries of a
