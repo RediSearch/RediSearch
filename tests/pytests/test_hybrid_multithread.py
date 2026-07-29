@@ -1,3 +1,4 @@
+import glob
 import numpy as np
 import threading
 from RLTest import Env
@@ -103,13 +104,14 @@ def test_hybrid_multithread():
 def test_hybrid_depleter_lock_failure_replies_error():
     """A depleter that loses the spec try-lock to a queued writer must reply
     SEARCH_SAFE_DEPLETER_FAILURE.
-
-    Whether a *queued* writer (rather than a lock-holding one) fails a try-lock is
-    libc-dependent — glibc and Darwin fail it, musl does not — so where the depleters
-    win the lock instead, the query must simply return its results.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
+    # musl admits a reader past a queued writer, so the try-lock never fails there
+    # and the failure cannot be provoked. glibc (writer-preferring, see
+    # IndexSpec_InitLock) and Darwin both fail it.
+    if glob.glob('/lib/ld-musl-*.so.1'):
+        env.skip()
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
 
@@ -147,10 +149,5 @@ def test_hybrid_depleter_lock_failure_replies_error():
         return  # still parked; the assertion above is the diagnostic
 
     kind, payload = outcome[0]
-    # Record which branch ran: a green run alone does not say whether the
-    # lock-failure path was reached on this platform.
-    env.debugPrint(f'depleter try-lock outcome: {kind}', force=True)
-    if kind == 'err':
-        env.assertContains('Failed to acquire index lock for background depletion', payload)
-    else:
-        env.assertGreater(payload[recursive_index(payload, 'total_results')[-1] + 1], 0)
+    env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
+    env.assertContains('Failed to acquire index lock for background depletion', str(payload))
