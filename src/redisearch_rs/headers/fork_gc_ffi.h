@@ -158,6 +158,27 @@ enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 
 /**
+ * Receive and apply the GC deltas for one numeric or geo field.
+ *
+ * Reads a field header from the pipe followed by that field's per-node
+ * deltas, applying each to the field's numeric tree under the write lock and
+ * updating statistics. Returns [`FGCError::Done`] when the child sent the
+ * global terminator instead of a field header (all fields processed),
+ * [`FGCError::Collected`] after a field's deltas were applied, or an error
+ * variant on pipe, spec, or tree-lookup failure.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ */
+enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
+
+/**
  * Read a length-prefixed buffer frame from the FGC pipe.
  *
  * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes

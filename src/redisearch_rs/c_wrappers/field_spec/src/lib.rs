@@ -100,6 +100,16 @@ impl FieldSpec {
             std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|p| p.as_ref())
         }
     }
+
+    /// Return a mutable reference to the numeric range tree, or `None` if not initialised.
+    pub fn tree_mut(&mut self) -> Option<&mut NumericRangeTree> {
+        // SAFETY: when non-null, fs.tree is a valid NumericRangeTree allocated by
+        // open_numeric_or_geo_index and stored in the FieldSpec. We have exclusive
+        // access to `self`, so handing out a mutable reference to the owned tree is sound.
+        unsafe {
+            std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|mut p| p.as_mut())
+        }
+    }
 }
 
 impl fmt::Debug for FieldSpec {

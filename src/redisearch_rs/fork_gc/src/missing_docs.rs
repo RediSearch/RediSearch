@@ -118,6 +118,7 @@ pub fn apply_missing_docs(
         bytes_allocated: gc_info.bytes_allocated,
         block_count_delta: gc_info.block_count_delta - remaining_blocks as i64,
         blocks_denied: gc_info.ignored_last_block as u64,
+        ..GcApplyStats::default()
     })
 }
 

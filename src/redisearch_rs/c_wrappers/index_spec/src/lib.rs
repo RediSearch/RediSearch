@@ -201,6 +201,19 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         }
     }
 
+    /// Returns the spec's fields as a mutable slice.
+    pub fn field_specs_mut(&mut self) -> &mut [FieldSpec] {
+        let len = self.0.numFields as usize;
+        if len == 0 {
+            return &mut [];
+        }
+        debug_assert!(!self.0.fields.is_null(), "fields must not be null");
+        // SAFETY: `fields` is a valid array of `numFields` ffi::FieldSpec elements that lives
+        // at least as long as this guard, and we hold the write lock so exclusive mutable
+        // access is sound. FieldSpec is #[repr(transparent)] over ffi::FieldSpec.
+        unsafe { slice::from_raw_parts_mut(self.0.fields.cast::<FieldSpec>(), len) }
+    }
+
     /// Return the spec's `missingFieldDict` as a typed [`Dict`].
     pub fn missing_field_dict_mut(&mut self) -> &mut Dict<MissingFieldDictType> {
         debug_assert!(
@@ -435,7 +448,7 @@ impl IndexSpecWeakRef {
     /// Attempt to promote to a strong reference.
     ///
     /// Returns `None` if the spec has been deleted since the weak ref was obtained.
-    pub fn promote(self) -> Option<IndexSpecStrongRef> {
+    pub fn promote(&self) -> Option<IndexSpecStrongRef> {
         // SAFETY: self.0 is a valid WeakRef (guaranteed by from_raw's caller).
         let strong_ref = unsafe { ffi::IndexSpecRef_Promote(self.0) };
         // SAFETY: StrongRef_Get is always safe to call on a valid StrongRef.
