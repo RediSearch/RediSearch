@@ -16,7 +16,7 @@
 
 use std::time::Instant;
 
-use super::{Automaton, StateClass};
+use crate::automaton::{Automaton, StateClass};
 use crate::{iter::timeout::IteratorTimeoutState, trie_map::node::Node};
 use lending_iterator::prelude::*;
 use timeout::TimeoutCheckResult;

@@ -12,7 +12,7 @@
 //! `?` matches exactly one codepoint (`entr?` matches `entré`), `*` matches
 //! any run of codepoints, and literals compare codepoint-for-codepoint. This
 //! is the UTF-8 lifting of the byte-level wildcard NFA in
-//! [`wildcard`](crate::trie_map::iter::automaton::wildcard), whose `?`
+//! [`wildcard`](super::wildcard), whose `?`
 //! consumes a single byte. Matching is case-sensitive; case-insensitive
 //! callers fold both sides before matching.
 //!
@@ -29,7 +29,7 @@
 //! *matching* granularity differs from the byte NFA.
 
 use super::utf8::CodepointDecoder;
-use crate::iter::{Automaton, NfaBitSet, StateClass};
+use super::{Automaton, NfaBitSet, StateClass};
 use rqe_wildcard::{Token, WildcardPattern};
 
 /// One pattern position, over the codepoint alphabet. The counterpart of the
@@ -172,7 +172,7 @@ impl CodepointWildcard {
 /// [`CodepointWildcard`] as a streaming [`Automaton`] over a trie, backed by
 /// an [`NfaBitSet`] of pattern positions. See the [module docs](self) for
 /// the matching model and the [byte NFA's module
-/// doc](crate::trie_map::iter::automaton::wildcard) for the position/ε-closure
+/// doc](super::wildcard) for the position/ε-closure
 /// primer — the encoding is the same, one transition per *codepoint* instead
 /// of per byte.
 ///

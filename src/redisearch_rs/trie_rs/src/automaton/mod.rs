@@ -7,60 +7,72 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Streaming-automaton trie traversal.
+//! Streaming byte automatons.
 //!
-//! Walks a trie under the control of a byte-streaming state machine —
-//! the [`Automaton`] — instead of materialising each candidate key and
-//! re-testing it against a predicate (the
-//! [`TraversalFilter`](super::filter::TraversalFilter) approach). The
-//! payoff is *shared-prefix reuse*: the automaton state at any trie
-//! node is computed once, then reused for every descendant, so each
-//! byte of stored content costs at most one transition per query.
+//! An [`Automaton`] is a byte-streaming state machine: from a
+//! [`start`](Automaton::start) state it is advanced one byte
+//! ([`step`](Automaton::step)) or one byte slice
+//! ([`step_all`](Automaton::step_all)) at a time, and every reached
+//! state [`classify`](Automaton::classify)-es into a [`StateClass`]
+//! that says whether the bytes consumed so far form an accepted key
+//! and whether some extension of them still might.
 //!
-//! ## How it works
+//! The contract is shaped for incremental traversal of a trie, where
+//! the automaton state reached at a node is reused for every
+//! descendant: input arrives as edge labels — chunks split at
+//! arbitrary byte boundaries — states are cloned at branch points, and
+//! the [`StateClass`] short-circuit variants and
+//! [`literal_prefix`](Automaton::literal_prefix) allow whole subtrees
+//! to be pruned or accepted without stepping through them.
 //!
-//! The [`Automaton`] trait abstracts the state machine. An
-//! implementation gives the driver three things —
+//! **Start with the [`wildcard`] module doc for a worked NFA primer** —
+//! it explains positions, ε-closure, and the bitset state encoding with
+//! a concrete `*ab*` against `xaab` trace.
 //!
-//! - [`start`](Automaton::start): the initial state.
-//! - [`step`](Automaton::step) / [`step_all`](Automaton::step_all):
-//!   advance the state by one byte or by a slice (a trie edge label).
-//!   Returning `None` from `step_all` tells the driver the subtree is
-//!   dead and can be pruned.
-//! - [`classify`](Automaton::classify): tag the current state with a
-//!   [`StateClass`] that tells the driver whether to yield the current
-//!   key and whether to keep recursing.
-//! - [`literal_prefix`](Automaton::literal_prefix): a byte prefix every
-//!   accepted key starts with (or `None`), letting the traversal jump
-//!   straight to that subtree instead of descending from the root.
+//! ## Byte-level and UTF-8-aware automatons
 //!
-//! [`driver::AutomatonIter`] is the generic iterator that drives any
-//! `Automaton` over a trie via a DFS that carries the post-edge state
-//! on its stack.
-//!
-//! **Start there for a worked NFA primer** — the module
-//! doc on [`wildcard`] explains positions, ε-closure, and the bitset
-//! state encoding with a concrete `*ab*` against `xaab` trace.
+//! The automatons in [`wildcard`] operate on raw bytes and know nothing
+//! about key encoding. The remaining modules are Unicode-aware: they
+//! reassemble codepoints from the byte stream (via
+//! [`CodepointDecoder`](utf8::CodepointDecoder), handling chunks
+//! that split a codepoint) and match under per-codepoint case folding,
+//! which only makes sense for UTF-8 keys. Keys that are not valid
+//! UTF-8 never match.
 //!
 //! ## Layout
 //!
 //! - This module: the [`Automaton`] trait and the [`StateClass`] enum.
-//! - [`driver`]: [`AutomatonIter`] and its lending variant.
-//! - [`wildcard`]: the wildcard NFA, atom encoding, and the
-//!   pattern-size-based backend dispatcher
-//!   ([`WildcardIter`]).
+//! - [`wildcard`]: the byte-level wildcard NFA, its atom encoding, and
+//!   the [`NfaBitSet`] state representation.
+//! - [`case_fold`]: [`CaseFoldExact`] — case-insensitive exact match.
+//! - [`levenshtein`]: [`CaseFoldLevenshtein`] — case-insensitive
+//!   Levenshtein distance in codepoints, as a DP row.
+//! - [`levenshtein_nfa`]: [`CaseFoldLevenshteinNfa`] — the same matching
+//!   model as a bit-parallel NFA, for needles and distances within its
+//!   word-width bounds.
+//! - [`codepoint_wildcard`]: [`CodepointWildcard`] — wildcard matching
+//!   where `*` matches any run of codepoints and `?` consumes exactly
+//!   one codepoint (rather than one byte), plus its automaton form
+//!   ([`CodepointWildcardNfa`]).
 
-pub mod driver;
+pub mod case_fold;
+pub mod codepoint_wildcard;
+pub mod levenshtein;
+pub mod levenshtein_nfa;
+mod utf8;
 pub mod wildcard;
 
-pub use driver::{AutomatonIter, AutomatonLendingIter};
-pub use wildcard::{NfaBitSet, WildcardBackend, WildcardIter, WildcardLendingIter, WildcardNfa};
+pub use case_fold::CaseFoldExact;
+pub use codepoint_wildcard::{CodepointWildcard, CodepointWildcardNfa};
+pub use levenshtein::CaseFoldLevenshtein;
+pub use levenshtein_nfa::CaseFoldLevenshteinNfa;
+pub use wildcard::{NfaBitSet, WildcardNfa};
 
-/// Tells the driver what to do at the current trie node.
+/// Tells a driver what to do at the current trie node.
 ///
 /// Returned from [`Automaton::classify`] once per node visit. The two
 /// non-`Live*` variants are *short-circuits*: they let the automaton
-/// tell the driver "I already know what every descendant of this node
+/// tell its driver "I already know what every descendant of this node
 /// will look like, you don't need to step them through me."
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum StateClass {
@@ -101,17 +113,17 @@ impl StateClass {
     }
 }
 
-/// A byte-streaming state machine that the trie driver can run.
+/// A byte-streaming state machine.
 ///
-/// Implementations expose a `start` state and a single-byte transition;
-/// the driver advances the state along each trie edge and asks
-/// [`Self::classify`] what to do at each node. See the module doc for
-/// how this fits with [`AutomatonIter`].
+/// Implementations expose a [`start`](Self::start) state and a
+/// single-byte transition ([`step`](Self::step)); every reached state
+/// [`classify`](Self::classify)-es into a [`StateClass`]. See the
+/// module doc for how the contract is shaped for trie traversal.
 ///
 /// `step` / `step_all` take `&mut self` so implementations can recycle
-/// scratch buffers across transitions. The driver owns the automaton by
-/// value and never calls these concurrently, so the mutable receiver
-/// isn't a multi-borrow concern in practice.
+/// scratch buffers across transitions. A driver is expected to own the
+/// automaton by value and never call these concurrently, so the mutable
+/// receiver isn't a multi-borrow concern in practice.
 pub trait Automaton {
     /// State carried across byte transitions and trie stack frames. The
     /// driver clones it at branch points, so keep it cheap to clone.
@@ -143,15 +155,15 @@ pub trait Automaton {
     }
 
     /// A byte prefix that every accepted key starts with, if the automaton
-    /// knows one. [`TrieMap::automaton_iter`](crate::TrieMap::automaton_iter)
-    /// uses it to jump straight to the subtree holding the keys with that
-    /// prefix instead of descending from the trie root.
+    /// knows one. It permits a driver to jump straight to the subtree
+    /// holding the keys with that prefix instead of descending from the
+    /// trie root.
     ///
     /// # Contract
     ///
     /// Every key the automaton accepts must start with the returned bytes —
-    /// keys outside the prefix subtree are never visited, so a too-long or
-    /// wrong prefix silently drops matches. Return `None` to disable the
-    /// jump and descend from the trie root.
+    /// a driver may never visit keys outside the prefix subtree, so a
+    /// too-long or wrong prefix silently drops matches. Return `None` to
+    /// disable the jump.
     fn literal_prefix(&self) -> Option<&[u8]>;
 }

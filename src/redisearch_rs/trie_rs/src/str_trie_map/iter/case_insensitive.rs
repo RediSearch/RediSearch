@@ -8,9 +8,8 @@
 */
 
 use crate::{
-    TrieMap,
-    iter::AutomatonIter,
-    str_trie_map::{automaton::CaseFoldExact, iter::unfiltered::key_to_string},
+    TrieMap, automaton::CaseFoldExact, iter::AutomatonIter,
+    str_trie_map::iter::unfiltered::key_to_string,
 };
 
 /// Iterator over the entries of a
