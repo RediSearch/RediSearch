@@ -143,6 +143,8 @@ def test_hybrid_depleter_lock_failure_replies_error():
 
     query_thread.join(timeout=30)
     env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
+    if not outcome:
+        return  # still parked; the assertion above is the diagnostic
 
     kind, payload = outcome[0]
     # Record which branch ran: a green run alone does not say whether the
