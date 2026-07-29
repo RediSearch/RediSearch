@@ -1,32 +1,13 @@
 # zizmor configuration — static analysis for our GitHub Actions workflows.
 # Reference: https://docs.zizmor.sh/configuration/
 #
-# This file is policy only: which action references may stay on a moving tag, and
-# which audits are deliberately suppressed. The job that runs zizmor is
-# .github/workflows/task-zizmor.yml, and it gates PRs at --min-severity=informational
-# --min-confidence=medium. Severity is at its floor, so nothing is excluded for
-# being low-impact; everything still outside the gate is outside it for being
-# low-confidence: artipacked (28 — no `persist-credentials: false` on our
-# checkouts), unpinned-images (16 — container images by tag, several of them
-# resolved from a matrix at runtime) and github-env (10, and zizmor cannot fully
-# analyse two of those files because it does not model the `python3` shell).
-# Dropping --min-confidence to low is the next step and will surface all of them.
+# Policy only: which action references may stay on a moving tag, and which audits
+# are suppressed. The gate that applies it, thresholds included, is
+# .github/workflows/task-zizmor.yml.
 rules:
   secrets-inherit:
-    # Every one of these is a call into a reusable workflow in *this* repository,
-    # so the callee is code reviewed in the same PR rather than a third party.
-    # Replacing `secrets: inherit` with explicit lists is still worth doing — it
-    # is what stops a future edit to a leaf workflow from reading a secret it has
-    # no business seeing — but it is not a small change: the call graph is three
-    # levels deep (event-* -> flow-* -> task-* -> composite actions), secrets are
-    # consumed at the leaves, and there are 31 of them, so every callee needs a
-    # `secrets:` declaration in its `workflow_call` block and every caller needs
-    # to pass them through. Getting it wrong tends to fail quietly (a skipped
-    # coverage upload, a benchmark that cannot reach RedisTimeSeries) on paths a
-    # pull request never runs.
-    #
-    # Deferred to its own change rather than accepted: this suppression should be
-    # deleted, not extended.
+    # Deferred: threading secrets explicitly across three levels of nested
+    # workflow invocations is fragile.
     ignore:
       - benchmark-runner.yml
       - benchmark-trigger.yml
