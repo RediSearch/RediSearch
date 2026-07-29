@@ -949,22 +949,19 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
-  long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, AC_F_GE0 | AC_F_NOADVANCE);
-  if (rv != AC_OK || nproperties > MAX_GROUPBY_PROPERTIES) {
-    rv = rv != AC_OK ? rv : AC_ERR_ELIMIT;
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
-    return REDISMODULE_ERR;
-  }
-
   ArgsCursor propertiesAC = {0};
-  rv = AC_GetVarArgs(ac, &propertiesAC);
+  int rv = AC_GetVarArgs(ac, &propertiesAC);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
   uint32_t propertyCount = (uint32_t)AC_NumArgs(&propertiesAC);
+  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
+    return REDISMODULE_ERR;
+  }
+
   const char **properties = array_newlen(const char *, propertyCount);
   for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
