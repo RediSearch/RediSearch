@@ -43,7 +43,11 @@ jobs:
 
   lint:
     needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
+    # SWAMP_CHANGED as well as CODE_CHANGED: this job runs `make swamp-tests`,
+    # so it is the one job a change confined to extensions/, models/ or
+    # workflows/ has to start — and the only one, which is why those paths are
+    # not folded into CODE_CHANGED.
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.SWAMP_CHANGED == 'true' }}
     permissions:
       contents: read
       packages: write

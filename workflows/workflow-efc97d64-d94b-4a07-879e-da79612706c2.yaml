@@ -94,6 +94,23 @@ jobs:
         weight: 0
         allowFailure: false
 
+      # Second, and for the same reason: seconds to run, no build needed, and
+      # CI's lint job runs it for any pull request touching extensions/. A gate
+      # that passed here and then failed there would be the one outcome this
+      # workflow exists to rule out.
+      - name: swamp-tests
+        description: Run the tests for the swamp models themselves
+        task:
+          type: model_method
+          modelIdOrName: swamp-tests
+          methodName: run
+        dependsOn:
+          - step: fmt-check
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
       - name: build
         description: Build the module and the test binaries
         task:
@@ -108,7 +125,7 @@ jobs:
             extraArgs:
               - ENABLE_ASSERT=1
         dependsOn:
-          - step: fmt-check
+          - step: swamp-tests
             condition:
               type: succeeded
         weight: 0
