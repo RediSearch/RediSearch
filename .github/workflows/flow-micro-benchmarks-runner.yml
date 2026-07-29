@@ -121,8 +121,18 @@ jobs:
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
       - name: Collect results
+        # Everything dynamic goes through env rather than being expanded into the
+        # script: a PR author controls their own branch name, so interpolating it
+        # into a shell command lets them inject arbitrary code.
         env:
           INPUT_ARCHITECTURE: ${{ inputs.architecture }}
+          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
+          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
+          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GITHUB_ORG_NAME: ${{ github.repository_owner }}
+          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
         run: |
           # Determine OS name
           OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
@@ -170,14 +180,14 @@ jobs:
           for file in $JSON_FILES; do
             echo "Processing $file..."
             redisbench-admin export \
-              --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
-              --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }} \
+              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
+              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
               --redistimeseries_user default \
-              --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
-              --github_repo ${{ github.event.repository.name }} \
-              --github_org ${{ github.repository_owner }} \
-              --github_branch ${{ github.head_ref || github.ref_name }} \
-              --github_actor ${{ github.triggering_actor }} \
+              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
+              --github_repo "$GITHUB_REPO_NAME" \
+              --github_org "$GITHUB_ORG_NAME" \
+              --github_branch "$GITHUB_BRANCH_NAME" \
+              --github_actor "$GITHUB_ACTOR_NAME" \
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks \

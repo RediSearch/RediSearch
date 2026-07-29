@@ -501,6 +501,7 @@ jobs:
           )
         env:
           FAILEDFILE: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+          TEST_MODE: ${{ inputs.test-mode }}
         run: |
           set +e
           DEST="failed-test-logs"
@@ -521,7 +522,7 @@ jobs:
           # Stash the failed-test list under a non-hidden name (upload-artifact
           # drops dot-prefixed files); triage treats failed-tests-*.txt as the
           # authoritative failure list.
-          cp "$FAILEDFILE" "$DEST/failed-tests-${{ inputs.test-mode }}.txt" 2>/dev/null || true
+          cp "$FAILEDFILE" "$DEST/failed-tests-${TEST_MODE}.txt" 2>/dev/null || true
           echo "Failed-test logs bundled: $(find "$DEST" -type f | wc -l)"
           exit 0
 
