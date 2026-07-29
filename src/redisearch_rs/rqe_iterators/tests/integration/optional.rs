@@ -1143,3 +1143,284 @@ mod optional_iterator_non_sequential_reads {
         let _ = it.read();
     }
 }
+
+mod via_resume {
+    use super::*;
+    use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
+    use index_result::{RSIndexResult, RSResultKind};
+    use rqe_iterators::{
+        RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
+    };
+
+    /// Regression: `Optional` wrapping a *type-erased* child must dispatch the
+    /// child's own `suspend`/`resume` rather than byte-casting the child slot
+    /// (a byte cast keeps the erased child's active `dyn` vtable under a
+    /// suspended type, so `resume` would dispatch through the wrong vtable), and
+    /// must **reuse its allocation** across the cycle because it hands out
+    /// `&mut self.result` (a pointer into the box) from
+    /// `current()`/`read()`/`skip_to`.
+    #[test]
+    fn optional_over_type_erased_child_round_trips() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Type-erased child — the case a whole-box cast gets wrong.
+        let child = TypeErasedRQEIterator::new(Box::new(Wildcard::new(10, 1.0)));
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        // Advance into the real-child range (docs 1..=10 come from the child).
+        let _ = optional.read().unwrap(); // doc 1
+        let _ = optional.read().unwrap(); // doc 2
+        let last_before = optional.last_doc_id();
+        let addr_before = &*optional as *const _ as usize;
+
+        let suspended = optional.suspend();
+        let mut active = match suspended
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Aborted => panic!("Optional never aborts as a whole"),
+        };
+
+        // Allocation reused → the box (and the `result` it hands out) keeps its
+        // address across the cycle.
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation (Optional hands out &mut self.result)"
+        );
+        // The erased child must have survived the round-trip. If `suspend`
+        // byte-casts instead of dispatching, the retained active vtable makes the
+        // child resume dispatch through the wrong vtable; Optional then reads it
+        // as a spurious abort and drops the child to `Gone` (fully virtual). So a
+        // surviving `Present` child is the discriminating signal.
+        assert!(
+            active.child().is_some(),
+            "type-erased child must survive suspend/resume (not be dropped to Gone)"
+        );
+        assert_eq!(active.last_doc_id(), last_before);
+        // Doc `last_before + 1` (3) is within the child's range (1..=10), so it is
+        // a *real* child hit with the Optional's weight applied — not a virtual
+        // sentinel (which is what a dropped child would yield).
+        let next = active.read().unwrap().unwrap();
+        assert_eq!(next.doc_id, last_before + 1);
+        assert_eq!(next.weight, WEIGHT, "must be a real (weighted) child hit");
+    }
+
+    // The tests below drive concrete `Mock` children (rather than the
+    // type-erased case above) so `MockData` can steer the child's
+    // resume outcome, covering every branch of `Optional`'s resume:
+    // the non-virtual-sentinel guard, a `Gone` child, and a `Present` child
+    // that resumes Unchanged / Moved / Aborted / Err — each crossed with
+    // whether the last emitted result was a child hit (forcing a re-read) or a
+    // virtual sentinel.
+
+    /// Non-virtual-sentinel guard: if a consumer has replaced the virtual
+    /// sentinel handed out by `read`/`current`/`skip_to` with index-backed
+    /// data, `resume` cannot prove the new `'index` borrows are still valid, so
+    /// it aborts the whole `Optional` rather than reinterpret `Suspended →
+    /// Active`.
+    #[test]
+    fn resume_aborts_when_result_no_longer_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `[5]` has no hit at doc 1, so the first read yields the virtual sentinel.
+        let child = Mock::new([5]);
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let sentinel = optional.read().unwrap().unwrap();
+        assert_eq!(sentinel.kind(), RSResultKind::Virtual);
+        // Simulate a consumer swapping the sentinel for a real, index-backed
+        // result (e.g. a numeric record).
+        *sentinel = RSIndexResult::build_numeric(1.0).build();
+
+        let outcome = optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume must not surface an error for a non-virtual sentinel");
+        assert!(
+            matches!(outcome, ResumeOutcome::Aborted),
+            "a non-virtual sentinel must abort the resume",
+        );
+    }
+
+    /// `Gone` child: an `Optional` whose child has already been dropped stays
+    /// fully virtual and resumes cleanly. The first cycle aborts the child
+    /// (covering the abort-then-`Ok`, no-re-read branch); the second cycle
+    /// covers the `Gone`/Absent branch.
+    #[test]
+    fn resume_with_gone_child_stays_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `[5]` yields a virtual sentinel at doc 1, so the aborting child's last
+        // doc id (5) does not match the current doc id (1): no re-read.
+        let child = Mock::new([5]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let _ = optional.read().unwrap(); // virtual sentinel (doc 1)
+
+        // First cycle: the child aborts and is dropped to `Gone`. The last
+        // result was virtual, so no re-read happens and the outcome is `Ok`.
+        let active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => {
+                panic!("aborted child after a virtual result must not re-read (Ok)")
+            }
+            ResumeOutcome::Aborted => panic!("Optional never aborts as a whole for a child abort"),
+        };
+        assert!(
+            active.child().is_none(),
+            "aborted child must be dropped to Gone"
+        );
+
+        // Second cycle: the child is already `Gone` — the Absent branch.
+        let active = match active
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Ok(it) => it,
+            ResumeOutcome::Moved(_) => panic!("a Gone child must resume as Ok, not Moved"),
+            ResumeOutcome::Aborted => panic!("a Gone child must resume as Ok, not Aborted"),
+        };
+        assert!(active.child().is_none(), "the child stays Gone");
+    }
+
+    /// `Present` child that reports `Moved`, with the last result coming from
+    /// the child: `Optional` must re-read to avoid stale data and report
+    /// `Moved`.
+    #[test]
+    fn resume_moved_child_with_child_hit_rereads() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `[1]` hits at doc 1, so the first read is a real (weighted) child hit.
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 1);
+        assert_eq!(hit.weight, WEIGHT, "doc 1 is a real child hit");
+
+        let suspended = optional.suspend();
+        // The suspended form exposes the aggregate's position/estimate to a
+        // composite parent that inspects a suspended child mid-resume.
+        assert_eq!(suspended.last_doc_id(), 1);
+        assert_eq!(suspended.num_estimated(), MAX_DOC_ID as usize);
+
+        let outcome = suspended
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed");
+        assert!(
+            matches!(outcome, ResumeOutcome::Moved(_)),
+            "a moved child whose hit was the last result must re-read (Moved)",
+        );
+    }
+
+    /// `Present` child that moves during resume, forcing a re-read whose own
+    /// `read` then fails: the error propagates out of `Optional::resume`.
+    #[test]
+    fn resume_reread_error_propagates() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `[1]` hits at doc 1 (a real hit, so the resume re-reads), and the child
+        // errors once it reaches its end — which the re-read triggers.
+        let child = Mock::new([1]);
+        {
+            let mut data = child.data();
+            data.set_revalidate_result(MockRevalidateResult::Move);
+            data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+        }
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let _ = optional.read().unwrap(); // doc 1 (child hit)
+
+        let result = optional.suspend().resume(&mock_ctx.spec_read());
+        assert!(
+            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            "an error from the re-read must propagate out of Optional::resume",
+        );
+    }
+
+    /// `Present` child that reports `Moved`, with the last result being a
+    /// virtual sentinel: no re-read, reported as `Ok`.
+    #[test]
+    fn resume_moved_child_after_virtual_does_not_reread() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `[5]` has no hit at doc 1, so the first read is the virtual sentinel.
+        let child = Mock::new([5]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let sentinel = optional.read().unwrap().unwrap();
+        assert_eq!(sentinel.doc_id, 1, "doc 1 is a virtual sentinel");
+
+        let outcome = optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed");
+        assert!(
+            matches!(outcome, ResumeOutcome::Ok(_)),
+            "a moved child after a virtual result must not re-read (Ok)",
+        );
+    }
+
+    /// `Present` child that reports `Aborted`, with the last result coming from
+    /// the child: the child is dropped to `Gone` and `Optional` re-reads,
+    /// reporting `Moved`.
+    #[test]
+    fn resume_aborted_child_with_hit_rereads_and_drops_child() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 1);
+
+        let active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("an aborted child hit must re-read and report Moved"),
+            ResumeOutcome::Aborted => panic!("Optional never aborts as a whole for a child abort"),
+        };
+        assert!(
+            active.child().is_none(),
+            "aborted child must be dropped to Gone"
+        );
+    }
+
+    /// `Present` child whose own resume fails: `Optional::resume` propagates the
+    /// error (after restoring a well-formed `Gone`-child box so it drops
+    /// soundly).
+    #[test]
+    fn resume_propagates_child_error() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+        let mut optional = Box::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
+
+        let _ = optional.read().unwrap(); // doc 1 (child hit)
+
+        let result = optional.suspend().resume(&mock_ctx.spec_read());
+        assert!(
+            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            "a child resume error must propagate out of Optional::resume",
+        );
+    }
+
+    const MAX_DOC_ID: DocId = 100;
+    const WEIGHT: f64 = 2.0;
+}

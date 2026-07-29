@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <math.h>
+#include <string.h>
+#include <sys/param.h>
+
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
 #include "VecSim/query_results.h"
@@ -15,6 +18,17 @@
 #include "rqe_iterator_type.h"
 #include "types_ffi.h"
 #include "query.h"
+#include "doc_table.h"
+#include "field.h"
+#include "index_result_rs.h"
+#include "iterator_api.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "search_result_rs.h"
+
+struct IndexSpec;
 
 #define VECTOR_SCORE(p) (p->data.tag == RSResultData_Metric ? IndexResult_NumValue(p) : IndexResult_NumValue(AggregateResult_GetUnchecked(IndexResult_AggregateRefUnchecked(p), 0)))
 
@@ -280,8 +294,13 @@ static VecSimQueryReply_Code computeDistances_RAM(HybridIterator *hr) {
 
   // Normalize query vector for cosine metric (RAM path only - disk handles this internally).
   if (hr->indexMetric == VecSimMetric_Cosine) {
-    qvector = rm_malloc(hr->dimension * VecSimType_sizeof(hr->vecType));
-    memcpy(qvector, hr->query.vector, hr->dimension * VecSimType_sizeof(hr->vecType));
+    size_t vec_size = hr->dimension * VecSimType_sizeof(hr->vecType);
+    // For some cases blob_size may be larger than vec_size.
+    // For example, for INT8/UINT8, VecSim_Normalize appends the norm (a float) at the
+    // end of the blob.
+    size_t blob_size = VecSimParams_GetQueryBlobSize(hr->vecType, hr->dimension, hr->indexMetric);
+    qvector = rm_malloc(blob_size);
+    memcpy(qvector, hr->query.vector, vec_size);
     VecSim_Normalize(qvector, hr->dimension, hr->vecType);
   }
 

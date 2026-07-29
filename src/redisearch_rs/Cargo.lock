@@ -199,7 +199,11 @@ dependencies = [
 name = "c_trie"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "c_trie",
  "ffi",
+ "redis_mock",
+ "redisearch_rs",
  "strum",
  "workspace_hack",
 ]
@@ -492,6 +496,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dict"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "hidden_string",
+ "inverted_index",
+ "workspace_hack",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -709,16 +723,23 @@ dependencies = [
 name = "fork_gc"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
+ "dict",
  "ffi",
+ "fork_gc",
+ "hidden_string",
  "index_result",
  "index_spec",
  "inverted_index",
  "libc",
  "nix",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "rmp-serde",
  "rqe_core",
  "serde",
+ "thiserror",
  "tracing",
  "workspace_hack",
 ]
@@ -1052,6 +1073,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "dict",
  "document",
  "ffi",
  "field_spec",
@@ -1470,6 +1492,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rstest",
  "tracing",
@@ -1494,6 +1517,23 @@ dependencies = [
  "rqe_core",
  "serde",
  "tracing",
+ "workspace_hack",
+]
+
+[[package]]
+name = "numeric_score_source"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "index_result",
+ "itertools 0.15.0",
+ "numeric_score_source",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "rqe_iterator_type",
+ "rqe_iterators",
+ "top_k",
  "workspace_hack",
 ]
 
@@ -2324,6 +2364,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "thiserror",
+ "timeout",
  "tracing",
  "trie_rs",
  "ttl_table",
@@ -3002,6 +3043,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "timeout"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3202,6 +3250,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rqe_wildcard",
+ "timeout",
  "trie_rs",
  "utf8parse",
  "workspace_hack",

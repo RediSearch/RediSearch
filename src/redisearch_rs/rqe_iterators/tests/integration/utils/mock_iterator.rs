@@ -133,6 +133,7 @@ impl MockData {
             validation_count: 0,
             read_count: 0,
             error_at_done: None,
+            resume_error: None,
             delays: Vec::new(),
             force_read_none: false,
         })))
@@ -158,6 +159,18 @@ impl MockData {
     /// If `maybe_err` is `None`, end of input is reported as `Ok(None)`.
     pub fn set_error_at_done(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
         self.0.borrow_mut().error_at_done = maybe_err;
+        self
+    }
+
+    /// Configure an error that the suspended counterpart's
+    /// [`RQESuspendedIterator::resume`](rqe_iterators::RQESuspendedIterator::resume)
+    /// will return instead of resuming.
+    ///
+    /// This simulates a child whose revalidation-via-resume fails (rather than
+    /// aborts or moves), so tests can exercise the error-propagation branch of
+    /// iterators that wrap a child across the suspend/resume cycle.
+    pub fn set_error_on_resume(&mut self, maybe_err: Option<MockIteratorError>) -> &mut Self {
+        self.0.borrow_mut().resume_error = maybe_err;
         self
     }
 
@@ -213,6 +226,9 @@ struct MockDataInternal {
     validation_count: usize,
     read_count: usize,
     error_at_done: Option<MockIteratorError>,
+    /// Error returned by the suspended counterpart's `resume` instead of
+    /// resuming. See [`MockData::set_error_on_resume`].
+    resume_error: Option<MockIteratorError>,
     delays: Vec<(DocId, Duration)>,
     /// If true, the next call to `read()` will return `None` even if not at EOF.
     /// Simulates Inverted Index iterators that discover EOF only when `read()` is called.
@@ -534,11 +550,17 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
-        let revalidate_result = {
+        let (revalidate_result, resume_error) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
-            data.revalidate_result
+            (data.revalidate_result, data.resume_error)
         };
+        // Injected resume failure (see `MockData::set_error_on_resume`): drop the
+        // suspended mock and surface the error, mirroring a real child whose
+        // revalidation-via-resume fails.
+        if let Some(err) = resume_error {
+            return Err(err.into_rqe_iterator_error());
+        }
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
@@ -822,11 +844,17 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
         // [`MockData`] — mirrors what `MockVec::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
-        let revalidate_result = {
+        let (revalidate_result, resume_error) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
-            data.revalidate_result
+            (data.revalidate_result, data.resume_error)
         };
+        // Injected resume failure (see `MockData::set_error_on_resume`): drop the
+        // suspended mock and surface the error, mirroring a real child whose
+        // revalidation-via-resume fails.
+        if let Some(err) = resume_error {
+            return Err(err.into_rqe_iterator_error());
+        }
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {

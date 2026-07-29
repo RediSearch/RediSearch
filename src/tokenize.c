@@ -6,16 +6,18 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "forward_index.h"
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "stopwords.h"
 #include "tokenize.h"
 #include "toksep.h"
 #include "rmalloc.h"
 #include "config.h"
-#include <ctype.h>
-#include <stdlib.h>
-#include <strings.h>
 #include "phonetic_manager.h"
+#include "util/mempool/mempool.h"
+#include "util/strconv.h"
 
 typedef struct {
   RSTokenizer base;

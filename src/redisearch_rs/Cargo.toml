@@ -41,6 +41,7 @@ members = [
     "string_utils",
     "tag_index",
     "term_suffix_index",
+    "timeout",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -51,6 +52,7 @@ members = [
     "top_k_bencher",
     "vector_score_source",
     "vector_score_source_bencher",
+    "numeric_score_source",
     "trie_rs",
     "ttl_table",
     "utf8parse",
@@ -111,6 +113,7 @@ build_utils = { path = "./build_utils" }
 c_ffi_utils = { path = "./c_entrypoint/c_ffi_utils" }
 c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
+dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
@@ -127,6 +130,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 numeric_range_tree = { path = "./numeric_range_tree" }
+numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
 query = { path = "./c_wrappers/query" }
@@ -155,6 +159,7 @@ sorting_vector = { path = "./sorting_vector" }
 string_utils = { path = "./string_utils" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
+timeout = { path = "timeout" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }
@@ -253,9 +258,9 @@ debug = true
 [profile.optimised_test]
 # Like `release`, but:
 inherits = "release"
-# - Less aggressive link-time optimization, to recover
-#   parallelism in the build.
-lto = "thin"
+# - Skip link-time optimization, to avoid a large compile-time
+#   penalty.
+lto = false
 codegen-units = 16
 # - Enable debug assertions
 debug-assertions = true

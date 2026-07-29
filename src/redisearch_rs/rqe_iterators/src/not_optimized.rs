@@ -57,7 +57,7 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RawIndexResult<'query, Rf>,
     /// Tracks the execution deadline for this iterator. Pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to opt out of timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
     timeout_ctx: TC,
 }
@@ -79,7 +79,7 @@ where
     /// `max_doc_id` is the upper bound for document IDs.
     /// `weight` is the score weight applied to every returned result.
     /// `timeout_ctx` is the [`TimeoutContext`] implementation to use; pass
-    /// [`NoTimeout`](crate::utils::NoTimeout) to disable timeout checks
+    /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to disable timeout checks
     /// entirely.
     pub fn new(wcii: W, child: I, max_doc_id: DocId, weight: f64, timeout_ctx: TC) -> Self {
         Self {

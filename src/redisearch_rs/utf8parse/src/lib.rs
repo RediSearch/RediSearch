@@ -57,6 +57,12 @@ impl Parser {
         }
     }
 
+    /// Returns `true` when the parser expects the start of a new UTF-8 sequence
+    /// (no partially decoded codepoint is pending).
+    pub fn at_codepoint_boundary(&self) -> bool {
+        self.state == State::Ground
+    }
+
     /// Advance the parser
     ///
     /// The provider receiver will be called whenever a codepoint is completed or an invalid

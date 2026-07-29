@@ -628,3 +628,54 @@ fn blocks_summary_store_numeric() {
         ]
     );
 }
+
+/// The prepared write path must leave the index in exactly the state the
+/// record-based path would: same bytes, same block layout, same growth accounting.
+/// Anything less and callers would have to know which path an index was built with.
+#[test]
+fn add_prepared_record_matches_add_record() {
+    use crate::numeric::{Numeric, NumericEncoder};
+
+    // Values chosen to exercise every representation the encoder picks between:
+    // tiny int, wide int, negative, f32, f64, and infinity.
+    let values = [
+        0.0,
+        3.0,
+        -7.0,
+        1024.0,
+        0.5,
+        1e-9,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        9_007_199_254_740_993.0,
+    ];
+
+    let mut from_records = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let mut from_prepared = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+
+    for (i, value) in values.iter().enumerate() {
+        let doc_id = i as DocId + 1;
+
+        let record = RSIndexResult::build_numeric(*value).doc_id(doc_id).build();
+        let record_outcome = from_records.add_record(&record).unwrap();
+        let prepared_outcome = from_prepared
+            .add_prepared_record(doc_id, Numeric::prepare(*value))
+            .unwrap();
+
+        assert_eq!(
+            record_outcome, prepared_outcome,
+            "outcomes diverged while adding {value} for doc {doc_id}"
+        );
+    }
+
+    assert_eq!(
+        from_records.blocks_summary(),
+        from_prepared.blocks_summary(),
+        "block layout diverged"
+    );
+    assert_eq!(from_records.memory_usage(), from_prepared.memory_usage());
+
+    let record_bytes: Vec<_> = from_records.blocks.iter().map(|b| b.data()).collect();
+    let prepared_bytes: Vec<_> = from_prepared.blocks.iter().map(|b| b.data()).collect();
+    assert_eq!(record_bytes, prepared_bytes, "encoded bytes diverged");
+}

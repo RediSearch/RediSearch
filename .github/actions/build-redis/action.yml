@@ -64,13 +64,20 @@ runs:
         SAN_LABEL="${SAN:-none}"
         # Sanitize platform id for use in a cache key.
         PLATFORM_SAFE=$(echo "$PLATFORM_ID" | sed 's#[^A-Za-z0-9_.-]#-#g')
-        KEY="redis-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV}-tls_${TLS}"
+        # The compiler is part of the ABI of the produced binary, not just of
+        # how fast it built: a sanitizer Redis built by clang links the ASan
+        # runtime statically, while a gcc one loads libasan dynamically. Mixing
+        # the two across jobs yields a redis-server that aborts at startup with
+        # "ASan runtime does not come first in initial library list", so entries
+        # built with different compilers must never share a cache key.
+        CC_ID=$(basename "${CC:-cc}" | sed 's#[^A-Za-z0-9_.-]#-#g')
+        KEY="redis-${SHA}-${PLATFORM_SAFE}-${ARCH}-san_${SAN_LABEL}-cov_${COV}-tls_${TLS}-cc_${CC_ID}"
         echo "key=$KEY" >> "$GITHUB_OUTPUT"
         echo "Cache key: $KEY"
 
     - name: Restore cached Redis
       id: cache-restore
-      uses: actions/cache/restore@v5
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ${{ steps.resolve.outputs.prefix }}
         key: ${{ steps.key.outputs.key }}
@@ -94,6 +101,18 @@ runs:
         COVERAGE: ${{ inputs.coverage }}
         BUILD_TLS: ${{ inputs.build_tls }}
       run: |
+        # A sanitizer Redis must be built by the same clang that builds the
+        # module. gcc's -fsanitize=address links libasan dynamically, and the
+        # resulting redis-server aborts on startup with "ASan runtime does not
+        # come first in initial library list" — which surfaces far downstream as
+        # RLTest failing to read the server version. Refuse to build the broken
+        # thing: the caller is responsible for putting the sanitizer toolchain in
+        # CC (setup-build-env does this for every workflow that gets here).
+        if [[ "$SAN" == "address" && "$(basename "${CC:-cc}")" != clang* ]]; then
+          echo "SANITIZER=address requires CC to point at clang, got '${CC:-<unset>}'." >&2
+          echo "Configure the sanitizer toolchain before this action runs." >&2
+          exit 1
+        fi
         EXTRA=()
         if [[ "$BUILD_TLS" == "true" ]]; then
           EXTRA+=("BUILD_TLS=yes")
@@ -103,9 +122,30 @@ runs:
         fi
         make PREFIX="$PREFIX" install "${EXTRA[@]}" SANITIZER="$SAN"
 
+    - name: Verify redis-server runs
+      # Guards both ways into this point: a fresh build and a restored cache
+      # entry (which may predate the current key scheme, or have been written by
+      # a job with a different toolchain). "v=<version>" is what RLTest parses
+      # out of the banner, so checking for it here means a server that cannot
+      # start fails this step, with its own output, rather than every test in
+      # every downstream flow job failing on a symptom.
+      # The exit code is ignored on purpose: a sanitizer build can exit non-zero
+      # from a leak report after printing the banner.
+      shell: bash
+      env:
+        PREFIX: ${{ steps.resolve.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        VERSION=$("$PREFIX/bin/redis-server" --version || true)
+        echo "$VERSION"
+        if [[ "$VERSION" != *"v="* ]]; then
+          echo "redis-server did not report a usable version." >&2
+          exit 1
+        fi
+
     - name: Save Redis to cache
       if: ${{ steps.cache-restore.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@v5
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ${{ steps.resolve.outputs.prefix }}
         key: ${{ steps.key.outputs.key }}

@@ -10,6 +10,7 @@
 use crate::{
     AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
     debug::{BlockSummary, Summary},
+    numeric::{NumericEncoder, PreparedValue},
     reader::IndexReaderCore,
 };
 use ffi::IndexFlags;
@@ -156,5 +157,21 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
         self.number_of_entries -= info.entries_removed;
 
         info
+    }
+}
+
+impl<E: NumericEncoder> EntriesTrackingIndex<E> {
+    /// Add an entry whose representation the encoder already decided — see
+    /// [`InvertedIndex::add_prepared_record`].
+    pub fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+    ) -> std::io::Result<AddRecordOutcome> {
+        let result = self.index.add_prepared_record(doc_id, prepared)?;
+
+        self.number_of_entries += 1;
+
+        Ok(result)
     }
 }

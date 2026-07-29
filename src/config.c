@@ -7,26 +7,36 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
-#include "thpool/thpool.h"
-#include "err.h"
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "rmutil/args.h"
+
 #include <string.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
-#include "util/minmax.h"
+#include <strings.h>
+#include <sys/param.h>
+
+#include "thpool/thpool.h"
+#include "rmutil/args.h"
 #include "rmalloc.h"
 #include "rules.h"
 #include "spec.h"
 #include "indexes.h"
 #include "extension.h"
-#include "util/dict.h"
-#include "resp3.h"
 #include "util/workers.h"
 #include "module.h"
 #include "search_disk.h"
+#include "aggregate/reducer.h"
+#include "doc_table.h"
+#include "obfuscation/hidden.h"
+#include "query_error_ffi.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "util/config_macros.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
@@ -668,7 +678,12 @@ CONFIG_GETTER(getWorkThreads) {
 // workers
 static int set_workers(const char *name, long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   if (val < MIN_WORKER_THREADS_FLEX && SearchDisk_IsEnabledForValidation()) {
     RedisModule_Log(RSDummyContext, "warning", "WORKERS must be at least %d in Flex mode, setting to %d", MIN_WORKER_THREADS_FLEX, MIN_WORKER_THREADS_FLEX);
     val = MIN_WORKER_THREADS_FLEX;
@@ -712,7 +727,12 @@ CONFIG_GETTER(getMinOperationWorkers) {
 static int set_min_operation_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
+  if (val > MAX_WORKER_THREADS) {
+    RS_ASSERT(err);
+    *err = RedisModule_CreateStringPrintf(NULL, "Number of worker threads cannot exceed %d",
+                                         MAX_WORKER_THREADS);
+    return REDISMODULE_ERR;
+  }
   *(size_t *)privdata = (size_t) val;
   // Will only change the number of workers if we are in an event,
   // and `numWorkerThreads` is less than `minOperationWorkers`.

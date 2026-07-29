@@ -8,10 +8,7 @@
 */
 
 #include "redismodule.h"
-#include "spec.h"
 #include "util/references.h"
-#include "query.h"
-#include "aggregate/aggregate.h"
 #include "info/info_redis/types/blocked_queries.h"
 #include "threads/main_thread.h"
 #include "cursor.h"
@@ -19,6 +16,8 @@
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h"
 #endif
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb) {

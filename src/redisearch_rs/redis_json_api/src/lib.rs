@@ -23,8 +23,17 @@ pub use path::JsonPath;
 pub use results::ResultsIter;
 pub use value::{JsonType, JsonValue, JsonValueRef};
 
-/// Minimum supported API version.
-pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER as i32;
+/// Minimum RedisJSON API version this wrapper accepts.
+///
+/// This is deliberately **8**, higher than the C-side minimum
+/// `RedisJSONAPI_MIN_API_VER` (currently 7): the C code supports V7, but
+/// [`RedisJsonApi`] stores the acquired vtable as a `&'static RedisJSONAPI`
+/// reference — whose type is the latest (V8) layout. Forming that reference
+/// asserts the whole struct is a valid, in-bounds `RedisJSONAPI`; a genuine V7
+/// provider allocates a shorter vtable (ending after the V7 `getArray` slot), so
+/// accepting V7 here would read past the allocation — undefined behavior,
+/// independent of which fields are read.
+pub const MIN_API_VERSION: i32 = 8;
 
 /// Latest API version (V8).
 pub const LATEST_API_VERSION: i32 = 8;
@@ -60,15 +69,18 @@ impl RedisJsonApi {
     pub unsafe fn get() -> Option<Self> {
         // Safety: once the global pointer is initialized it will not be written to again.
         let vtable_ptr = unsafe { ffi::japi };
-        // Safety: Ensured by caller (1.)
-        let vtable = unsafe { vtable_ptr.as_ref()? };
 
-        // Check version compatibility
-        // Safety: japi_ver is initialized alongside japi
+        // Check version compatibility BEFORE forming a reference to the vtable.
+        // Safety: japi_ver is initialized alongside japi.
         let version = unsafe { ffi::japi_ver };
         if version < MIN_API_VERSION {
             return None;
         }
+
+        // Safety: being V8+, the provider allocated at least a full `RedisJSONAPI`,
+        // so the reference is in-bounds; `as_ref` still yields `None` for a null
+        // pointer. Ensured by caller (1.).
+        let vtable = unsafe { vtable_ptr.as_ref()? };
 
         Some(Self { vtable })
     }
@@ -186,7 +198,8 @@ impl RedisJsonApi {
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
-    /// Only available with RedisJSON API v8 and later.
+    /// Delegates to the C helper [`ffi::JSON_GetJsonFromHandleCompat`], which
+    /// handles the V7/V8 version dispatch (see its docs).
     ///
     /// # Safety
     ///
@@ -197,13 +210,8 @@ impl RedisJsonApi {
         &self,
         redis_key: *mut ffi::RedisModuleKey,
     ) -> Option<JsonValueRef<'_>> {
-        let vtable = self.vtable();
-        let get_json_from_handle = vtable
-            .getJsonFromHandle
-            .expect("RedisJSON API function `getJsonFromHandle` not available");
-
-        // Safety: ensured by caller (1.)
-        let ptr = unsafe { get_json_from_handle(redis_key) };
+        // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
+        let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
 
         if ptr.is_null() {
             None

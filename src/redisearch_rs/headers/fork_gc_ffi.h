@@ -58,6 +58,28 @@ extern "C" {
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
+ * Collect GC delta data for every entry in the spec's `missingFieldDict` and
+ * send it to the parent process over the pipe.
+ *
+ * Iterates the `missingFieldDict`, and for each entry with a non-null
+ * `InvertedIndex` calls `scan_gc` which sends the field name header
+ * followed by the serialised GC delta. Sends a terminator once all
+ * entries are processed.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
  * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
  *
  * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
@@ -86,6 +108,26 @@ enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
  * 3. `len` must be greater than zero.
  */
 void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
+
+/**
+ * Receive and apply the GC delta for one field in the spec's `missingFieldDict`.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
+ * successfully applying a delta, [`FGCError::Done`] when the child sent a
+ * terminator (all fields processed), or an error variant on pipe or spec failure.
+ *
+ * Called in a loop (via `COLLECT_FROM_CHILD`) until it returns something other
+ * than [`FGCError::Collected`].
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ */
+enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 
 /**
  * Write a length-prefixed buffer frame: a native-endian `size_t` header

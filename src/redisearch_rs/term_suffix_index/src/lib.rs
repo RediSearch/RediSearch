@@ -18,7 +18,7 @@
 //! # Case-insensitivity
 //!
 //! Every term and query is lowercased on the way in via
-//! [`unicode_tolower_cow`], so stored terms and matches are always in
+//! [`unicode::tolower_cow`], so stored terms and matches are always in
 //! lowercase form and lookups are case-insensitive. Callers pass terms
 //! verbatim; the index owns normalization.
 //!
@@ -39,7 +39,7 @@ use std::{
 };
 
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
-use string_utils::unicode_tolower_cow;
+use string_utils::unicode;
 use term_refs::{Outcome, TermRefs};
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -97,7 +97,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let lowered = unicode_tolower_cow(term);
+        let lowered = unicode::tolower_cow(term);
         let term: &str = &lowered;
 
         if term.len() > MAX_TERM_BYTE_LEN {
@@ -128,7 +128,7 @@ impl TermSuffixIndex {
             return;
         }
 
-        let lowered = unicode_tolower_cow(term);
+        let lowered = unicode::tolower_cow(term);
         let term: &str = &lowered;
 
         if let Some(data) = self.inner.get_mut(term)
@@ -164,7 +164,7 @@ impl TermSuffixIndex {
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower_cow(needle);
+        let lowered = unicode::tolower_cow(needle);
         self.inner
             .prefixed_values(&lowered)
             .flat_map(|data| data.terms().map(|term| &**term))
@@ -174,7 +174,7 @@ impl TermSuffixIndex {
     /// Matching is [case-insensitive](crate#case-insensitivity). Empty
     /// `needle` yields nothing.
     pub fn iter_suffix(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode_tolower_cow(needle);
+        let lowered = unicode::tolower_cow(needle);
         let data = if lowered.is_empty() {
             None
         } else {
@@ -211,7 +211,7 @@ impl TermSuffixIndex {
         pattern: &str,
         mut should_stop: impl FnMut() -> bool,
     ) -> Option<impl Iterator<Item = Arc<str>>> {
-        let lowered = unicode_tolower_cow(pattern);
+        let lowered = unicode::tolower_cow(pattern);
         let (token, followed_by_star) = Self::choose_token(&lowered)?;
 
         // A token followed by `*` can sit anywhere inside a match,

@@ -68,7 +68,7 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App Token
         id: generate-app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
@@ -110,7 +110,7 @@ jobs:
       # The actual branch switch happens later via explicit git commands
       # against validated inputs.
       - name: Checkout master
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
           ref: master

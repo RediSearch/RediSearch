@@ -8,11 +8,10 @@
 */
 
 #include "parse_hybrid.h"
-#include "query_optimizer.h"
 
 #include <string.h>
 #include <strings.h>
-#include <ctype.h>
+#include <stdint.h>
 
 #include "aggregate/aggregate.h"
 #include "vector_query_utils.h"
@@ -23,21 +22,30 @@
 #include "rmalloc.h"
 #include "config.h"
 #include "shard_window_ratio.h"
-
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
-#include "util/references.h"
-#include "util/workers.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "hybrid/hybrid_request.h"
 #include "hybrid/hybrid_search_result.h"
 #include "hybrid/parse/hybrid_optional_args.h"
 #include "asm_state_machine.h"
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "util/arg_parser.h"
-#include "rs_wall_clock.h"
+#include "VecSim/query_results.h"
+#include "VecSim/vec_sim_common.h"
+#include "document.h"
+#include "hiredis/sds.h"
+#include "hybrid/hybrid_scoring.h"
+#include "query.h"
+#include "query_error.h"
+#include "query_flags.h"
+#include "query_node.h"
+#include "query_types.h"
+#include "result_processor.h"
+#include "result_processor_ffi.h"
+#include "search_options.h"
+#include "slot_ranges.h"
+#include "slots_tracker_ffi.h"
+#include "util/arr/arr.h"
 
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {

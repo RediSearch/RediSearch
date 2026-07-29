@@ -7,6 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "score_explain.h"
+
+#include <stdarg.h>
+#include <stddef.h>
+
 #include "rmalloc.h"
 #include "config.h"
 

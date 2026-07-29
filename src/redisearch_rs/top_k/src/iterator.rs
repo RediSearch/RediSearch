@@ -41,7 +41,12 @@ pub enum TopKMode {
     /// lost.
     Unfiltered,
     /// Fetch score-ordered batches from the source and intersect each one
-    /// with the child filter iterator.
+    /// with the child filter iterator, keeping the top `k` in the heap.
+    ///
+    /// With no child filter every source record is a candidate: the whole
+    /// batch is fed through the heap, which still retains the top `k`. This is
+    /// the mode for a source that has no native top-k and must rely on the heap
+    /// for selection (e.g. a numeric `SORTBY` with no query filter).
     ///
     /// The source's [`ScoreSource::batch_strategy`] may return
     /// [`BatchStrategy::SwitchToAdhoc`] mid-run to switch to
@@ -91,7 +96,7 @@ pub struct TopKIterator<
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
-    compare: fn(f64, f64) -> Ordering,
+    compare: fn(&f64, &f64) -> Ordering,
     phase: Phase,
     /// Heap contents drained into score order for yielding.
     results: Vec<ScoredResult>,
@@ -106,7 +111,7 @@ impl<'index, S: ScoreSource + 'index> TopKIterator<'index, S> {
     ///
     /// Results are streamed directly from the source's batch — the heap is bypassed.
     /// Use [`new`](Self::new) when a filter child is present.
-    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new_unfiltered(source: S, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, None, k, compare, TopKMode::Unfiltered)
     }
 }
@@ -115,7 +120,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
     /// Create a new [`TopKIterator`] with a filter child.
     ///
     /// The initial mode defaults to [`TopKMode::Batches`].
-    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(f64, f64) -> Ordering) -> Self {
+    pub fn new(source: S, child: C, k: NonZeroUsize, compare: fn(&f64, &f64) -> Ordering) -> Self {
         Self::new_with_mode(source, Some(child), k, compare, TopKMode::Batches)
     }
 
@@ -124,7 +129,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
         source: S,
         child: Option<C>,
         k: NonZeroUsize,
-        compare: fn(f64, f64) -> Ordering,
+        compare: fn(&f64, &f64) -> Ordering,
         mode: TopKMode,
     ) -> Self {
         Self {
@@ -211,6 +216,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // `self.heap.push` at the same time.  Pass fields explicitly.
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(child, &mut batch, &mut self.heap)?;
+            } else {
+                // No filter child: every source batch record is a candidate, so feed
+                // the whole batch through the heap, which retains the top k.
+                while let Some((doc_id, score)) = batch.next() {
+                    self.heap.push(doc_id, score);
+                }
             }
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -219,6 +230,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     if self.mode == TopKMode::ForcedBatches {
                         // Honour the forced-batches contract: never switch
                         // mid-run.
+                        continue;
+                    }
+                    if self.child.is_none() {
+                        // Adhoc-BF requires a child filter iterator:
+                        // ignore the strategy switch.
                         continue;
                     }
                     self.mode = TopKMode::AdhocBF;

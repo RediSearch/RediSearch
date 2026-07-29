@@ -14,7 +14,7 @@ use std::{hint::black_box, time::Duration};
 use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
 use rqe_iterators::{
     RQEIterator, empty::Empty, id_list::IdListSorted, not_optimized::NotOptimized,
-    utils::NoTimeout, wildcard::new_wildcard_iterator_optimized,
+    utils::NoTimeoutChecker, wildcard::new_wildcard_iterator_optimized,
 };
 use rqe_iterators_test_utils::TestContext;
 
@@ -49,10 +49,10 @@ impl Bencher {
     const SPARSE_STEP: usize = 200;
     /// Step size for skip_to() calls.
     const SKIP_TO_STEP: u64 = 100;
-    /// Disable timeout checks in benchmarks: [`NoTimeout`] is a zero-sized
+    /// Disable timeout checks in benchmarks: [`NoTimeoutChecker`] is a zero-sized
     /// no-op so the iterator's `check_timeout` path is dead code after
     /// monomorphization.
-    const TIMEOUT_CTX: NoTimeout = NoTimeout;
+    const TIMEOUT_CTX: NoTimeoutChecker = NoTimeoutChecker;
 
     fn benchmark_group<'a>(
         &self,

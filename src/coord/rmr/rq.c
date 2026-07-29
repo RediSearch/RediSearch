@@ -8,12 +8,12 @@
 */
 #define RQ_C__
 
-#include <stdlib.h>
 #include <uv.h>
+
 #include "rq.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "rq.h"
+#include "redismodule.h"
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
   queueItem *item = rm_new(struct queueItem);
