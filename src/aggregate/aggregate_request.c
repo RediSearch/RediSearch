@@ -950,14 +950,22 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
   long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, 0);
-  if (rv != AC_OK) {
+  int rv = AC_GetLongLong(ac, &nproperties, AC_F_GE0);
+  if (rv != AC_OK || nproperties > UINT32_MAX) {
+    rv = rv != AC_OK ? rv : AC_ERR_ELIMIT;
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  const char **properties = array_newlen(const char *, nproperties);
-  for (size_t i = 0; i < nproperties; ++i) {
+  uint32_t propertyCount = (uint32_t)nproperties;
+  if (propertyCount > AC_NumRemaining(ac)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments",
+                                  " for GROUPBY: %s", AC_Strerror(AC_ERR_NOARG));
+    return REDISMODULE_ERR;
+  }
+
+  const char **properties = array_newlen(const char *, propertyCount);
+  for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
     size_t propertyLen;
     rv = AC_GetString(ac, &property, &propertyLen, 0);

@@ -1280,6 +1280,11 @@ def testGroupProperties(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'n', 'NUMERIC', 'SORTABLE', 'tt', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', '1', 'tt', 'foo')
 
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', str(1 << 32), '@t').error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '-1').error().contains(
+                    'Bad arguments for GROUPBY: Value is outside acceptable bounds')
+
     # Check groupby properties
     env.expect('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '3', 't', 'n', 'tt').error().contains(
                     'Bad arguments for GROUPBY: Unknown property `t`. Did you mean `@t`?')
