@@ -104,9 +104,10 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
     """A depleter whose try-lock loses to a queued writer must abort the command,
     never reply a successful empty result set warning "Success (not an error)".
 
-    Only glibc's writer-preferring rwlock fails a try-lock for a *queued* writer, so
-    on macOS/FreeBSD the depleters win the lock and the query just succeeds. Both
-    outcomes are accepted; the assertion is that the OK-code default never ships.
+    Whether a *queued* writer (rather than a lock-holding one) fails a try-lock is
+    libc-dependent — glibc and Darwin fail it, musl does not — so both outcomes are
+    accepted; the invariant asserted is that the OK-code default never ships either
+    way.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
@@ -145,6 +146,9 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
     env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
 
     kind, payload = outcome[0]
+    # Record which branch ran: a green run alone does not say whether the
+    # lock-failure path was reached on this platform.
+    env.debugPrint(f'depleter try-lock outcome: {kind}', force=True)
     if kind == 'err':
         env.assertContains('Failed to acquire index lock for background depletion', payload)
     else:
