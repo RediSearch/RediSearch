@@ -8,9 +8,9 @@
 */
 
 use fork_gc::{
-    ForkGC,
+    ForkGC, HandleError, HandleOutcome,
     io_result_ext::IoResultExt,
-    missing_docs::{HandleError, HandleOutcome, collect_missing_docs, handle_missing_docs},
+    missing_docs::{FieldNotFound, collect_missing_docs, handle_missing_docs},
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -78,10 +78,12 @@ pub unsafe extern "C" fn FGC_parentHandleMissingDocs(gc: *mut ffi::ForkGC) -> FG
     match handle_missing_docs(fgc) {
         Ok(HandleOutcome::Collected) => FGCError::Collected,
         Ok(HandleOutcome::Done) => FGCError::Done,
-        Err(HandleError::PipeReadError(_)) => FGCError::ChildError,
-        Err(HandleError::DeserializationFailed(_)) => FGCError::ChildError,
-        Err(HandleError::UnexpectedFrame) => FGCError::ChildError,
+        Err(
+            HandleError::PipeReadError(_)
+            | HandleError::DeserializationFailed(_)
+            | HandleError::UnexpectedFrame,
+        ) => FGCError::ChildError,
         Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
-        Err(HandleError::FieldNotFound) => FGCError::ParentError,
+        Err(HandleError::Custom(FieldNotFound)) => FGCError::ParentError,
     }
 }

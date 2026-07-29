@@ -11,9 +11,9 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame,
+    Frame, HandleError,
     existing_docs::{
-        HandleError, apply_existing_docs, collect_existing_docs, receive_existing_docs,
+        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
     },
 };
 use index_result::RSIndexResult;
@@ -119,11 +119,11 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_child_error() {
+fn receive_malformed_frame_returns_pipe_read_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_existing_docs(&mut cursor),
-        Err(HandleError::ChildError)
+        Err(HandleError::PipeReadError(_))
     ));
 }
 
@@ -150,7 +150,7 @@ fn apply_returns_err_when_existing_docs_absent() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
         apply_existing_docs(delta, &mut *guard),
-        Err(HandleError::ExistingDocsDeleted)
+        Err(HandleError::Custom(ExistingDocsDeleted))
     ));
 }
 

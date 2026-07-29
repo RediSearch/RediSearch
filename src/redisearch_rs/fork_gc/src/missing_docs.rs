@@ -12,46 +12,17 @@
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
 
-use crate::{ForkGC, Frame};
+use crate::{ForkGC, Frame, HandleError, HandleOutcome};
 use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
-/// Successful outcome of [`handle_missing_docs`].
-#[derive(Debug, Clone, Copy)]
-pub enum HandleOutcome {
-    /// Delta received and applied; iteration may continue.
-    Collected,
-    /// Child sent a terminator; all missing-docs entries have been processed.
-    Done,
-}
-
-/// Error returned by [`handle_missing_docs`] and its sub-functions.
-///
-/// Mapped to `FGCError` variants at the FFI layer.
-#[derive(Debug, thiserror::Error)]
-pub enum HandleError {
-    /// Reading a frame from the child's pipe failed; the child likely crashed.
-    #[error("pipe read error")]
-    PipeReadError(#[from] io::Error),
-
-    /// A frame's MessagePack payload could not be decoded into a [`GcScanDelta`]; the child likely crashed.
-    #[error("deserialisation failed")]
-    DeserializationFailed(#[from] rmp_serde::decode::Error),
-
-    /// An empty frame arrived where a field-name [`Frame::Data`] or [`Frame::Terminator`] was required.
-    #[error("child sent a valid frame of an unexpected kind")]
-    UnexpectedFrame,
-
-    /// The weak spec reference could not be promoted; the index was dropped before apply.
-    #[error("the index spec was deleted before the delta could be applied")]
-    SpecDeleted,
-
-    /// The field was removed from `missingFieldDict` between the child's scan and the parent's apply.
-    #[error("the field was removed from missingFieldDict before the delta could be applied")]
-    FieldNotFound,
-}
+/// The field was removed from `missingFieldDict` between the child's scan and
+/// the parent's apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the field was removed from missingFieldDict before the delta could be applied")]
+pub struct FieldNotFound;
 
 /// Statistics produced by [`apply_missing_docs`], forwarded by
 /// [`handle_missing_docs`] to [`update_stats`].
@@ -103,7 +74,7 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<(CString, GcScanDelta)>, HandleError> {
+) -> Result<Option<(CString, GcScanDelta)>, HandleError<FieldNotFound>> {
     match Frame::decode_nul_terminated(reader)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
@@ -114,7 +85,7 @@ pub fn receive_missing_docs(
                 .expect("child always sends a field name that is a valid C string");
             Ok(Some((field_name, delta)))
         }
-        Frame::Empty => Err(HandleError::UnexpectedFrame),
+        Frame::Empty => Err(HandleError::Custom(FieldNotFound)),
     }
 }
 
@@ -127,11 +98,11 @@ pub fn apply_missing_docs(
     field_name: &CStr,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<ApplyInfo, HandleError> {
+) -> Result<ApplyInfo, HandleError<FieldNotFound>> {
     let hidden = OwnedHiddenString::new(field_name);
 
     let Some(ii) = guard.missing_field_dict_mut().fetch_mut(&hidden) else {
-        return Err(HandleError::FieldNotFound);
+        return Err(HandleError::Custom(FieldNotFound));
     };
 
     let gc_info = ii.apply_gc(delta);
@@ -184,7 +155,7 @@ pub fn update_stats(info: &ApplyInfo, guard: &mut IndexSpecWriteGuard<'_>, fgc: 
 /// - A [`Frame::Terminator`] → all fields processed, returns `Ok(HandleOutcome::Done)`.
 ///
 /// Errors map to corresponding `FGCError` variants at the FFI layer.
-pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
+pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<FieldNotFound>> {
     let Some((field_name, delta)) = receive_missing_docs(&mut fgc.reader())? else {
         return Ok(HandleOutcome::Done);
     };
