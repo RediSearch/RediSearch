@@ -101,26 +101,12 @@ def test_hybrid_multithread():
 
 @skip(cluster=True)
 def test_hybrid_depleter_lock_failure_never_replies_success():
-    """A background depleter whose try-lock loses to a queued writer must abort the
-    command with SEARCH_SAFE_DEPLETER_FAILURE, never reply a successful empty result
-    set whose warnings read "Success (not an error) (SEARCH|VSIM|POST PROCESSING)".
+    """A depleter whose try-lock loses to a queued writer must abort the command,
+    never reply a successful empty result set warning "Success (not an error)".
 
-    Parks the query at BeforeHybridResultsClaim (before the depleters are
-    scheduled), then queues a writer behind the query thread's read lock. The sync
-    point's own release predicate fires on PendingSpecWriters, so the query resumes
-    straight into the try-lock race.
-
-    TIMEOUT 0 is load-bearing, not incidental: the predicate is
-    `HybridRequest_TimedOut(hreq) || PendingSpecWriters_Get() > 0` and
-    SyncPoint_WaitUntil has no internal deadline, so disabling the query timeout
-    leaves the queued writer as the *only* way the query can ever be released.
-    Reaching the assertions therefore proves the interleaving happened, rather than
-    the test passing because the query quietly timed out instead.
-
-    Only glibc's writer-preferring rwlock fails a try-lock for a *queued* writer;
-    on the reader-preferring rwlock used on macOS/FreeBSD the depleters acquire the
-    lock and the query simply succeeds. Both outcomes are accepted here — what is
-    asserted is that the OK-code default string never reaches the client.
+    Only glibc's writer-preferring rwlock fails a try-lock for a *queued* writer, so
+    on macOS/FreeBSD the depleters win the lock and the query just succeeds. Both
+    outcomes are accepted; the assertion is that the OK-code default never ships.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
@@ -134,6 +120,9 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
     outcome = []
     def run_hybrid_query(conn, out):
         try:
+            # TIMEOUT 0 is load-bearing: it disables the sync point's other release
+            # arm, leaving the queued writer as the only way out. Without it the
+            # query can escape by timing out and the test passes vacuously.
             out.append(('ok', conn.execute_command(
                 'FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
                 'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
@@ -148,9 +137,8 @@ def test_hybrid_depleter_lock_failure_never_replies_success():
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
         f'Timeout waiting for {sync_point} sync point')
 
-    # Indexing this write takes the spec write lock on the main thread, which parks
-    # behind the query thread's read lock and bumps PendingSpecWriters. That is what
-    # both releases the sync point and makes the depleters' try-lock fail.
+    # Indexing this parks on the spec write lock behind the query's read lock,
+    # which both releases the sync point and makes the depleters' try-lock fail.
     writer_conn = env.getConnection()
     writer_thread = threading.Thread(
         target=lambda: writer_conn.execute_command(

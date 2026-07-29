@@ -871,10 +871,8 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
-    // Non-fatal error. A stage that aborts must leave a message behind: on an unset
-    // QueryError, GetUserError returns the QUERY_ERROR_CODE_OK default and we would
-    // reply "Success (not an error)" as a warning (and, since the code is OK, the
-    // caller's ShouldReplyWithError check would not have caught it either).
+    // Non-fatal error. An unset QueryError would render as the OK code's default,
+    // "Success (not an error)", and its OK code also slips past ShouldReplyWithError.
     RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
                   "RS_RESULT_ERROR reached the warning path without a QueryError set");
     RedisModule_Reply_SimpleString(reply,

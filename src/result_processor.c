@@ -1849,9 +1849,7 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
 
-// Reported when a depleting thread's try-lock loses to a queued writer. Shared by
-// both drain paths — RPSafeDepleter_DepleteFromUpstream (reached through Next) and
-// RPSafeDepleter_DepleteAll (the cursor path) — so the two cannot drift.
+// Shared by both drain paths so the two cannot drift.
 #define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
   "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
   "Please retry."
@@ -1976,13 +1974,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
-      // Record the failure on this pipeline's QueryError as well. `last_rc` alone
-      // only reaches the cursor path, which re-derives the message in
-      // RPSafeDepleter_DepleteAll; when depletion is driven through Next (plain
-      // FT.HYBRID) the merger sees a bare RS_RESULT_ERROR, and an unset QueryError
-      // renders as the "Success (not an error)" default instead of a real error.
-      // Safe to write from the depleting thread: the reader (the Next-calling
-      // thread) only inspects it once done_depleting has been signalled.
+      // `last_rc` alone only reaches the cursor path; when depletion is driven
+      // through Next the pipeline error is the only channel out. Writing it from
+      // this thread is safe: readers wait for done_depleting.
       QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                           SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
@@ -2527,8 +2521,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
-    // Record a message: the reply path renders an unset QueryError as the
-    // "Success (not an error)" default rather than as a failure.
     QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
                         "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
