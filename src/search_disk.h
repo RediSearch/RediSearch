@@ -193,6 +193,16 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                           RLookup *lk, const RLookupKey **keys,
                                                           size_t nkeys, uint32_t *outStateFlags);
 
+/**
+ * @brief Hand the disk async-loader result processor its request sync context, so it can run
+ * the same RETURN_STRICT GIL handshake as RP_SAFE_LOADER (see aggregate.h). Called from
+ * `RPSafeLoader_SetSyncCtx`'s pipeline walk when it reaches an `RP_DISK_ASYNC_LOADER` node.
+ *
+ * @param rp  The disk async-loader ResultProcessor, from SearchDisk_NewAsyncLoaderResultProcessor
+ * @param brc `BlockedRequestCtx *`, or NULL to clear
+ */
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc);
+
 // Index API wrappers
 
 /**
@@ -482,6 +492,14 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle);
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size);
 
 /**
+ * @brief Debug: dump a numeric field's in-memory bucket routing map as JSON.
+ *
+ * @return sds JSON string (release with sdsfree), or NULL when the field has
+ *         no numeric index on this handle.
+ */
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
+
+/**
  * @brief Replace the key name in document metadata for a given document ID
  *
  * Used when a Redis key is renamed - updates the document metadata to reflect
@@ -739,19 +757,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index);
  * @return Inverted index memory in bytes
  */
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index);
-
-/**
- * @brief Get vector index memory for a disk index
- *
- * Returns disk-side vector index memory in bytes from the latest collected snapshot.
- * Does not include RAM-only accounting from non-disk paths.
- * Call SearchDisk_CollectIndexMetrics(index) before this getter.
- * Requires initialized SearchDisk and non-null index (RS_ASSERT).
- *
- * @param index Pointer to the disk index spec
- * @return Vector index memory in bytes
- */
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Get the disk-owned total number of records for a disk index

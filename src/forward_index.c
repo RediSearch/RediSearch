@@ -7,14 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "forward_index.h"
+
+#include <stdio.h>
+#include <sys/param.h>
+#include <string.h>
+
 #include "inverted_index_ffi.h"
 #include "tokenize.h"
 #include "fnv_ffi.h"
-#include "util/logging.h"
-#include <stdio.h>
-#include <sys/param.h>
 #include "rmalloc.h"
 #include "metrics_ffi.h"
+#include "index_result_rs.h"
+#include "spec.h"
+#include "util/arr/arr.h"
 
 typedef struct {
   KHTableEntry khBase;

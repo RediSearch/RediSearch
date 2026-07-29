@@ -7,17 +7,26 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <aggregate/reducer.h>
-#include "aggregate/reducers/collect_parse.h"
-#include "util/arg_parser.h"
-#include "util/arr_rm_alloc.h"
-#include "util/misc.h"
-#include "spec.h"
-#include "config.h"
-#include "reducers_ffi.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <strings.h>
+
+#include "aggregate/reducers/collect_parse.h"
+#include "util/arg_parser.h"
+#include "util/misc.h"
+#include "spec.h"
+#include "config.h"
+#include "reducers_ffi.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "result_processor.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
 
 #define COLLECT_MAX_SORT_KEYS SORTASCMAP_MAXFIELDS
 #define COLLECT_MAX_SORT_TOKENS (COLLECT_MAX_SORT_KEYS * 2)  // each key may have a direction

@@ -8,15 +8,18 @@
 */
 
 #include "hybrid_cursor_mappings.h"
+
+#include <string.h>
+
 #include "hybrid/hybrid_exec.h"
-#include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 #include "query_error_ffi.h"
 #include "shard_window_ratio.h"
-#include <string.h>
-#include "info/global_stats.h"
 #include "aggregate/aggregate.h"
+#include "config.h"
+#include "rmr/reply.h"
+#include "rmr/rmr.h"
 
 #define INTERNAL_HYBRID_RESP3_LENGTH 6
 #define INTERNAL_HYBRID_RESP2_LENGTH 6

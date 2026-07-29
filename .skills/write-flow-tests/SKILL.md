@@ -1,6 +1,6 @@
 ---
 name: write-flow-tests
-description: Guidelines for writing Python flow tests (end-to-end behavioral tests). Use this when writing new Python tests in tests/pytests/.
+description: Guidelines for writing Python flow tests (end-to-end behavioral tests). Use this when writing new Python tests in tests/pytests/, and as the review criteria when reviewing changes to them.
 ---
 
 # Writing Python Flow Tests
@@ -68,6 +68,13 @@ Tests use the `RLTest` framework. The typical pattern is:
 - Use `env.expect(...).error().contains('...')` for error-path tests.
 - Use `env.assertContains(...)` for checking substrings in responses (e.g., warning messages, explain output).
 
+## Determinism
+
+A test must pass, or fail, for the same reason on every machine. Anything host-speed
+dependent — a wall-clock `TIMEOUT`, a sleep, a race with background indexing or GC — should
+prefer a deterministic hook instead; grep `_FT.DEBUG` in `tests/pytests/` for what exists,
+and check the one you pick reaches the code path under test.
+
 ## Deprecated commands
 
 - Do not use `FT.ADD` — use `HSET` via `conn.execute_command('HSET', ...)` instead.
@@ -77,4 +84,4 @@ Tests use the `RLTest` framework. The typical pattern is:
 
 - Include a docstring explaining what code path or behavior the test exercises.
 - Keep tests focused — one test per code path or behavior.
-- Restore global config changes (e.g., `MAXPREFIXEXPANSIONS`) at the end of the test.
+- Restore global config changes (e.g., `MAXPREFIXEXPANSIONS`) at the end of the test — tests in a file share one server.

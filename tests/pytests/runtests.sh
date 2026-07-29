@@ -493,7 +493,11 @@ fi
 
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
-  ROOT="$ROOT" BINROOT="${BINROOT}/${FULL_VARIANT}" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
+  REJSON_BINROOT="${BINROOT:-}"
+  if [[ -n $REJSON_BINROOT && -n $FULL_VARIANT ]]; then
+    REJSON_BINROOT="${REJSON_BINROOT}/${FULL_VARIANT}"
+  fi
+  ROOT="$ROOT" BINROOT="$REJSON_BINROOT" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
   echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
   RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
 else

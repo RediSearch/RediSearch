@@ -7,20 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
-#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "aggregate/reducers/collect_parse.h"
-#include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "config.h"
-
-#include <vector>
-#include <string>
-#include <sstream>
-#include <algorithm>
+#include "aggregate/expr/expression.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "spec.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 // Minimum block size for the reducer-rewriter scratch allocator
 // (`ReducerDistCtx::alloc`).

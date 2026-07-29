@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "libnu/libnu.h"
-#include "rune_util.h"
-#include "rmalloc.h"
-
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+
+#include "rune_util.h"
+#include "rmalloc.h"
+#include "libnu/casemap.h"
+#include "libnu/extra.h"
+#include "libnu/strings.h"
+#include "libnu/utf8.h"
 
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;

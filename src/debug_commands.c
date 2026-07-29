@@ -7,7 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "commands.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+
 #include "types_ffi.h"
 #include "debug_commands.h"
 #include "indexes.h"
@@ -28,26 +32,51 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
-#include "suffix.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
 #include "cursor.h"
-#include "module.h"
-#include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "hybrid/hybrid_debug.h"
 #include "hybrid/hybrid_exec.h"
 #include "reply.h"
-#include "reply_macros.h"
-#include "obfuscation/obfuscation_api.h"
 #include "info/info_command.h"
 #include "search_disk.h"
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
 #include "coord/rmr/rmr.h"
-#include <limits.h>
+#include "VecSim/info_iterator.h"
+#include "VecSim/vec_sim.h"
+#include "VecSim/vec_sim_common.h"
+#include "concurrent_ctx.h"
+#include "config.h"
+#include "doc_table.h"
+#include "field_spec.h"
+#include "geometry/geometry_types.h"
+#include "hiredis/sds.h"
+#include "iterators/iterator_api.h"
+#include "profile/options.h"
+#include "profile/profile.h"
+#include "query_error.h"
+#include "redisearch.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "rqe_core.h"
+#include "rules.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "search_result_rs.h"
+#include "spec.h"
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
+#include "util/strconv.h"
+#include "util/timeout.h"
+#include "vector_index.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -3421,6 +3450,41 @@ DEBUG_COMMAND(DumpDeletedIds) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG NUMERIC_BUCKET_MAP <index> <field>
+// Dumps the in-memory bucket routing map of a disk numeric field as a JSON
+// string: [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
+// "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
+// split's routing state on a master and its replica).
+DEBUG_COMMAND(NumericBucketMap) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (!sctx->spec->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "NUMERIC_BUCKET_MAP is only supported on disk indexes");
+  } else {
+    const FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC);
+    if (!fs) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Unknown numeric field");
+    } else {
+      char *json = SearchDisk_DebugDumpNumericBucketMap(sctx->spec->diskSpec, fs->index);
+      if (!json) {
+        RedisModule_ReplyWithError(sctx->redisCtx, "No bucket map for field");
+      } else {
+        RedisModule_ReplyWithStringBuffer(sctx->redisCtx, json, sdslen(json));
+        sdsfree(json);
+      }
+    }
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.DEBUG REGISTER_TEST_SCORERS
  * Register the test scorers for testing purposes.
@@ -3522,6 +3586,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
+                               {"NUMERIC_BUCKET_MAP", NumericBucketMap},
                                {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers},
                                {"SET_MAX_INDEXES", SetMaxIndexes},
