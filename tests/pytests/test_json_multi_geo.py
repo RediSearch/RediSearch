@@ -125,26 +125,26 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 380
+    # idx1 contains 24 entries, expected size of inverted index = 412
     # (Rust numeric range tree implementation)
-    expected_info['inverted_sz_mb'] = 380 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 412 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
-    # Expected size of inverted index for idx2 = 88 + 26 = 114
-    #     Size of NewInvertedIndex() structure = 88
+    # Expected size of inverted index for idx2 = 104 + 26 = 130
+    #     Size of NewInvertedIndex() structure = 104
     #     Buffer grows up to 26 bytes trying to store 3 entries 8 bytes each = 26
-    expected_info['inverted_sz_mb'] = 114 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 130 / (1024 * 1024)
     compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
 
-    # Expected size of inverted index for idx3 = 88 + 47 = 135
-    #     Size of NewInvertedIndex() structure = 88
+    # Expected size of inverted index for idx3 = 104 + 47 = 151
+    #     Size of NewInvertedIndex() structure = 104
     #     Buffer grows up to 47 bytes trying to store 5 entries, 8 bytes each = 47
-    expected_info['inverted_sz_mb'] = 135 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 151 / (1024 * 1024)
     compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
 
     # idx4 contains two GEO fields, the expected size of inverted index is
-    # equivalent to the sum of the size of idx2 and idx3 = 114 + 135 = 249
-    expected_info['inverted_sz_mb'] = 249 / (1024 * 1024)
+    # equivalent to the sum of the size of idx2 and idx3 = 130 + 151 = 281
+    expected_info['inverted_sz_mb'] = 281 / (1024 * 1024)
     compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
 
     # Geo range and Not

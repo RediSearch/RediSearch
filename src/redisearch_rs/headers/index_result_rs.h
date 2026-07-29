@@ -618,3 +618,4 @@ typedef struct RawIndexResult_Active RSIndexResult;
 #define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
 #define RSTermRecord_Owned      RawTermRecord_Active_Owned
 #define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+
