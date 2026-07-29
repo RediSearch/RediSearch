@@ -275,12 +275,17 @@ When reviewing pull requests:
 ## Common Workflows
 
 When implementing changes that may become a PR, first check the current checkout. If it is on an
-unrelated branch, or already tied to another open PR, create a dedicated worktree and do the work
-there.
+unrelated branch, or already tied to another open PR, start a new branch — a new change under `jj` —
+rather than adding to that one. Base it on `master` when the work stands alone, or on the change it
+builds on when it is deliberately stacked.
 
 A dirty checkout is not on its own a reason to branch out. Work in the existing checkout and follow
 [/commit-guidelines](.skills/commit-guidelines/SKILL.md) to decide whether the pre-existing changes
 and the new task belong in the same revision.
+
+A separate **worktree** is a different thing, and only worth it when you need a second checkout
+side by side with this one — for instance to leave a long build or test run undisturbed while you
+work elsewhere. Branching does not require one.
 
 Always use `-b` when creating a worktree — git forbids two worktrees on the same branch, so checking out `master` directly will fail when master is already the main checkout. Prefix the branch with your handle (e.g. `alice-`, `bob-`) to avoid collisions on the shared remote. Pass `--no-track` so the new branch does not inherit `origin/master` as its upstream — otherwise a later `git push --force` without an explicit target can try to force-push the feature branch onto master:
 
