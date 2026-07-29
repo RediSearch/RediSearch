@@ -1974,9 +1974,6 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
-      // `last_rc` alone only reaches the cursor path; when depletion is driven
-      // through Next the pipeline error is the only channel out. Writing it from
-      // this thread is safe: readers wait for done_depleting.
       QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                           SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)

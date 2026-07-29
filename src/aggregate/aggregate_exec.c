@@ -871,14 +871,10 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
-    // Non-fatal error. An unset QueryError would render as the OK code's default,
-    // "Success (not an error)", and its OK code also slips past ShouldReplyWithError.
+    // Non-fatal error
     RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
                   "RS_RESULT_ERROR reached the warning path without a QueryError set");
-    RedisModule_Reply_SimpleString(reply,
-                                   QueryError_IsOk(qctx->err)
-                                       ? QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_GENERIC)
-                                       : QueryError_GetUserError(qctx->err));
+    RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
   }
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));
