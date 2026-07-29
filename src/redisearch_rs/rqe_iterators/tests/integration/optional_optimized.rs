@@ -1352,6 +1352,134 @@ mod via_resume {
             "type-erased child must survive suspend/resume (not be dropped to Empty)"
         );
     }
+
+    /// A moved wcii that lands on a doc the child also matches must return that
+    /// hit with the optional weight applied (mirrors `read`/`skip_to`), and must
+    /// NOT report EOF for a valid in-bound doc even though the wildcard itself is
+    /// now `at_eof()`. (Codex T3 + T13/T16.)
+    #[test]
+    fn resume_moved_real_hit_applies_weight_and_is_not_eof() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // wcii `[5, 20]`, child `[5, 20]`, max_doc_id 100: after reading doc 5,
+        // a moved resume advances wcii to its last doc 20 (`wcii.at_eof()` now
+        // true) which the child also matches.
+        let wcii = utils::Mock::new([5u64, 20]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64, 20]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            !active.at_eof(),
+            "doc 20 < max_doc_id is a valid current, not EOF, even though wcii.at_eof()"
+        );
+        let cur = active.current().expect("current after moved resume");
+        assert_eq!(cur.doc_id, 20);
+        assert_eq!(
+            cur.weight, WEIGHT,
+            "moved real hit must carry the optional weight"
+        );
+    }
+
+    /// A moved wcii that lands on a valid in-bound doc the child does NOT match
+    /// returns a virtual hit at that doc (zero weight) and is not EOF, again even
+    /// though the wildcard is exhausted. (Codex T13/T16, virtual case.)
+    #[test]
+    fn resume_moved_virtual_hit_at_last_doc_is_not_eof() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // wcii `[5, 20]`, child `[5, 25]`: after doc 5, wcii moves to 20; the
+        // child has no match at 20 (its next is 25) → virtual hit.
+        let wcii = utils::Mock::new([5u64, 20]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64, 25]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            !active.at_eof(),
+            "doc 20 < max_doc_id is a valid current, not EOF"
+        );
+        let cur = active.current().expect("current after moved resume");
+        assert_eq!(cur.doc_id, 20);
+        assert_eq!(cur.weight, 0., "virtual hit carries zero weight");
+    }
+
+    /// An `OptionalOptimized` already exhausted by its own bound (via
+    /// `skip_to(max_doc_id + 1)`, which sets `at_eof` without advancing wcii) must
+    /// keep that EOF across a resume where the wildcard is unchanged — the resume
+    /// must not reset `at_eof` from the still-live `wcii.at_eof()`. (Codex T12.)
+    #[test]
+    fn resume_preserves_bound_eof_when_wcii_unchanged() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // wcii still has docs (so `wcii.at_eof()` is false), but the iterator is
+        // driven past its own bound.
+        let wcii = utils::Mock::new([5u64, 20, 50]);
+        let child = utils::Mock::new([5u64]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        // Exhaust by bound without advancing wcii.
+        assert!(it.skip_to(101).expect("skip_to").is_none());
+        assert!(it.at_eof());
+
+        // wcii resumes unchanged (default Ok); EOF must survive.
+        let active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok (unchanged wcii), got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert!(
+            active.at_eof(),
+            "bound-EOF must survive resume; must not be reset from wcii.at_eof()"
+        );
+    }
+
+    /// If the virtual sentinel is no longer virtual — a consumer replaced it with
+    /// index-backed data via the mutable `current()`/`read()`/`skip_to` handout —
+    /// resume cannot re-validate it, so it aborts the whole iterator (returns
+    /// `Aborted`, not an error), mirroring `Optional::resume`.
+    #[test]
+    fn resume_aborts_when_virt_no_longer_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // child has no match at doc 5 → the first read yields the virtual sentinel.
+        let wcii = utils::Mock::new([5u64]);
+        let child = utils::Mock::new([10u64]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+        assert_eq!(r.kind(), RSResultKind::Virtual);
+        // Simulate a consumer swapping the sentinel for a real, index-backed result.
+        *r = RSIndexResult::build_numeric(1.0).build();
+
+        let outcome = it
+            .suspend()
+            .resume(&guard)
+            .expect("resume must not surface an error");
+        assert!(
+            matches!(outcome, ResumeOutcome::Aborted),
+            "a non-virtual sentinel must abort the resume",
+        );
+    }
 }
 
 /// A `Not` child whose `max_doc_id` coincides with this iterator's, over a
