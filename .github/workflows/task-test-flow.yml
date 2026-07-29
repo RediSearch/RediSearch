@@ -244,7 +244,7 @@ jobs:
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz lands in the working directory; unpacked in the next step.
@@ -344,9 +344,9 @@ jobs:
         id: flaky
         if: ${{ env.IS_FORK_PR != 'true' && steps.enumerate.outputs.specs }}
         continue-on-error: true
-        # Pinned to the full commit SHA that the `v1` tag points to (external
-        # actions must be pinned to a commit hash, not a moving tag).
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        # First-party shared CI: tracked by the moving `v1` tag on purpose so
+        # org-wide fixes propagate without a bump here. See .github/zizmor.yml.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           tests: ${{ steps.enumerate.outputs.specs }}
@@ -442,9 +442,9 @@ jobs:
       - name: Record failures to flaky DB
         if: ${{ always() && env.IS_FORK_PR != 'true' }}
         continue-on-error: true
-        # Pinned to the full commit SHA that the `v1` tag points to (external
-        # actions must be pinned to a commit hash, not a moving tag).
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        # First-party shared CI: tracked by the moving `v1` tag on purpose so
+        # org-wide fixes propagate without a bump here. See .github/zizmor.yml.
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@v1
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
@@ -478,7 +478,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -529,7 +529,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
