@@ -1172,6 +1172,10 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
 
 void TrieNode_IterateWildcard(TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout) {
+  if (nstr <= 0) {
+    return;
+  }
+
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
