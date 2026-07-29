@@ -100,8 +100,18 @@ static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, 
     ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
     return HYBRID_WARNING_TIMEOUT;
   } else if (returnCode == RS_RESULT_ERROR) {
-    // Non-fatal error — convert to warning
-    ReplyWarning(reply, QueryError_GetUserError(err), suffix);
+    // Non-fatal error — convert to warning. Only the soft codes that
+    // HybridRequest_GetError deliberately lets through reach here; anything else
+    // would already have been replied as an error, so `err` must carry a message.
+    // Producers have forgotten to set one before (RPSafeDepleter_DepleteFromUpstream),
+    // and QueryError_GetUserError would then return the QUERY_ERROR_CODE_OK default,
+    // emitting "Success (not an error)" as the warning text.
+    RS_LOG_ASSERT(!QueryError_IsOk(err),
+                  "RS_RESULT_ERROR reached the warning path without a QueryError set");
+    ReplyWarning(reply,
+                 QueryError_IsOk(err) ? QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_GENERIC)
+                                      : QueryError_GetUserError(err),
+                 suffix);
     QueryError_ClearError(err);  // Free allocated message strings
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
     ReplyWarning(reply, QUERY_WMAXPREFIXEXPANSIONS, suffix);

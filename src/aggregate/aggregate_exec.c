@@ -871,8 +871,16 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
-    // Non-fatal error
-    RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
+    // Non-fatal error. A stage that aborts must leave a message behind: on an unset
+    // QueryError, GetUserError returns the QUERY_ERROR_CODE_OK default and we would
+    // reply "Success (not an error)" as a warning (and, since the code is OK, the
+    // caller's ShouldReplyWithError check would not have caught it either).
+    RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
+                  "RS_RESULT_ERROR reached the warning path without a QueryError set");
+    RedisModule_Reply_SimpleString(reply,
+                                   QueryError_IsOk(qctx->err)
+                                       ? QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_GENERIC)
+                                       : QueryError_GetUserError(qctx->err));
   }
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, !IsInternal(req));

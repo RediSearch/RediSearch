@@ -1848,6 +1848,14 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
+
+// Reported when a depleting thread's try-lock loses to a queued writer. Shared by
+// both drain paths — RPSafeDepleter_DepleteFromUpstream (reached through Next) and
+// RPSafeDepleter_DepleteAll (the cursor path) — so the two cannot drift.
+#define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
+  "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
+  "Please retry."
+
 typedef struct {
   ResultProcessor base;                // Base result processor struct
   // We require separate contexts because we have different threads.
@@ -1968,6 +1976,15 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
+      // Record the failure on this pipeline's QueryError as well. `last_rc` alone
+      // only reaches the cursor path, which re-derives the message in
+      // RPSafeDepleter_DepleteAll; when depletion is driven through Next (plain
+      // FT.HYBRID) the merger sees a bare RS_RESULT_ERROR, and an unset QueryError
+      // renders as the "Success (not an error)" default instead of a real error.
+      // Safe to write from the depleting thread: the reader (the Next-calling
+      // thread) only inspects it once done_depleting has been signalled.
+      QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -2340,8 +2357,8 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
     } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
       anyTimedOut = true;
@@ -2510,6 +2527,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
+    // Record a message: the reply path renders an unset QueryError as the
+    // "Success (not an error)" default rather than as a failure.
+    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
   }
 
