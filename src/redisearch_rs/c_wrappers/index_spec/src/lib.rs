@@ -11,6 +11,7 @@
 
 use std::{
     ffi::c_char,
+    ops::Deref,
     ptr,
     ptr::NonNull,
     slice,
@@ -60,9 +61,12 @@ impl IndexSpec {
 
     /// Get the underlying field specs as a slice of `FieldSpec`s.
     pub fn field_specs(&self) -> &[FieldSpec] {
+        let len = self.0.numFields.into();
+        if len == 0 {
+            return &[];
+        }
         debug_assert!(!self.0.fields.is_null(), "fields must not be null");
         let data = self.0.fields.cast::<FieldSpec>();
-        let len = self.0.numFields.into();
         // Safety: (1.) due to creation with `IndexSpec::from_raw`
         unsafe { slice::from_raw_parts(data, len) }
     }
@@ -357,15 +361,6 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         self.0.fields
     }
 
-    /// Returns the spec's fields as a slice.
-    pub const fn field_specs(&self) -> &[FieldSpec] {
-        let len = self.0.numFields as usize;
-        // SAFETY: `fields` is a valid array of `numFields` ffi::FieldSpec elements that lives
-        // at least as long as this guard. FieldSpec is #[repr(transparent)] over ffi::FieldSpec,
-        // so the cast is sound.
-        unsafe { std::slice::from_raw_parts(self.0.fields.cast_const().cast::<FieldSpec>(), len) }
-    }
-
     /// Returns a const raw pointer to the underlying `ffi::IndexSpec`.
     pub const fn as_ptr(&self) -> *const ffi::IndexSpec {
         self.0 as *const ffi::IndexSpec
@@ -391,6 +386,17 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     /// Returns the number of strong references to this index spec.
     pub const fn own_ref(&self) -> ffi::StrongRef {
         self.0.own_ref
+    }
+}
+
+impl Deref for IndexSpecReadGuard<'_> {
+    type Target = IndexSpec;
+
+    fn deref(&self) -> &IndexSpec {
+        // SAFETY: `IndexSpec` is `#[repr(transparent)]` over `ffi::IndexSpec`, so a
+        // `&ffi::IndexSpec` can be reinterpreted as a `&IndexSpec`. The reference lives
+        // at least as long as this guard.
+        unsafe { IndexSpec::from_raw(self.0) }
     }
 }
 
