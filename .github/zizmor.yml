@@ -9,6 +9,16 @@
 # block PRs. Lowering either threshold is how you pick the next batch up; expect
 # findings.
 rules:
+  github-app:
+    ignore:
+      # task-take-shift.yml runs `gh variable set`, which needs GitHub's
+      # "Variables" repository permission. create-github-app-token exposes no
+      # `permission-variables` input, so that token cannot be narrowed to what it
+      # actually uses (actions/create-github-app-token#231). It is already scoped
+      # to a single repository. Suppressed here rather than with an inline
+      # `# zizmor: ignore[...]` comment because that has to sit on the `uses:`
+      # line, where Dependabot rewrites the trailing version comment.
+      - task-take-shift.yml
   unpinned-uses:
     config:
       policies:

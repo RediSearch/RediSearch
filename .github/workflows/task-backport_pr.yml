@@ -38,6 +38,15 @@ jobs:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
           owner: RediSearch
+          # Without this the token reaches every repository the app is installed
+          # on across the org, not just this one.
+          repositories: RediSearch
+          # And without these it inherits the app installation's full permission
+          # set. korthout/backport-action needs exactly two: contents to push the
+          # cherry-picked branch, pull-requests to open the backport PR, request
+          # the author as reviewer, copy labels and enable auto-merge.
+          permission-contents: write
+          permission-pull-requests: write
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
