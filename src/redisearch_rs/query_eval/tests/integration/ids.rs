@@ -9,7 +9,7 @@
 
 //! QN_IDS → IdList
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -26,9 +26,9 @@ fn eval_ids_with_pre_resolved_doc_ids() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -56,9 +56,9 @@ fn eval_ids_deduplicates() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -80,9 +80,9 @@ fn eval_ids_filters_zero_doc_ids() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -102,9 +102,9 @@ fn eval_ids_all_zero_produces_empty_list() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -122,9 +122,9 @@ fn eval_ids_empty_keys() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), 0);
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -142,9 +142,9 @@ fn eval_ids_requires_pre_resolved_doc_ids() {
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let _ = eval::eval_node(&mut ctx, &node, Config::default());
+    let _ = eval::eval_node(&mut ctx, node, Config::default());
 }
 
 // ---------------------------------------------------------------------------
@@ -185,9 +185,9 @@ mod ids_doctable {
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-        let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+        let mut it = eval::eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -219,9 +219,9 @@ mod ids_doctable {
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-        let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+        let mut it = eval::eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 

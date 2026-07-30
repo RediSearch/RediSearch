@@ -156,7 +156,7 @@ redis-cli -p 6379 FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA \
 # Dropindex KEEPDOCS Writer Contention Dataset
 
 Generate the dataset used by
-`tests/benchmarks/disabled/search-dropindex-keepdocs-gil-writer-contention.yml`.
+`tests/benchmarks/search-dropindex-keepdocs-gil-writer-contention.yml`.
 
 The default dataset creates 10K HASH indexes, loads 500 documents per index
 (5M HASH keys), then generates a deterministic benchmark stream where every
@@ -174,8 +174,19 @@ python3 generate_dropindex_writer_contention_dataset.py \
   ./output/dropindex-keepdocs-gil-10K-indexes-500-docs
 ```
 
-After uploading both the SETUP and BENCH files, move the benchmark YAML out of
-`tests/benchmarks/disabled/` to enable it in the regular benchmark runner.
+The regular benchmark runner expects the SETUP and BENCH files to be available
+at the public S3 URLs referenced by the benchmark YAML.
+
+Run only this benchmark on `oss-standalone` with:
+
+```bash
+gh workflow run benchmark-runner.yml \
+  --repo RediSearch/RediSearch \
+  --ref master \
+  -f extended=false \
+  -f allowed_setup=oss-standalone \
+  -f benchmark_filter=search-dropindex-keepdocs-gil-writer-contention.yml
+```
 
 For local smoke testing, scale the workload down:
 
