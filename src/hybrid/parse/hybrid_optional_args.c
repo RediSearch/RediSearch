@@ -178,7 +178,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
     ArgParser_AddSubArgsV(parser, "GROUPBY", "Group results by properties with reducers",
-                         &subArgs, 1, -1,
+                         &subArgs, 0, MAX_GROUPBY_PROPERTIES,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleGroupby, ctx,
                          ARG_OPT_END);
