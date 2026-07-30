@@ -28,7 +28,30 @@ If the user provides a Rust file path (e.g., under `src/redisearch_rs/`), stop a
 them to use `/check-rust-coverage` instead — this skill's gcov/lcov pipeline does not capture
 Rust coverage data.
 
-Follow these steps in order. Do NOT skip ahead — each step depends on the previous one.
+### Prefer the swamp workflow
+
+`flow-coverage` does Steps 1 to 3 in one command — instrumented build, full
+suite, then uncovered lines per file as ranges — and refuses to answer from a
+trace older than the suite run, which is what the marker dance below is for:
+
+```bash
+swamp workflow run flow-coverage --input '{"files":["src/module.c","src/query.c"]}'
+swamp data get flow-coverage summary --json | jq '.content.targets'
+```
+
+Inputs: `deployment` (`standalone` or `cluster`), `force` to rebuild from
+scratch, `requireAllFound` to report on the rest when a file has no coverage
+data. When a trace already exists and only different files need looking at, skip
+the build and the suite entirely — the report is a parse, not a run:
+
+```bash
+swamp model method run flow-coverage report --input '{"files":["src/spec.c"]}'
+```
+
+Then continue from Step 4 to read and classify the gaps. Follow the steps below
+by hand only when swamp is unavailable.
+
+Do NOT skip ahead — each step depends on the previous one.
 
 ### Step 1: Ensure a coverage build exists
 

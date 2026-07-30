@@ -346,6 +346,57 @@ const TRANSLATORS: Record<
       : noTestsRan(summary, base, "pytest", failed);
   },
 
+  "@gdesmott/lcov-coverage": (summary, base, failed) =>
+    // A requested file with no coverage data is not compiled into what ran — a
+    // different problem from being untested, and the one worth naming per file.
+    //
+    // Only when the step failed, though. `requireAllFound: false` asks the model
+    // to report on whatever it found and succeed regardless, so the same missing
+    // targets are there by consent. The summary does not record that choice, but
+    // the step's outcome already encodes it: the model fails exactly when the
+    // caller demanded every file and did not get them.
+    !failed ? [] : list(summary, "targets")
+      .filter((target) => target.found === false)
+      .map((target) =>
+        base({
+          kind: "no-coverage-data",
+          what: str(target, "file") ?? "unknown file",
+          where: str(target, "file"),
+          detail:
+            "not in the coverage trace; the file is probably not compiled into " +
+            "the module, or the build was not instrumented",
+        })
+      ),
+
+  "@gdesmott/rust-coverage": (summary, base, failed) => {
+    // Exporting nothing is a failure however the run exited: there is no
+    // measurement to act on either way.
+    if (summary.parsed === false) {
+      return [
+        base({
+          kind: "no-coverage-export",
+          what: String(summary.scope ?? "workspace"),
+          detail:
+            "the run ended before exporting any coverage, so nothing was measured; see its log",
+        }),
+      ];
+    }
+    // Coverage was measured, so anything left is in the tests behind it, and
+    // cargo llvm-cov's own output is where they are named. A run whose tests
+    // passed has nothing to report — the coverage figures are the point, and
+    // they are not a failure.
+    return failed
+      ? [
+        base({
+          kind: "tests-failed-under-coverage",
+          what: String(summary.scope ?? "workspace"),
+          detail:
+            "tests failed, so the measured coverage is a floor rather than the real figure; see its log",
+        }),
+      ]
+      : [];
+  },
+
   "@gdesmott/swamp-tests": (summary, base, failed) => {
     // The target is two checks in sequence, and the model already decided which
     // one stopped the run. Reporting the wrong one sends the reader to a check

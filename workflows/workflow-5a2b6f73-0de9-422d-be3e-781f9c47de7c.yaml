@@ -1,0 +1,222 @@
+id: 5a2b6f73-0de9-422d-be3e-781f9c47de7c
+name: flow-coverage
+description: >-
+  Measure which lines of the given C sources the Python suite never exercises:
+  build with gcov instrumentation, run the whole suite against that build, then
+  report the uncovered lines per file.
+
+  The suite has to be the whole suite. A targeted run covers only what it
+  touches, so every line no other test happened to reach would be reported as a
+  gap that a full run would have covered. That is why there is no test filter
+  here, and why this takes tens of minutes rather than seconds.
+
+  The steps form a single chain because ./build.sh and cargo contend on the Cargo
+  build-directory lock under src/redisearch_rs/target, and because each step
+  needs what the one before it produced.
+
+  The report step is held to the instrumented build's timestamp. build.sh leaves
+  the previous trace in place when a run produces none, so without that bound a
+  failed capture would be reported as this run's coverage — a complete-looking
+  set of gaps belonging to an earlier build.
+
+  A failing test does not abort the measurement. The suite is run with
+  ignoreTestFailure and the run is failed afterwards, once the coverage has been
+  recorded, because a measurement is worth keeping even when it is a floor.
+
+  Rust coverage is deliberately absent: cargo llvm-cov measures it in one model
+  call with nothing to orchestrate, so run the rust-coverage model directly
+  rather than through a workflow.
+tags:
+  purpose: coverage
+reports:
+  require:
+    # Collects whatever failed into one list, rather than one summary per model.
+    - "@gdesmott/failure-digest"
+inputs:
+  type: object
+  required:
+    - files
+  properties:
+    files:
+      type: array
+      items:
+        type: string
+      description: >-
+        C sources to report on, as repository-relative paths, e.g.
+        `["src/query.c", "src/spec.c"]`. Rust paths are rejected: gcov does not
+        see Rust.
+    testTimeout:
+      type: integer
+      default: 600
+      description: >-
+        Per-test timeout for the Python suite, in seconds. Twice build.sh's own
+        default of 300, because gcov instrumentation makes every test slower and
+        a test killed by the timeout exercises less of the code than it would
+        have — which shows up as a coverage gap that is really a timeout.
+    deployment:
+      type: string
+      default: standalone
+      description: >-
+        Which deployment to run the suite as. build.sh writes one trace per
+        deployment and the report reads the matching one, so this picks both.
+    force:
+      type: boolean
+      default: false
+      description: >-
+        Rebuild from scratch. The instrumented build lives in its own flavor
+        directory, so an incremental build is normally correct; force it when a
+        previous coverage build was interrupted and left that directory
+        half-written.
+    requireAllFound:
+      type: boolean
+      default: true
+      description: >-
+        Fail when a requested file has no coverage data at all, which means it is
+        not compiled into the module rather than that it is untested. Turn it off
+        to report on the rest of the files anyway.
+jobs:
+  - name: coverage
+    description: Instrument, exercise, then report what was never reached
+    # Redundant with the linear dependsOn chain below, but it keeps the
+    # build-directory lock safe if a step is ever added without a dependency.
+    concurrency: 1
+    steps:
+      - name: build
+        description: Build the module with gcov instrumentation
+        task:
+          type: model_method
+          modelIdOrName: build
+          methodName: build
+          inputs:
+            coverage: true
+            force: ${{ inputs.force }}
+            # The pytest step runs with skipBuild, so anything it needs has to
+            # exist by the end of this step. TESTS=1 is what compiles
+            # libexample_extension.so, which test_ext.py and the default-scorer
+            # coverage load; without it a clean checkout fails in pytest.
+            buildTests: true
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: module-built
+        description: >-
+          This run produced an instrumented module, rather than leaving an
+          earlier build's module in place. A failed build does not remove the
+          previous artifact, so the path existing is not on its own evidence that
+          anything was built — and an uninstrumented leftover would yield no
+          coverage at all.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.modulePath != null
+            && !data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.moduleStale
+            && data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.coverage
+          message: >-
+            No instrumented module was produced by this run in
+            ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }} — the
+            artifact is missing, left over from an earlier build, or not built
+            with coverage.
+          severity: high
+        dependsOn:
+          - step: build
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest
+        description: >-
+          Run the whole Python suite against the instrumented build.
+
+          A failing test does not stop the run. build.sh captures the trace once
+          the suite finishes either way, and coverage is a measurement rather
+          than a gate: throwing away twenty minutes of it over one slow test
+          would be the wrong trade. The suite-passed step below still fails the
+          run, after the measurement has been recorded.
+        task:
+          type: model_method
+          modelIdOrName: pytest
+          methodName: run
+          inputs:
+            coverage: true
+            skipBuild: true
+            ignoreTestFailure: true
+            testTimeout: ${{ inputs.testTimeout }}
+            deployment: ${{ inputs.deployment }}
+        dependsOn:
+          - step: module-built
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: pytest-ran
+        description: >-
+          The suite actually executed tests. A suite that ran none produces a
+          trace of zeroes, in which every line of every file reads as a gap.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            The Python suite reported success without running any test, so there
+            is nothing for the coverage measurement to describe.
+          severity: high
+        dependsOn:
+          - step: pytest
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: report
+        description: Report the uncovered lines of the requested files
+        task:
+          type: model_method
+          modelIdOrName: flow-coverage
+          methodName: report
+          inputs:
+            files: ${{ inputs.files }}
+            suite: flow
+            deployment: ${{ inputs.deployment }}
+            requireAllFound: ${{ inputs.requireAllFound }}
+            # The trace has to be newer than the build it is supposed to describe,
+            # or it is a leftover from an earlier cycle. The bound is the build's
+            # timestamp rather than the suite's: a model stamps executedAt when it
+            # finishes recording, which is after build.sh wrote the trace, so
+            # holding the trace to the suite's own timestamp would reject every
+            # legitimate run by a few tens of milliseconds.
+            notOlderThan: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.executedAt }}
+        dependsOn:
+          - step: pytest-ran
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: suite-passed
+        description: >-
+          The suite that produced the measurement passed. Last on purpose: a
+          failing test makes the coverage a floor rather than the real figure,
+          which is worth failing the run over, but only once the figure has been
+          recorded and is there to read.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.status == "passed"
+          message: >-
+            ${{ data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.failed }} test(s)
+            failed, so the coverage recorded above is a floor rather than the
+            real figure. The failures are in the run's failure digest.
+          severity: high
+        dependsOn:
+          - step: report
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

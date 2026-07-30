@@ -567,6 +567,50 @@ Deno.test("stays quiet about a step that succeeded cleanly", async () => {
   assertEquals(result.json.stepsPassedWithFailures, []);
 });
 
+Deno.test("names each file the coverage trace had no data for", async () => {
+  // Not "untested": the file is not compiled into what ran, which is a build
+  // problem rather than a testing one.
+  const { context } = makeContext(
+    [failedStep("flow-coverage", "flow-coverage", "@gdesmott/lcov-coverage")],
+    {
+      "flow-coverage": {
+        targets: [
+          { file: "src/query.c", found: true, uncoveredCount: 850 },
+          { file: "src/disk_spec.c", found: false, uncoveredCount: 0 },
+        ],
+      },
+    },
+  );
+
+  const result = await report.execute(context);
+
+  const findings = result.json.findings as Array<Record<string, unknown>>;
+  assertEquals(findings.length, 1);
+  assertEquals(findings[0].kind, "no-coverage-data");
+  assertEquals(findings[0].what, "src/disk_spec.c");
+});
+
+Deno.test("separates a missing coverage export from failing tests", async () => {
+  const noExport = makeContext(
+    [failedStep("rust-coverage", "rust-coverage", "@gdesmott/rust-coverage")],
+    { "rust-coverage": { scope: "workspace", parsed: false } },
+  );
+  const testsFailed = makeContext(
+    [failedStep("rust-coverage", "rust-coverage", "@gdesmott/rust-coverage")],
+    { "rust-coverage": { scope: "trie_rs", parsed: true } },
+  );
+
+  const first = await report.execute(noExport.context);
+  const second = await report.execute(testsFailed.context);
+
+  const a = first.json.findings as Array<Record<string, unknown>>;
+  const b = second.json.findings as Array<Record<string, unknown>>;
+  // Nothing measured is a different problem from a measurement that is a floor.
+  assertEquals(a[0].kind, "no-coverage-export");
+  assertEquals(b[0].kind, "tests-failed-under-coverage");
+  assertEquals(b[0].what, "trie_rs");
+});
+
 Deno.test("reports a failed assert step as a gate", async () => {
   // An assert step has no model and so no summary. Skipping it would drop the
   // one check that catches a suite passing without running anything.
