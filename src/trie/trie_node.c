@@ -21,6 +21,7 @@
 #include "trie/levenshtein.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "trie/rune_util.h"
 #include "trie/trie_node.h"
 #include "util/arr/arr.h"
@@ -205,24 +206,28 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   return n;
 }
 
-static TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
+static TrieNode *__trieNode_growChildren(TrieNode *n, t_len additionalChildren) {
+  RS_LOG_ASSERT(additionalChildren > 0, "Trie child storage growth must be positive");
+
   t_len oldNumChildren = n->numChildren;
-  t_len newNumChildren = oldNumChildren + offset;
+  RS_LOG_ASSERT(oldNumChildren <= UINT16_MAX - additionalChildren,
+                "Trie child storage growth exceeds t_len");
+
+  t_len newNumChildren = oldNumChildren + additionalChildren;
   size_t oldChildrenOffset = __trieNode_ChildrenOffset(oldNumChildren, n->len);
   n = rm_realloc(n, __trieNode_Sizeof(newNumChildren, n->len));
   size_t newChildrenOffset = __trieNode_ChildrenOffset(newNumChildren, n->len);
-  size_t childrenToMove = MIN(oldNumChildren, newNumChildren);
 
-  // Stretch or shrink the child key cache while keeping the child-pointer array aligned.
+  // Grow the child key cache while keeping the child-pointer array aligned.
   memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
-          sizeof(TrieNode *) * childrenToMove);
+          sizeof(TrieNode *) * oldNumChildren);
   n->numChildren = newNumChildren;
   return n;
 }
 
 static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                                     float score, int idx, size_t numDocs) {
-  n = __trieNode_resizeChildren(n, 1);
+  n = __trieNode_growChildren(n, 1);
 
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
@@ -609,7 +614,8 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
         updateScore(n, nodes[i]->subtreeMaxScore);
         i++;
       }
-      // reduce child count
+      // reduce child count. Delete compacts the arrays in-place but does not shrink
+      // the node allocation because callers keep raw TrieNode pointers while unwinding.
       size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
       n->numChildren--;
       size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
