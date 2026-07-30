@@ -8,7 +8,7 @@
 */
 
 use inverted_index::NumericFilter;
-use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
+use query::{QueryNode, QueryNodeMut, QueryNodeRef, WildcardMode, mock::MockQueryNode};
 use query_types::QueryNodeType;
 
 #[test]
@@ -155,8 +155,7 @@ fn as_enum_token() {
     let QueryNode::Token { tok } = node.as_enum() else {
         panic!("expected Token");
     };
-    // SAFETY: nothing evaluates or frees the node while the (absent) view lives.
-    assert!(unsafe { tok.as_bytes() }.is_none());
+    assert!(tok.as_bytes().is_none());
 }
 
 #[test]
@@ -242,10 +241,10 @@ fn query_node_mut_narrows_child_field_masks() {
     parent.opts_mut().field_mask = 0b0110;
     parent.set_children(&[child1.as_ptr(), child2.as_ptr()]);
 
-    let node = unsafe { QueryNodeRef::new(parent.as_non_null()) };
-    // SAFETY: `node` is the sole wrapper to this subtree for the duration of
-    // the test; no other wrapper or derived reference is live.
-    let mut node = unsafe { node.as_mut() };
+    // SAFETY: `parent` is a valid node and `node` is the sole wrapper to this
+    // subtree for the duration of the test; no other wrapper or derived
+    // reference is live.
+    let mut node = unsafe { QueryNodeMut::new(parent.as_non_null()) };
     assert_eq!(node.num_children(), 2);
     let mask = node.opts().field_mask;
 
@@ -270,8 +269,8 @@ fn query_node_mut_narrows_child_field_masks() {
 #[should_panic(expected = "out of bounds")]
 fn query_node_mut_child_out_of_bounds_panics() {
     let mock = MockQueryNode::new(QueryNodeType::Wildcard);
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    // SAFETY: sole wrapper to a leaf node; no other wrapper or reference live.
-    let mut node = unsafe { node.as_mut() };
+    // SAFETY: sole wrapper to a valid leaf node; no other wrapper or reference
+    // live.
+    let mut node = unsafe { QueryNodeMut::new(mock.as_non_null()) };
     let _ = node.child_mut(0);
 }

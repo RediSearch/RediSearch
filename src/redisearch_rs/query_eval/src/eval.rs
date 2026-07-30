@@ -38,7 +38,7 @@ use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
 
 use crate::{
-    QueryEvalContext, QueryNode, QueryNodeRef,
+    QueryEvalContext, QueryNode, QueryNodeMut, QueryNodeRef,
     scorers::{BuiltInScorer, RequestedScorer},
 };
 
@@ -199,7 +199,7 @@ impl<'index> Evaluated<'index> {
 /// iterator (`None`), an [`Empty`] iterator is returned.
 pub fn qast_iterate<'index>(
     ctx: &'index mut QueryEvalContext,
-    root: &QueryNodeRef,
+    root: QueryNodeMut<'_>,
     config: Config,
 ) -> Evaluated<'index> {
     eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
@@ -208,14 +208,22 @@ pub fn qast_iterate<'index>(
 /// Evaluate a single query node, producing the corresponding iterator.
 ///
 /// Returns `None` when the node produces no results.
+///
+/// The node is taken as an **exclusive** [`QueryNodeMut`], by value. Evaluation
+/// mutates the AST — it narrows children's field masks, and the C evaluator it
+/// falls back to rewrites tokens in place — so a shared borrow would be a lie.
+/// Taking it by value is also what lets the borrow checker police that: an arm
+/// that reads a payload out of the node (e.g. a token handle) keeps it
+/// shared-borrowed, and can therefore neither mutate it nor hand it on to a
+/// callee that might.
 pub fn eval_node<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    node: QueryNodeMut<'_>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     match node.as_enum() {
         QueryNode::Null => Some(eval_null()),
-        QueryNode::Wildcard => Some(eval_wildcard(ctx, node)),
+        QueryNode::Wildcard => Some(eval_wildcard(ctx, &node)),
         QueryNode::Ids { keys, doc_ids } => Some(eval_ids(ctx, keys, doc_ids)),
         QueryNode::Missing { field } => eval_missing(ctx, field).map(Evaluated::RustLeaf),
         QueryNode::Optional => Some(eval_optional(ctx, node, config)),
@@ -224,7 +232,7 @@ pub fn eval_node<'index>(
         QueryNode::Union => Some(eval_union(ctx, node, config)),
         QueryNode::Numeric { nf } => eval_numeric(ctx, nf, config),
         QueryNode::Geo { gf } => eval_geo(ctx, gf, config),
-        QueryNode::Token { tok } => eval_token(ctx, node, tok, config),
+        QueryNode::Token { tok } => eval_token(ctx, &node, tok, config),
         QueryNode::Geometry { geomq } => eval_geometry(ctx, geomq),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
@@ -237,9 +245,13 @@ pub fn eval_node<'index>(
 ///
 /// Returns `None` when `Query_EvalNode` produces no iterator (NULL), preserving
 /// the C semantics where some nodes (e.g. an empty expansion) yield no results.
+///
+/// Consumes `node`: the C dispatcher mutates the subtree it is given — it
+/// rewrites wildcard and prefix tokens in place — so no borrow of it may still
+/// be outstanding. Taking it by value makes the borrow checker enforce that.
 fn eval_node_c<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    node: QueryNodeMut<'_>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
     let q = ctx.as_non_null().as_ptr();
@@ -247,9 +259,9 @@ fn eval_node_c<'index>(
     let config = (&raw const config).cast::<ffi::EvalConfig>();
     // SAFETY: `q` comes from a live `QueryEvalContext` (a valid `QueryEvalCtx`
     // with exclusive access, since `ctx` is `&mut`) and `n` from a live
-    // `QueryNodeRef` (a valid `RSQueryNode`), satisfying `Query_EvalNode`'s
-    // contract. `config` points to a live `Config` valid for the duration of the
-    // call.
+    // `QueryNodeMut` (a valid `RSQueryNode` we hold exclusively, so C may mutate
+    // it), satisfying `Query_EvalNode`'s contract. `config` points to a live
+    // `Config` valid for the duration of the call.
     let it = unsafe { ffi::Query_EvalNode(q, n, config) };
     NonNull::new(it).map(Evaluated::C)
 }
@@ -262,7 +274,7 @@ fn eval_node_c<'index>(
 /// equivalent to one that matches nothing.
 fn eval_child_iterator(
     ctx: &mut QueryEvalContext,
-    child: &QueryNodeRef,
+    child: QueryNodeMut<'_>,
     config: Config,
 ) -> CRQEIterator {
     let ptr = match eval_node(&mut *ctx, child, config) {
@@ -411,7 +423,7 @@ fn eval_missing<'index>(
 /// child matches but does not exclude documents that don't.
 fn eval_optional<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    mut node: QueryNodeMut<'_>,
     config: Config,
 ) -> Evaluated<'index> {
     debug_assert_eq!(
@@ -423,8 +435,7 @@ fn eval_optional<'index>(
     // Evaluate the child. A `None` child becomes an `Empty` iterator, which
     // `new_optional_iterator` reduces to a wildcard fallback — an empty optional
     // matches every document as a virtual hit.
-    let child_node = node.child(0);
-    let child = eval_child_iterator(ctx, &child_node, config);
+    let child = eval_child_iterator(ctx, node.child_mut(0), config);
 
     // SAFETY: the preconditions of `new_optional_iterator` map to
     // `QueryEvalContext::new` invariants:
@@ -472,7 +483,7 @@ fn eval_optional<'index>(
 /// single child.
 fn eval_not<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    mut node: QueryNodeMut<'_>,
     config: Config,
 ) -> Evaluated<'index> {
     debug_assert_eq!(
@@ -491,8 +502,7 @@ fn eval_not<'index>(
     // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
     // while the inner one is being evaluated and after it returns.
     let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
-    let child_node = node.child(0);
-    let child = eval_child_iterator(ctx, &child_node, config);
+    let child = eval_child_iterator(ctx, node.child_mut(0), config);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
     // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees `bcTimeoutAreq`
@@ -551,27 +561,17 @@ fn eval_not<'index>(
 ///   from the node's own options, falling back to the query-wide defaults.
 fn eval_phrase<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    mut node: QueryNodeMut<'_>,
     exact: bool,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    // Query evaluation is single-threaded and walks each AST node exactly once,
-    // top-down, so we hold exclusive access to this phrase node and its
-    // descendants for the duration of the call: no other wrapper into this
-    // subtree, and no reference derived from one, is live here.
-    //
-    // SAFETY: that exclusive-access precondition is exactly what `as_mut`
-    // requires. It is asserted once, here; every field-mask write below then
-    // goes through the exclusive `QueryNodeMut` and is statically alias-free.
-    let mut node = unsafe { node.as_mut() };
-
     let num_children = node.num_children();
     let node_mask = node.opts().field_mask;
     // A single-child intersection is just the child; return it directly.
     if num_children == 1 {
         let mut child = node.child_mut(0);
         child.and_field_mask(node_mask);
-        return eval_node(ctx, child.as_ref(), config);
+        return eval_node(ctx, child, config);
     }
 
     let weight = node.opts().weight;
@@ -595,7 +595,7 @@ fn eval_phrase<'index>(
     for i in 0..num_children {
         let mut child = node.child_mut(i);
         child.and_field_mask(node_mask);
-        children.push(eval_child_iterator(ctx, child.as_ref(), config));
+        children.push(eval_child_iterator(ctx, child, config));
     }
 
     let result_ptr = match new_intersection_iterator(children) {
@@ -628,7 +628,7 @@ fn eval_phrase<'index>(
 /// is zero.
 fn eval_union<'index>(
     ctx: &'index mut QueryEvalContext,
-    node: &QueryNodeRef,
+    mut node: QueryNodeMut<'_>,
     config: Config,
 ) -> Evaluated<'index> {
     // Parsers and expanders always create unions with 2+ children.
@@ -649,16 +649,11 @@ fn eval_union<'index>(
     let min_union_iter_heap = config.min_union_iter_heap;
 
     // Recursively evaluate every child, narrowing its field mask first.
-    //
-    // SAFETY: query evaluation is single-threaded and walks each AST node
-    // exactly once, top-down, so we hold exclusive access to this node and its
-    // subtree for the duration of the call — exactly what `as_mut` requires.
-    let mut node = unsafe { node.as_mut() };
     let children: Vec<CRQEIterator> = (0..num_children)
         .map(|i| {
             let mut child = node.child_mut(i);
             child.and_field_mask(node_mask);
-            eval_child_iterator(ctx, child.as_ref(), config)
+            eval_child_iterator(ctx, child, config)
         })
         .collect();
 
@@ -799,10 +794,7 @@ fn eval_token<'index>(
     // the node's field mask narrowed to the query's.
     let effective_field_mask = opts.field_mask & ctx.opts().fieldmask;
     let token_id = ctx.next_token_id() as i32;
-    // SAFETY: the borrowed bytes are consumed by `new_bytes`, which copies them
-    // into a Rust-owned buffer, before the node is evaluated or handed back to C,
-    // so nothing can rewrite or free the token's string while the slice is live.
-    let term_bytes = unsafe { tok.as_bytes() };
+    let term_bytes = tok.as_bytes();
     // A `QN_TOKEN` node always carries a non-null term string.
     debug_assert!(term_bytes.is_some(), "token string should not be null");
     let term = RSQueryTerm::new_bytes(term_bytes.unwrap_or_default(), token_id, tok.flags());
@@ -896,10 +888,7 @@ fn eval_token_disk<'index>(
     // build a disk term iterator through the enterprise API.
     // SAFETY: in search-on-disk mode the terms trie is always initialised.
     debug_assert!(!spec.terms.is_null(), "terms trie should be initialized");
-    // SAFETY: the borrowed bytes are consumed by the trie lookup below, which
-    // only reads them, before the node is evaluated or handed back to C, so
-    // nothing can rewrite or free the token's string while the slice is live.
-    let term_bytes = unsafe { tok.as_bytes() };
+    let term_bytes = tok.as_bytes();
     // A `QN_TOKEN` node always carries a non-null term string; the term lookup
     // below relies on it.
     debug_assert!(term_bytes.is_some(), "token string should not be null");

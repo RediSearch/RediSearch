@@ -80,9 +80,7 @@ fn exposes_bytes_len_and_flags() {
     with_token(Some(b"Hello"), 0x2A, |tok| {
         assert_eq!(tok.len(), 5);
         assert!(!tok.is_empty());
-        // SAFETY: the token is a local that nothing mutates or frees while the
-        // slice lives.
-        assert_eq!(unsafe { tok.as_bytes() }, Some(&b"Hello"[..]));
+        assert_eq!(tok.as_bytes(), Some(&b"Hello"[..]));
         assert_eq!(tok.flags(), 0x2A);
     });
 }
@@ -91,12 +89,10 @@ fn exposes_bytes_len_and_flags() {
 fn null_string_yields_none() {
     with_nul_token(None, 0, |tok| {
         assert!(tok.is_empty());
-        // SAFETY (both): the token is a local that nothing mutates or frees
-        // while the (absent) views live.
-        assert_eq!(unsafe { tok.as_bytes() }, None);
+        assert_eq!(tok.as_bytes(), None);
         assert!(tok.as_lower_runes().is_none());
         // The token carries no string, so `as_c_str` returns `None`.
-        assert!(unsafe { tok.as_c_str() }.is_none());
+        assert!(tok.as_c_str().is_none());
     });
 }
 
@@ -104,9 +100,7 @@ fn null_string_yields_none() {
 fn exposes_nul_terminated_c_str() {
     with_nul_token(Some(b"Hello"), 0, |tok| {
         assert_eq!(tok.len(), 5);
-        // SAFETY: `with_nul_token` keeps the buffer alive and unmutated for the
-        // whole closure, so the `CStr` stays valid.
-        let c_str = unsafe { tok.as_c_str() }.expect("token carries a string");
+        let c_str = tok.as_c_str().expect("token carries a string");
         assert_eq!(c_str, c"Hello");
     });
 }
@@ -203,24 +197,34 @@ fn as_ptr_round_trips_to_the_borrowed_token() {
     assert_eq!(tok.as_ptr(), std::ptr::from_ref(&raw));
 }
 
-/// A handle retained across an in-place mutation of the token (as query
-/// evaluation performs from C) and then read must not be undefined behaviour.
-/// This holds only because the handle carries *raw* provenance; a handle derived
-/// from a `&ffi::RSToken` would be invalidated by the foreign write. Run under
-/// miri (both Stacked and Tree Borrows) this is the regression guard.
+/// The production lifecycle: C mutates a node's token in place *between*
+/// evaluations, and each evaluation mints a fresh handle. A handle's `'a` is a
+/// no-mutation window, so the write must fall outside every window — but the
+/// pointer C writes through, and the one a later handle reads through, alias the
+/// same token, and neither may be invalidated by the other. Run under miri (both
+/// Stacked and Tree Borrows) this is the regression guard for that aliasing.
 #[test]
-fn handle_survives_foreign_mutation() {
+fn handle_reflects_mutation_between_borrows() {
     let mut raw = build_raw(Some(b"hello"), 0);
     // A raw pointer to the token, as C holds to the node it owns.
     let node: *mut ffi::RSToken = &raw mut raw;
-    // SAFETY: `node` is non-null and raw (not reference-derived), and `raw`
-    // outlives `tok`, satisfying `from_ffi`.
+
+    // First evaluation: mint a handle, read through it, and let it die.
+    // SAFETY: `node` is non-null, valid, and raw (not reference-derived); `raw`
+    // outlives the handle and nothing mutates the token while it is live.
     let tok = unsafe { RSTokenRef::from_ffi(node.cast_const()) };
-    // "C evaluation" mutates the token in place through its own pointer.
+    assert_eq!(tok.len(), 5);
+
+    // "C evaluation" then mutates the token in place through its own pointer,
+    // with no handle live.
     // SAFETY: `node` is valid and there is no live reference aliasing it.
     unsafe { (*node).len = 3 };
-    // A later safe accessor must observe the mutation without UB.
+
+    // The next evaluation mints a fresh handle and observes the mutation.
+    // SAFETY: as above for the new no-mutation window.
+    let tok = unsafe { RSTokenRef::from_ffi(node.cast_const()) };
     assert_eq!(tok.len(), 3);
+    assert_eq!(tok.as_bytes(), Some(&b"hel"[..]));
 }
 
 /// A non-NUL-terminated string handed to [`RSTokenRef::from_nul_terminated_ffi`]

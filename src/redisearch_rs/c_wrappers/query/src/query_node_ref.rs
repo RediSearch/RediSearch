@@ -134,7 +134,8 @@ pub enum QueryNode<'a> {
 /// type.
 ///
 /// All accessors here are read-only. Mutation goes through an exclusive
-/// [`QueryNodeMut`], obtained via [`as_mut`](Self::as_mut).
+/// [`QueryNodeMut`], which is where a caller asserts exclusive access once and
+/// then hands it down the subtree.
 ///
 /// # Ownership
 ///
@@ -183,29 +184,6 @@ impl QueryNodeRef {
         &self.as_ffi_ref().opts
     }
 
-    /// Upgrade this shared view into an exclusive [`QueryNodeMut`] over the same
-    /// node subtree, enabling in-place mutation.
-    ///
-    /// # Safety
-    ///
-    /// The caller must have **exclusive** access to this node and all of its
-    /// descendants for the lifetime of the returned [`QueryNodeMut`]: while that
-    /// wrapper — or any [`QueryNodeMut`] reborrowed from it via
-    /// [`child_mut`](QueryNodeMut::child_mut) — is live, no other
-    /// [`QueryNodeRef`]/[`QueryNodeMut`] wrapping a node in this subtree may be
-    /// used, and no reference obtained from one (e.g. via [`opts`](Self::opts))
-    /// may be live. This cannot be enforced by the borrow checker because
-    /// wrappers to the same node can be minted from safe code (e.g.
-    /// [`child`](Self::child)); upholding it is the caller's responsibility.
-    ///
-    /// This is the single point where exclusivity is asserted. Given it, every
-    /// write through the returned [`QueryNodeMut`] is safe: its `&mut`-based API
-    /// and reborrowing [`child_mut`](QueryNodeMut::child_mut) keep each
-    /// individual mutation statically free of aliasing.
-    pub const unsafe fn as_mut(&self) -> QueryNodeMut<'_> {
-        QueryNodeMut(self.0, PhantomData)
-    }
-
     /// The number of child nodes.
     ///
     /// Returns 0 when the `children` pointer is null (leaf nodes).
@@ -231,34 +209,28 @@ impl QueryNodeRef {
     }
 
     /// Convert the C tagged union into a [`QueryNode`] enum.
+    ///
+    /// Every payload borrowed out of the node — token handles, slices, nested
+    /// references — carries the `&self` borrow, so the node stays shared-borrowed
+    /// for as long as any of them is in use. A caller holding a
+    /// [`QueryNodeMut`] therefore cannot mutate the node, or hand it to the C
+    /// evaluator, while a payload from a previous `as_enum` is still live: the
+    /// borrow checker rejects it.
     pub fn as_enum(&self) -> QueryNode<'_> {
-        // Root the union access in the *raw* node pointer rather than a
-        // `&ffi::RSQueryNode`. The token handles built below ([`RSTokenRef`]) must
-        // carry raw provenance: a query node's token is mutated in place during C
-        // evaluation, and a handle derived from a shared reference would be
-        // invalidated by that write, making a later accessor call undefined
-        // behaviour. Reading `type_` and taking the union address through the raw
-        // pointer forms no reference to the node.
-        let node = self.as_non_null().as_ptr();
+        let inner = self.as_ffi_ref();
         // Each arm has its own `unsafe` block so that every union access
         // is individually justified, satisfying `multiple_unsafe_ops_per_block`.
         //
-        // SAFETY (all arms): the caller (transitively, invariant 1 of `new`)
-        // guarantees the node is properly initialised, so `type_` matches
-        // the active union variant.
         // Obtain a raw pointer to the union once; each arm casts it to the
         // active variant type.  This avoids `__BindgenUnionField::as_ref()`
         // which uses `transmute` from a ZST reference — UB under Stacked
         // Borrows (and flagged by miri).
-        // SAFETY: `node` points to an initialised node (invariant 1 of `new`).
-        let node_type = unsafe { (*node).type_ };
-        // SAFETY: as above; `&raw const` forms no reference to the node.
-        let union_ptr = unsafe { &raw const (*node).__bindgen_anon_1 };
+        let union_ptr = &raw const inner.__bindgen_anon_1;
 
         // SAFETY (all arms): the caller (transitively, invariant 1 of `new`)
         // guarantees the node is properly initialised, so `type_` matches the
         // active union variant and the cast is sound.
-        match node_type {
+        match inner.type_ {
             QueryNodeType::Phrase => {
                 // SAFETY: `type_` is `Phrase`, so the union holds a `QueryPhraseNode`.
                 let pn = unsafe { &*union_ptr.cast::<ffi::QueryPhraseNode>() };
@@ -269,10 +241,10 @@ impl QueryNodeRef {
             QueryNodeType::Union => QueryNode::Union,
             QueryNodeType::Token => QueryNode::Token {
                 // SAFETY: `type_` is `Token`, so the union holds an `RSToken` whose
-                // `str_`/`len` describe a valid byte range for the node's lifetime,
-                // satisfying `from_ffi`. The pointer is raw (not reference-derived),
-                // as `from_ffi` requires. Token strings may come from the
-                // length-delimited `ExpandToken` API, so no NUL-termination.
+                // `str_`/`len` describe a valid byte range, unmutated for the
+                // `&self` borrow the handle carries — satisfying `from_ffi`. Token
+                // strings may come from the length-delimited `ExpandToken` API, so
+                // no NUL-termination.
                 tok: unsafe { RSTokenRef::from_ffi(union_ptr.cast::<ffi::RSToken>()) },
             },
             QueryNodeType::Numeric => {
@@ -301,21 +273,16 @@ impl QueryNodeRef {
                 QueryNode::Geometry { geomq: gmn.geomq }
             }
             QueryNodeType::Prefix => {
-                let pfx = union_ptr.cast::<ffi::QueryPrefixNode>();
-                // SAFETY: `type_` is `Prefix`, so `pfx` points to a valid
-                // `QueryPrefixNode`; `&raw const` takes the token address, keeping
-                // it raw (not reference-derived).
-                let tok = unsafe { &raw const (*pfx).tok };
-                // SAFETY: as above; read the prefix flag.
-                let prefix = unsafe { (*pfx).prefix };
-                // SAFETY: as above; read the suffix flag.
-                let suffix = unsafe { (*pfx).suffix };
+                // SAFETY: `type_` is `Prefix`, so the union holds a `QueryPrefixNode`.
+                let pfx = unsafe { &*union_ptr.cast::<ffi::QueryPrefixNode>() };
                 QueryNode::Prefix {
-                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
-                    // token owned by the node, and is raw (not reference-derived),
-                    // as `from_nul_terminated_ffi` requires.
-                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
-                    mode: match (prefix, suffix) {
+                    // SAFETY: `pfx.tok` is a valid, NUL-terminated query-node token
+                    // owned by the node and unmutated for the `&self` borrow the
+                    // handle carries, as `from_nul_terminated_ffi` requires.
+                    tok: unsafe {
+                        RSTokenRefNulTerminated::from_nul_terminated_ffi(&raw const pfx.tok)
+                    },
+                    mode: match (pfx.prefix, pfx.suffix) {
                         (true, false) => WildcardMode::Prefix,
                         (false, true) => WildcardMode::Suffix,
                         (true, true) => WildcardMode::Contains,
@@ -358,19 +325,16 @@ impl QueryNodeRef {
                 }
             }
             QueryNodeType::Fuzzy => {
-                let fz = union_ptr.cast::<ffi::QueryFuzzyNode>();
-                // SAFETY: `type_` is `Fuzzy`, so `fz` points to a valid
-                // `QueryFuzzyNode`; `&raw const` takes the token address, keeping
-                // it raw (not reference-derived).
-                let tok = unsafe { &raw const (*fz).tok };
-                // SAFETY: as above; read `maxDist`.
-                let max_dist = unsafe { (*fz).maxDist };
+                // SAFETY: `type_` is `Fuzzy`, so the union holds a `QueryFuzzyNode`.
+                let fz = unsafe { &*union_ptr.cast::<ffi::QueryFuzzyNode>() };
                 QueryNode::Fuzzy {
-                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
-                    // token owned by the node, and is raw, as
-                    // `from_nul_terminated_ffi` requires.
-                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
-                    max_dist,
+                    // SAFETY: `fz.tok` is a valid, NUL-terminated query-node token
+                    // owned by the node and unmutated for the `&self` borrow the
+                    // handle carries, as `from_nul_terminated_ffi` requires.
+                    tok: unsafe {
+                        RSTokenRefNulTerminated::from_nul_terminated_ffi(&raw const fz.tok)
+                    },
+                    max_dist: fz.maxDist,
                 }
             }
             QueryNodeType::Vector => {
@@ -379,16 +343,15 @@ impl QueryNodeRef {
                 QueryNode::Vector { vq: vn.vq }
             }
             QueryNodeType::WildcardQuery => {
-                let verb = union_ptr.cast::<ffi::QueryVerbatimNode>();
-                // SAFETY: `type_` is `WildcardQuery`, so `verb` points to a valid
-                // `QueryVerbatimNode`; `&raw const` takes the token address,
-                // keeping it raw (not reference-derived).
-                let tok = unsafe { &raw const (*verb).tok };
+                // SAFETY: `type_` is `WildcardQuery`, so the union holds a `QueryVerbatimNode`.
+                let verb = unsafe { &*union_ptr.cast::<ffi::QueryVerbatimNode>() };
                 QueryNode::WildcardQuery {
-                    // SAFETY: `tok` addresses a valid, NUL-terminated query-node
-                    // token owned by the node, and is raw, as
-                    // `from_nul_terminated_ffi` requires.
-                    tok: unsafe { RSTokenRefNulTerminated::from_nul_terminated_ffi(tok) },
+                    // SAFETY: `verb.tok` is a valid, NUL-terminated query-node token
+                    // owned by the node and unmutated for the `&self` borrow the
+                    // handle carries, as `from_nul_terminated_ffi` requires.
+                    tok: unsafe {
+                        RSTokenRefNulTerminated::from_nul_terminated_ffi(&raw const verb.tok)
+                    },
                 }
             }
             QueryNodeType::Null => QueryNode::Null,
@@ -411,17 +374,23 @@ impl QueryNodeRef {
 
 /// Exclusive, mutable view of a [`ffi::RSQueryNode`] subtree.
 ///
-/// Obtained from [`QueryNodeRef::as_mut`], whose `unsafe` contract establishes
+/// Obtained from [`new`](Self::new), whose `unsafe` contract establishes
 /// exclusive access to the node and its descendants. Given that invariant, the
 /// mutating API here is **safe**: [`and_field_mask`](Self::and_field_mask) takes
 /// `&mut self`, and [`child_mut`](Self::child_mut) reborrows `&mut self`, so the
 /// borrow checker guarantees that while a child view is live the parent (and any
 /// sibling view) cannot be read or mutated — no two live wrappers ever alias the
-/// same node. The exclusivity asserted once at [`as_mut`](QueryNodeRef::as_mut)
-/// thus propagates down the subtree without any further `unsafe`.
+/// same node. The exclusivity asserted once at [`new`](Self::new) thus
+/// propagates down the subtree without any further `unsafe`.
 ///
-/// The lifetime `'node` ties the view to the originating [`QueryNodeRef`] so it
-/// cannot outlive the borrowed node.
+/// Crucially, it also propagates to everything *read out of* the node. A payload
+/// borrowed via [`as_enum`](QueryNodeRef::as_enum) — a token handle, an id slice
+/// — carries a shared reborrow of this view, so while such a payload is live the
+/// `&mut self` methods are unreachable and the view cannot be moved (e.g. handed
+/// to the C evaluator, which rewrites tokens in place).
+///
+/// The lifetime `'node` ties the view to the borrowed node so it cannot outlive
+/// it.
 ///
 /// Read-only access goes through [`Deref`]: all of [`QueryNodeRef`]'s shared
 /// accessors (`opts`, `num_children`, …) are reachable on a [`QueryNodeMut`]
@@ -437,10 +406,38 @@ pub struct QueryNodeMut<'node>(
 );
 
 impl QueryNodeMut<'_> {
+    /// Wrap a raw [`NonNull`] pointer to a [`ffi::RSQueryNode`] as an exclusive
+    /// view of that node and its descendants.
+    ///
+    /// This is the **single** point where exclusive access to an AST subtree is
+    /// asserted. Everything below it — mutation, child traversal, and the borrows
+    /// handed out by [`as_enum`](QueryNodeRef::as_enum) — is then checked by the
+    /// borrow checker, so no further `unsafe` assertion about aliasing is needed
+    /// anywhere in the subtree walk.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must point to a [valid], properly initialised
+    ///    [`ffi::RSQueryNode`].
+    /// 2. The caller must have **exclusive** access to that node and all of its
+    ///    descendants for the lifetime of the returned view: for as long as it —
+    ///    or anything reborrowed from it via [`child_mut`](Self::child_mut) — is
+    ///    live, no other [`QueryNodeRef`]/[`QueryNodeMut`] wrapping a node in this
+    ///    subtree may be used, and neither may any reference or handle obtained
+    ///    from one. This is not enforceable by the borrow checker because
+    ///    wrappers to the same node can be minted from safe code (e.g.
+    ///    [`child`](QueryNodeRef::child)) and because C holds its own pointers
+    ///    into the AST; upholding it is the caller's responsibility.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
+        Self(ptr, PhantomData)
+    }
+
     /// Intersect `mask` into this node's [field mask](QueryNodeOptions::field_mask).
     pub fn and_field_mask(&mut self, mask: FieldMask) {
         // `&mut self` plus the exclusive-access invariant of
-        // [`QueryNodeRef::as_mut`] guarantee no other wrapper or reference
+        // [`QueryNodeMut::new`] guarantee no other wrapper or reference
         // aliases this node, so the read-modify-write below cannot race or
         // alias a live reference.
         //
