@@ -1159,21 +1159,23 @@ class testWarningsAndErrorsCluster:
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(coord_args_error_count, '0')
 
-    #### Should fail when a bug (MOD-12465) is fixed
-    #### When fixed, should decrease the shard arg count and increase the coord arg count
-    # Test args errors that are counted in the coord
-    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('Unknown argument')
-    # Test counter on each shard
+    # Test args errors that are counted in the coord.
+    # The coordinator validates LIMIT itself (MOD-12465), so a non-numeric offset is rejected
+    # before fan-out: the shards never see this command and their counters stay put. Note the
+    # reported error is the LIMIT one, not `MEOW` — the coordinator skips unknown arguments and
+    # leaves them to the shards, so LIMIT is the first problem it can detect.
+    self.env.expect('FT.SEARCH', 'idx', 'hello world', 'LIMIT', 'A', 0, 'MEOW').error().contains('LIMIT needs two numeric arguments')
+    # Test counter on each shard (should not change)
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
+      self.env.assertEqual(args_error_count, '1',
                            message=f"Shard {shardId} has wrong args error count")
-    # Check coord metric unchanged
+    # Check coord metric (should change)
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '0')
+    self.env.assertEqual(coord_args_error_count, '1')
 
     # Test arg error that is updated only in coord
     self.env.expect('FT.SEARCH', 'idx', 'hello world', 'DIALECT').error().contains('Need an argument for DIALECT')
@@ -1182,12 +1184,12 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
+      self.env.assertEqual(args_error_count, '1',
                            message=f"Shard {shardId} has wrong args error count")
     # Check coord metric (should change)
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '1')
+    self.env.assertEqual(coord_args_error_count, '2')
 
     # Test args errors in aggregate
     # All args errors in FT.AGGREGATE should be (de facto) counted on the coordinator
@@ -1195,11 +1197,11 @@ class testWarningsAndErrorsCluster:
     # Test counter on each shard
     for shardId in range(1, self.env.shardsCount + 1):
       shard_conn = self.env.getConnection(shardId)
-      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, ARGS_ERROR_SHARD_METRIC], '2', msg=f"Shard {shardId} has wrong args error count")
+      wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, ARGS_ERROR_SHARD_METRIC], '1', msg=f"Shard {shardId} has wrong args error count")
     # Check coord metric
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '2')
+    self.env.assertEqual(coord_args_error_count, '3')
 
     # Test args errors in hybrid
     # All args errors in FT.HYBRID are counted on the coordinator
@@ -1209,12 +1211,12 @@ class testWarningsAndErrorsCluster:
       shard_conn = self.env.getConnection(shardId)
       info_dict = info_modules_to_dict(shard_conn)
       args_error_count = info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
-      self.env.assertEqual(args_error_count, '2',
+      self.env.assertEqual(args_error_count, '1',
                            message=f"Shard {shardId} has wrong args error count")
     # Check coord metric
     info_dict = info_modules_to_dict(self.env)
     coord_args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
-    self.env.assertEqual(coord_args_error_count, '3')
+    self.env.assertEqual(coord_args_error_count, '4')
 
     # Test other metrics not changed
     tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
