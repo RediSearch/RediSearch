@@ -3,6 +3,10 @@ run-name: Validate ${{ github.ref_name }}
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   merge_group:
     types: [checks_requested]
@@ -19,6 +23,7 @@ jobs:
   # requires RedisModule_GetClusterNodeSlotRanges (MOD-15868) and
   # RedisModuleEvent_ClusterTopologyChange (MOD-15870), neither of which is in any Redis release yet.
   get-latest-redis-tag:
+    permissions: {} # echoes a pinned SHA
     # uses: ./.github/workflows/task-get-latest-tag.yml
     # with:
     #   repo: redis/redis
@@ -78,6 +83,7 @@ jobs:
       rejson-branch: master
 
   pr-validation:
+    permissions: {} # aggregation gate: inspects needs.* only
     needs:
       - get-latest-redis-tag
       - lint

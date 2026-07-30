@@ -85,6 +85,7 @@ env:
 jobs:
   # Get configuration for this specific platform and architecture
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
@@ -93,6 +94,7 @@ jobs:
 
   # Start EC2 runner for self-hosted platforms (runs only if ec2_image_id is set in config)
   start-runner:
+    permissions: {} # AWS access keys, and the runner registers with an App token
     needs: get-config
     name: Start self-hosted EC2 runner
     if: ${{ needs.get-config.outputs.ec2_image_id }}
@@ -103,6 +105,9 @@ jobs:
       ec2-instance-type: ${{ needs.get-config.outputs.ec2_instance_type }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
@@ -221,7 +226,7 @@ jobs:
           ${{ needs.get-config.outputs.install_mode }} rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Setup build environment
@@ -481,7 +486,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -585,7 +590,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
@@ -614,7 +619,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (combined)
         if: inputs.coverage && inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
@@ -623,7 +628,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -632,7 +637,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
@@ -641,7 +646,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload unit coverage
         if: inputs.coverage && inputs.unit-tests
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
@@ -651,6 +656,7 @@ jobs:
 
   # Stop EC2 runner for self-hosted platforms (always runs if `start-runner` succeeds, to ensure cleanup)
   stop-runner:
+    permissions: {} # AWS access keys, and the runner deregisters with an App token
     name: Stop self-hosted EC2 runner
     needs: [start-runner, common-flow]
     if: ${{ always() && needs.start-runner.outputs.ec2-instance-id != '' }}

@@ -2,6 +2,10 @@ name: Deploy Master or Version Branch Snapshots
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   push:
     branches:
@@ -32,7 +36,7 @@ jobs:
       triage-exists: ${{ steps.triage.outputs.triage-exists }}
       triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/fetch-failed-run-logs
         with:
           github-token: ${{ github.token }}
@@ -44,12 +48,13 @@ jobs:
           prompt-file: .github/codex/prompts/snapshot-triage.md
 
   notify-failure:
+    permissions: {} # Slack webhook only
     needs: [deploy-snapshots, triage-failure]
     if: failure()
     runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_SNAPSHOT_FAILED }}
           webhook-type: webhook-trigger

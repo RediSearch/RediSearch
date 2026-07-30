@@ -16,6 +16,9 @@ on:
 
 jobs:
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     name: Build container for lint
     uses: ./.github/workflows/task-build-cached-container.yml
     with:
@@ -45,7 +48,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Fix HOME Directory

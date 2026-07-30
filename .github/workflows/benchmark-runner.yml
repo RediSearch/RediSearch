@@ -2,6 +2,10 @@ name: Run RediSearch Benchmarks
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_dispatch:
     inputs:
@@ -84,6 +88,10 @@ jobs:
       artifact_name: redisearch-bin-aarch64-${{ github.run_id }}-${{ github.run_attempt }}
 
   benchmark-search-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -108,6 +116,10 @@ jobs:
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
   # m7g.4xlarge client, matched AMI/installer scripts to the x86 m7 pair).
   benchmark-search-oss-standalone-aarch64:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch-aarch64
     strategy:
@@ -131,6 +143,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-standalone-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     needs: build-redisearch
@@ -152,6 +168,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -172,6 +192,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-vecsim-oss-standalone-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6' }}
     needs: build-redisearch
     strategy:
@@ -192,6 +216,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-02-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     needs: build-redisearch
     strategy:
@@ -212,6 +240,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
     needs: build-redisearch
     strategy:
@@ -232,6 +264,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
     if: false # if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries-threads-6' }}
     needs: build-redisearch
@@ -253,6 +289,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-08-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
     needs: build-redisearch
     strategy:
@@ -273,6 +313,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8' }}
     needs: build-redisearch
     uses: ./.github/workflows/benchmark-flow.yml
@@ -287,6 +331,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-16-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
     needs: build-redisearch
     strategy:
@@ -307,6 +355,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-20-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries') }}
     needs: build-redisearch
     strategy:
@@ -327,6 +379,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-search-oss-cluster-24-primaries:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries') }}
     needs: build-redisearch
     strategy:
@@ -347,6 +403,10 @@ jobs:
       redis_ref: ${{ inputs.redis_ref }}
 
   benchmark-hybrid-oss-standalone:
+    permissions: # benchmark-flow.yml: build redis, download the module artifact, sccache OIDC
+      contents: read
+      actions: read
+      id-token: write
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
     needs: build-redisearch
     strategy:
@@ -391,7 +451,7 @@ jobs:
       triage-exists: ${{ steps.triage.outputs.triage-exists }}
       triage-content-json: ${{ steps.triage.outputs.triage-content-json }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: ./.github/actions/fetch-failed-run-logs
         with:
           github-token: ${{ github.token }}
@@ -424,6 +484,7 @@ jobs:
           prompt-file: .github/codex/prompts/benchmark-triage.md
 
   notify-failure:
+    permissions: {} # Slack webhook only
     needs:
       - benchmark-search-oss-standalone
       - benchmark-search-oss-standalone-aarch64
@@ -444,7 +505,7 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Notify Failure
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
           webhook-type: webhook-trigger
@@ -456,6 +517,7 @@ jobs:
             }
 
   notify-msmarco-failure:
+    permissions: {} # Slack webhook only
     needs:
       - benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8
       - triage-benchmark-failures
@@ -463,7 +525,7 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Notify MSMARCO Benchmark Failure
-        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_MSMARCO_BENCHMARK_FAILED }}
           webhook-type: webhook-trigger
