@@ -709,9 +709,31 @@ def testScorerTypes(env):
                                            params, 'scorer ' + scorer)
 
 
+def profile_iterator_types(env, query, params):
+    """Collect the `Type` names of every iterator in the plan `query` compiles to."""
+    res = env.cmd('ft.profile', query[1], 'search', 'QUERY', *query[2:], *params)
+    types = []
+
+    def walk(node):
+        if not isinstance(node, list):
+            return
+        for i, item in enumerate(node):
+            if item == 'Type' and i + 1 < len(node) and isinstance(node[i + 1], str):
+                types.append(node[i + 1])
+            walk(item)
+
+    walk(res)
+    return types
+
+
 @skip(cluster=True)
-def testNotOptimizedQueries(env):
-    """Query shapes that opt out of the numeric sortby optimization still answer correctly."""
+def testOptimizedWithoutDrivingRange(env):
+    """The optimizer runs on sortby-numeric queries it cannot take a range from.
+
+    Whenever the query carries no numeric predicate on the sortby field, or one
+    it cannot extract, the optimizer still drives the iteration and synthesizes
+    an unbounded numeric filter to walk instead.
+    """
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
 
@@ -724,20 +746,35 @@ def testNotOptimizedQueries(env):
 
     params = ['limit', 0, 5, 'NOCONTENT']
 
-    # A second numeric predicate on the sortby field: the optimizer cannot pick
-    # one of them to drive the iteration.
-    compare_optimized_to_not_nocontent(
-        env, ['ft.search', 'idx', '@n:[0 60] @n:[20 80]', 'SORTBY', 'n', 'DIALECT', 2],
-        params, 'two numeric predicates')
+    # Two predicates on the sortby field: neither can be singled out to drive
+    # the iteration.
+    two_ranges = ['ft.search', 'idx', '@n:[0 60] @n:[20 80]', 'SORTBY', 'n', 'DIALECT', 2]
+    # A weighted intersection has to be scored, so the range stays in the tree.
+    weighted = ['ft.search', 'idx', '(@n:[0 60] foo)=>{$weight: 2.0}', 'SORTBY', 'n', 'DIALECT', 2]
+    # No numeric predicate at all.
+    wildcard = ['ft.search', 'idx', '*', 'SORTBY', 'n']
 
-    # A weighted intersection has to be scored, so it is not optimized away.
-    compare_optimized_to_not_nocontent(
-        env, ['ft.search', 'idx', '(@n:[0 60] foo)=>{$weight: 2.0}', 'SORTBY', 'n', 'DIALECT', 2],
-        params, 'weighted phrase')
+    for query, msg in [(two_ranges, 'two numeric predicates'),
+                       (weighted, 'weighted phrase'),
+                       (wildcard, 'wildcard')]:
+        env.assertContains('OPTIMIZER', profile_iterator_types(env, query, params + ['WITHOUTCOUNT']),
+                           message=msg)
+        compare_optimized_to_not_nocontent(env, query, params, msg)
 
-    # SORTBY on a non-numeric field.
-    compare_optimized_to_not_nocontent(
-        env, ['ft.search', 'idx', 'foo', 'SORTBY', 't'], params, 'sortby text field')
+
+@skip(cluster=True)
+def testNotOptimizedQueries(env):
+    """SORTBY on a non-numeric field opts out of the optimizer entirely."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    params = ['limit', 0, 5, 'NOCONTENT']
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 't']
+    env.assertNotContains('OPTIMIZER',
+                          profile_iterator_types(env, query, params + ['WITHOUTCOUNT']))
+    compare_optimized_to_not_nocontent(env, query, params, 'sortby text field')
 
 
 @skip()  # TODO: solve flakiness (MOD-5257)
