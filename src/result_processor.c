@@ -1769,6 +1769,11 @@ ResultProcessor *RPVectorNormalizer_New(VectorNormFunction normFunc, const RLook
  *  NOTE: Currently the recommended number of upstreams is 2. Using more may
  *  induce performance issues, until a more robust mechanism is implemented.
  *******************************************************************************************************************/
+
+#define SAFE_DEPLETER_LOCK_FAILURE_MSG                                                            \
+  "Failed to acquire index lock for background depletion. A write operation may be in progress. " \
+  "Please retry."
+
 typedef struct {
   ResultProcessor base;                // Base result processor struct
   // We require separate contexts because we have different threads.
@@ -1889,6 +1894,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
       self->last_rc = RS_RESULT_ERROR;
+      QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
       return;
@@ -2261,8 +2268,8 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   for (size_t i = 0; i < count; i++) {
     const RPSafeDepleter *safeDepleter = (RPSafeDepleter *)safeDepleters[i];
     if (safeDepleter->last_rc == RS_RESULT_ERROR) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
-        "Failed to acquire index lock for background depletion. A write operation may be in progress. Please retry.");
+      QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
+                          SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
     } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
       anyTimedOut = true;
@@ -2431,6 +2438,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
   if (!mergedResult) {
+    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to merge hybrid subquery results");
     return RS_RESULT_ERROR;
   }
 
