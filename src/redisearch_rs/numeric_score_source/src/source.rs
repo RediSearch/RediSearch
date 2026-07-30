@@ -160,4 +160,11 @@ impl<'index, S: NumericRecords<'index>> ScoreSource for NumericScoreSource<'inde
         // times out yet.
         Ok(())
     }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+        // TODO: MOD-14946
+    }
 }
