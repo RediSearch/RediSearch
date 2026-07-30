@@ -772,10 +772,13 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     CurrentThread_ClearIndexSpec();
     StrongRef_Release(own_ref);
   } else {
-    // KEEPDOCS: keys outlive the index, so prune this spec's key metadata during
-    // background teardown (memory mode only; disk GCs via RDB).
+    // KEEPDOCS: keys outlive the index, so prune this spec's key metadata
+    // before the DocTable is freed (memory mode only; disk GCs via RDB).
     if (!SearchDisk_IsEnabled()) {
       sp->pruneKeyMetaOnFree = true;
+      if (!RSGlobalConfig.freeResourcesThread) {
+        IndexSpec_PruneDocIdMetaOnDrop(ctx, sp);
+      }
     }
     Indexes_RemoveSpecFromGlobals(global_ref, true);
   }

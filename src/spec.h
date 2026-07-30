@@ -695,6 +695,13 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  */
 void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
 
+/**
+ * Prune this spec's DocIdMeta entries from surviving Redis keys during a
+ * synchronous KEEPDOCS drop. Must be called before the DocTable is freed, from
+ * the Redis command path using a valid command context.
+ */
+void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp);
+
 /*
  * Free an indexSpec. For LLAPI
  */

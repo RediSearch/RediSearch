@@ -16,6 +16,8 @@
 #include "common.h"
 #include "index_utils.h"
 
+extern "C" int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
 class DocIdMetaTest : public ::testing::Test {
  protected:
   static constexpr const char *DOC_ID_META_CLASS_NAME = "D-ID";
@@ -454,6 +456,39 @@ TEST_F(DocIdMetaTest, TestFlushDbClearsKeyMeta) {
 
   EXPECT_FALSE(keyMetaSlotExists(testKeyName));
   EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+}
+
+TEST_F(DocIdMetaTest, TestDropIndexKeepDocsPrunesMetaWhenFreeingSynchronously) {
+  struct FreeResourcesThreadGuard {
+    explicit FreeResourcesThreadGuard(bool value) : old(RSGlobalConfig.freeResourcesThread) {
+      RSGlobalConfig.freeResourcesThread = value;
+    }
+    ~FreeResourcesThreadGuard() {
+      RSGlobalConfig.freeResourcesThread = old;
+    }
+    bool old;
+  } freeResourcesThreadGuard(false);
+
+  RMCK::ArgvList createArgs(ctx, "FT.CREATE", "idx_sync_drop", "ON", "HASH", "SKIPINITIALSCAN",
+                            "SCHEMA", "field", "TEXT");
+  QueryError status = QueryError_Default();
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &status);
+  ASSERT_NE(spec, nullptr) << QueryError_GetDisplayableError(&status, true);
+
+  RedisModuleString *keyName = createHashKey("doc_sync_drop");
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1), REDISMODULE_OK);
+  RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, "doc_sync_drop", 13, 1.0,
+                                         Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  ASSERT_NE(dmd, nullptr);
+  DMD_Return(dmd);
+  EXPECT_NE(readKeyMetaAllowZero(keyName), 0u);
+
+  RMCK::ArgvList dropArgs(ctx, "FT.DROPINDEX", "idx_sync_drop");
+  EXPECT_EQ(DropIndexCommand(ctx, dropArgs, dropArgs.size()), REDISMODULE_OK);
+
+  EXPECT_EQ(readKeyMetaAllowZero(keyName), 0u);
+
+  RedisModule_FreeString(ctx, keyName);
 }
 
 // Simple test to check if basic setup works

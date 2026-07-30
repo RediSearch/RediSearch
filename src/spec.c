@@ -2029,18 +2029,22 @@ static void IndexSpec_PauseDocIdMetaPrune(size_t *releases) {
 }
 
 static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t len,
-                                          uint64_t specId) {
+                                          uint64_t specId, bool lockGil) {
   if (len == 0) {
     return;
   }
 
-  RedisModule_ThreadSafeContextLock(ctx);
+  if (lockGil) {
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
   for (size_t i = 0; i < len; ++i) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
     DocIdMeta_Delete(ctx, keyName, specId);
     RedisModule_FreeString(ctx, keyName);
   }
-  RedisModule_ThreadSafeContextUnlock(ctx);
+  if (lockGil) {
+    RedisModule_ThreadSafeContextUnlock(ctx);
+  }
 
   for (size_t i = 0; i < len; ++i) {
     sdsfree(keys[i]);
@@ -2048,19 +2052,26 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
 }
 
 // Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
-// (nothing else removes those entries). Runs on the cleanPool worker before the
-// DocTable is freed. It scans the DocTable without the GIL and only opens Redis
-// keys under the GIL in bounded batches so sparse DocTables cannot block
-// command processing while empty buckets are traversed. Memory mode only (disk
-// GCs via RDB); gated on pruneKeyMetaOnFree so delete-docs drops skip it.
-// specId is monotonic, so any entry left behind is inert. See the design doc.
-static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
-  if (!sp->pruneKeyMetaOnFree || sp->docs.size == 0) {
+// (nothing else removes those entries). In the background teardown path, scan
+// the DocTable without the GIL and only open Redis keys under the GIL in bounded
+// batches so sparse DocTables cannot block command processing while empty
+// buckets are traversed. The synchronous FT.DROPINDEX path already runs with a
+// Redis command context, so it uses the same batching without locking/yielding.
+// Memory mode only (disk GCs via RDB); gated on pruneKeyMetaOnFree so
+// delete-docs drops skip it. specId is monotonic, so any entry left behind is
+// inert. See the design doc.
+static void IndexSpec_PruneDocIdMeta(IndexSpec *sp, RedisModuleCtx *ctx, bool lockGil,
+                                     bool pauseBetweenBatches) {
+  if (!sp->pruneKeyMetaOnFree) {
     return;
   }
   RS_ASSERT(!SearchDisk_IsEnabled());
+  sp->pruneKeyMetaOnFree = false;
 
-  RedisModuleCtx *ctx = RSDummyContext;
+  if (sp->docs.size == 0) {
+    return;
+  }
+
   DocTable *dt = &sp->docs;
   sds keys[DOCID_META_PRUNE_GIL_BATCH];
   size_t len = 0;
@@ -2071,19 +2082,25 @@ static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
     for (RSDocumentMetadata *dmd = chain->root; dmd != NULL; dmd = dmd->nextInChain) {
       keys[len++] = sdsdup(dmd->keyPtr);
       if (len == DOCID_META_PRUNE_GIL_BATCH) {
-        IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId);
+        IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId, lockGil);
         len = 0;
-        IndexSpec_PauseDocIdMetaPrune(&releases);
+        if (pauseBetweenBatches) {
+          IndexSpec_PauseDocIdMetaPrune(&releases);
+        }
       }
     }
   }
-  IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId);
+  IndexSpec_PruneDocIdMetaBatch(ctx, keys, len, sp->specId, lockGil);
+}
+
+void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp) {
+  IndexSpec_PruneDocIdMeta(sp, ctx, false, false);
 }
 
 // cleanPool entry point: prune key metadata before teardown frees the DocTable.
 static void IndexSpec_FreeUnlinkedDataBg(void *p) {
   IndexSpec *spec = p;
-  IndexSpec_PruneDocIdMeta(spec);
+  IndexSpec_PruneDocIdMeta(spec, RSDummyContext, true, true);
   IndexSpec_FreeUnlinkedData(spec);
 }
 

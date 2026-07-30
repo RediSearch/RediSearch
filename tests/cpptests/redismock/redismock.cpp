@@ -799,11 +799,10 @@ RedisModuleString *RMCK_SaveDataTypeToString(RedisModuleCtx *ctx,
   return rms;
 }
 
-int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+static int RMCK_RecordPropagatedCommand(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                        va_list ap) {
   std::vector<std::string> command;
   command.emplace_back(cmdname);
-  va_list ap;
-  va_start(ap, fmt);
   // Parse the format string and extract arguments
   for (const char *p = fmt; *p; p++) {
     if (*p == 's') {
@@ -813,7 +812,7 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
       long long ll = va_arg(ap, long long);
       command.emplace_back(std::to_string(ll));
     } else if (*p == 'c') {
-      char *cstr = va_arg(ap, char *);
+      const char *cstr = va_arg(ap, const char *);
       command.emplace_back(cstr);
     } else if (*p == 'v') {
       RedisModuleString **vec = va_arg(ap, RedisModuleString **);
@@ -822,19 +821,34 @@ int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdna
         command.emplace_back(*vec[i]);
       }
     } else if (*p == 'b') {
-      char *buf = va_arg(ap, char *);
+      const char *buf = va_arg(ap, const char *);
       size_t len = va_arg(ap, size_t);
       command.emplace_back(std::string(buf, len));
     } else {
       // Unsupported format specifier
-      va_end(ap);
       return REDISMODULE_ERR;
     }
   }
-  va_end(ap);
   // Propagate the command (by storing it in the context)
   ctx->propagated_commands.push_back(std::move(command));
   return REDISMODULE_OK;
+}
+
+int RMCK_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt,
+                                          ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
+}
+
+int RMCK_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int rc = RMCK_RecordPropagatedCommand(ctx, cmdname, fmt, ap);
+  va_end(ap);
+  return rc;
 }
 
 // Function to retrieve propagated commands for testing purposes
@@ -1811,7 +1825,7 @@ static void registerApis() {
   REGISTER_API(Call);
 
   // REGISTER_API(ReplyWithLongLong);
-  // REGISTER_API(ReplyWithSimpleString);
+  REGISTER_API(ReplyWithSimpleString);
   // REGISTER_API(ReplyWithArray);
   // REGISTER_API(ReplyWithStringBuffer);
   // REGISTER_API(ReplyWithDouble);
@@ -1852,6 +1866,7 @@ static void registerApis() {
   REGISTER_API(AddPostNotificationJobForKey);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
+  REGISTER_API(Replicate);
 
   REGISTER_API(SetModuleOptions);
 
