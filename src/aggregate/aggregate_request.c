@@ -296,30 +296,36 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req) {
   }
 }
 
+int parseLimit(uint64_t *offset, uint64_t *limit, ArgsCursor *ac, QueryError *status) {
+  if (AC_NumRemaining(ac) < 2) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT requires two arguments");
+    return REDISMODULE_ERR;
+  }
+  // AC_GetU64 rejects negative values: GEN_AC_FUNC forces AC_F_GE0 for unsigned targets.
+  if (AC_GetU64(ac, offset, 0) != AC_OK || AC_GetU64(ac, limit, 0) != AC_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
+    return REDISMODULE_ERR;
+  }
+  if (*limit == 0 && *offset != 0) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                        "The `offset` of the LIMIT must be 0 when `num` is 0");
+    return REDISMODULE_ERR;
+  }
+  return REDISMODULE_OK;
+}
+
 #define ARG_HANDLED 1
 #define ARG_ERROR -1
 #define ARG_UNKNOWN 0
 
 static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryError *status) {
-  int rv;
   bool dialect_specified = false;
   // This handles the common arguments that are not stateful
   if (AC_AdvanceIfMatch(ac, "LIMIT")) {
     PLN_ArrangeStep *arng = AGPLN_GetOrCreateArrangeStep(papCtx->plan);
     arng->isLimited = 1;
     // Parse offset, length
-    if (AC_NumRemaining(ac) < 2) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT requires two arguments");
-      return ARG_ERROR;
-    }
-    if ((rv = AC_GetU64(ac, &arng->offset, 0)) != AC_OK ||
-        (rv = AC_GetU64(ac, &arng->limit, 0)) != AC_OK) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
-      return ARG_ERROR;
-    }
-
-    if (arng->limit == 0 && arng->offset != 0) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+    if (parseLimit(&arng->offset, &arng->limit, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
 

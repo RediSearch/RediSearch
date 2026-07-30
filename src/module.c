@@ -2432,13 +2432,14 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   // Parse LIMIT offset and count from captured sub-arguments
-  if (AC_IsInitialized(&limitArgs) && limitArgs.argc >= 2) {
-    AC_GetLongLong(&limitArgs, &req->offset, 0);
-    AC_GetLongLong(&limitArgs, &req->limit, 0);
-  }
-  if (req->limit < 0 || req->offset < 0) {
-    searchRequestCtx_Free(req);
-    return NULL;
+  if (AC_IsInitialized(&limitArgs)) {
+    uint64_t offset, limit;
+    if (parseLimit(&offset, &limit, &limitArgs, status) != REDISMODULE_OK) {
+      searchRequestCtx_Free(req);
+      return NULL;
+    }
+    req->offset = (long long)offset;
+    req->limit = (long long)limit;
   }
   req->requestedResultsCount = req->limit + req->offset;
 
