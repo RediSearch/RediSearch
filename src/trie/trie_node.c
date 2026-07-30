@@ -21,6 +21,7 @@
 #include "trie/levenshtein.h"
 #include "redismodule.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 #include "trie/rune_util.h"
 #include "trie/trie_node.h"
 #include "util/arr/arr.h"
@@ -84,6 +85,16 @@ static inline size_t __trieNode_ChildKeyOffset(const TrieNode *n, t_len c) {
   return sizeof(TrieNode) + ((size_t)n->len + 1 + c) * sizeof(rune);
 }
 
+static inline size_t __trieNode_AlignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static inline size_t __trieNode_ChildrenOffset(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return __trieNode_AlignUp(childKeysEnd, _Alignof(TrieNode *));
+}
+
 static inline const void *__trieNode_ChildKey(const TrieNode *n, t_len c) {
   return (const char *)n + __trieNode_ChildKeyOffset(n, c);
 }
@@ -108,8 +119,9 @@ static inline void __trieNode_StoreChildKey(TrieNode *n, t_len c, rune key) {
  * children */
 size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   // Calculate:
-  // sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *))
-  // + sizeof(rune) * (slen + 1)
+  // sizeof(TrieNode) + sizeof(rune) * (slen + 1) + numChildren * sizeof(rune)
+  // + padding to align the child-pointer array
+  // + numChildren * sizeof(TrieNode *)
   //
   // Overflow analysis:
   // t_len is uint16_t (max 65535), and rune is uint16_t (2 bytes) by default.
@@ -117,8 +129,7 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen) {
   // Maximum possible size on 32-bit: ~17 + 65535 * (2 + 4) + 65536 * 2 ≈ 524 KB
   // Both are far below SIZE_MAX, so overflow is not possible with current type
   // constraints.
-  return sizeof(TrieNode) + numChildren * (sizeof(rune) + sizeof(TrieNode *)) +
-         sizeof(rune) * (slen + 1);
+  return __trieNode_ChildrenOffset(numChildren, slen) + numChildren * sizeof(TrieNode *);
 }
 
 // Check if payload length + 1 (for null terminator) overflows uint32_t
@@ -162,8 +173,7 @@ size_t TrieNode_NumDocs(const TrieNode *n) {
 }
 
 TrieNode **TrieNode_Children(const TrieNode *n) {
-  return (TrieNode **)((char *)n + sizeof(TrieNode) +
-                       ((n->len + 1) + n->numChildren) * sizeof(rune));
+  return (TrieNode **)((char *)n + __trieNode_ChildrenOffset(n->numChildren, n->len));
 }
 
 TrieNode *TrieNode_ChildAt(const TrieNode *n, t_len i) {
@@ -196,20 +206,28 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
   return n;
 }
 
-static TrieNode *__trieNode_resizeChildren(TrieNode *n, int offset) {
-  n = rm_realloc(n, __trieNode_Sizeof(n->numChildren + offset, n->len));
-  TrieNode **children = TrieNode_Children(n);
+static TrieNode *__trieNode_growChildren(TrieNode *n, t_len additionalChildren) {
+  RS_LOG_ASSERT(additionalChildren > 0, "Trie child storage growth must be positive");
 
-  // stretch or shrink the child key cache array
-  memmove((char *)children + offset * (int)sizeof(rune), children,
-          sizeof(TrieNode *) * n->numChildren);
-  n->numChildren += offset;
+  t_len oldNumChildren = n->numChildren;
+  RS_LOG_ASSERT(oldNumChildren <= UINT16_MAX - additionalChildren,
+                "Trie child storage growth exceeds t_len");
+
+  t_len newNumChildren = oldNumChildren + additionalChildren;
+  size_t oldChildrenOffset = __trieNode_ChildrenOffset(oldNumChildren, n->len);
+  n = rm_realloc(n, __trieNode_Sizeof(newNumChildren, n->len));
+  size_t newChildrenOffset = __trieNode_ChildrenOffset(newNumChildren, n->len);
+
+  // Grow the child key cache while keeping the child-pointer array aligned.
+  memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+          sizeof(TrieNode *) * oldNumChildren);
+  n->numChildren = newNumChildren;
   return n;
 }
 
 static TrieNode *__trie_AddChildIdx(TrieNode *n, const rune *str, t_len offset, t_len len, RSPayload *payload,
                                     float score, int idx, size_t numDocs) {
-  n = __trieNode_resizeChildren(n, 1);
+  n = __trieNode_growChildren(n, 1);
 
   // a newly added child must be a terminal node
   TrieNode *child = __newTrieNode(str, offset, len, payload ? payload->data : NULL,
@@ -596,9 +614,14 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
         updateScore(n, nodes[i]->subtreeMaxScore);
         i++;
       }
-      // reduce child count
+      // reduce child count. Delete compacts the arrays in-place but does not shrink
+      // the node allocation because callers keep raw TrieNode pointers while unwinding.
+      size_t oldChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
       n->numChildren--;
-      memmove((char *)nodes - sizeof(rune), nodes, sizeof(TrieNode *) * n->numChildren);
+      size_t newChildrenOffset = __trieNode_ChildrenOffset(n->numChildren, n->len);
+      memmove((char *)n + newChildrenOffset, (char *)n + oldChildrenOffset,
+              sizeof(TrieNode *) * n->numChildren);
+      nodes = TrieNode_Children(n);
       rc++;
     } else {
 
