@@ -8,13 +8,14 @@
 */
 
 use libc::size_t;
+use query_error::{QueryError, opaque::OpaqueQueryError};
 use rlookup::{
     IndexSpec, IndexSpecCache, OpaqueRLookup, OpaqueRLookupRow, RLookup, RLookupKey,
     RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
-    ffi::{CStr, c_char},
+    ffi::{CStr, CString, c_char},
     pin::Pin,
     ptr::{self, NonNull},
     slice,
@@ -603,7 +604,7 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     index_spec: Option<NonNull<ffi::IndexSpec>>,
     key: *const c_char,
     open_key: *mut ffi::RedisModuleKey,
-    status: Option<NonNull<ffi::QueryError>>,
+    status: Option<NonNull<OpaqueQueryError>>,
 ) -> i32 {
     // Safety: ensured by caller (1.)
     let search_ctx = unsafe { search_ctx.unwrap().as_mut() };
@@ -625,9 +626,41 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     let key = unsafe { CStr::from_ptr(key) };
 
     // Safety: ensured by caller (8.)
-    let status = unsafe { status.unwrap().as_mut() };
+    let open_key = unsafe { open_key.as_ref() };
 
-    lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, open_key, status)
+    // Safety: ensured by caller (9.)
+    let status = unsafe { QueryError::from_opaque_non_null(status.unwrap()) };
+
+    let res = lookup.load_rule_fields(search_ctx, dst_row, index_spec, key, open_key);
+
+    match res {
+        Ok(_) => ffi::REDISMODULE_OK as i32,
+        Err(err) if err.is_stale_document() => {
+            tracing::debug!(
+                ?lookup,
+                ?dst_row,
+                ?search_ctx,
+                "rlookup::load_rule_fields skipped stale document: {err:?}"
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+        Err(err) => {
+            tracing::error!(
+                ?lookup,
+                ?dst_row,
+                ?search_ctx,
+                "rlookup::load_rule_fields failed with {err:?}"
+            );
+
+            status.set_code_and_message(
+                err.to_query_error_code(),
+                CString::new(err.to_string()).ok(),
+            );
+
+            ffi::REDISMODULE_ERR as i32
+        }
+    }
 }
 
 /// Return an iterator over an [`RLookup`]'s key list.

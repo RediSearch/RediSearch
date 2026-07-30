@@ -40,26 +40,6 @@ typedef struct RLookupKey RLookupKey;
 #  endif
 #endif
 
-enum RLookup_Opt
-#ifdef __cplusplus
-  : uint32_t
-#endif // __cplusplus
- {
-  /**
-   * If the key cannot be found, do not mark it as an error, but create it and
-   * mark it as F_UNRESOLVED
-   */
-  RLOOKUP_OPT_ALLOWUNRESOLVED = 0x01,
-  /**
-   * If a loader was added to load the entire document, this flag will allow
-   * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
-   */
-  RLOOKUP_OPT_ALLLOADED = 0x02,
-};
-#ifndef __cplusplus
-typedef uint32_t RLookup_Opt;
-#endif // __cplusplus
-
 enum RLookup_F
 #ifdef __cplusplus
   : uint32_t
@@ -126,6 +106,26 @@ enum RLookup_F
 };
 #ifndef __cplusplus
 typedef uint32_t RLookup_F;
+#endif // __cplusplus
+
+enum RLookup_Opt
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  /**
+   * If the key cannot be found, do not mark it as an error, but create it and
+   * mark it as F_UNRESOLVED
+   */
+  RLOOKUP_OPT_ALLOWUNRESOLVED = 0x01,
+  /**
+   * If a loader was added to load the entire document, this flag will allow
+   * later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
+   */
+  RLOOKUP_OPT_ALLLOADED = 0x02,
+};
+#ifndef __cplusplus
+typedef uint32_t RLookup_Opt;
 #endif // __cplusplus
 
 /**

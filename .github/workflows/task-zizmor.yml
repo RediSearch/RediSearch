@@ -1,0 +1,56 @@
+name: Zizmor GitHub Actions Audit
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+#
+# Static analysis over our own CI configuration — the one part of the repository
+# that no other check looks at. zizmor catches shell injection through `${{ }}`
+# expansion, over-broad GITHUB_TOKEN and GitHub App permissions, and third-party
+# actions referenced by a mutable tag. See https://docs.zizmor.sh.
+#
+# Policy (which refs may stay on a tag, which audits are suppressed and why)
+# lives in .github/zizmor.yml, which zizmor discovers on its own.
+
+on: [workflow_call]
+
+jobs:
+  zizmor:
+    name: zizmor
+    # Not ubuntu-slim: zizmor-action runs zizmor from a container image and bails
+    # out with "Cannot run this action without Docker" when there is no daemon,
+    # which is the case on the slim runners.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # actions/checkout
+    steps:
+      - name: Checkout
+        # No submodules — the vendored deps under deps/ ship their own workflows
+        # and are not ours to audit.
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # Nothing here pushes, and a persisted credential in .git/config is
+          # exactly what zizmor's own artipacked audit warns about.
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
+        with:
+          # Pinned so a zizmor release that adds or tightens an audit turns this
+          # job red on the PR that bumps it, not on an unrelated PR.
+          version: 1.28.0
+          # Explicit paths. The action's default of "." would also collect the
+          # workflows vendored under deps/VectorSimilarity, deps/libuv,
+          # deps/hiredis and friends.
+          inputs: .github/workflows .github/actions .github/dependabot.yml
+          # Only fail on findings we have actually triaged to zero. The tiers
+          # below still have known findings — see .github/zizmor.yml.
+          # Severity floor: nothing is excluded for being low-impact. What is still
+          # excluded is excluded for being low-confidence — see .github/zizmor.yml.
+          min-severity: informational
+          min-confidence: medium
+          # Uploading SARIF needs `security-events: write`, which a pull_request
+          # from a fork does not get, and this repository accepts fork PRs (see
+          # CONTRIBUTING.md, "CI for Fork Pull Requests"). Annotate the diff
+          # instead. The two options are mutually exclusive.
+          advanced-security: false
+          annotations: true

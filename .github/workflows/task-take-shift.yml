@@ -10,6 +10,7 @@ on:
 
 jobs:
   take:
+    permissions: {} # every write goes through the App token generated below
     runs-on: ubuntu-slim
     env:
       ASSIGNEE: ${{ inputs.assignee || github.actor }}
@@ -17,7 +18,15 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: generate-app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        # This token is scoped to a single repository but still inherits the app
+        # installation's full permission set, because the one permission it needs
+        # cannot be requested: `gh variable set` requires GitHub's "Variables"
+        # repository permission, and create-github-app-token exposes no
+        # `permission-variables` input for it (actions/create-github-app-token#231).
+        # zizmor's github-app audit is suppressed for this file in
+        # .github/zizmor.yml; drop the suppression and add
+        # `permission-variables: write` once upstream supports it.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.GH_PR_APP_ID }}
           private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}

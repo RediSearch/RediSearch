@@ -209,7 +209,7 @@ jobs:
           $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Setup build environment
@@ -244,7 +244,7 @@ jobs:
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Download build artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz lands in the working directory; unpacked in the next step.
@@ -348,7 +348,7 @@ jobs:
         # GitHub Actions and workflows should be pinned to a commit hash" rule is
         # a hard gate on any line a PR touches, so these do not get the moving-tag
         # exemption that .github/zizmor.yml grants redislabsdev/*.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           tests: ${{ steps.enumerate.outputs.specs }}
@@ -447,7 +447,7 @@ jobs:
         # Pinned to the commit SHA that `v1` points to — see the flaky-filter step
         # above for why these two keep the hash while other redislabsdev/* refs
         # stay on the tag.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
@@ -481,7 +481,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -501,6 +501,7 @@ jobs:
           )
         env:
           FAILEDFILE: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
+          TEST_MODE: ${{ inputs.test-mode }}
         run: |
           set +e
           DEST="failed-test-logs"
@@ -521,7 +522,7 @@ jobs:
           # Stash the failed-test list under a non-hidden name (upload-artifact
           # drops dot-prefixed files); triage treats failed-tests-*.txt as the
           # authoritative failure list.
-          cp "$FAILEDFILE" "$DEST/failed-tests-${{ inputs.test-mode }}.txt" 2>/dev/null || true
+          cp "$FAILEDFILE" "$DEST/failed-tests-${TEST_MODE}.txt" 2>/dev/null || true
           echo "Failed-test logs bundled: $(find "$DEST" -type f | wc -l)"
           exit 0
 
@@ -532,7 +533,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
@@ -553,7 +554,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.test-mode == 'standalone'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/flow_standalone.info
           disable_search: true
@@ -562,7 +563,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && inputs.test-mode == 'coordinator'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6 NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/flow_coordinator.info
           disable_search: true
