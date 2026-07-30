@@ -24,6 +24,12 @@ description: >-
   test surfaces long before the Python suite has finished.
 tags:
   purpose: verification
+reports:
+  require:
+    # Every suite writes its failures in its own shape. This collects them into
+    # one list of what to fix, so reading a failed run does not mean opening each
+    # model's summary in turn.
+    - "@gdesmott/failure-digest"
 inputs:
   type: object
   properties:
@@ -140,11 +146,11 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("build", "summary").attributes.modulePath != null
-            && !data.latest("build", "summary").attributes.moduleStale
+            data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.modulePath != null
+            && !data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.moduleStale
           message: >-
             No module was produced by this run in
-            ${{ data.latest("build", "summary").attributes.binDir }} — the
+            ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }} — the
             artifact is missing or left over from an earlier build.
           severity: high
         dependsOn:
@@ -180,14 +186,14 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("c-unit-tests", "summary").attributes.summaryParsed
-            && int(data.latest("c-unit-tests", "summary").attributes.testsRun) > 0
+            data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
             && (inputs.cTestFilter != ""
-                || data.latest("c-unit-tests", "summary").attributes.blocks.all(b, b.status != "skipped"))
+                || data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.blocks.all(b, b.status != "skipped"))
           message: >-
             Unit test blocks were skipped or no tests ran — the test binaries
             were probably not built. Ran
-            ${{ data.latest("c-unit-tests", "summary").attributes.testsRun }} tests.
+            ${{ data.query('modelName == "c-unit-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun }} tests.
           severity: high
         dependsOn:
           - step: c-unit-tests
@@ -207,15 +213,43 @@ jobs:
             # produced. Without it they fall back to the conventional release
             # layout, so a debug verify would test against a stale release
             # archive, or fail outright where none was ever built.
-            binDir: ${{ data.latest("build", "summary").attributes.binDir }}
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
             # Test the artifacts the build produced rather than nextest's own
             # default profile. With debug=false the build selects
             # optimised_test, and a default-profile run would rebuild the
             # workspace and test something else — so a failure that only shows
             # up under optimisation would be missed.
-            cargoProfile: ${{ data.latest("build", "summary").attributes.rustProfile }}
+            cargoProfile: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.rustProfile }}
         dependsOn:
           - step: c-unit-tests-complete
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: rust-tests-ran
+        description: >-
+          The Rust suite actually executed tests, and its summary was read
+          rather than guessed at. This run passes no filter, so the failure it
+          guards is not an empty selection but a suite that exited successfully
+          having done nothing the model could account for — nextest changing its
+          summary wording, or a run that ended before testing began. Every other
+          suite here is gated the same way; without this one, `verify` can go
+          green on a Rust result nothing verified.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            The Rust suite reported success without a trustworthy result: it ran
+            ${{ data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun }}
+            test(s) and its summary line was
+            ${{ data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed }}
+            parsed. See its log.
+          severity: high
+        dependsOn:
+          - step: rust-tests
             condition:
               type: succeeded
         weight: 0
@@ -231,9 +265,9 @@ jobs:
             # Linting runs the build scripts, and the ones binding C symbols
             # panic when the archive is missing. Point them at this run's build
             # rather than the release layout they otherwise assume.
-            binDir: ${{ data.latest("build", "summary").attributes.binDir }}
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
         dependsOn:
-          - step: rust-tests
+          - step: rust-tests-ran
             condition:
               type: succeeded
         weight: 0
@@ -246,7 +280,7 @@ jobs:
           modelIdOrName: doc
           methodName: run
           inputs:
-            binDir: ${{ data.latest("build", "summary").attributes.binDir }}
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
         dependsOn:
           - step: clippy
             condition:
@@ -277,8 +311,8 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("pytest", "summary").attributes.summaryParsed
-            && int(data.latest("pytest", "summary").attributes.testsRun) > 0
+            data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "pytest" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
           message: >-
             The Python suite reported success without running any test, which
             usually means the filter matched nothing or the module failed to load.
@@ -319,7 +353,7 @@ jobs:
             miri: true
             crate: ${{ inputs.miriCrate }}
             toolchain: ${{ inputs.miriToolchain }}
-            binDir: ${{ data.latest("build", "summary").attributes.binDir }}
+            binDir: ${{ data.query('modelName == "build" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.binDir }}
         dependsOn:
           - step: pytest-ran
             condition:
@@ -335,9 +369,9 @@ jobs:
         task:
           type: assert
           expr: >-
-            data.latest("miri", "summary").attributes.miri
-            && data.latest("miri", "summary").attributes.summaryParsed
-            && int(data.latest("miri", "summary").attributes.testsRun) > 0
+            data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.miri
+            && data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "miri" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
           message: >-
             Miri reported success without interpreting any test — the crate
             ${{ inputs.miriCrate }} is probably excluded from miri in its entirety.

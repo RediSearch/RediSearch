@@ -397,9 +397,9 @@ ifeq ($(strip $(SWAMP_DENO)),)
 	@exit 1
 else
 	@echo "Checking swamp extension formatting..."
-	@cd $(ROOT)/extensions && $(SWAMP_DENO) fmt --check models/
+	@cd $(ROOT)/extensions && $(SWAMP_DENO) fmt --check models/ reports/
 	@echo "Running swamp extension tests..."
-	@cd $(ROOT)/extensions && $(SWAMP_DENO) test --allow-all models/
+	@cd $(ROOT)/extensions && $(SWAMP_DENO) test --allow-all models/ reports/
 endif
 
 # The tests above cover the model sources. This covers the definitions that are
