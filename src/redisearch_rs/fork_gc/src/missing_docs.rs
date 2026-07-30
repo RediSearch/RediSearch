@@ -130,15 +130,9 @@ pub fn apply_missing_docs(
 ///
 /// Errors map to corresponding `FGCError` variants at the FFI layer.
 pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<FieldNotFound>> {
-    let Some((field_name, delta)) = receive_missing_docs(&mut fgc.reader())? else {
-        return Ok(HandleOutcome::Done);
-    };
-
-    let mut spec_ref = fgc.index_spec().promote().ok_or(HandleError::SpecDeleted)?;
-    let mut guard = spec_ref.write();
-
-    let stats = apply_missing_docs(&field_name, delta, &mut guard)?;
-    stats.apply(fgc, &mut guard);
-
-    Ok(HandleOutcome::Collected)
+    crate::util::handle_one(
+        fgc,
+        |reader| receive_missing_docs(reader),
+        |(field_name, delta), guard| apply_missing_docs(&field_name, delta, guard),
+    )
 }

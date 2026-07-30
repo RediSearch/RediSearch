@@ -124,15 +124,9 @@ pub fn apply_existing_docs(
 pub fn handle_existing_docs(
     fgc: &mut ForkGC,
 ) -> Result<HandleOutcome, HandleError<ExistingDocsDeleted>> {
-    let Some(delta) = receive_existing_docs(&mut fgc.reader())? else {
-        return Ok(HandleOutcome::Done);
-    };
-
-    let mut spec_ref = fgc.index_spec().promote().ok_or(HandleError::SpecDeleted)?;
-    let mut guard = spec_ref.write();
-
-    let stats = apply_existing_docs(delta, &mut guard)?;
-    stats.apply(fgc, &mut guard);
-
-    Ok(HandleOutcome::Collected)
+    crate::util::handle_one(
+        fgc,
+        |reader| receive_existing_docs(reader),
+        apply_existing_docs,
+    )
 }
