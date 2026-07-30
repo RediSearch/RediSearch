@@ -68,6 +68,40 @@ fn new_trio() {
 }
 
 #[test]
+fn fully_dereferenced_ref_handles_deep_ref_chains() {
+    let mut value = SharedValue::new_num(42.0);
+    for _ in 0..100_000 {
+        value = SharedValue::new(Value::Ref(value));
+    }
+
+    assert!(matches!(
+        value.fully_dereferenced_ref(),
+        Value::Number(42.0)
+    ));
+    // Dropping this chain also recursively drops its nested values.
+    std::mem::forget(value);
+}
+
+#[test]
+fn fully_dereferenced_ref_and_trio_handles_deep_mixed_chains() {
+    let mut value = SharedValue::new_num(42.0);
+    for _ in 0..100_000 {
+        value = SharedValue::new_trio(
+            SharedValue::new(Value::Ref(value)),
+            SharedValue::new_num(0.0),
+            SharedValue::new_num(0.0),
+        );
+    }
+
+    assert!(matches!(
+        value.fully_dereferenced_ref_and_trio(),
+        Value::Number(42.0)
+    ));
+    // Dropping this chain also recursively drops its nested values.
+    std::mem::forget(value);
+}
+
+#[test]
 fn refcount_starts_at_one() {
     let v = SharedValue::new(Value::Number(1.0));
     assert_eq!(SharedValue::refcount(&v), 1);
