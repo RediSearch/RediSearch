@@ -8,6 +8,7 @@
 */
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
+#include <stdint.h>
 #include <value_ffi.h>
 #include <rlookup.h>
 #include <search_options.h>
