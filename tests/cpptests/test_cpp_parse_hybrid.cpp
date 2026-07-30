@@ -265,6 +265,33 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
   ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
 }
 
+TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
+  // Absent TIMEOUT/DIALECT must default to the request's construction-time
+  // snapshot, not to RSGlobalConfig at parse time — parsing may run on a
+  // background thread after the request was dispatched with its snapshot.
+  long long savedTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
+  RSGlobalConfig.requestConfigParams.dialectVersion = 4;
+  recreateHybridRequest();
+  // Simulate FT.CONFIG SET landing between dispatch and the background parse.
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;
+  RSGlobalConfig.requestConfigParams.dialectVersion = 2;
+
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+
+  ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.reqConfig->dialectVersion, 4);
+  ASSERT_EQ(result.search->reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 4);
+
+  RSGlobalConfig.requestConfigParams.queryTimeoutMS = savedTimeout;
+  RSGlobalConfig.requestConfigParams.dialectVersion = savedDialect;
+}
+
 TEST_F(ParseHybridTest, testWithCombineLinear) {
   // Test with LINEAR combine method
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "COMBINE", "LINEAR", "4", "ALPHA", "0.7", "BETA", "0.3", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
