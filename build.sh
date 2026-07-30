@@ -646,14 +646,33 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    # CMake stores compiler paths in the cache as absolute paths. Passing the
-    # bare executable names again on every reconfigure makes CMake consider
-    # the compiler changed and delete its cache. Resolve the executables before
-    # passing them so repeated build.sh invocations use stable cache values.
+    # Pass clang's full path. CMake caches absolute compiler paths; a bare
+    # `clang`/`clang++` name can therefore differ from the cached value.
+    #
+    # A real path change (for example, after upgrading Homebrew LLVM) requires
+    # a clean build. CMake's own compiler-change reconfigure recreates its
+    # cache after processing the command line and can lose unrelated -D
+    # definitions such as RUST_PROFILE, causing Rust to fall back to `release`.
+    # Detect the change first and force a clean build so the first CMake
+    # configuration receives every requested option.
     local macos_c_compiler
     local macos_cxx_compiler
     macos_c_compiler=$(command -v clang)
     macos_cxx_compiler=$(command -v clang++)
+
+    if [[ "$FORCE" != "1" && -f "$BINDIR/CMakeCache.txt" ]]; then
+      local cached_c_compiler
+      local cached_cxx_compiler
+      cached_c_compiler=$(sed -n 's/^CMAKE_C_COMPILER:[^=]*=//p' "$BINDIR/CMakeCache.txt")
+      cached_cxx_compiler=$(sed -n 's/^CMAKE_CXX_COMPILER:[^=]*=//p' "$BINDIR/CMakeCache.txt")
+      if [[ "$cached_c_compiler" != "$macos_c_compiler" ||
+            "$cached_cxx_compiler" != "$macos_cxx_compiler" ]]; then
+        echo "Compiler path changed; forcing a clean build"
+        echo "  C:   ${cached_c_compiler:-<unset>} -> $macos_c_compiler"
+        echo "  C++: ${cached_cxx_compiler:-<unset>} -> $macos_cxx_compiler"
+        FORCE=1
+      fi
+    fi
 
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
         -DCMAKE_C_COMPILER:FILEPATH=$macos_c_compiler \
