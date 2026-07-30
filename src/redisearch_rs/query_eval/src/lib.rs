@@ -45,7 +45,7 @@ pub use config::Config;
 
 use nodes::{
     geo, geometry, ids, missing, not, null, numeric, optional, phrase, prefix, token, union,
-    wildcard,
+    wildcard, wildcard_query,
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
@@ -198,6 +198,9 @@ pub fn eval_node<'index>(
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
+        // Binds nothing, so the node stays free to be passed on by value —
+        // evaluation rewrites its token.
+        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
         // Node types not yet ported to Rust are delegated back to the C
         // dispatcher.
         _ => eval_node_c(ctx, node, config),

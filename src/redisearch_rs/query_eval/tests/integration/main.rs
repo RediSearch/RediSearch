@@ -26,3 +26,4 @@ mod token;
 mod union;
 mod util;
 mod wildcard;
+mod wildcard_query;
