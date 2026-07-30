@@ -328,29 +328,6 @@ TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
   }
 }
 
-TEST_F(TagIndexTest, testGetIteratorFromTrieMapValueNull) {
-  TagIndex *idx = NewTagIndex(NULL, 0, false);
-  const char *v[] = {"hello"};
-  IndexStats stats = {0};
-  TagIndex_Index(NULL, idx, NULL, &v[0], 1, 1, &stats);
-
-  size_t sz = 0;
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, "hello", 5, /*create_if_missing=*/false, &sz);
-  ASSERT_TRUE(iv != NULL && iv != TRIEMAP_NOTFOUND);
-
-  MockQueryEvalCtx mockQctx(1, 1);
-  QueryIterator *it = TagIndex_GetIteratorFromTrieMapValue(idx, &mockQctx.sctx, "hello", 5, iv, 1,
-                                                           RS_INVALID_FIELD_INDEX, NULL);
-  ASSERT_TRUE(it != NULL);
-  it->Free(it);
-
-  // NULL inverted-index pointer -> NULL iterator
-  QueryIterator *itNull = TagIndex_GetIteratorFromTrieMapValue(
-      idx, &mockQctx.sctx, "hello", 5, NULL, 1, RS_INVALID_FIELD_INDEX, NULL);
-  ASSERT_TRUE(itNull == NULL);
-  TagIndex_Free(idx);
-}
-
 TEST_F(TagIndexTest, testCommitAndOverheadWithSuffix) {
   TagIndex *idx = NewTagIndex(NULL, 0, false);
   idx->suffix = NewTrieMap();

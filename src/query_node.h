@@ -85,13 +85,6 @@ typedef struct {
 } QueryIdFilterNode;
 
 typedef struct {
-  char *begin;
-  bool includeBegin;
-  char *end;
-  bool includeEnd;
-} QueryLexRangeNode;
-
-typedef struct {
   RSToken tok;
 } QueryVerbatimNode;
 
@@ -137,7 +130,6 @@ typedef struct RSQueryNode {
     QueryPrefixNode pfx;
     QueryTagNode tag;
     QueryFuzzyNode fz;
-    QueryLexRangeNode lxrng;
     QueryVerbatimNode verb;
     QueryMissingNode miss;
   };

@@ -1,20 +1,19 @@
 #include "hybrid/hybrid_request.h"
+
 #include <stdatomic.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_construction.h"
 #include "rlookup.h"
-#include "rlookup.h"
 #include "hybrid/hybrid_scoring.h"
-#include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_lookup_context.h"
 #include "hybrid/hybrid_search_result.h"
 #include "document.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/aggregate.h"
 #include "rmutil/args.h"
-#include "util/workers.h"
-#include "cursor.h"
-#include "info/info_redis/block_client.h"
 #include "query_error_ffi.h"
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
@@ -22,6 +21,14 @@
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "result_processor_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "rs_wall_clock.h"
+#include "shard_window_ratio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -301,10 +308,10 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     }
     hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields
-    RequestSyncCtx_Init(&hybridReq->syncCtx);
+    // Initialize timeout coordination fields (embedded per-request slot only;
+    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
+    RequestSyncState_Init(&hybridReq->syncState);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-    hybridReq->storedReplyState.err = QueryError_Default();
 
 
 }
@@ -312,6 +319,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests);
+    // Wrap the top-level hybrid request in its single-owner sync context.
+    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
+    BlockedRequestCtx_NewHybrid(hybridReq);
     return hybridReq;
 }
 
@@ -340,7 +350,7 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
  *
  * @param req The HybridRequest to free
  */
-static void HybridRequest_Free(HybridRequest *req) {
+void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
     // Cursors should have been freed by the timeout callback or reply callback.
@@ -408,15 +418,12 @@ static void HybridRequest_Free(HybridRequest *req) {
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
 
-    // Clean up storedReplyState
-    ChunkReplyState_Destroy(&req->storedReplyState);
-
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);
 
     rm_free(req->debugParams);
 
-    RequestSyncCtx_Destroy(&req->syncCtx);
+    RequestSyncState_Destroy(&req->syncState);
 
     if (req->args) {
       for (size_t ii = 0; ii < req->nargs; ++ii) {
@@ -429,16 +436,17 @@ static void HybridRequest_Free(HybridRequest *req) {
 }
 
 HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  __atomic_fetch_add(&req->syncCtx.refcount, 1, __ATOMIC_RELAXED);
+  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_IncrRef called on unwrapped request");
+  BlockedRequestCtx_IncrRef(req->brc);
   return req;
 }
 
 void HybridRequest_DecrRef(HybridRequest *req) {
-  // Use ACQ_REL: release ensures our writes are visible before decrement,
-  // acquire ensures we see all writes from other threads when refcount reaches 0.
-  if (req && !__atomic_sub_fetch(&req->syncCtx.refcount, 1, __ATOMIC_ACQ_REL)) {
-    HybridRequest_Free(req);
-  }
+  if (!req) return;
+  // Delegate to the wrapper: BlockedRequestCtx_DecrRef → 0 → BlockedRequestCtx_Free
+  // → HybridRequest_Free.
+  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_DecrRef called on unwrapped request");
+  BlockedRequestCtx_DecrRef(req->brc);
 }
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
@@ -543,9 +551,9 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
 }
 
 void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RequestSyncCtx_SetTimedOut(&req->syncCtx);
+  RequestSyncState_SetTimedOut(&req->syncState);
   // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->syncCtx.timedOut) is flipped. Without this the BG
+  // abort flag (&areq->syncState.timedOut) is flipped. Without this the BG
   // worker can stay parked on the channel even after the hybrid-level flag
   // is set.
   for (size_t i = 0; i < req->nrequests; i++) {
@@ -557,23 +565,23 @@ void HybridRequest_SetTimedOut(HybridRequest *req) {
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->syncCtx.aggregatingResults, &expected, true,
+  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
                                                  memory_order_relaxed, memory_order_relaxed);
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  req->syncCtx.aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->syncCtx.aggregateResultsCond);
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  req->brc->aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->syncCtx.aggregateResultsLock);
-  while (!req->syncCtx.aggregateResultsDone) {
-    pthread_cond_wait(&req->syncCtx.aggregateResultsCond, &req->syncCtx.aggregateResultsLock);
+  pthread_mutex_lock(&req->brc->aggregateResultsLock);
+  while (!req->brc->aggregateResultsDone) {
+    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->syncCtx.aggregateResultsLock);
+  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
 }
 
 #ifdef __cplusplus

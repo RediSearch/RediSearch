@@ -8,14 +8,23 @@
 */
 
 #include "search_disk.h"
+
+#include <stdatomic.h>
+#include <string.h>
+
 #include "config.h"
 #include "spec.h"
 #include "indexes.h"
 #include "query_term_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "redismodule.h"
+#include "hiredis/sds.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
+#include "util/dict/dict.h"
+#include "util/references.h"
 
-#include <stdatomic.h>
+struct timespec;
 
 RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
@@ -223,6 +232,11 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
                                                      outStateFlags);
 }
 
+void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, BlockedRequestCtx *brc) {
+    RS_ASSERT(disk);
+    disk->basic.asyncLoaderSetSyncCtx(rp, brc);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);
@@ -390,6 +404,11 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
 }
 
+char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
+    RS_ASSERT(disk && handle);
+    return disk->index.debugDumpNumericBucketMap(handle, fieldIndex, &sdsnewlen);
+}
+
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen) {
     RS_ASSERT(disk && handle);
     return disk->docTable.replaceKey(handle, docId, newKey, newKeyLen);
@@ -480,10 +499,16 @@ void SearchDisk_FreeVectorIndex(void *vecIndex) {
     disk->vector.freeVectorIndex(vecIndex);
 }
 
-bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb) {
-    RS_ASSERT(disk && vecIndex && rdb);
-    RS_ASSERT(disk->vector.saveVectorIndexToRDB);
-    return disk->vector.saveVectorIndexToRDB(vecIndex, rdb);
+bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex);
+  RS_ASSERT(disk->vector.vectorIndexHasData);
+  return disk->vector.vectorIndexHasData(vecIndex, takeLocks);
+}
+
+bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks) {
+  RS_ASSERT(disk && vecIndex && rdb);
+  RS_ASSERT(disk->vector.saveVectorIndexToRDB);
+  return disk->vector.saveVectorIndexToRDB(vecIndex, rdb, takeLocks);
 }
 
 void* SearchDisk_CreateUnboundVectorIndex(const VecSimParamsDisk *params) {
@@ -550,11 +575,6 @@ uint64_t SearchDisk_GetDocTableTotalMemory(RedisSearchDiskIndexSpec* index) {
 uint64_t SearchDisk_GetInvertedIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && disk_db && index);
   return disk->metrics.getInvertedIndexTotalMemory(disk_db, index);
-}
-
-uint64_t SearchDisk_GetVectorIndexTotalMemory(RedisSearchDiskIndexSpec* index) {
-  RS_ASSERT(disk && disk_db && index);
-  return disk->metrics.getVectorIndexTotalMemory(disk_db, index);
 }
 
 uint64_t SearchDisk_GetNumRecords(RedisSearchDiskIndexSpec* index) {

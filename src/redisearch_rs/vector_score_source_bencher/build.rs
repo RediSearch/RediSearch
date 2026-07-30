@@ -8,8 +8,8 @@
 */
 
 fn main() {
-    // Emit hybrid_shim before redisearch_all: static archives resolve
-    // left-to-right, and the shim's symbols are defined in libredisearch_all.a.
+    // Emit hybrid_shim before redisearch_c_bundle: static archives resolve
+    // left-to-right, and the shim's symbols are defined in libredisearch_c_bundle.a.
     compile_hybrid_shim();
     build_utils::bind_foreign_c_symbols();
 }
@@ -22,7 +22,7 @@ fn compile_hybrid_shim() {
     let deps = root.join("deps");
 
     cc::Build::new()
-        // Drives the real C HybridIterator from libredisearch_all.a, as a
+        // Drives the real C HybridIterator from libredisearch_c_bundle.a, as a
         // faithful counterpart to the Rust VectorTopKIterator.
         .file("benches/hybrid_shim.c")
         // Silence warnings originating from transitively-included RediSearch

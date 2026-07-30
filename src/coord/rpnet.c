@@ -7,14 +7,31 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <string.h>
+
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h" // IWYU pragma: keep
+#endif
+
 #include "value_ffi.h"
 #include "rpnet.h"
 #include "rmr/reply.h"
 #include "rmr/rmr.h"
 #include "coord/dist_utils.h"
-#include "debug_commands.h"
 #include "score_explain_mr.h"
 #include "rmalloc.h"
+#include "config.h"
+#include "hybrid/hybrid_cursor_mappings.h"
+#include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rmutil/rm_assert.h"
+#include "search_result.h"
+#include "util/timeout.h"
 
 
 #define CURSOR_EOF 0
@@ -155,7 +172,7 @@ int getNextReply(RPNet *nc) {
   }
 #endif
   MRReply *root = nc->areq
-    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncCtx.timedOut, NULL)
+    ? MRIterator_NextWithTimeout(nc->it, NULL, &nc->areq->syncState.timedOut, NULL)
     : MRIterator_Next(nc->it);
 
   if (root == NULL) {
@@ -288,9 +305,9 @@ int rpnetNext_StartWithMappings(ResultProcessor *rp, SearchResult *r) {
 
     // Register the iterator's channel so the main-thread timeout callback can wake a
     // blocked reader after flipping AREQ's `timedOut` flag. Paired with
-    // RequestSyncCtx_UnregisterAbortWakeChannel in rpnetFree.
+    // RequestSyncState_UnregisterAbortWakeChannel in rpnetFree.
     if (nc->areq) {
-      RequestSyncCtx_RegisterAbortWakeChannel(&nc->areq->syncCtx, MRIterator_GetChannel(nc->it));
+      RequestSyncState_RegisterAbortWakeChannel(&nc->areq->syncState, MRIterator_GetChannel(nc->it));
     }
 #ifdef ENABLE_ASSERT
     DebugBgIterator_Set(nc->it);
@@ -307,7 +324,7 @@ void rpnetFree(ResultProcessor *rp) {
     // Unregister the abort-wake channel before releasing the iterator, so the main
     // thread's timeout callback cannot observe a channel that is about to be freed.
     if (nc->areq) {
-      RequestSyncCtx_UnregisterAbortWakeChannel(&nc->areq->syncCtx);
+      RequestSyncState_UnregisterAbortWakeChannel(&nc->areq->syncState);
     }
 #ifdef ENABLE_ASSERT
     // Drop the FT.DEBUG BG_PENDING_REPLIES handle before releasing the iterator.

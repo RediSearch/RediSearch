@@ -8,12 +8,14 @@
 */
 
 #include "obfuscation_api.h"
-#include "rmalloc.h"
-
-#include "query_node.h"
 
 #include <inttypes.h>
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
+
+#include "query_node.h"
+#include "query_types.h"
 
 void Obfuscate_Index(const Sha1 *hash, char* buffer) {
   const char prefix[] = "Index@";
@@ -94,8 +96,6 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Tag";
     case QN_FUZZY:
       return "Fuzzy";
-    case QN_LEXRANGE:
-      return "LexRange";
     case QN_VECTOR:
       return "Vector";
     case QN_NULL:

@@ -138,6 +138,21 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `geomq` field of the geometry-node union variant.
+    ///
+    /// The caller must ensure the node is of Geometry type, so the `gmn` union
+    /// variant is active; otherwise this writes through the wrong variant. The
+    /// caller must also keep `geomq` (and the [`ffi::FieldSpec`] it points at)
+    /// valid for as long as the node is used.
+    pub fn set_geometry(&mut self, geomq: *mut ffi::GeometryQuery) {
+        // SAFETY: `self.node` is valid and exclusively owned; the caller
+        // guarantees the node type is Geometry so the `gmn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            (*union_ptr.cast::<ffi::QueryGeometryNode>()).geomq = geomq;
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
@@ -147,26 +162,6 @@ impl MockQueryNode {
             let pfx = &mut *union_ptr.cast::<ffi::QueryPrefixNode>();
             pfx.prefix = prefix;
             pfx.suffix = suffix;
-        }
-    }
-
-    /// Set the fields of the lex-range-node union variant.
-    pub fn set_lex_range(
-        &mut self,
-        begin: *mut c_char,
-        include_begin: bool,
-        end: *mut c_char,
-        include_end: bool,
-    ) {
-        // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is LexRange so the `lxrng` variant is active.
-        unsafe {
-            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
-            let lx = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
-            lx.begin = begin;
-            lx.includeBegin = include_begin;
-            lx.end = end;
-            lx.includeEnd = include_end;
         }
     }
 

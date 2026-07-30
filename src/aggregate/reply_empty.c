@@ -11,12 +11,23 @@
 // Currently used during OOM conditions to return empty results with proper formatting.
 // Handles different query types (SEARCH, AGGREGATE, HYBRID) and contexts (single-shard, coordinator).
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "../module.h"
 #include "../aggregate/aggregate.h"
 #include "../hybrid/hybrid_exec.h"
 #include "rmutil/util.h"
 #include "reply_empty.h"
 #include "info/global_stats.h"
+#include "profile/options.h"
+#include "profile/profile.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "reply.h"
+#include "result_processor.h"
+#include "rmutil/args.h"
+#include "rs_wall_clock.h"
 
 // Helper function that performs minimal parsing of query arguments to support sendChunk output
 static int shallow_parse_query_args(RedisModuleString **argv, int argc, AREQ *req) {
@@ -188,6 +199,8 @@ int coord_hybrid_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv
 // Uses the common helper which compiles the query and works for both command types.
 int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int execOptions, QueryErrorCode errCode) {
 
+    // Transient, unwrapped AREQ: only flows through the reply-only chunk sender
+    // and AREQ_DecrRef, neither of which needs a BlockedRequestCtx.
     AREQ *req = AREQ_New();
     // Clock init required for profiling
     rs_wall_clock_init(&req->profileClocks.initClock);
@@ -222,6 +235,7 @@ int single_shard_common_query_reply_empty(RedisModuleCtx *ctx, RedisModuleString
 }
 
 int cursor_read_empty_reply_timeout(RedisModuleCtx *ctx, long long cid, bool internal) {
+    // Transient, unwrapped AREQ (see single_shard_common_query_reply_empty).
     AREQ *req = AREQ_New();
     QueryError status = QueryError_Default();
     AREQ_QueryProcessingCtx(req)->err = &status;

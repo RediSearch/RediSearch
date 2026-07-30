@@ -19,6 +19,8 @@ pub mod existing_docs;
 pub mod fork_gc;
 pub mod frame;
 pub mod io_result_ext;
+pub mod missing_docs;
+pub mod numeric;
 pub mod util;
 
 pub use fork_gc::ForkGC;

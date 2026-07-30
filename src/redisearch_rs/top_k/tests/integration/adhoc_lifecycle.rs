@@ -23,7 +23,7 @@ use top_k::{
     mock::MockScoreSource,
 };
 
-fn asc(a: f64, b: f64) -> Ordering {
+fn asc(a: &f64, b: &f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 

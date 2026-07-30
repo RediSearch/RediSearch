@@ -26,6 +26,8 @@ use tracing::Level;
 use tracing_log_error::log_error;
 
 mod existing_docs;
+mod missing_docs;
+mod numeric;
 mod util;
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.

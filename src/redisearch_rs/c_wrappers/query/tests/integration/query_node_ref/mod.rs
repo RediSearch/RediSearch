@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::Bound;
-
 use inverted_index::NumericFilter;
 use query::{QueryNode, QueryNodeRef, WildcardMode, mock::MockQueryNode};
 use query_types::QueryNodeType;
@@ -35,7 +33,6 @@ fn node_type_reflects_each_variant() {
         QueryNodeType::Wildcard,
         QueryNodeType::Tag,
         QueryNodeType::Fuzzy,
-        QueryNodeType::LexRange,
         QueryNodeType::Vector,
         QueryNodeType::WildcardQuery,
         QueryNodeType::Null,
@@ -197,55 +194,6 @@ fn as_enum_prefix() {
         };
         assert_eq!(mode, expected);
     }
-}
-
-#[test]
-fn as_enum_lex_range_unbounded() {
-    let mock = MockQueryNode::new(QueryNodeType::LexRange);
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert_eq!(begin, Bound::Unbounded);
-    assert_eq!(end, Bound::Unbounded);
-}
-
-#[test]
-fn as_enum_lex_range_inclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        true,
-        end_str.as_mut_ptr().cast(),
-        true,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Included(_)));
-    assert!(matches!(end, Bound::Included(_)));
-}
-
-#[test]
-fn as_enum_lex_range_exclusive() {
-    let mut begin_str = *b"a\0";
-    let mut end_str = *b"z\0";
-    let mut mock = MockQueryNode::new(QueryNodeType::LexRange);
-    mock.set_lex_range(
-        begin_str.as_mut_ptr().cast(),
-        false,
-        end_str.as_mut_ptr().cast(),
-        false,
-    );
-    let node = unsafe { QueryNodeRef::new(mock.as_non_null()) };
-    let QueryNode::LexRange { begin, end } = node.as_enum() else {
-        panic!("expected LexRange");
-    };
-    assert!(matches!(begin, Bound::Excluded(_)));
-    assert!(matches!(end, Bound::Excluded(_)));
 }
 
 #[test]

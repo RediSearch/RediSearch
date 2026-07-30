@@ -10,7 +10,7 @@
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
-    mem,
+    fmt, mem,
     ops::{Deref, DerefMut},
     pin::Pin,
     ptr::{self, NonNull},
@@ -139,7 +139,6 @@ pub const TRANSIENT_FLAGS: RLookupKeyFlags =
 ///
 #[cheadergen::config(skip)]
 #[pin_project(!Unpin)]
-#[derive(Debug)]
 #[repr(C)]
 pub struct RLookupKey<'a> {
     /// RLookupKey fields exposed to C.
@@ -154,6 +153,14 @@ pub struct RLookupKey<'a> {
     _name: Cow<'a, CStr>,
     #[pin]
     _path: Option<Cow<'a, CStr>>,
+}
+
+impl fmt::Debug for RLookupKey<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RLookupKey")
+            .field("header", &self.header)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cheadergen::config(export, rename = "RLookupKey")]

@@ -737,7 +737,13 @@ SEARCH_SHARD_PREFIX = 'search_shard_'
 SYNTAX_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_queued"
+TIMEOUT_ERROR_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_executing"
+TIMEOUT_ERROR_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_timeout_while_replying"
 TIMEOUT_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_SHARD_QUEUE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_queued"
+TIMEOUT_WARNING_SHARD_PIPELINE_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_executing"
+TIMEOUT_WARNING_SHARD_REPLY_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_timeout_while_replying"
 OOM_ERROR_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_errors_oom"
 OOM_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_SHARD_METRIC = f"{SEARCH_SHARD_PREFIX}total_query_warnings_max_prefix_expansions"
@@ -748,7 +754,13 @@ SEARCH_COORD_PREFIX = 'search_coord_'
 SYNTAX_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_syntax"
 ARGS_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_arguments"
 TIMEOUT_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout"
+TIMEOUT_ERROR_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_queued"
+TIMEOUT_ERROR_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_executing"
+TIMEOUT_ERROR_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_timeout_while_replying"
 TIMEOUT_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout"
+TIMEOUT_WARNING_COORD_QUEUE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_queued"
+TIMEOUT_WARNING_COORD_PIPELINE_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_executing"
+TIMEOUT_WARNING_COORD_REPLY_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_timeout_while_replying"
 OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
 OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
@@ -758,7 +770,10 @@ def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics
   info_dict = info_modules_to_dict(conn)
   for section in [WARN_ERR_SECTION, COORD_WARN_ERR_SECTION]:
     for metric in info_dict[section]:
-      if metric in ignored_metrics:
+      # An ignored aggregate timeout metric (e.g. ..._timeout) also exempts its
+      # per-stage children (..._timeout_queue/pipeline/reply), which are
+      # definitionally coupled to it and move together.
+      if any(metric == ig or metric.startswith(ig + '_') for ig in ignored_metrics):
         continue
       env.assertEqual(info_dict[section][metric], prev_info_dict[section][metric], message = f"Metric {metric} changed")
 
@@ -842,6 +857,10 @@ class testWarningsAndErrorsStandalone:
     # Standalone shards are considered as coordinator in the info metrics
 
     # ---------- Timeout Errors ----------
+    # NOTE: the debug TIMEOUT_AFTER_N hook fires inside the pipeline (BG-detected),
+    # not through a blocked-client timeout callback, so it bumps only the aggregate
+    # `timeout` counter, not the per-stage `_timeout_while_*` breakdown. The per-stage
+    # breakdown is exercised by the blocked-client tests in test_blocked_client_timeout.
     self.env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
     before_info_dict_err = info_modules_to_dict(self.env)
     base_err = int(before_info_dict_err[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
@@ -902,7 +921,8 @@ class testWarningsAndErrorsStandalone:
     #### FIX : when the issue is fixed, this should be equal to base_warn + 3
     self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC], str(base_warn + 2))
 
-    # Test other metrics not changed
+    # Test other metrics not changed. Ignoring the aggregate timeout metrics also
+    # exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_WARNING_COORD_METRIC, TIMEOUT_ERROR_COORD_METRIC]
     _verify_metrics_not_changed(self.env, self.env, before_info_dict, tested_in_this_test)
 
@@ -1290,7 +1310,12 @@ class testWarningsAndErrorsCluster:
       wait_for_info_metric(shard_conn, [WARN_ERR_SECTION, TIMEOUT_WARNING_SHARD_METRIC], str(base_warn_shards[shardId] + 3),
                            msg=f"Shard {shardId} HYBRID VSIM timeout warning should be +3")
 
-    # Test other metrics not changed (on shards)
+    # NOTE: TIMEOUT_AFTER_N* is BG-detected (not a blocked-client timeout), so it
+    # bumps only the aggregate timeout counters, not the per-stage `_timeout_while_*`
+    # breakdown. Per-stage attribution is covered by test_blocked_client_timeout.
+
+    # Test other metrics not changed (on shards). Ignoring the aggregate timeout
+    # metrics also exempts their per-stage children (see _verify_metrics_not_changed).
     tested_in_this_test = [TIMEOUT_ERROR_SHARD_METRIC, TIMEOUT_WARNING_SHARD_METRIC, TIMEOUT_ERROR_COORD_METRIC, TIMEOUT_WARNING_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 

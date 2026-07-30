@@ -26,8 +26,8 @@ use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
 use crate::VectorScoreSource;
 
 /// Ascending comparator: lower distance score is better.
-pub fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+pub const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
+    f64::total_cmp
 }
 
 /// Native-endian f32 byte blob of `values`, as VecSim expects.

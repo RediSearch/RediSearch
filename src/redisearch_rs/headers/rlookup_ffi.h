@@ -600,7 +600,7 @@ void RLookup_Cleanup(struct RLookup *lookup);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, RedisModuleKey *open_key, QueryError *status);
+int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *lookup, struct RLookupRow *dst_row, IndexSpec *index_spec, const char *key, RedisModuleKey *open_key, struct QueryError *status);
 
 /**
  * Return an iterator over an [`RLookup`]'s key list.

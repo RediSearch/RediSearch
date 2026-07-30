@@ -9,16 +9,22 @@
 
 //! Different iterators to traverse a [`StrTrieMap`](crate::str_trie_map::StrTrieMap).
 
+mod case_insensitive;
 mod contains;
+mod fuzzy;
 mod prefixed;
 mod prefixed_values;
 mod range;
 mod suffixed;
 mod unfiltered;
+mod wildcard;
 
+pub use case_insensitive::CaseInsensitiveIter;
 pub use contains::ContainsIter;
+pub use fuzzy::FuzzyIter;
 pub use prefixed::PrefixedIter;
 pub use prefixed_values::PrefixedValues;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use suffixed::SuffixedIter;
 pub use unfiltered::Iter;
+pub use wildcard::WildcardIter;

@@ -180,7 +180,8 @@ fn profile_wrapping_empty_after_reads() {
 fn not_with_child() {
     let mut replier = init();
     let child = rqe_iterators::Empty;
-    let iter = rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeout);
+    let iter =
+        rqe_iterators::not::Not::new(child, 100, 1.0, rqe_iterators::utils::NoTimeoutChecker);
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
 }
@@ -195,7 +196,7 @@ fn not_optimized_with_child() {
         child,
         100,
         1.0,
-        rqe_iterators::utils::NoTimeout,
+        rqe_iterators::utils::NoTimeoutChecker,
     );
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -288,27 +289,6 @@ fn union_limited_geo_prints_full() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Geo,
-        query_string: None,
-    };
-    let reply = capture_single_reply(|| {
-        let mut ctx = ProfilePrintCtx::new(true, false);
-        let mut map = replier.map();
-        iter.print_profile(&mut map, &mut ctx);
-    });
-    insta::assert_debug_snapshot!(reply);
-}
-
-#[test]
-fn union_limited_lexrange_prints_full() {
-    use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
-
-    let mut replier = init();
-    let children = vec![rqe_iterators::Empty];
-    let flat = UnionFullFlat::new(children);
-    let iter = UnionOpaque {
-        variant: UnionVariant::FlatFull(flat),
-        query_node_type: QueryNodeType::LexRange,
         query_string: None,
     };
     let reply = capture_single_reply(|| {

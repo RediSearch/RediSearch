@@ -1,5 +1,9 @@
 name: Trigger Build and Upload Artifacts for Environments
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   workflow_dispatch:
     inputs:
@@ -50,6 +54,8 @@ on:
 
 jobs:
   setup:
+    permissions: # actions/checkout
+      contents: read
     # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ubuntu-slim
     outputs:
@@ -59,7 +65,7 @@ jobs:
       beta-version: ${{ inputs.force_beta && steps.beta-version.outputs.BETA_VERSION || '' }}
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - id: get-redis
@@ -70,16 +76,23 @@ jobs:
           echo "tag=8897348030c20bcd26841bc7d3ec7227f8187aeb" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
         id: beta-version
+        # Expanded through env rather than into the script body: a ref name is
+        # attacker-controllable, and interpolating it directly would let it inject
+        # shell code. Matches the "Validate Reference" step below.
+        env:
+          GIT_REF_NAME: ${{ github.ref_name }}
+          FORCE_BETA_INPUT: ${{ inputs.force_beta }}
+          GIT_SHA_RESOLVED: ${{ steps.set-sha.outputs.sha }}
         run: |
           # Generate beta version for master branch builds or when force_beta is enabled
-          BRANCH_NAME="${{ github.ref_name }}"
-          FORCE_BETA="${{ inputs.force_beta }}"
+          BRANCH_NAME="$GIT_REF_NAME"
+          FORCE_BETA="$FORCE_BETA_INPUT"
           echo "Building from branch: $BRANCH_NAME"
           echo "Force beta enabled: $FORCE_BETA"
           # Generate timestamp at workflow start for consistent beta versioning across all builds
           TIMESTAMP=$(date -u +"%Y%m%d.%H%M%S")
           # Use git SHA for version suffix to ensure uniqueness
-          GIT_SHA="${{ steps.set-sha.outputs.sha }}"
+          GIT_SHA="$GIT_SHA_RESOLVED"
           SHORT_SHA="${GIT_SHA:0:7}"
           VERSION_SUFFIX=".${TIMESTAMP}.${SHORT_SHA}"
           echo VERSION_SUFFIX=$VERSION_SUFFIX >> $GITHUB_OUTPUT
@@ -105,6 +118,7 @@ jobs:
               exit(1)
 
   generate-matrix:
+    permissions: {} # generate-matrix.yml only computes a matrix
     uses: ./.github/workflows/generate-matrix.yml
     with:
       platform: ${{ inputs.platform }},!intel

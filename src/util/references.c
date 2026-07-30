@@ -7,8 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "references.h"
-#include "rmalloc.h"
+
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "rmalloc.h"
+#include "redismodule.h"
 
 extern RedisModuleCtx *RSDummyContext;
 

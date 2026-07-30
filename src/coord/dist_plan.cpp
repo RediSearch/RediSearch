@@ -7,20 +7,35 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <vector>
+#include <string>
+#include <algorithm>
+
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
-#include "pipeline/pipeline_construction.h"
 #include "aggregate/reducer.h"
 #include "aggregate/reducers/collect_parse.h"
-#include "util/arr.h"
 #include "util/stringify.h"
 #include "dist_plan.h"
 #include "config.h"
-
-#include <vector>
-#include <string>
-#include <sstream>
-#include <algorithm>
+#include "aggregate/expr/expression.h"
+#include "obfuscation/hidden.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "result_processor.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "search_disk_api.h"
+#include "spec.h"
+#include "util/dllist.h"
+#include "util/references.h"
 
 // Minimum block size for the reducer-rewriter scratch allocator
 // (`ReducerDistCtx::alloc`).
@@ -413,9 +428,15 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * remoteTotal,
       std::max(sizeof(char *) * remoteTotal, DIST_REDUCER_BLOCK_SIZE));
   remoteObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // <nargs> = reducer args only
-  // Shallow copy: only pointers are copied; the strings stay owned by src->args.
-  // Overwriting a slot below replaces the pointer, it does not free the string.
-  memcpy(remoteObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  // Shallow copy: only pointers are copied; the strings stay owned by src->args
+  // (or are static). Option keywords are normalized so that case-variant
+  // duplicate reducers dedup. User data is never normalized: in the (already
+  // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
+  // `*`, so a bare alphabetic token can only be an option keyword.
+  for (size_t i = 0; i < srcArgc; i++) {
+    const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
+    remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
+  }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
     remoteObjs[1 + limitValIdx + 1] =

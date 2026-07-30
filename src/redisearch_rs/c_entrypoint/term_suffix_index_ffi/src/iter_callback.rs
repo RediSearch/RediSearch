@@ -132,9 +132,16 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// byte); a term may be reported more than once. Iteration stops early
 /// when the callback returns a non-zero value.
 ///
+/// When `should_stop` is non-NULL it is polled periodically while the
+/// candidate set is scanned; once it returns `true` the scan is abandoned
+/// and only the terms gathered so far are reported. This bounds the
+/// expensive scan by a caller-owned deadline, which the per-term callback
+/// alone cannot do because matches are gathered before any callback fires.
+/// Pass NULL to scan without a deadline.
+///
 /// Returns 0 when the pattern has no literal token that can anchor the
 /// search; the caller must then fall back to a full scan. Returns 1
-/// otherwise, even when no term matched.
+/// otherwise, even when no term matched or the scan stopped early.
 ///
 /// # Safety
 ///
@@ -146,6 +153,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// 2. `pattern` must point to a [valid] byte sequence of length `len`.
 /// 3. `cb` must not modify or free `tsi`, nor retain the term
 ///    pointer beyond the call.
+/// 4. If `should_stop` is non-NULL it must be safe to call with `stop_ctx`
+///    for the duration of this call, and must not modify or free `tsi`.
 ///
 /// # Panics
 ///
@@ -159,6 +168,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     len: usize,
     cb: TermSuffixIterateCallback,
     ctx: *mut c_void,
+    should_stop: TermSuffixShouldStop,
+    stop_ctx: *mut c_void,
 ) -> c_int {
     debug_assert!(!tsi.is_null(), "tsi cannot be NULL");
     debug_assert!(!pattern.is_null(), "pattern cannot be NULL");
@@ -170,7 +181,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
     let pattern = str::from_utf8(bytes).expect("pattern must be valid UTF-8");
-    let Some(matches) = index.iter_wildcard(pattern) else {
+    // Safety: ensured by caller (4.)
+    let should_stop = || should_stop.is_some_and(|f| unsafe { f(stop_ctx) });
+    let Some(matches) = index.iter_wildcard(pattern, should_stop) else {
         return 0;
     };
     for term in matches {
@@ -208,3 +221,10 @@ pub type TermSuffixIterateCallback = Option<
         payload: *mut c_void,
     ) -> c_int,
 >;
+
+/// Stop predicate polled while a wildcard scan walks its candidates.
+///
+/// `ctx` is the `stop_ctx` passed to the iterate function. Return `true`
+/// to abandon the scan (e.g. once a deadline has passed); the caller owns
+/// the decision and any clock it consults. A NULL predicate never stops.
+pub type TermSuffixShouldStop = Option<unsafe extern "C" fn(ctx: *mut c_void) -> bool>;

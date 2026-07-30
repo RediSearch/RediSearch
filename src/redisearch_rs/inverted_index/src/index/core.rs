@@ -19,6 +19,7 @@ use crate::{
     BlockCapacity, Encoder, IdDelta,
     controlled_cursor::ControlledCursor,
     debug::{BlockSummary, Summary},
+    numeric::{NumericEncoder, PreparedValue},
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
@@ -304,8 +305,20 @@ impl<E: Encoder> InvertedIndex<E> {
     /// It is expected that the document ID of the record is greater than or equal to the last
     /// document ID in the index.
     pub fn add_record(&mut self, record: &RSIndexResult) -> std::io::Result<AddRecordOutcome> {
-        let doc_id = record.doc_id;
+        self.add_entry(record.doc_id, |writer, delta| {
+            E::encode(writer, delta, record)
+        })
+    }
 
+    /// Add an entry for `doc_id`, letting `encode` write the payload.
+    ///
+    /// Everything an add does apart from writing the payload depends only on the
+    /// document ID, so callers holding something other than an [`RSIndexResult`] —
+    /// see [`Self::add_prepared_record`] — reuse all of it.
+    fn add_entry<F>(&mut self, doc_id: DocId, encode: F) -> std::io::Result<AddRecordOutcome>
+    where
+        F: FnOnce(ControlledCursor<'_>, E::Delta) -> std::io::Result<usize>,
+    {
         let same_doc = match (
             E::ALLOW_DUPLICATES,
             self.last_doc_id().map(|d| d == doc_id).unwrap_or_default(),
@@ -351,7 +364,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         let buf_cap = block.buffer.capacity();
         let writer = block.writer();
-        let _bytes_written = E::encode(writer, delta, record)?;
+        let _bytes_written = encode(writer, delta)?;
 
         // We don't use `_bytes_written` returned by the encoder to determine by how much memory
         // grew because the buffer might have had enough capacity for the bytes in the encoding.
@@ -519,5 +532,23 @@ impl<E: Encoder> InvertedIndex<E> {
     /// revalidation.
     pub const fn unique_id(&self) -> IndexUniqueId {
         self.unique_id
+    }
+}
+
+impl<E: NumericEncoder> InvertedIndex<E> {
+    /// Add an entry whose representation the caller already obtained from
+    /// [`NumericEncoder::prepare`].
+    ///
+    /// Equivalent to [`Self::add_record`] with a numeric record holding the same
+    /// document ID and value — same bytes, same outcome — without classifying the
+    /// value a second time or building an [`RSIndexResult`] to carry it.
+    pub fn add_prepared_record(
+        &mut self,
+        doc_id: DocId,
+        prepared: PreparedValue,
+    ) -> std::io::Result<AddRecordOutcome> {
+        self.add_entry(doc_id, |writer, delta| {
+            E::encode_prepared(writer, delta, prepared)
+        })
     }
 }

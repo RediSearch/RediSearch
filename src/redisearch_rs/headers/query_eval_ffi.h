@@ -70,8 +70,12 @@ bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *o
  *    all the invariants documented on [`QueryEvalContext::new`] and remains
  *    valid for the lifetime of the returned iterator.
  * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`].
+ * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
+ *    pointing to a valid [`Config`] that stays valid for the duration of the
+ *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
+ *    dispatcher.
  */
-QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n);
+QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
 
 /**
  * Build the executable iterator tree for a parsed query AST and return its

@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "cursor.h"
+#include "info/global_stats.h"
 
 typedef struct QueryError QueryError;
 
@@ -38,6 +39,11 @@ typedef struct CoordRequestCtx {
     HybridRequest *hreq;
   };
   _Atomic(bool) timedOut;       // Coordinator-level timeout flag
+  // Execution-phase marker (QueryTimeoutStage values) covering the window before
+  // the request object exists: QUEUE while waiting in the coord pool, PIPELINE once
+  // a coord thread starts executing. Once the request is set, its own marker takes
+  // over (see CoordRequestCtx_ExecutionStage). Frozen once `timedOut` is set.
+  RS_Atomic(int) execPhase;
   pthread_mutex_t setReqLock;   // Lock for request creation/setting
   // Error that occurred before AREQ/HREQ was created (e.g., index not found).
   // When using reply_callback pattern, errors must be stored here since there's
@@ -94,11 +100,48 @@ bool CoordRequestCtx_HasRequest(CoordRequestCtx *ctx);
  */
 void *CoordRequestCtx_GetRequest(CoordRequestCtx *ctx);
 
+// Read the coord-level execution-phase marker (mirrors RequestSyncState_GetExecutionStage).
+static inline QueryTimeoutStage CoordRequestCtx_GetExecutionStage(CoordRequestCtx *ctx) {
+  return (QueryTimeoutStage)RS_AtomicIntLoadRelaxed(&ctx->execPhase);
+}
+
+// The stage the coord request reached, for timeout attribution. Before the request
+// object exists the coord-level marker applies (QUEUE until a coord thread picks the
+// job up); afterwards the request's own marker (PIPELINE fanning out/reducing, REPLY
+// handing off the reply).
+static inline QueryTimeoutStage CoordRequestCtx_ExecutionStage(CoordRequestCtx *ctx) {
+  void *req = CoordRequestCtx_GetRequest(ctx);
+  if (!req) {
+    return CoordRequestCtx_GetExecutionStage(ctx);
+  }
+  return ctx->type == COMMAND_HYBRID ? HybridRequest_ExecutionStage((HybridRequest *)req)
+                                     : AREQ_ExecutionStage((AREQ *)req);
+}
+
 /**
  * Check if the coordinator request has timed out.
  */
 static inline bool CoordRequestCtx_TimedOut(CoordRequestCtx *ctx) {
   return RS_AtomicBoolLoadRelaxed(&ctx->timedOut);
+}
+
+// Advance the coordinator-level execution-phase marker, used until the request
+// object exists. Frozen once `timedOut` is set, so the stage a timeout callback
+// reads cannot change underneath it.
+static inline void CoordRequestCtx_SetExecutionStage(CoordRequestCtx *ctx,
+                                                     QueryTimeoutStage stage) {
+  if (CoordRequestCtx_TimedOut(ctx)) {
+    return;
+  }
+  RS_AtomicIntStoreRelaxed(&ctx->execPhase, (int)stage);
+}
+
+// Record this coordinator request's blocked-client timeout into the per-stage
+// breakdown, at the stage the deadline caught it. Must be called exactly once per
+// blocked-client timeout callback, after CoordRequestCtx_SetTimedOut (which freezes
+// the stage markers).
+static inline void CoordRequestCtx_RecordTimeoutStage(CoordRequestCtx *ctx, bool isError) {
+  QueryTimeoutStageStats_Record(CoordRequestCtx_ExecutionStage(ctx), isError, COORD_ERR_WARN);
 }
 
 /**

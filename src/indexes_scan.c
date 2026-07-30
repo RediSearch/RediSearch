@@ -14,8 +14,11 @@
 // with a one-directional dependency on the IndexSpec core (spec.h) and a
 // data-only read of the global registry (specDict_g, declared in indexes.h).
 
-#include <assert.h>
 #include <unistd.h>
+#include <sched.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "spec.h"
 #include "indexes.h"
@@ -25,19 +28,24 @@
 #include "search_disk.h"
 #include "document.h"
 #include "util/logging.h"
-#include "util/misc.h"
 #include "rmutil/rm_assert.h"
 #include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
 #include "redis_index.h"
-#include "indexer.h"
 #include "rules.h"
 #include "doc_types.h"
-#include "util/workers.h"
 #include "debug_commands.h"
-#include "info/info_redis/threads/current_thread.h"
-#include "util/redis_mem_info.h"
+#include "doc_table.h"
+#include "document_rs.h"
+#include "field_spec.h"
+#include "info/index_error.h"
+#include "obfuscation/hidden.h"
+#include "search_ctx.h"
+#include "thpool/thpool.h"
+#include "trie/rune_util.h"
+#include "trie/trie_node.h"
+#include "util/dict/dict.h"
 
 extern DebugCTX globalDebugCtx;
 

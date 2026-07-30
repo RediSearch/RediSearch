@@ -18,8 +18,8 @@ use rqe_iterators::{RQEIterator, RQEValidateStatus};
 use top_k::{BatchStrategy, TopKIterator, mock::MockScoreSource};
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-fn asc(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+const fn asc() -> fn(a: &f64, b: &f64) -> Ordering {
+    f64::total_cmp
 }
 
 /// Child iterator whose `revalidate` unconditionally returns `Aborted`.
@@ -149,7 +149,7 @@ impl<'index> RQEIterator<'index> for MovedOnRevalidate<'index> {
 fn without_child_returns_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new_unfiltered(source, NonZeroUsize::new(5).unwrap(), asc());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
@@ -161,7 +161,7 @@ fn with_child_delegates_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
-    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
@@ -171,7 +171,7 @@ fn with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn RQEIterator<'_>> = Box::new(AbortOnRevalidate);
-    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Aborted);
 }
@@ -183,7 +183,7 @@ fn moved_child_collapses_to_ok() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
     let child: Box<dyn RQEIterator<'_>> = Box::new(MovedOnRevalidate::new());
-    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc);
+    let mut it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), asc());
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }

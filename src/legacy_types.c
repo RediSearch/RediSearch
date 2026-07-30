@@ -8,9 +8,11 @@
 */
 
 #include "legacy_types.h"
+
+#include <stddef.h>
+
 #include "util/misc.h"
 #include "rmutil/rm_assert.h"
-#include <stdbool.h>
 
 #define LEGACY_ENC_VER 1
 #define LEGACY_LEGACY_ENC_VER 0

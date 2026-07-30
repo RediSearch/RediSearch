@@ -12,7 +12,7 @@
  * the production counterpart of the Rust VectorTopKIterator / VectorScoreSource.
  *
  *
- * It links against libredisearch_all.a (bundled by build_utils), which provides
+ * It links against libredisearch_c_bundle.a (bundled by build_utils), which provides
  * NewHybridVectorIterator, the Rust-backed NewSortedIdListIterator child, the
  * doc table, and the min-max heap.
  *

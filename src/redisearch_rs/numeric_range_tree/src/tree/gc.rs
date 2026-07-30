@@ -17,6 +17,7 @@ use rqe_core::DocId;
 use std::collections::HashMap;
 
 use index_result::RSIndexResult;
+use inverted_index::numeric::StoredValue;
 use inverted_index::{GcApplyInfo, GcScanDelta};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
@@ -29,7 +30,7 @@ use crate::range::Hll;
 /// Contains the inverted index GC delta plus the HyperLogLog registers
 /// captured during the scan. One `NodeGcDelta` is produced per DFS node
 /// that had GC work.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
@@ -93,8 +94,9 @@ impl NumericRangeNode {
         let mut last_block_hll = Hll::new();
 
         let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
-            // SAFETY: We know this is a numeric index result
-            let value = unsafe { res.as_numeric_unchecked() };
+            // SAFETY: We know this is a numeric index result. Scanned straight out of
+            // the index, so already in stored form.
+            let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
             let target = if ctx.block_idx == last_block_idx {
                 &mut last_block_hll
             } else {

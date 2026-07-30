@@ -21,6 +21,7 @@
 #include "profile/options.h"
 
 #include "util/stringify.h"
+#include "util/rs_atomic.h"
 
 // Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
@@ -125,6 +126,8 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  // QueryTimeoutStage marker for the FT.SEARCH MR coord path (no RequestSyncState).
+  RS_Atomic(int) execPhase;
 
   struct searchReducerCtx *rctx;
 } searchRequestCtx;

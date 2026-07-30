@@ -7,11 +7,18 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "hybrid/parse/hybrid_optional_args.h"
+
+#include <string.h>
+#include <assert.h>
+
 #include "hybrid/parse/hybrid_callbacks.h"
 #include "config.h"
 #include "util/arg_parser.h"
 #include "coord/rmr/command.h"
-#include <string.h>
+#include "pipeline/pipeline_construction.h"
+#include "query_error_ffi.h"
+#include "slot_ranges.h"
+#include "spec.h"
 
 /**
  * Applies optimization to skip collecting rich results when they are not needed.
@@ -201,8 +208,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleFilter, ctx,
                          ARG_OPT_END);
-
-    // TODO: Add YIELD_SCORE_AS support for score aliasing
 
     // Parse the arguments
     ArgParseResult parseResult = ArgParser_Parse(parser);

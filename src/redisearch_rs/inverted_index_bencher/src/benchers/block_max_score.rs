@@ -105,7 +105,10 @@ impl TopKBenchmarkSetup {
             doc_table.insert(doc_id, DocMetadata { doc_len, doc_score });
             total_doc_len += doc_len as u64;
 
-            let record = RSIndexResult::build_virt().doc_id(doc_id).frequency(tf).build();
+            let record = RSIndexResult::build_virt()
+                .doc_id(doc_id)
+                .frequency(tf)
+                .build();
             index
                 .add_record_with_metadata(&record, doc_len, doc_score)
                 .expect("failed to add record");

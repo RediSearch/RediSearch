@@ -7,9 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
 #include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
+#include "aggregate/aggregate.h"
+#include "config.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "search_ctx.h"
+#include "shard_window_ratio.h"
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -42,6 +54,9 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   debug_req->debug_params = debug_params;
 
   AREQ *r = &debug_req->r;
+  // Wrap the debug AREQ in its single-owner sync context.
+  // Must be called after rm_realloc so r points to stable memory.
+  BlockedRequestCtx_NewAREQ(r);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;

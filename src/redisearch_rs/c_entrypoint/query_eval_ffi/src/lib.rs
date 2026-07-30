@@ -25,13 +25,17 @@ use query_eval::{
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
 use query_types::QueryNodeOptions;
+use rqe_iterators::IteratorsConfig;
 
-/// Snapshot the evaluator's configuration from the process-wide
-/// [`ffi::RSGlobalConfig`].
+/// Snapshot the evaluator's configuration.
+///
+/// Fields that have no per-query snapshot are read from the process-wide
+/// [`ffi::RSGlobalConfig`]. Anything covered by [`IteratorsConfig`] is instead
+/// taken from `iterators` rather than the live global.
 ///
 /// This is the single point where the query evaluator reads the global config;
 /// the resulting [`Config`] is threaded through evaluation as a parameter.
-fn eval_config() -> Config {
+fn eval_config(iterators: &IteratorsConfig) -> Config {
     // SAFETY: `RSGlobalConfig` is the process-wide config instance, fully
     // initialised before any query is evaluated, and read-only here. Each field
     // is a `Copy` scalar read directly out of the static, without forming a
@@ -57,6 +61,7 @@ fn eval_config() -> Config {
         numeric_compress,
         prioritize_intersect_union_children,
         default_scorer,
+        min_union_iter_heap: iterators.min_union_iter_heap as usize,
     }
 }
 
@@ -145,14 +150,22 @@ pub unsafe extern "C" fn queryNeedsOffsets(
 ///    all the invariants documented on [`QueryEvalContext::new`] and remains
 ///    valid for the lifetime of the returned iterator.
 /// 2. `n` must be a non-null pointer to a valid [`RSQueryNode`].
+/// 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
+///    pointing to a valid [`Config`] that stays valid for the duration of the
+///    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
+///    dispatcher.
 #[unsafe(no_mangle)]
 // TODO: remove the '_Rs' suffix once fully ported.
 pub unsafe extern "C" fn Query_EvalNode_Rs(
     q: *mut QueryEvalCtx,
     n: *mut RSQueryNode,
+    eval_config: *const ffi::EvalConfig,
 ) -> *mut QueryIterator {
     let q = NonNull::new(q).expect("Query_EvalNode_Rs: q is null");
     let n = NonNull::new(n).expect("Query_EvalNode_Rs: n is null");
+    let config = NonNull::new(eval_config.cast_mut())
+        .expect("Query_EvalNode_Rs: eval_config is null")
+        .cast::<Config>();
 
     // SAFETY: `q` is a non-null pointer to a valid `QueryEvalCtx` upholding the
     // `QueryEvalContext::new` invariants (precondition 1). The wrapper borrows
@@ -162,7 +175,10 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // borrowed only for the duration of this call.
     let node = unsafe { QueryNodeRef::new(n) };
 
-    match eval::eval_node(&mut ctx, &node, eval_config()) {
+    // SAFETY: `config` is non-null (checked) and points to a valid `Config`
+    // (precondition 3); read by value here (`Config` is `Copy`).
+    let config = unsafe { config.read() };
+    match eval::eval_node(&mut ctx, &node, config) {
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
@@ -244,8 +260,9 @@ pub unsafe extern "C" fn QAST_Iterate(
     // SAFETY: `root` is a valid `RSQueryNode` (precondition 1).
     let node = unsafe { QueryNodeRef::new(root) };
 
+    let config = eval_config(ctx.config());
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    eval::qast_iterate(&mut ctx, &node, eval_config()).into_c_iterator()
+    eval::qast_iterate(&mut ctx, &node, config).into_c_iterator()
 }

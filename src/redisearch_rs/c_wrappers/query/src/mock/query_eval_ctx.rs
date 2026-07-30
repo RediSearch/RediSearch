@@ -183,7 +183,7 @@ impl MockQueryEvalCtx {
     /// background-executed request).
     ///
     /// The allocation is owned by this mock and freed on drop. It is zeroed,
-    /// so its `RequestSyncCtx::timedOut` flag reads as "not timed out": a code
+    /// so its `RequestSyncState::timedOut` flag reads as "not timed out": a code
     /// path that probes the timeout (via `AREQ_CheckTimedOut`) sees a valid,
     /// non-expired request.
     pub fn enable_blocked_client_timeout(&mut self) {

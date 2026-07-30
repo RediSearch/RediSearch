@@ -153,6 +153,18 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/geometry/geometry_api.h",
+        fns: &["GeometryApi_Get"],
+        types: &["GeometryApi"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/geometry_index.h",
+        fns: &["OpenGeometryIndex"],
+        types: &["GeometryQuery"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/indexes.h",
         fns: &[
             "Indexes_Init",
@@ -202,7 +214,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &[],
+        fns: &["JSON_GetJsonFromHandleCompat"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -243,7 +255,6 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryGeofilterNode",
             "QueryGeometryNode",
             "QueryIdFilterNode",
-            "QueryLexRangeNode",
             "QueryMissingNode",
             "QueryNullNode",
             "QueryNumericNode",
@@ -389,6 +400,9 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AsyncPollResult",
             "AsyncReadResult",
             "BasicDiskAPI",
+            // RETURN_STRICT GIL handshake ctx; kept opaque (forward-declared
+            // here, defined in `aggregate.h`).
+            "BlockedRequestCtx",
             "DocTableDiskAPI",
             "IndexDiskAPI",
             "MetricsDiskAPI",
@@ -423,7 +437,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "IndexSpecRef_Release",
         ],
         types: &[],
-        vars: &["isCrdt"],
+        vars: &["isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
@@ -433,8 +447,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/suffix.h",
-        fns: &[],
-        types: &[],
+        fns: &[
+            "Suffix_IterateContains",
+            "addSuffixTrie",
+            "suffixTrie_freeCallback",
+        ],
+        types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
     },
     HeaderAllowlist {
@@ -451,14 +469,21 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",
-        fns: &["Trie_DecrementNumDocs", "Trie_GetNode"],
+        fns: &[
+            "NewTrie",
+            "Trie_DecrementNumDocs",
+            "Trie_GetNode",
+            "Trie_InsertStringBuffer",
+            "Trie_IterateContains",
+            "TrieType_Free",
+        ],
         types: &[],
         vars: &[],
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieNode_NumDocs"],
-        types: &[],
+        types: &["TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -476,13 +501,19 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/util/dict/dict.h",
         fns: &[
+            "dictIterator",
             "RS_dictAdd",
+            "RS_dictAddRaw",
+            "RS_dictCreate",
             "RS_dictDelete",
             "RS_dictFetchValue",
+            "RS_dictGetIterator",
+            "RS_dictNext",
             "RS_dictRelease",
+            "RS_dictReleaseIterator",
         ],
-        types: &[],
-        vars: &[],
+        types: &["dictType"],
+        vars: &["dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
         path: "src/util/references.h",
@@ -495,6 +526,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["unicode_tolower_fn"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/util/timeout.h",
+        fns: &[],
+        types: &[],
+        vars: &["TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
         path: "src/wildcard/wildcard.h",
@@ -677,6 +714,11 @@ fn main() {
     // `_GNU_SOURCE` makes `<stdio.h>` declare `asprintf`/`vasprintf`, which
     // `deps/rmalloc/rmalloc.h` uses.
     bindings = bindings.clang_arg("-D_GNU_SOURCE");
+
+    // `BlockedRequestCtx` is only forward-declared in `search_disk_api.h`, but its full
+    // definition (aggregate.h) is pulled in transitively through `AREQ_CheckTimedOut`. Force it
+    // opaque so Rust callers only ever get a pointer, never its (Rust-unsafe-to-model) C internals.
+    bindings = bindings.opaque_type("BlockedRequestCtx");
 
     for ty in BLOCKLIST_TYPES {
         bindings = bindings.blocklist_type(ty);

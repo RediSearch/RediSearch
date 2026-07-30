@@ -8,13 +8,18 @@
 */
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
 #include "triemap_ffi.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
 #include "util/likely.h"
 #include "rmutil/rm_assert.h"
-#include <ctype.h>
 #include "rdb.h"
+#include "util/arr/arr.h"
 
 typedef struct StopWordList {
   TrieMap *m;
