@@ -302,6 +302,11 @@ impl<'a> RSTokenRef<'a, true> {
     /// by [`from_nul_terminated_ffi`](RSTokenRef::from_nul_terminated_ffi)'s
     /// `unsafe` contract, so this accessor exists only on this variant.
     ///
+    /// Content after a first interior NUL byte is ignored, as for
+    /// [`as_lower_runes`](RSTokenRef::as_lower_runes): the result ends at that
+    /// NUL, so it is shorter than [`len`](RSTokenRef::len) and covers less than
+    /// [`as_bytes`](RSTokenRef::as_bytes).
+    ///
     /// As for [`as_bytes`](RSTokenRef::as_bytes), the result borrows for `'a`.
     pub fn as_c_str(&self) -> Option<&'a CStr> {
         let ptr = NonNull::new(self.tok.str_)?;
