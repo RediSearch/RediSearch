@@ -827,6 +827,8 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_TIMEOUT);
   } else if (rc == RS_RESULT_ERROR) {
     // Non-fatal error
+    RS_LOG_ASSERT(!QueryError_IsOk(qctx->err),
+                  "RS_RESULT_ERROR reached the warning path without a QueryError set");
     RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(qctx->err));
   }
   if (QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err)) {

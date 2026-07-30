@@ -1,4 +1,5 @@
 import numpy as np
+import threading
 from RLTest import Env
 from common import *
 from utils.hybrid import *
@@ -96,3 +97,55 @@ def test_hybrid_multithread():
         env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
+
+
+# Skipped on musl, which admits a reader past a queued writer, so the try-lock
+# never fails there.
+@skip(cluster=True, musl=True)
+def test_hybrid_depleter_lock_failure_replies_error():
+    """A depleter that loses the spec try-lock to a queued writer must reply
+    SEARCH_SAFE_DEPLETER_FAILURE.
+    """
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    setup_basic_index(env)
+    query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+
+    sync_point = 'BeforeHybridResultsClaim'
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+
+    outcome = []
+    def run_hybrid_query(conn, out):
+        try:
+            # TIMEOUT 0 is load-bearing: it disables the sync point's other release
+            # arm, leaving the queued writer as the only way out. Without it the
+            # query can escape by timing out and the test passes vacuously.
+            out.append(('ok', conn.execute_command(
+                'FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
+                'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+                'TIMEOUT', '0')))
+        except Exception as e:
+            out.append(('err', str(e)))
+
+    query_thread = threading.Thread(target=run_hybrid_query,
+                                    args=(env.getConnection(), outcome), daemon=True)
+    query_thread.start()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
+        f'Timeout waiting for {sync_point} sync point')
+
+    # Indexing this parks on the spec write lock behind the query's read lock, which
+    # both releases the sync point and makes the depleters' try-lock fail. It returns
+    # once the query has finished and dropped its read lock.
+    env.cmd('HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text')
+
+    query_thread.join(timeout=30)
+    env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
+    if not outcome:
+        return  # still parked; the assertion above is the diagnostic
+
+    kind, payload = outcome[0]
+    # TODO(MOD-16487): once a queued writer no longer aborts hybrid depletion, this
+    # expectation flips — the query should be served instead of erroring.
+    env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
+    env.assertContains('Failed to acquire index lock for background depletion', str(payload))

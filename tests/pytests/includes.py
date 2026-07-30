@@ -3,6 +3,7 @@ import sys
 import os
 from RLTest import Defaults
 import platform
+import sysconfig
 
 if sys.version_info > (3, 0):
     Defaults.decode_responses = True
@@ -23,3 +24,4 @@ EXTENDED_PYTESTS = not os.getenv('QUICK', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
+MUSL = 'musl' in (sysconfig.get_config_var('MULTIARCH') or '')
