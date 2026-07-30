@@ -68,7 +68,10 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=True)
 
 def compare_optimized_to_not_nocontent(env, query, params, msg=None):
-    """Same as `compare_optimized_to_not`, for NOCONTENT queries returning bare ids."""
+    """Same as `compare_optimized_to_not`, comparing the reply elements verbatim.
+
+    Suits NOCONTENT queries, whose replies carry no hash fields to parse `n` out of.
+    """
     not_res = env.cmd(*query, 'WITHCOUNT', *params)
     opt_res = env.cmd(*query, 'WITHOUTCOUNT', *params)
     env.assertEqual(not_res[1:], opt_res[1:], message=msg)
@@ -686,13 +689,21 @@ def testDeletedDocsDuringCollection(env):
 
 @skip(cluster=True)
 def testScorerTypes(env):
-    """Every scorer name is classified when deciding whether to optimize."""
-    conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
-    for i in range(100):
-        conn.execute_command('hset', i, 'n', i, 't', 'foo')
+    """Each scorer name ranks identically whether or not the optimizer runs.
 
-    params = ['limit', 0, 3, 'NOCONTENT']
+    Term frequency, field length and document score all differ per document, so
+    every scorer produces a distinct ranking. A scorer classified as needing no
+    scoring therefore returns a visibly different order, instead of matching the
+    unoptimized path by coincidence.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCORE_FIELD', '__score', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    num_docs = 20
+    for i in range(num_docs):
+        text = ' '.join(['foo'] * (i + 1) + ['bar'] * (num_docs - i))
+        conn.execute_command('hset', i, 'n', i, '__score', (num_docs - i) / num_docs, 't', text)
+
+    params = ['limit', 0, 3, 'NOCONTENT', 'WITHSCORES']
     for scorer in ['BM25STD', 'TFIDF', 'TFIDF.DOCNORM', 'DISMAX', 'BM25', 'DOCSCORE', 'HAMMING']:
         compare_optimized_to_not_nocontent(env, ['ft.search', 'idx', 'foo', 'SCORER', scorer],
                                            params, 'scorer ' + scorer)
