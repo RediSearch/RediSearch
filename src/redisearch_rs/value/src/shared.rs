@@ -44,16 +44,26 @@ pub struct SharedValue {
     ptr: *const Value,
 }
 
+/// Wrapper used to assert that this particular [`Value::Null`] instance is safe to share.
+///
+/// This does not assert that arbitrary [`Value`]s are [`Sync`].
+#[repr(transparent)]
+struct StaticNull(Value);
+
+// SAFETY: `StaticNull` is only instantiated below with `Value::Null`, which contains no data and
+// has no interior mutability.
+unsafe impl Sync for StaticNull {}
+
 /// Static [`Value::Null`] value, used by [`SharedValue::null_static`]
 /// to avoid heap allocation for null values.
-static NULL_VALUE: Value = Value::Null;
+static NULL_VALUE: StaticNull = StaticNull(Value::Null);
 
 impl SharedValue {
     /// Creates a [`SharedValue`] pointing to the static [`NULL_VALUE`].
     #[expect(rustdoc::private_intra_doc_links)]
     pub fn null_static() -> Self {
         Self {
-            ptr: ptr::from_ref(&NULL_VALUE).cast(),
+            ptr: ptr::from_ref(&NULL_VALUE.0),
         }
     }
 
@@ -91,7 +101,7 @@ impl SharedValue {
     /// Returns `true` if this value points to the static [`NULL_VALUE`]
     /// rather than a heap-allocated [`Arc`].
     pub fn is_null_static(&self) -> bool {
-        ptr::eq(self.ptr, &NULL_VALUE)
+        ptr::eq(self.ptr, &NULL_VALUE.0)
     }
 
     /// Replaces the stored [`Value`] in place.
@@ -211,13 +221,3 @@ impl Drop for SharedValue {
         }
     }
 }
-
-// SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
-// Send + Sync) or an `Arc<Value>` raw pointer, and `Arc<T>` is Send + Sync
-// when `T: Send + Sync`. `Value` satisfies both bounds.
-unsafe impl Send for SharedValue {}
-
-// SAFETY: The inner pointer is either the `&'static NULL_VALUE` (inherently
-// Send + Sync) or an `Arc<Value>` raw pointer, and `Arc<T>` is Send + Sync
-// when `T: Send + Sync`. `Value` satisfies both bounds.
-unsafe impl Sync for SharedValue {}

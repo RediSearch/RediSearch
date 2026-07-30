@@ -81,8 +81,3 @@ impl fmt::Debug for RedisString {
         f.debug_tuple("RedisString").field(&lossy).finish()
     }
 }
-
-// SAFETY: The underlying `RedisModuleString` is reference-counted and thread-safe in Redis.
-unsafe impl Send for RedisString {}
-// SAFETY: The underlying `RedisModuleString` is reference-counted and thread-safe in Redis.
-unsafe impl Sync for RedisString {}
