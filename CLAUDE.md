@@ -347,6 +347,7 @@ Invoke [/run-macro-benchmarks](.skills/run-macro-benchmarks/SKILL.md) to run an 
 Invoke [/run-rust-benchmarks](.skills/run-rust-benchmarks/SKILL.md) to run Rust micro-benchmarks and compare performance with the C implementation.
 
 ### General
+Invoke [/implement-task](.skills/implement-task/SKILL.md) to take a port, bug fix, or feature from task description to a green pull request. It sequences the skills below and defines the gates between them.
 Invoke [/report-flaky-test](.skills/report-flaky-test/SKILL.md) to report a flaky CI test to Jira or update an existing flaky-test ticket.
 Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to investigate a flaky-test report and propose an evidence-backed fix.
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
