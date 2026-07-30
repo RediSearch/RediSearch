@@ -654,21 +654,16 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestWorkerCanAddJobsWhileTerminateWhenEm
     ASSERT_EQ(stats.total_pending_jobs, 0);
 }
 
-/** Regression test for MOD-17351: concurrent first-use lazy initialization.
- *
- * Two non-worker threads race add_work on an uninitialized pool. One of them
- * pushes a job that blocks until that submitter's add_work returns — modeling
- * the coordinator IO thread, whose deferred-execution job depends on the
- * submitting (IO) thread's further progress. Before the fix, the second
- * submitter could observe the pool mid-initialization (threads alive, state
- * not yet INITIALIZED), misread it as "threads draining in
- * TERMINATE_WHEN_EMPTY", and block on a revive barrier counting the worker
- * that runs the blocked job -> deadlock (the test would hang). The loop gives
- * the race window (the thread-spawn duration) many chances to be hit. */
+/** Two non-worker threads race add_work on an uninitialized pool. One of
+ * them pushes a job that blocks until that submitter's add_work returns. A
+ * submitter that observes the pool mid-initialization and blocks on a revive
+ * barrier counting the worker running the blocked job would deadlock (the
+ * test hangs). The loop gives the race window (the thread-spawn duration)
+ * many chances to be hit. */
 TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
     typedef struct {
-        volatile std::atomic<bool> &release;
-        volatile std::atomic<size_t> &executed;
+        std::atomic<bool> &release;
+        std::atomic<size_t> &executed;
     } RaceCtx;
 
     auto blockedJob = [](void *p) {
@@ -686,8 +681,8 @@ TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
     for (int iter = 0; iter < 100; iter++) {
         redisearch_thpool_t *pool = redisearch_thpool_create(4, 0, LogCallback, "test");
 
-        volatile std::atomic<bool> release{false};
-        volatile std::atomic<size_t> executed{0};
+        std::atomic<bool> release{false};
+        std::atomic<size_t> executed{0};
         RaceCtx ctx = {release, executed};
 
         std::thread first_submitter([&] {
