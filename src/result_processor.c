@@ -23,7 +23,7 @@
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
-#include "rlookup_load_document.h"
+#include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "iterators_ffi.h"
@@ -937,8 +937,14 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
 typedef struct {
   ResultProcessor base;
   RLookup *lk;
-  RLookupLoadOptions loadopts;
+  RedisSearchCtx *sctx;
+  const RLookupKey **keys;
+  size_t nkeys;
   bool load_all;
+  bool forceLoad;
+  // Per-key load profiling buffer (nkeys entries), allocated only for
+  // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
+  LoadFieldProfile *profileFields;
   QueryError status;
 } RPLoader;
 
@@ -950,9 +956,9 @@ typedef struct {
  */
 
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
-  if (self->loadopts.sctx->spec->diskSpec) {
+  if (self->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->loadopts.sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
@@ -972,13 +978,30 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
     return;
   }
 
-  self->loadopts.dmd = SearchResult_GetDocumentMetadata(r);
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
 
   int ret;
   if (self->load_all) {
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadAllKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .force_string = true,
+          .status = &self->status,
+      };
+      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &self->loadopts);
+      LoadIndividualKeysOptions opts = {
+          .sctx = self->sctx,
+          .dmd = dmd,
+          .keys = self->keys,
+          .nkeys = self->nkeys,
+          .force_string = true,
+          .force_load = self->forceLoad,
+          .cached_only = false,
+          .status = &self->status,
+          .profile_fields = self->profileFields,
+      };
+      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1037,8 +1060,8 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
 static void rploaderFreeInternal(ResultProcessor *base) {
   RPLoader *lc = (RPLoader *)base;
   QueryError_ClearError(&lc->status);
-  rm_free(lc->loadopts.keys);
-  rm_free(lc->loadopts.profileFields);
+  rm_free(lc->keys);
+  rm_free(lc->profileFields);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1049,17 +1072,14 @@ static void rploaderFree(ResultProcessor *base) {
 static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLookup *lk,
                                     const RLookupKey **keys, size_t nkeys, bool forceLoad,
                                     bool withProfile) {
-  self->loadopts.forceString = 1; // used in `LOAD_ALLKEYS` mode.
-  self->loadopts.forceLoad = forceLoad;
-  self->loadopts.status = &self->status;
-  self->loadopts.sctx = sctx;
-  self->loadopts.dmd = NULL;
+  self->sctx = sctx;
+  self->forceLoad = forceLoad;
   if (nkeys) {
-    self->loadopts.keys = rm_malloc(sizeof(*keys) * nkeys);
-    memcpy(self->loadopts.keys, keys, sizeof(*keys) * nkeys);
-    self->loadopts.nkeys = nkeys;
+    self->keys = rm_malloc(sizeof(*keys) * nkeys);
+    memcpy(self->keys, keys, sizeof(*keys) * nkeys);
+    self->nkeys = nkeys;
     if (withProfile) {
-      self->loadopts.profileFields = rm_calloc(nkeys, sizeof(*self->loadopts.profileFields));
+      self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
     self->load_all = false;
   } else {
@@ -1462,17 +1482,17 @@ static const RPLoader *RPLoader_GetProfileSource(const ResultProcessor *base) {
 
 void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor *base) {
   const RPLoader *loader = RPLoader_GetProfileSource(base);
-  if (loader->loadopts.nkeys == 0) {
+  if (loader->nkeys == 0) {
     return;
   }
 
-  const RLookupLoadFieldProfile *fields = loader->loadopts.profileFields;
+  const LoadFieldProfile *fields = loader->profileFields;
   RS_LOG_ASSERT(fields, "profileFields must exist for explicit LOAD profile");
 
   RedisModule_ReplyKV_Array(reply, "Field loads profile");
-  for (size_t ii = 0; ii < loader->loadopts.nkeys; ++ii) {
-    const RLookupKey *key = loader->loadopts.keys[ii];
-    const RLookupLoadFieldProfile *field = &fields[ii];
+  for (size_t ii = 0; ii < loader->nkeys; ++ii) {
+    const RLookupKey *key = loader->keys[ii];
+    const LoadFieldProfile *field = &fields[ii];
     const char *fieldName = RLookupKey_GetPath(key);
     if (!fieldName) {
       fieldName = RLookupKey_GetName(key);
@@ -1484,8 +1504,8 @@ void RPLoader_ReplyProfileFields(RedisModule_Reply *reply, const ResultProcessor
     RedisModule_Reply_Map(reply);
     RedisModule_ReplyKV_StringBuffer(reply, "Field", fieldName, strlen(fieldName));
     RedisModule_ReplyKV_Double(reply, "Time",
-                               rs_wall_clock_convert_ns_to_ms_d(field->loadTimeNs));
-    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->loadCount);
+                               rs_wall_clock_convert_ns_to_ms_d(field->load_time_ns));
+    RedisModule_ReplyKV_LongLong(reply, "Results processed", field->load_count);
     RedisModule_Reply_MapEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
@@ -1497,7 +1517,7 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   // Copy the loader, move ownership of the keys
   sl->base_loader = *loader;
-  sl->sctx = loader->loadopts.sctx;
+  sl->sctx = loader->sctx;
   rm_free(loader);
 
   // Reset the loader's buffer and state
