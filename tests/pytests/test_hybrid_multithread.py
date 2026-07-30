@@ -145,5 +145,7 @@ def test_hybrid_depleter_lock_failure_replies_error():
         return  # still parked; the assertion above is the diagnostic
 
     kind, payload = outcome[0]
+    # TODO(MOD-16487): once a queued writer no longer aborts hybrid depletion, this
+    # expectation flips — the query should be served instead of erroring.
     env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
     env.assertContains('Failed to acquire index lock for background depletion', str(payload))
