@@ -1757,6 +1757,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "rs_token",
  "search_disk",
  "workspace_hack",
 ]
@@ -1805,6 +1806,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterators",
  "rqe_iterators_test_utils",
+ "rs_token",
  "search_disk",
  "thiserror",
  "workspace_hack",
@@ -2463,6 +2465,19 @@ dependencies = [
  "value_ffi",
  "varint_ffi",
  "wildcard",
+ "workspace_hack",
+]
+
+[[package]]
+name = "rs_token"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "query_term",
+ "redis_mock",
+ "redisearch_rs",
+ "rs_token",
  "workspace_hack",
 ]
 

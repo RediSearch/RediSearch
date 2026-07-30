@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -18,9 +18,9 @@ fn qast_iterate_evaluates_root_node() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
     let mock_node = MockQueryNode::new(QueryNodeType::Null);
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::qast_iterate(&mut ctx, &node, Config::default()).into_boxed();
+    let mut it = eval::qast_iterate(&mut ctx, node, Config::default()).into_boxed();
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

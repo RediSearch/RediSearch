@@ -20,7 +20,7 @@ use ffi::{
     RedisSearchCtx,
 };
 use query_eval::{
-    QueryEvalContext, QueryNodeRef, eval,
+    QueryEvalContext, QueryNodeMut, eval,
     eval::Config,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
@@ -172,13 +172,16 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // it exclusively for the duration of this call.
     let mut ctx = unsafe { QueryEvalContext::new(q) };
     // SAFETY: `n` is a non-null pointer to a valid `RSQueryNode` (precondition 2),
-    // borrowed only for the duration of this call.
-    let node = unsafe { QueryNodeRef::new(n) };
+    // borrowed only for the duration of this call. Evaluation owns the subtree
+    // exclusively: the C dispatcher hands each node to exactly one evaluator and
+    // waits for it to return, and query evaluation is single-threaded, so no
+    // other wrapper or reference into this subtree is live for the call.
+    let node = unsafe { QueryNodeMut::new(n) };
 
     // SAFETY: `config` is non-null (checked) and points to a valid `Config`
     // (precondition 3); read by value here (`Config` is `Copy`).
     let config = unsafe { config.read() };
-    match eval::eval_node(&mut ctx, &node, config) {
+    match eval::eval_node(&mut ctx, node, config) {
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
@@ -257,12 +260,14 @@ pub unsafe extern "C" fn QAST_Iterate(
     // pointer fields satisfy the `QueryEvalContext::new` invariants per the
     // preconditions, and it is borrowed exclusively for the call.
     let mut ctx = unsafe { QueryEvalContext::new(q) };
-    // SAFETY: `root` is a valid `RSQueryNode` (precondition 1).
-    let node = unsafe { QueryNodeRef::new(root) };
+    // SAFETY: `root` is a valid `RSQueryNode` and the whole AST is borrowed
+    // exclusively for the duration of this call (precondition 1), so evaluation
+    // owns the tree: no other wrapper or reference into it is live.
+    let node = unsafe { QueryNodeMut::new(root) };
 
     let config = eval_config(ctx.config());
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    eval::qast_iterate(&mut ctx, &node, config).into_c_iterator()
+    eval::qast_iterate(&mut ctx, node, config).into_c_iterator()
 }
