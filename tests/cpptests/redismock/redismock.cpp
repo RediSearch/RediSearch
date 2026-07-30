@@ -1391,6 +1391,26 @@ static int RMCK_SubscribeToKeyspaceEvents(RedisModuleCtx *, int types,
   return REDISMODULE_OK;
 }
 
+static int RMCK_AddPostNotificationJob(RedisModuleCtx *ctx, RedisModulePostNotifyJobFunc callback,
+                                       void *pd, void (*free_pd)(void *)) {
+  callback(ctx, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
+static int RMCK_AddPostNotificationJobForKey(RedisModuleCtx *ctx,
+                                             RedisModulePostNotifyJobPerKeyFunc callback,
+                                             RedisModuleString *key, void *pd,
+                                             void (*free_pd)(void *)) {
+  callback(ctx, key, pd);
+  if (free_pd) {
+    free_pd(pd);
+  }
+  return REDISMODULE_OK;
+}
+
 static int RMCK_RegisterCommandFilter(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc callback,
                                       int flags) {
   return REDISMODULE_OK;
@@ -1828,6 +1848,8 @@ static void registerApis() {
   REGISTER_API(ScanKey);
 
   REGISTER_API(SubscribeToKeyspaceEvents);
+  REGISTER_API(AddPostNotificationJob);
+  REGISTER_API(AddPostNotificationJobForKey);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
 

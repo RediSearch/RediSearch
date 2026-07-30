@@ -179,15 +179,25 @@ void HandlePerKeyJobFunc(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) 
   HandleKeyspaceNotification(ctx, job->type, job->redisCommand, key);
 }
 
+static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
+  switch (redisCommand) {
+    case _null_cmd:
+    case loaded_cmd:
+    case rename_from_cmd:
+      return false;
+    default:
+      return true;
+  }
+}
+
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
-                                RedisModuleString *key) {
+                                 RedisModuleString *key) {
   enum RedisCmd redisCommand = GetRedisCmd(event);
-  // SearchDisk already defers non-loaded events. In memory mode, defer module-originated
-  // notifications (e.g. RedisJSON): those modules may still own open key handles while
-  // notifying, and updating KeyMeta before those handles are closed can invalidate Redis'
-  // handle-local key bookkeeping under ASAN.
-  if (redisCommand != _null_cmd && redisCommand != loaded_cmd &&
-      (SearchDisk_IsEnabled() || (type & REDISMODULE_NOTIFY_MODULE))) {
+  // Post-notification jobs run after the mutating command/module callback returns and any open
+  // RedisModuleKey handles it held during notification emission are closed. Defer all handled
+  // non-loaded notifications except rename_from, which only stores an owned source-key copy for
+  // the following rename_to job.
+  if (ShouldDeferKeyspaceNotification(redisCommand)) {
     KeyspaceNotificationJob *job = rm_malloc(sizeof(*job));
     job->type = type;
     job->redisCommand = redisCommand;
@@ -279,12 +289,18 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       break;
 
     case rename_from_cmd:
-      // Notification rename_to is called right after rename_from so this is safe.
-      global_RenameFromKey = key;
+      if (global_RenameFromKey) {
+        RedisModule_FreeString(ctx, global_RenameFromKey);
+      }
+      global_RenameFromKey = RedisModule_CreateStringFromString(ctx, key);
       break;
 
     case rename_to_cmd:
-      Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+      if (global_RenameFromKey) {
+        Indexes_ReplaceMatchingWithSchemaRules(ctx, global_RenameFromKey, key);
+        RedisModule_FreeString(ctx, global_RenameFromKey);
+        global_RenameFromKey = NULL;
+      }
       break;
 
 /********************************************************
