@@ -101,6 +101,8 @@ static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, 
     return HYBRID_WARNING_TIMEOUT;
   } else if (returnCode == RS_RESULT_ERROR) {
     // Non-fatal error — convert to warning
+    RS_LOG_ASSERT(!QueryError_IsOk(err),
+                  "RS_RESULT_ERROR reached the warning path without a QueryError set");
     ReplyWarning(reply, QueryError_GetUserError(err), suffix);
     QueryError_ClearError(err);  // Free allocated message strings
   } else if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {

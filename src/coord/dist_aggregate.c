@@ -361,6 +361,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // in RSExecDistAggregate before fanning out, so base.Next is already rpnetNext
   // by the time results are pulled and this function is never reached.
   if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
+    QueryError_SetCode(nc->base.parent->err, QUERY_ERROR_CODE_GENERIC);
     return RS_RESULT_ERROR;
   }
   MR_StartIterator(nc->it, iterStartCb, NULL);
