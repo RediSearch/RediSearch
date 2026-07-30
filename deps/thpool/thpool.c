@@ -105,7 +105,13 @@ typedef struct priority_queue {
 typedef struct redisearch_thpool_t {
   size_t n_threads;
   volatile atomic_size_t num_threads_alive;   /* threads currently alive   */
-  ThpoolState state;                          /* threadpool state, accessed only by the main thread */
+  ThpoolState state;                          /* threadpool state. Written only under the jobqueues
+                                                lock. Job submitters may run on any thread (e.g. the
+                                                coordinator IO thread), so the lazy-init decision in
+                                                push_chain_verify_init_threads reads it under the
+                                                lock. Other readers (add_threads, config reduce,
+                                                is_initialized) are main-thread-only and target
+                                                pools whose initializer is also the main thread. */
   priorityJobqueue jobqueues;                 /* job queue                 */
   LogFunc log;                                /* log callback              */
   volatile atomic_size_t total_jobs_done;     /* statistics for observability */
@@ -118,8 +124,14 @@ typedef struct redisearch_thpool_t {
 /* Set (for its whole lifetime) to the pool a worker thread belongs to, from
  * within thread_do. NULL on any non-worker thread (e.g. the main thread).
  * Used to detect re-entrant job submission: a worker submitting jobs to its
- * OWN pool must not run the verify_init all-threads barrier, because the
- * submitting worker cannot also arrive at that barrier -> deadlock. */
+ * OWN pool must never run verify_init. The reachable case is a pool draining
+ * in TERMINATE_WHEN_EMPTY (state == THPOOL_UNINITIALIZED while workers are
+ * still alive): the revive path coordinates every live worker through a
+ * barrier that counts the submitter itself, which is stuck initiating the
+ * barrier and can never arrive at it -> deadlock. Skipping is safe because
+ * TERMINATE_WHEN_EMPTY workers keep draining the queue until it is empty, so
+ * the jobs just pushed are still executed; reviving the pool to full strength
+ * is deferred to the next non-worker submission. */
 static __thread redisearch_thpool_t *g_thpool_self = NULL;
 
 
@@ -230,12 +242,22 @@ struct redisearch_thpool_t *redisearch_thpool_create(size_t num_threads, size_t 
   return thpool_p;
 }
 
-/* Initialise thread pool. This function is not thread safe. */
+/* Initialise thread pool. Must be called with the pool lock held and with
+ * `state != THPOOL_INITIALIZED`; releases the lock.
+ *
+ * The caller's state check, the decision below and the INITIALIZED transition
+ * form a single critical section, so submitters racing from other threads
+ * (e.g. the coordinator IO thread pushing a deferred job while the main
+ * thread performs the first-use initialization) either perform the whole
+ * initialization or skip it entirely. They can never observe a
+ * mid-initialization pool and misread it as the revive case (MOD-17351).
+ *
+ * INITIALIZED is published before the revive drain / thread spawn complete;
+ * it means "initialization is owned and its jobs are queued", not "all
+ * threads are up". Jobs pushed by racing submitters are simply drained once
+ * the threads are. */
 static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) {
-  if (thpool_p->state == THPOOL_INITIALIZED)
-    return; // Already initialized and all threads are active.
-
-  /** Else, either:
+  /** Either:
    * case 1: There are no threads alive, just add n_threads threads.
    * case 2: There are threads alive in terminate_when_empty state.
    * In this case, we need to add the missing threads to adjust
@@ -248,10 +270,17 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
    *              terminate when empty and *might also* increased n_threads)
    *              - n_threads_to_revive = num_threads_alive
    *              - n_new_threads = n_threads - num_threads_alive new threads */
-  redisearch_thpool_lock(thpool_p);
   size_t curr_num_threads_alive = thpool_p->num_threads_alive;
   size_t n_threads = thpool_p->n_threads;
   size_t n_new_threads = 0;
+
+  /* Case-2 coordination state. Lives at function scope so it outlives the
+   * admin jobs, which are guaranteed done before barrier_wait_and_destroy
+   * returns. */
+  barrier_t barrier;
+  SignalThreadCtx job_arg_revive = {.barrier = &barrier, .new_state = THREAD_RUNNING};
+  SignalThreadCtx job_arg_kill = {.barrier = &barrier, .new_state = THREAD_TERMINATE_ASAP};
+
   if (curr_num_threads_alive) { // Case 2 - some or all threads are alive in
                                 // TERMINATE_WHEN_EMPTY state
     size_t n_threads_to_revive = 0;
@@ -269,21 +298,18 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     }
 
     /* In both cases we send `curr_num_threads_alive` jobs. */
-    barrier_t barrier;
     barrier_init(&barrier, NULL, curr_num_threads_alive);
 
     /* Create jobs and their args */
     redisearch_thpool_work_t jobs[curr_num_threads_alive];
 
     /* Set new state of `n_threads_to_revive` threads state to 'THREAD_RUNNING' */
-    SignalThreadCtx job_arg_revive = {.barrier = &barrier, .new_state = THREAD_RUNNING};
     for (size_t i = 0; i < n_threads_to_revive; i++) {
       jobs[i].arg_p = &job_arg_revive;
       jobs[i].function_p = admin_job_change_state;
     }
 
     /* Set new state of `n_threads_to_kill` threads state to 'THREAD_TERMINATE_ASAP' */
-    SignalThreadCtx job_arg_kill = {.barrier = &barrier, .new_state = THREAD_TERMINATE_ASAP};
     for (size_t i = n_threads_to_revive; i < curr_num_threads_alive; i++) {
       jobs[i].arg_p = &job_arg_kill;
       jobs[i].function_p = admin_job_change_state;
@@ -292,14 +318,21 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     jobsChain jobs_chain = create_jobs_chain(jobs, curr_num_threads_alive);
     priority_queue_push_chain_unsafe(&thpool_p->jobqueues, jobs_chain.first_job, jobs_chain.last_job,
         curr_num_threads_alive, THPOOL_PRIORITY_ADMIN);
-
-    /* Unlock to allow the threads to pull from the jobq */
-    redisearch_thpool_unlock(thpool_p);
-    /* Wait on for the threads to pass the barrier and destroy the barrier */
-    barrier_wait_and_destroy(&barrier);
   } else { // Case 1 - no threads alive
-    redisearch_thpool_unlock(thpool_p);
     n_new_threads = n_threads;
+  }
+
+  /* Publish INITIALIZED before releasing the lock so racing submitters skip
+   * initialization; see the function comment for what the flag means. */
+  thpool_p->state = THPOOL_INITIALIZED;
+  redisearch_thpool_unlock(thpool_p);
+
+  if (curr_num_threads_alive) {
+    /* Wait for the threads to pass the barrier and destroy the barrier.
+     * New threads (case 2.b) are spawned only after this drain completes so
+     * they cannot take an admin job intended for a TERMINATE_WHEN_EMPTY
+     * thread (each live thread must run exactly one). */
+    barrier_wait_and_destroy(&barrier);
   }
 
   /* Add new threads if needed */
@@ -321,7 +354,6 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
       usleep(1);
     }
   }
-  thpool_p->state = THPOOL_INITIALIZED;
 
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully",
                 thpool_p->n_threads)
@@ -445,21 +477,25 @@ static void redisearch_thpool_push_chain(
 static void redisearch_thpool_push_chain_verify_init_threads(
   redisearch_thpool_t *thpool_p, job *f_newjob_p, job *l_newjob_p, size_t n,
   thpool_priority priority) {
-  redisearch_thpool_push_chain(thpool_p, f_newjob_p, l_newjob_p, n, priority);
+  redisearch_thpool_lock(thpool_p);
+  priority_queue_push_chain_unsafe(&thpool_p->jobqueues, f_newjob_p, l_newjob_p, n, priority);
 
-  /* Never run verify_init from within one of this pool's own worker threads.
-   * verify_init coordinates every live worker through a barrier; the submitting
-   * worker is one of them but is stuck here initiating the barrier, so it can
-   * never be reached. The pool is already running (the caller is a live
-   * worker), so the jobs just pushed will be drained by the running workers;
-   * spawning or reviving threads is only ever required from a non-worker
-   * thread. */
-  if (g_thpool_self == thpool_p) {
+  /* Lazy initialization. The push, the state check and the initialization
+   * decision share one lock hold: submitters run on multiple threads (main
+   * thread and the coordinator IO thread), and an unlocked check here used to
+   * misread a mid-initialization pool as "threads alive in
+   * TERMINATE_WHEN_EMPTY" and deadlock on the revive barrier (MOD-17351).
+   *
+   * Skip when the submitter is one of this pool's own workers (see
+   * g_thpool_self): the revive barrier would count the submitter itself,
+   * which can never arrive at it. The jobs just pushed are still drained by
+   * the live workers. */
+  if (thpool_p->state == THPOOL_INITIALIZED || g_thpool_self == thpool_p) {
+    redisearch_thpool_unlock(thpool_p);
     return;
   }
 
-  /* Initialize threads if needed */
-  redisearch_thpool_verify_init(thpool_p);
+  redisearch_thpool_verify_init(thpool_p); // Releases the lock.
 }
 
 /* Wait until all jobs have finished */
@@ -523,10 +559,12 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t *thpool_p) {
     while (thpool_p->num_threads_alive) {
       usleep(1);
     }
-  } else {
-    redisearch_thpool_unlock(thpool_p);
+    /* Re-acquire the lock for the state transition (`state` is written only
+     * under the pool lock). */
+    redisearch_thpool_lock(thpool_p);
   }
   thpool_p->state = THPOOL_UNINITIALIZED;
+  redisearch_thpool_unlock(thpool_p);
 }
 
 /* Destroy the threadpool */
@@ -687,7 +725,13 @@ static void *thread_do(void *p) {
 
   LOG_IF_EXISTS("verbose", "Creating background thread: %s", thread_name)
 
-  /* Mark thread as alive (initialized) */
+  /* Mark thread as alive (initialized).
+   * Ordering invariant: `num_threads_alive` and `started` are set BEFORE the
+   * first queue pull below (the first operation that needs the pool lock).
+   * verify_init's started-wait relies on this: it must be able to complete
+   * even if its caller still interacts with the pool under the lock, and by
+   * the time `started` is observed the alive count already includes this
+   * thread. */
   thpool_p->num_threads_alive += 1;
   threadCtx thread_ctx = {.thread_state = THREAD_RUNNING};
   // Set to true after accounting num_threads_alive, useful for testing
@@ -1108,6 +1152,9 @@ void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *t
   // As per the input, I know i am Initialized, I do not need to verify it (and avoid waiting)
   redisearch_thpool_add_n_work_not_verify_init(thpool_p, jobs, n_threads_to_remove, THPOOL_PRIORITY_ADMIN);
   if (terminate_when_empty) {
+    /* `state` is written only under the pool lock. */
+    redisearch_thpool_lock(thpool_p);
     thpool_p->state = THPOOL_UNINITIALIZED;
+    redisearch_thpool_unlock(thpool_p);
   }
 }

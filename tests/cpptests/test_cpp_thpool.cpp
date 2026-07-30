@@ -654,6 +654,62 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestWorkerCanAddJobsWhileTerminateWhenEm
     ASSERT_EQ(stats.total_pending_jobs, 0);
 }
 
+/** Regression test for MOD-17351: concurrent first-use lazy initialization.
+ *
+ * Two non-worker threads race add_work on an uninitialized pool. One of them
+ * pushes a job that blocks until that submitter's add_work returns — modeling
+ * the coordinator IO thread, whose deferred-execution job depends on the
+ * submitting (IO) thread's further progress. Before the fix, the second
+ * submitter could observe the pool mid-initialization (threads alive, state
+ * not yet INITIALIZED), misread it as "threads draining in
+ * TERMINATE_WHEN_EMPTY", and block on a revive barrier counting the worker
+ * that runs the blocked job -> deadlock (the test would hang). The loop gives
+ * the race window (the thread-spawn duration) many chances to be hit. */
+TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
+    typedef struct {
+        volatile std::atomic<bool> &release;
+        volatile std::atomic<size_t> &executed;
+    } RaceCtx;
+
+    auto blockedJob = [](void *p) {
+        RaceCtx *ctx = (RaceCtx *)p;
+        while (!ctx->release) {
+            usleep(1);
+        }
+        ctx->executed++;
+    };
+    auto trivialJob = [](void *p) {
+        RaceCtx *ctx = (RaceCtx *)p;
+        ctx->executed++;
+    };
+
+    for (int iter = 0; iter < 100; iter++) {
+        redisearch_thpool_t *pool = redisearch_thpool_create(4, 0, LogCallback, "test");
+
+        volatile std::atomic<bool> release{false};
+        volatile std::atomic<size_t> executed{0};
+        RaceCtx ctx = {release, executed};
+
+        std::thread first_submitter([&] {
+            redisearch_thpool_add_work(pool, trivialJob, &ctx, THPOOL_PRIORITY_HIGH);
+        });
+        std::thread io_submitter([&] {
+            redisearch_thpool_add_work(pool, blockedJob, &ctx, THPOOL_PRIORITY_HIGH);
+            // The blocked job only completes on progress made after add_work
+            // returns, like a job depending on the IO thread's event loop.
+            release = true;
+        });
+
+        first_submitter.join();
+        io_submitter.join();
+
+        while (executed < 2) {
+            usleep(1);
+        }
+        redisearch_thpool_destroy(pool);
+    }
+}
+
 /** This test purpose is to show we can add threads to a pool that was set to 0 threads. */
 TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreadsToEmptyPool) {
     size_t total_jobs_pushed = 0;
