@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <limits.h>
+#include <sched.h>
 #include <string.h>
 // __GLIBC__; glibc-only header
 #if __has_include(<features.h>)
@@ -2017,8 +2018,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   removePendingIndexDrop();
 }
 
-#define DOCID_META_PRUNE_GIL_BATCH 500  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
-#define DOCID_META_PRUNE_GIL_SLEEP_US 1
+#define DOCID_META_PRUNE_GIL_BATCH 20  // keys pruned per GIL hold in IndexSpec_PruneDocIdMeta
 
 // Reclaim a KEEPDOCS-dropped spec's DocIdMeta from the surviving Redis keys
 // (nothing else removes those entries). Runs on the cleanPool worker before the
@@ -2035,6 +2035,7 @@ static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
   RedisModuleCtx *ctx = RSDummyContext;
   DocTable *dt = &sp->docs;
   size_t inBatch = 0;
+  size_t releases = 0;
   RedisModule_ThreadSafeContextLock(ctx);
   DOCTABLE_FOREACH(dt, {
     RedisModuleString *keyName = DMD_CreateKeyString(dmd, ctx);
@@ -2043,7 +2044,11 @@ static void IndexSpec_PruneDocIdMeta(IndexSpec *sp) {
     if (++inBatch >= DOCID_META_PRUNE_GIL_BATCH) {
       RedisModule_ThreadSafeContextUnlock(ctx);
       inBatch = 0;
-      usleep(DOCID_META_PRUNE_GIL_SLEEP_US);
+      if (++releases % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
+        usleep(RSGlobalConfig.bgIndexingSleepDurationMicroseconds);
+      } else {
+        sched_yield();
+      }
       RedisModule_ThreadSafeContextLock(ctx);
     }
   });
