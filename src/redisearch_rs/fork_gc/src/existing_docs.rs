@@ -15,26 +15,13 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::Serialize as _;
 
-use crate::{ForkGC, Frame, HandleError, HandleOutcome};
+use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 
 /// The `existingDocs` inverted index was removed between the child's scan and
 /// the parent's apply (a race between GC and a concurrent index drop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the existingDocs inverted index was removed before the delta could be applied")]
 pub struct ExistingDocsDeleted;
-
-/// Statistics produced by [`apply_existing_docs`], forwarded by
-/// [`handle_existing_docs`] to [`ForkGC::update_gc_stats`].
-pub struct ApplyInfo {
-    /// Added block count
-    pub added_block_count: i64,
-    /// Bytes freed by this GC pass.
-    pub bytes_freed: usize,
-    /// Bytes allocated during compaction (new block overhead).
-    pub bytes_allocated: usize,
-    /// Whether the last block was skipped to avoid data races.
-    pub ignored_last_block: bool,
-}
 
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
@@ -90,8 +77,8 @@ pub fn receive_existing_docs(
 
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.
 ///
-/// Returns [`ApplyInfo`] with counters the caller can forward to
-/// [`ForkGC::update_gc_stats`].
+/// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
+/// [`GcApplyStats::apply`].
 ///
 /// Returns `Err(HandleError::Custom(ExistingDocsDeleted))` when the spec has no
 /// `existingDocs` index, which can happen if the index was removed between
@@ -99,7 +86,7 @@ pub fn receive_existing_docs(
 pub fn apply_existing_docs(
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<ApplyInfo, HandleError<ExistingDocsDeleted>> {
+) -> Result<GcApplyStats, HandleError<ExistingDocsDeleted>> {
     let Some(ii) = guard.existing_docs_mut() else {
         return Err(HandleError::Custom(ExistingDocsDeleted));
     };
@@ -115,28 +102,15 @@ pub fn apply_existing_docs(
         (0, 0)
     };
 
-    Ok(ApplyInfo {
-        added_block_count: info.block_count_delta - remaining_blocks as i64,
-        bytes_freed: info.bytes_freed + extra,
+    Ok(GcApplyStats {
+        // `records_removed` is 0: existingDocs entries are not counted on insertion
+        // (they are internal duplicates), so we do not count them on removal either.
+        records_removed: 0,
+        bytes_collected: info.bytes_freed + extra,
         bytes_allocated: info.bytes_allocated,
-        ignored_last_block: info.ignored_last_block,
+        block_count_delta: info.block_count_delta - remaining_blocks as i64,
+        blocks_denied: info.ignored_last_block as u64,
     })
-}
-
-/// Update both the spec-level and GC-level statistics after applying a GC delta.
-///
-/// Combines the spec stats update (done under the write lock) and the GC stats
-/// update that always go together after a successful [`apply_existing_docs`] call.
-pub fn update_stats(info: &ApplyInfo, guard: &mut IndexSpecWriteGuard<'_>, fgc: &mut ForkGC) {
-    guard.add_block_count(info.added_block_count);
-    // entries_removed is 0: existingDocs entries are not counted on insertion
-    // (they are internal duplicates), so we do not count them on removal either.
-    guard.update_gc_stats(0, info.bytes_freed, info.bytes_allocated);
-    fgc.update_gc_stats(
-        info.bytes_freed,
-        info.bytes_allocated,
-        info.ignored_last_block,
-    );
 }
 
 /// Parent-side handler for the `existingDocs` GC protocol.
@@ -157,8 +131,8 @@ pub fn handle_existing_docs(
     let mut spec_ref = fgc.index_spec().promote().ok_or(HandleError::SpecDeleted)?;
     let mut guard = spec_ref.write();
 
-    let info = apply_existing_docs(delta, &mut guard)?;
-    update_stats(&info, &mut guard, fgc);
+    let stats = apply_existing_docs(delta, &mut guard)?;
+    stats.apply(fgc, &mut guard);
 
     Ok(HandleOutcome::Collected)
 }

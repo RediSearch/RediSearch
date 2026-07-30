@@ -179,8 +179,8 @@ fn roundtrip_all_docs_deleted_clears_index() {
     let delta = receive_existing_docs(&mut cursor).unwrap().unwrap();
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let info = apply_existing_docs(delta, &mut *write_guard).unwrap();
+    let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();
 
     assert!(write_guard.existing_docs_mut().is_none());
-    assert!(info.bytes_freed > 0);
+    assert!(stats.bytes_collected > 0);
 }

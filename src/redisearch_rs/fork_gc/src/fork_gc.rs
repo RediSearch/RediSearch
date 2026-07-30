@@ -105,17 +105,15 @@ impl ForkGC {
     }
 
     /// Update the GC-level statistics after applying a garbage collection delta.
-    ///
-    /// This is the GC-side half of `FGC_updateStats`.
     pub const fn update_gc_stats(
         &mut self,
         bytes_collected: usize,
         bytes_allocated: usize,
-        ignored_last_block: bool,
+        blocks_denied: u64,
     ) {
         self.0.stats.totalCollected += bytes_collected as isize;
         self.0.stats.totalCollected -= bytes_allocated as isize;
-        self.0.stats.gcBlocksDenied += ignored_last_block as u64;
+        self.0.stats.gcBlocksDenied += blocks_denied;
     }
 }
 

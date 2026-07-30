@@ -22,8 +22,10 @@ pub mod handle;
 pub mod io_result_ext;
 pub mod missing_docs;
 pub mod numeric;
+pub mod stats;
 pub mod util;
 
 pub use fork_gc::ForkGC;
 pub use frame::Frame;
 pub use handle::{HandleError, HandleOutcome};
+pub use stats::GcApplyStats;
