@@ -1,0 +1,126 @@
+id: 5b14c458-f8b6-454e-87f3-249e6b52e50a
+name: rust-quick
+description: >-
+  The Rust half of the verification gate, for iterating: the test suite, then
+  clippy over the debug profile only.
+
+  Named for what it covers. There is no C build here, so a change that breaks the
+  C side or the Python suite will pass this and fail `verify`. Use it while
+  writing Rust; use `verify` before opening a pull request.
+
+  Scoping is where the time goes. Pass `crate` to measure one workspace crate and
+  `test` to narrow to a few tests — both empty by default, which runs everything.
+  Clippy always covers the whole workspace, because the lint model invokes cargo
+  with `--workspace`.
+
+  Tests come before lints, as they do in `verify`: while iterating the question is
+  whether the code works, and a style lint should not stand in front of the
+  answer.
+
+  The two steps are chained rather than parallel because cargo serialises on the
+  build-directory lock under src/redisearch_rs/target; running them at once would
+  block or fail outright.
+
+  Note that the clippy step regenerates the C headers first, as `make lint` does,
+  which writes to src/redisearch_rs/headers/. That is deliberate — it catches a
+  cheadergen change that was never regenerated — but it means this workflow can
+  modify the working tree. Point the step at a model whose `regenerateHeaders` is
+  false if that is unwanted.
+tags:
+  purpose: verification
+reports:
+  require:
+    # Collects whatever failed into one list, with the source location each tool
+    # reported, rather than one summary per model.
+    - "@gdesmott/failure-digest"
+inputs:
+  type: object
+  properties:
+    crate:
+      type: string
+      default: ""
+      description: >-
+        Restrict the test run to one workspace crate. Empty runs the whole
+        workspace. Clippy is unaffected: it always lints the workspace.
+    test:
+      type: string
+      default: ""
+      description: >-
+        nextest filter, matched against test names. Empty runs every test.
+    noFailFast:
+      type: boolean
+      default: true
+      description: >-
+        Run every test even after the first failure, so one iteration reports
+        every broken test rather than only the first. Turn it off for the
+        shortest possible feedback on a single known failure.
+    binDir:
+      type: string
+      default: ""
+      description: >-
+        Directory holding the compiled C static libraries, exported as BINDIR
+        for the test run. There is no build step here to derive it from, so
+        pass the binDir a previous `verify` reported — typically
+        bin/linux-x64-debug/search-community. Empty leaves BINDIR unset, and
+        the crates that link against C then fall back to the conventional
+        release layout, which is the wrong archive while iterating on a debug
+        build and absent entirely on a checkout that was never built release.
+jobs:
+  - name: quick
+    description: Run the Rust tests, then lint the debug profile
+    # Redundant with the dependsOn chain below, but it keeps the build-directory
+    # lock safe if a step is ever added without a dependency.
+    concurrency: 1
+    steps:
+      - name: rust-tests
+        description: Run the Rust test suite with cargo nextest
+        task:
+          type: model_method
+          modelIdOrName: rust-tests
+          methodName: run
+          inputs:
+            crate: ${{ inputs.crate }}
+            test: ${{ inputs.test }}
+            noFailFast: ${{ inputs.noFailFast }}
+            binDir: ${{ inputs.binDir }}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+
+      - name: tests-ran
+        description: >-
+          The suite actually executed tests. A filter that matches nothing exits
+          successfully, which would otherwise read as a passing run.
+        task:
+          type: assert
+          expr: >-
+            data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.summaryParsed
+            && int(data.query('modelName == "rust-tests" && name == "summary" && version >= 0 && workflowRunId == "' + run.id + '"')[0].attributes.testsRun) > 0
+          message: >-
+            The Rust suite reported success without running any test — the
+            filter ${{ inputs.test }} probably matched nothing.
+          severity: high
+        dependsOn:
+          - step: rust-tests
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+
+      - name: clippy
+        description: Lint the Rust workspace with clippy, debug profile only
+        task:
+          type: model_method
+          modelIdOrName: clippy-debug
+          methodName: run
+          inputs:
+            binDir: ${{ inputs.binDir }}
+        dependsOn:
+          - step: tests-ran
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1

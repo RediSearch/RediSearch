@@ -1,0 +1,15 @@
+type: '@gdesmott/rust-lint'
+typeVersion: 2026.08.05.1
+id: 75b8ace1-b299-4bab-a1e6-12fccaa45c67
+name: clippy-debug
+version: 1
+tags: {}
+globalArguments:
+  tool: clippy
+  workingDir: src/redisearch_rs
+  cargoBin: cargo
+  profiles:
+    - debug
+  excludeFrom: build.sh
+  regenerateHeaders: true
+methods: {}
