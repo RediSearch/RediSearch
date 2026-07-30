@@ -1,0 +1,8 @@
+type: '@gdesmott/lcov-coverage'
+typeVersion: 2026.07.30.1
+id: 64b9b9e0-b6a2-4328-9384-0dcbb9277ed7
+name: flow-coverage
+version: 1
+tags: {}
+globalArguments: {}
+methods: {}
