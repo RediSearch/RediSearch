@@ -273,7 +273,7 @@ pub unsafe extern "C" fn FGC_freeBuffer(buf: *mut c_void, len: usize) {
         return;
     }
 
-    // The buffer was leaked by `util::frame_into_c_buffer` via
+    // The buffer was handed off by `util::frame_into_c_buffer` via
     // `NulTerminatedBytes::into_raw_parts`, so hand the same `(ptr, len)` pair back
     // to `from_raw_parts` to reconstruct and drop it (reclaiming the `len + 1`
     // allocation).

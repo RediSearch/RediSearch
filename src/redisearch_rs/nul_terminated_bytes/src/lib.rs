@@ -14,18 +14,18 @@ use std::ops::Deref;
 
 /// An owned, heap-allocated bytes buffer with a trailing NUL byte.
 ///
-/// The trailing NUL exists for C-ABI compatibility, preventing out-of-bounds
+/// The trailing NUL exists for C ABI compatibility, preventing out-of-bounds
 /// reads and undefined behavior when passing the buffer's raw pointer to C functions
-/// that expect a nul-terminated string.
+/// that expect a NUL-terminated string.
 ///
-/// Note that if the buffer contains interior NUL bytes, C functions will treat
-/// the first NUL as the end of the string and truncate the payload early. This
-/// can lead to logic bugs, but it remains memory safe.
+/// Note that if the buffer contains interior NUL bytes, C functions using it as
+/// a C string will treat the first NUL as the end of the string and truncate the
+/// payload early. This can lead to logic bugs, but it remains memory safe.
 #[derive(PartialEq, Eq)]
 pub struct NulTerminatedBytes(Box<[u8]>);
 
 impl NulTerminatedBytes {
-    /// Reconstruct a buffer previously leaked by [`Self::into_raw_parts`].
+    /// Retake ownership of a buffer previously consumed by [`Self::into_raw_parts`].
     ///
     /// # Safety
     ///
@@ -34,9 +34,9 @@ impl NulTerminatedBytes {
     ///    reconstructed. Passing a mismatched length, a pointer from a different
     ///    allocation, or a pair that was already reclaimed is undefined behaviour.
     pub unsafe fn from_raw_parts(ptr: *mut u8, len: usize) -> Self {
-        // `into_raw_parts` leaked a `len + 1`-byte boxed slice (payload plus the
-        // NUL), so rebuild the fat pointer with that same length for the box to
-        // deallocate the whole allocation. `len` originates from a real
+        // `into_raw_parts` handed off a `len + 1`-byte boxed slice (payload plus
+        // the NUL), so rebuild the fat pointer with that same length for the box
+        // to deallocate the whole allocation. `len` originates from a real
         // allocation, so `len + 1` cannot overflow.
         let ptr = std::ptr::slice_from_raw_parts_mut(ptr, len + 1);
 
