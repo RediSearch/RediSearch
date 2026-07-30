@@ -13,8 +13,8 @@ use std::io::{self, Read, Write};
 
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
+use nul_terminated_bytes::NulTerminatedBytes;
 use serde::Serialize as _;
-use string_utils::NulTerminatedBytes;
 
 use crate::util::with_hidden_string_ref;
 use crate::{ForkGC, Frame};

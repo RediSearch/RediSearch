@@ -14,7 +14,7 @@
 //! functions (`NewQueryTerm`, `Term_Free`) are provided by the `query_term_ffi`
 //! crate.
 
-use string_utils::NulTerminatedBytes;
+use nul_terminated_bytes::NulTerminatedBytes;
 
 /// Flags associated with query tokens and terms.
 ///

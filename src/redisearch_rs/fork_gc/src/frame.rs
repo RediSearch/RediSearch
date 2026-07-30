@@ -12,7 +12,7 @@ use std::{
     ops::Deref,
 };
 
-use string_utils::NulTerminatedBytes;
+use nul_terminated_bytes::NulTerminatedBytes;
 
 pub(crate) const EMPTY: usize = 0;
 pub(crate) const TERMINATOR: usize = usize::MAX;

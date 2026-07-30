@@ -16,8 +16,8 @@ use std::{
 
 use hidden_string::HiddenStringRef;
 use nix::poll::{PollFd, PollFlags};
+use nul_terminated_bytes::NulTerminatedBytes;
 use redis_module::raw::RedisModule_ExitFromChild;
-use string_utils::NulTerminatedBytes;
 
 /// Log a write error and terminate the current process.
 pub(crate) fn exit_on_write_error(err: io::Error) -> ! {

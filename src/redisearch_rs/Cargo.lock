@@ -735,6 +735,7 @@ dependencies = [
  "inverted_index",
  "libc",
  "nix",
+ "nul_terminated_bytes",
  "numeric_range_tree",
  "proptest",
  "redis-module",
@@ -743,7 +744,6 @@ dependencies = [
  "rmp-serde",
  "rqe_core",
  "serde",
- "string_utils",
  "thiserror",
  "tracing",
  "workspace_hack",
@@ -757,7 +757,7 @@ dependencies = [
  "ffi",
  "fork_gc",
  "index_spec",
- "string_utils",
+ "nul_terminated_bytes",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1462,6 +1462,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nul_terminated_bytes"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1837,7 +1844,7 @@ name = "query_term"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "string_utils",
+ "nul_terminated_bytes",
  "workspace_hack",
 ]
 
@@ -3456,11 +3463,11 @@ dependencies = [
  "cheadergen",
  "ffi",
  "libc",
+ "nul_terminated_bytes",
  "query_error",
  "redis-module",
  "redis_mock",
  "redisearch_rs",
- "string_utils",
  "thiserror",
  "tracing",
  "tracing_assert",

@@ -21,7 +21,7 @@ use std::{
 };
 
 use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
-use string_utils::NulTerminatedBytes;
+use nul_terminated_bytes::NulTerminatedBytes;
 
 use tracing::Level;
 use tracing_log_error::log_error;

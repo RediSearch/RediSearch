@@ -10,7 +10,7 @@
 use std::{ffi::c_void, ptr};
 
 use fork_gc::Frame;
-use string_utils::NulTerminatedBytes;
+use nul_terminated_bytes::NulTerminatedBytes;
 
 /// Consume the frame, producing the `(buf, len)` pair that the C
 /// `FGC_recvBuffer` and `recvFieldHeader` API exposes through its

@@ -8,9 +8,9 @@
 */
 
 use ffi::RedisModule_Free;
+use nul_terminated_bytes::NulTerminatedBytes;
 use std::ffi::c_char;
 use std::fmt;
-use string_utils::NulTerminatedBytes;
 
 /// An [`String`] is meant to store string data with support for rust allocated data, C
 /// allocated data or borrowed data, and support for a max length of `u32::MAX`.
