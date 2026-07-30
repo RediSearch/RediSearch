@@ -2244,18 +2244,6 @@ def testBinaryKeys(env):
             env.assertContains(r, exp)
 
 @skip(cluster=True)
-def testNonDefaultDb(env):
-    # Should be ok
-    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'schema', 'txt', 'text')
-    try:
-        env.cmd('SELECT 1')
-    except redis.ResponseError:
-        return
-
-    # Should fail
-    with env.assertResponseError():
-        env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'schema', 'txt', 'text')
-
 def testDuplicateNonspecFields(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'schema', 'txt', 'text').ok()
     env.assertOk(env.getClusterConnectionIfNeeded().execute_command('FT.ADD', 'idx', 'doc', 1.0, 'fields',

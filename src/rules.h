@@ -100,11 +100,18 @@ void SchemaRule_RdbSave(SchemaRule *rule, RedisModuleIO *rdb);
 int SchemaRule_RdbLoad(StrongRef spec_ref, RedisModuleIO *rdb, int encver, QueryError *status);
 
 // Decide whether `keyname` (of `type`) belongs to `sp`: matches its type, a prefix, and the
-// optional FILTER expression. `openKey`, when non-NULL, is an already-open pinned handle for
-// `keyname` (e.g. the value pinned for an AsyncScan callback) that the FILTER evaluation reuses
-// to load fields instead of reopening by name; pass NULL when no such handle is available.
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
-                            RedisModuleKey *openKey);
+// optional FILTER expression.
+//
+// `ctx` is used to load the document's fields when evaluating the schema FILTER expression. It
+// must be selected to the DB the index lives on (sp->dbid) so the filter reads the right document;
+// passing a DB-0 context (e.g. RSDummyContext) would evaluate filters against the wrong keyspace
+// for indexes on non-zero DBs.
+//
+// `openKey`, when non-NULL, is an already-open pinned handle for `keyname` (e.g. the value pinned
+// for an AsyncScan callback) that the FILTER evaluation reuses to load fields instead of reopening
+// by name; pass NULL when no such handle is available.
+bool SchemaRule_ShouldIndex(RedisModuleCtx *ctx, struct IndexSpec *sp, RedisModuleString *keyname,
+                            DocumentType type, RedisModuleKey *openKey);
 
 struct EvalCtx;
 /**

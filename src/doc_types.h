@@ -30,8 +30,13 @@ static inline DocumentType getDocType(RedisModuleKey *key) {
   return DocumentType_Unsupported;
 }
 
-static inline DocumentType getDocTypeFromString(RedisModuleString *keyStr) {
-  RedisModuleKey *key = RedisModule_OpenKey(RSDummyContext, keyStr, REDISMODULE_READ);
+// Determine the document type of a key by opening it on `ctx`. The context's
+// selected DB matters: keyspace-notification callbacks must pass the event
+// context (which Redis selects to the DB the event fired on) so the key is
+// looked up in the right logical DB. Passing RSDummyContext only finds keys on
+// DB 0.
+static inline DocumentType getDocTypeFromString(RedisModuleCtx *ctx, RedisModuleString *keyStr) {
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyStr, REDISMODULE_READ);
   DocumentType type = getDocType(key);
   RedisModule_CloseKey(key);
   return type;
