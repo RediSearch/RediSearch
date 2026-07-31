@@ -10,6 +10,7 @@
 use std::{ffi::c_void, ptr};
 
 use fork_gc::Frame;
+use nul_terminated_bytes::NulTerminatedBytes;
 
 /// Consume the frame, producing the `(buf, len)` pair that the C
 /// `FGC_recvBuffer` and `recvFieldHeader` API exposes through its
@@ -18,16 +19,15 @@ use fork_gc::Frame;
 /// - [`Frame::Terminator`] → `(null, SIZE_MAX)`. Callers detect end-of-stream
 ///   by checking `*len == SIZE_MAX`.
 /// - [`Frame::Empty`] → `(null, 0)`.
-/// - [`Frame::Data`] → leaks the boxed payload, transferring ownership
-///   to the caller. The caller is responsible for releasing it with
-///   [`super::FGC_freeBuffer`].
-pub(crate) fn frame_into_c_buffer(frame: Frame<Box<[u8]>>) -> (*mut c_void, usize) {
+/// - [`Frame::Data`] → hands the buffer off to the caller, which is
+///   responsible for releasing it with [`super::FGC_freeBuffer`]. The
+///   returned length is the payload length excluding the NUL terminator.
+pub(crate) fn frame_into_c_buffer(frame: Frame<NulTerminatedBytes>) -> (*mut c_void, usize) {
     match frame {
         Frame::Terminator => (ptr::null_mut(), usize::MAX),
         Frame::Empty => (ptr::null_mut(), 0),
         Frame::Data(data) => {
-            let len = data.len();
-            let ptr = Box::into_raw(data.into_inner()) as *mut u8;
+            let (ptr, len) = data.into_inner().into_raw_parts();
             (ptr.cast(), len)
         }
     }
