@@ -288,23 +288,6 @@ def _create_flex_search(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_rename_updates_document_key(env):
-    """Flex rename uses DocIdMeta on the target key to update or remove the indexed document."""
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SKIPINITIALSCAN',
-               'SCHEMA', 't', 'TEXT').ok()
-    env.expect('HSET', 'doc:old', 't', 'hello world').equal(1)
-
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:old'])
-
-    env.expect('RENAME doc:old doc:new').ok()
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:new'])
-
-    env.expect('RENAME doc:new other:new').ok()
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_search_hash_allows_default_return(env):
     """On a HASH (flex) index, FT.SEARCH loads fields from disk via the async
     loader, so NOCONTENT / RETURN 0 are no longer required."""

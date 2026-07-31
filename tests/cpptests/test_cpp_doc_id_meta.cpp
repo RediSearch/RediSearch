@@ -373,6 +373,42 @@ TEST_F(DocIdMetaTest, TestRenameCallbackIsNotRegistered) {
   EXPECT_FALSE(RMCK_KeyMetaHasRename(getDocIdMetaClassId()));
 }
 
+TEST_F(DocIdMetaTest, TestPruneDeletedSpecsKeepsLiveEntries) {
+  addTestSpec("idx_live", SPEC1_ID);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+
+  EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocId(testKeyName, SPEC1_ID, 1001);
+  verifyDocIdMissing(testKeyName, SPEC2_ID);
+}
+
+TEST_F(DocIdMetaTest, TestPruneDeletedSpecsResetsMetaWhenAllEntriesAreStale) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+
+  EXPECT_TRUE(keyMetaSlotExists(testKeyName));
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+  verifyDocIdMissing(testKeyName, SPEC1_ID);
+}
+
+TEST_F(DocIdMetaTest, TestRenameToPrunesDeletedSpecEntries) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RedisModuleString *fromKey = createHashKey("oldkey");
+  Indexes_ReplaceMatchingWithSchemaRules(ctx, fromKey, testKeyName);
+
+  EXPECT_TRUE(keyMetaSlotExists(testKeyName));
+  EXPECT_EQ(readKeyMetaAllowZero(testKeyName), 0u);
+
+  RedisModule_FreeString(ctx, fromKey);
+}
+
 // Deleting the last entry must reset the KeyMeta value and free the now-empty
 // per-key dict. The Redis module API leaves the KeyMeta slot attached with
 // reset_value(0), so freeing without resetting would leave a dangling pointer
@@ -471,6 +507,40 @@ TEST_F(DocIdMetaTest, TestDropIndexKeepDocsPrunesMetaWhenFreeingSynchronously) {
   RMCK::ArgvList dropArgs(ctx, "FT.DROPINDEX", "idx_sync_drop");
   EXPECT_EQ(DropIndexCommand(ctx, dropArgs, dropArgs.size()), REDISMODULE_OK);
 
+  EXPECT_EQ(readKeyMetaAllowZero(keyName), 0u);
+
+  RedisModule_FreeString(ctx, keyName);
+}
+
+TEST_F(DocIdMetaTest, TestDropIndexKeepDocsPrunesMetaWhenFreeingAsynchronously) {
+  struct FreeResourcesThreadGuard {
+    explicit FreeResourcesThreadGuard(bool value) : old(RSGlobalConfig.freeResourcesThread) {
+      RSGlobalConfig.freeResourcesThread = value;
+    }
+    ~FreeResourcesThreadGuard() {
+      RSGlobalConfig.freeResourcesThread = old;
+    }
+    bool old;
+  } freeResourcesThreadGuard(true);
+
+  RMCK::ArgvList createArgs(ctx, "FT.CREATE", "idx_async_drop", "ON", "HASH", "SKIPINITIALSCAN",
+                            "SCHEMA", "field", "TEXT");
+  QueryError status = QueryError_Default();
+  IndexSpec *spec = Indexes_CreateNewSpec(ctx, createArgs, createArgs.size(), &status);
+  ASSERT_NE(spec, nullptr) << QueryError_GetDisplayableError(&status, true);
+
+  RedisModuleString *keyName = createHashKey("doc_async_drop");
+  EXPECT_EQ(DocIdMeta_Set(ctx, keyName, spec->specId, 1), REDISMODULE_OK);
+  RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, "doc_async_drop", 14, 1.0,
+                                         Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+  ASSERT_NE(dmd, nullptr);
+  DMD_Return(dmd);
+  EXPECT_NE(readKeyMetaAllowZero(keyName), 0u);
+
+  RMCK::ArgvList dropArgs(ctx, "FT.DROPINDEX", "idx_async_drop");
+  EXPECT_EQ(DropIndexCommand(ctx, dropArgs, dropArgs.size()), REDISMODULE_OK);
+
+  ASSERT_TRUE(RS::WaitForCondition([]() { return CleanInProgressOrPending() == 0; }, 5, 1000));
   EXPECT_EQ(readKeyMetaAllowZero(keyName), 0u);
 
   RedisModule_FreeString(ctx, keyName);

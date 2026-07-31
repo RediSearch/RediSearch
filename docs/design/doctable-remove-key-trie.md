@@ -92,17 +92,15 @@ These record where the implementation refined the plan below:
   DocIdMeta + `unlink`); validate in CI.
 - **Reclamation follow-up (MOD-17109 review):** `test_cpp_doc_id_meta` extended
   with free-on-empty coverage (`TestDeleteLastEntryResetsMetaValue`,
-  `TestDeleteNonLastEntryKeepsMeta`, `TestSetAfterLastDeleteRecreatesDict`) — 33
+  `TestDeleteNonLastEntryKeepsMeta`, `TestSetAfterLastDeleteRecreatesDict`),
+  stale-entry pruning on `rename_to`, and default cleanPool cleanup coverage — 36
   DocIdMeta tests pass, no double-free at teardown. `query_eval` still 49 passed
   (the two `optional.rs` IDS fixtures now carry pre-resolved docIds). The
   `key_table_size_mb` expectations that assumed a non-zero trie were updated to 0
   (`test.py::testInfoCommand`, `test_coordinator.py::testInfo`,
-  `test_issues.py::testMemAllocated`, `test_resp3.py`).
-- **Rename follow-up:** `test_flex_validation.py::test_flex_rename_updates_document_key`
-  covers the simulate-in-Flex path for rename within the same index and rename
-  out of the index prefix with the key-meta `rename` callback left NULL. Existing
-  RAM rename coverage remains in `test_followhashes.py::testRename` and
-  `test_filter.py`.
+  `test_issues.py::testMemAllocated`, `test_resp3.py`). Existing RAM rename
+  coverage remains in `test_followhashes.py::testRename` and `test_filter.py`;
+  Flex/disk rename coverage belongs to the disk test suite.
 
 ## 1. Summary
 

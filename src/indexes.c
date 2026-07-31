@@ -830,6 +830,12 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key) {
+  // Redis keeps DocIdMeta on RENAME because the key-meta rename callback is NULL.
+  // Before live rename handling reads to_key, prune entries for specs already
+  // dropped with KEEPDOCS so they cannot escape DocTable-based background cleanup
+  // by moving away from their old key name.
+  DocIdMeta_PruneDeletedSpecs(ctx, to_key);
+
   DocumentType type = getDocTypeFromString(to_key);
   if (type == DocumentType_Unsupported) {
     return;
