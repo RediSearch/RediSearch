@@ -27,7 +27,7 @@ struct MRCtx;
 
 typedef struct {
   char* term;
-  RS_Suggestions* suggestions;
+  SpellCheckCandidates* candidates;
   bool foundInIndex;
 } spellCheckReducerTerm;
 
@@ -38,20 +38,20 @@ typedef struct {
 static spellCheckReducerTerm* spellCheckReducerTerm_Create(const char* term) {
   spellCheckReducerTerm* ret = rm_malloc(sizeof(spellCheckReducerTerm));
   ret->term = rm_strdup(term);
-  ret->suggestions = RS_SuggestionsCreate();
+  ret->candidates = SpellCheckCandidates_Create();
   ret->foundInIndex = false;
   return ret;
 }
 
 static void spellCheckReducerTerm_Free(spellCheckReducerTerm* t) {
   rm_free(t->term);
-  RS_SuggestionsFree(t->suggestions);
+  SpellCheckCandidates_Free(t->candidates);
   rm_free(t);
 }
 
 static void spellCheckReducerTerm_AddSuggestion(spellCheckReducerTerm* t,
                                                 const char* suggestionsStr, double score) {
-  RS_SuggestionsAdd(t->suggestions, (char*)suggestionsStr, strlen(suggestionsStr), score, 1);
+  SpellCheckCandidates_Add(t->candidates, (char*)suggestionsStr, strlen(suggestionsStr), score, 1);
 }
 
 static spellcheckReducerCtx* spellcheckReducerCtx_Create() {
@@ -277,7 +277,7 @@ void spellCheckSendResult(RedisModule_Reply *reply, spellcheckReducerCtx* spellC
 
     SpellCheck_SendReplyOnTerm(reply, spellCheckCtx->terms[i]->term,
                                strlen(spellCheckCtx->terms[i]->term),
-                               spellCheckCtx->terms[i]->suggestions, totalDocNum);
+                               spellCheckCtx->terms[i]->candidates, totalDocNum);
   }
   if (reply->resp3) {
     RedisModule_Reply_MapEnd(reply);  // terms' map
