@@ -20,6 +20,7 @@ use super::{AddResult, CheckedCount, NumericRangeTree, TreeStats, TrimEmptyLeave
 use crate::NumericRange;
 use crate::NumericRangeNode;
 use crate::arena::NodeIndex;
+use crate::window::RangeWindow;
 
 impl NumericRangeTree {
     /// Sum `num_entries()` across every node that has a range.
@@ -228,12 +229,15 @@ impl NumericRangeTree {
     /// 2. **Ordering** — consecutive ranges are strictly ordered (ascending or
     ///    descending based on the filter's `ascending` flag). This transitively
     ///    implies pairwise non-overlap.
-    /// 3. **Limit sufficiency** — when `limit > 0` and the tree contained
-    ///    enough matching documents (`total >= offset + limit`), the returned
-    ///    ranges must collectively hold at least `limit` documents.
+    /// 3. **Limit sufficiency** — when the window has a `limit` and the tree
+    ///    contained enough matching documents (`total >= offset + limit`), the
+    ///    returned ranges must collectively hold at least `limit` documents.
+    ///    Both sides of this are measured in the window's own approximate
+    ///    document count, so it is the weakest of the three.
     pub(crate) fn check_find_invariants(
         ranges: &[&NumericRange],
         filter: &NumericFilter,
+        window: RangeWindow,
         total: usize,
     ) {
         // Every returned range must overlap the filter.
@@ -276,8 +280,8 @@ impl NumericRangeTree {
         // Limit sufficiency: if limit > 0 and we had enough matching documents
         // (total >= offset + limit), the returned ranges must contain at least
         // `limit` documents whose values fall within the filter bounds.
-        if filter.limit > 0 {
-            let target = filter.offset.saturating_add(filter.limit);
+        if window.limit > 0 {
+            let target = window.offset.saturating_add(window.limit);
             if total >= target {
                 let mut docs: usize = 0;
                 for range in ranges {
@@ -297,11 +301,11 @@ impl NumericRangeTree {
                     }
                 }
                 assert!(
-                    docs >= filter.limit,
+                    docs >= window.limit,
                     "find invariant violated: limit={} but returned ranges contain only \
                      {docs} in-bounds docs (total={total}, offset={})",
-                    filter.limit,
-                    filter.offset,
+                    window.limit,
+                    window.offset,
                 );
             }
         }
