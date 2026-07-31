@@ -148,6 +148,9 @@ fn batches_propagates_timeout() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn unfiltered_timeout_does_not_mark_consumed() {
+    // Acquire before enable() so the global-callback mutation stays exclusive;
+    // released after `_mock` restores the callback (reverse drop order).
+    let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
     let index = build_hnsw_index(n, dim);
 
