@@ -26,7 +26,7 @@ use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
     ResumableReader, SuspendableReader,
 };
-use numeric_range_tree::{NumericIndexReader, NumericRangeTree};
+use numeric_range_tree::{NumericIndexReader, NumericRangeTree, RangeWindow};
 use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
@@ -427,7 +427,9 @@ impl<'index> NumericIteratorVariant<'index> {
             }
         };
 
-        let ranges = tree.find(filter);
+        // The optimizer paginates the sort field by mutating the filter's window
+        // between rewinds; every other query leaves it unbounded.
+        let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
 
         let range_tree: Option<&NumericRangeTree> = if filter.field_spec.is_null() {
             None

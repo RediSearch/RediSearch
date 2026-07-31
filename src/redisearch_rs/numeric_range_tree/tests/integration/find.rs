@@ -10,23 +10,15 @@
 //! Tests for `NumericRangeTree::find` — range query functionality.
 
 use inverted_index::NumericFilter;
-use numeric_range_tree::NumericRangeTree;
+use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use rstest::rstest;
 
-/// Build a filter with full control over ascending, offset and limit.
-fn make_filter_full(
-    min: f64,
-    max: f64,
-    ascending: bool,
-    offset: usize,
-    limit: usize,
-) -> NumericFilter {
+/// Build a filter with full control over the bounds and traversal order.
+fn make_filter_full(min: f64, max: f64, ascending: bool) -> NumericFilter {
     NumericFilter {
         min,
         max,
         ascending,
-        offset,
-        limit,
         ..Default::default()
     }
 }
@@ -164,9 +156,16 @@ fn test_find_with_offset_and_limit() {
         ..Default::default()
     };
     let all_ranges = tree.find(&filter_all);
+    let filter = make_filter_full(0.0, 5000.0, true);
+
     // Now use a limit.
-    let filter_limited = make_filter_full(0.0, 5000.0, true, 0, 10);
-    let limited_ranges = tree.find(&filter_limited);
+    let limited_ranges = tree.find_windowed(
+        &filter,
+        RangeWindow {
+            offset: 0,
+            limit: 10,
+        },
+    );
     // Limited should return fewer or equal ranges.
     assert!(
         limited_ranges.len() <= all_ranges.len(),
@@ -176,14 +175,39 @@ fn test_find_with_offset_and_limit() {
     );
 
     // With offset, we should also get fewer or equal ranges.
-    let filter_offset = make_filter_full(0.0, 5000.0, true, 100, 10);
-    let offset_ranges = tree.find(&filter_offset);
+    let offset_ranges = tree.find_windowed(
+        &filter,
+        RangeWindow {
+            offset: 100,
+            limit: 10,
+        },
+    );
     assert!(
         offset_ranges.len() <= all_ranges.len(),
         "offset find ({}) should return <= all ranges ({})",
         offset_ranges.len(),
         all_ranges.len()
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
+fn test_find_unbounded_window_matches_find() {
+    let tree = build_large_tree(false);
+    let filter = make_filter_full(0.0, 5000.0, true);
+
+    let windowed = tree.find_windowed(&filter, RangeWindow::UNBOUNDED);
+    let all = tree.find(&filter);
+
+    assert_eq!(
+        windowed.len(),
+        all.len(),
+        "an unbounded window must restrict nothing"
+    );
+    for (windowed, all) in windowed.iter().zip(all.iter()) {
+        assert_eq!(windowed.min_val(), all.min_val());
+        assert_eq!(windowed.max_val(), all.max_val());
+    }
 }
 
 #[test]

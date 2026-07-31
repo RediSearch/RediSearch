@@ -20,13 +20,13 @@ use std::collections::HashSet;
 
 use index_result::RSIndexResult;
 use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
-use numeric_range_tree::{NumericRange, NumericRangeTree};
+use numeric_range_tree::{NumericRange, NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
 
 use crate::score_batch::NumericScoreBatch;
 
-/// Streams a numeric tree's ranges in value order, windowed by the filter's
-/// `offset`/`limit` and chunked by [`next_n`](Self::next_n).
+/// Streams a numeric tree's ranges in value order, restricted to a
+/// [`RangeWindow`] and chunked by [`next_n`](Self::next_n).
 pub struct NumericRangeIterator<'index> {
     tree: &'index NumericRangeTree,
     /// Ranges matching the current filter window, best-score-first.
@@ -46,27 +46,31 @@ pub struct NumericRangeIterator<'index> {
 }
 
 impl<'index> NumericRangeIterator<'index> {
-    /// Resolve `filter` against `tree` and prepare to stream the matching
-    /// ranges best-score-first.
-    pub fn new(tree: &'index NumericRangeTree, filter: &NumericFilter) -> Self {
+    /// Resolve `filter` against `tree` over `window` and prepare to stream the
+    /// matching ranges best-score-first.
+    pub fn new(
+        tree: &'index NumericRangeTree,
+        filter: &NumericFilter,
+        window: RangeWindow,
+    ) -> Self {
         Self {
             tree,
-            ranges: tree.find(filter),
+            ranges: tree.find_windowed(filter, window),
             pos: 0,
             filter: *filter,
             emitted: HashSet::new(),
         }
     }
 
-    /// Re-resolve the (typically expanded) `filter` and restart from the first
-    /// matching range.
+    /// Re-resolve onto the (typically advanced) `window` and restart from its
+    /// first matching range.
     ///
     /// The emitted-doc set is kept: expansion moves to a strictly worse,
     /// disjoint value window, so a doc already scored on a better value must
     /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
     /// when restarting the whole query.
-    pub fn refind(&mut self, filter: &NumericFilter) {
-        self.ranges = self.tree.find(filter);
+    pub fn refind(&mut self, filter: &NumericFilter, window: RangeWindow) {
+        self.ranges = self.tree.find_windowed(filter, window);
         self.pos = 0;
         self.filter = *filter;
     }
@@ -80,7 +84,7 @@ impl<'index> NumericRangeIterator<'index> {
     /// Sum of `num_docs` across every range in the current window.
     ///
     /// Used as the per-window document estimate, both for the source's
-    /// `num_estimated` and to advance the filter `offset` past a consumed
+    /// `num_estimated` and to advance the window's `offset` past a consumed
     /// window on retry.
     pub fn total_docs_estimate(&self) -> usize {
         self.ranges.iter().map(|r| r.num_docs() as usize).sum()
@@ -169,7 +173,7 @@ fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>, ascending: bool) {
 #[cfg(test)]
 mod tests {
     use inverted_index::NumericFilter;
-    use numeric_range_tree::NumericRangeTree;
+    use numeric_range_tree::{NumericRangeTree, RangeWindow};
     use rqe_core::DocId;
     use top_k::ScoreBatch;
 
@@ -190,7 +194,7 @@ mod tests {
         filter: &NumericFilter,
         per_batch: usize,
     ) -> Vec<(DocId, f64)> {
-        let mut it = NumericRangeIterator::new(tree, filter);
+        let mut it = NumericRangeIterator::new(tree, filter, RangeWindow::UNBOUNDED);
         let mut pairs = Vec::new();
         while let Some(mut batch) = it.next_n(per_batch).unwrap() {
             while let Some(pair) = batch.next() {

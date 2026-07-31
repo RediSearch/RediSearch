@@ -36,6 +36,7 @@ pub use gc::*;
 pub use iterator::*;
 pub use node::*;
 use numeric_range_tree::AddResult;
+use numeric_range_tree::RangeWindow;
 use numeric_range_tree::TrimEmptyLeavesResult;
 pub use range::*;
 pub use tree::*;
@@ -187,7 +188,7 @@ pub unsafe extern "C" fn NumericRangeTree_Find(
     // SAFETY: Caller ensures `nf` is a valid, non-null pointer.
     let filter = unsafe { &*nf };
 
-    let ranges = tree.find(filter);
+    let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
 
     // Convert Vec<&NumericRange> to a boxed slice of pointers.
     let range_ptrs: Box<[*const numeric_range_tree::NumericRange]> = ranges
