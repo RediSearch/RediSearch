@@ -689,11 +689,12 @@ def testDeletedDocsDuringCollection(env):
 
 @skip(cluster=True)
 def testScorerTypes(env):
-    """Each scorer name ranks identically whether or not the optimizer runs.
+    """Every registered scorer ranks identically whether or not the optimizer runs.
 
-    Term frequency, field length and document score all differ per document, so
-    every scorer produces a distinct ranking. A scorer classified as needing no
-    scoring therefore returns a visibly different order, instead of matching the
+    A scorer the optimizer classifies as needing no scoring loses the scorer and
+    sorter from its pipeline and comes back unranked. Term frequency, field length
+    and document score all differ per document, so each scorer produces a distinct
+    ranking and that loss shows up as a different order rather than matching the
     unoptimized path by coincidence.
     """
     conn = getConnectionByEnv(env)
@@ -704,7 +705,8 @@ def testScorerTypes(env):
         conn.execute_command('hset', i, 'n', i, '__score', (num_docs - i) / num_docs, 't', text)
 
     params = ['limit', 0, 3, 'NOCONTENT', 'WITHSCORES']
-    for scorer in ['BM25STD', 'TFIDF', 'TFIDF.DOCNORM', 'DISMAX', 'BM25', 'DOCSCORE', 'HAMMING']:
+    for scorer in ['BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'TFIDF', 'TFIDF.DOCNORM',
+                   'DISMAX', 'BM25', 'DOCSCORE', 'HAMMING']:
         compare_optimized_to_not_nocontent(env, ['ft.search', 'idx', 'foo', 'SCORER', scorer],
                                            params, 'scorer ' + scorer)
 
