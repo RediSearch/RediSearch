@@ -9,8 +9,11 @@
 
 //! C entry points for [`term_suffix_index::TermSuffixIndex`].
 //!
-//! All string parameters are byte pointers with an explicit length and
-//! must be valid UTF-8. Passing invalid UTF-8 panics.
+//! All string parameters are byte pointers with an explicit length.
+//! Invalid UTF-8 sequences are replaced with U+FFFD (REPLACEMENT
+//! CHARACTER) before use; because every entry point applies the same
+//! replacement, terms added with invalid bytes are still matched by
+//! lookups and removals passing those same bytes.
 //!
 //! The index follows a readers-writer contract: read-only calls (the
 //! iterate functions, cursors and [`TermSuffixIndex_MemUsage`]) may run

@@ -10,7 +10,7 @@
 //! C entry points for creating, mutating and freeing a [`TermSuffixIndex`].
 
 use std::ffi::c_char;
-use std::{slice, str};
+use std::slice;
 
 use super::TermSuffixIndex;
 
@@ -41,12 +41,17 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(tsi: *mut TermSuffixIndex) {
     drop(unsafe { Box::from_raw(tsi) });
 }
 
-/// Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+/// Add `term` (`len` bytes) to the index. Adding an existing or
 /// empty term is a no-op, as is adding a term whose lowercased form
 /// exceeds `u16::MAX` bytes — the trie cannot represent such a key.
 ///
 /// Matching is case-insensitive: `term` is lowercased before insertion,
 /// so subsequent lookups and removals are case-insensitive too.
+///
+/// Invalid UTF-8 sequences in `term` are replaced with U+FFFD
+/// (REPLACEMENT CHARACTER) before insertion. Every entry point applies
+/// the same replacement, so a term added with invalid bytes is still
+/// matched by lookups and removals passing those same bytes.
 ///
 /// # Safety
 ///
@@ -57,10 +62,6 @@ pub unsafe extern "C" fn TermSuffixIndex_Free(tsi: *mut TermSuffixIndex) {
 ///    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
 ///    may be alive.
 /// 3. `term` must point to a [valid] byte sequence of length `len`.
-///
-/// # Panics
-///
-/// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -77,15 +78,19 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
     // Safety: ensured by caller (3.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
-    index.add(term);
+    let term = String::from_utf8_lossy(bytes);
+    index.add(&term);
 }
 
-/// Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+/// Remove `term` (`len` bytes) from the index. Removing an absent
 /// or empty term is a no-op.
 ///
 /// Matching is case-insensitive: `term` is lowercased before lookup, so
 /// it matches the entry regardless of the case it was added with.
+///
+/// Invalid UTF-8 sequences in `term` are replaced with U+FFFD
+/// (REPLACEMENT CHARACTER) before lookup, mirroring
+/// [`TermSuffixIndex_Add`].
 ///
 /// # Safety
 ///
@@ -96,10 +101,6 @@ pub unsafe extern "C" fn TermSuffixIndex_Add(
 ///    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
 ///    may be alive.
 /// 3. `term` must point to a [valid] byte sequence of length `len`.
-///
-/// # Panics
-///
-/// Panics if `term` is not valid UTF-8.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -116,8 +117,8 @@ pub unsafe extern "C" fn TermSuffixIndex_Remove(
     // Safety: ensured by caller (3.)
     let bytes = unsafe { slice::from_raw_parts(term.cast::<u8>(), len) };
 
-    let term = str::from_utf8(bytes).expect("term must be valid UTF-8");
-    index.remove(term);
+    let term = String::from_utf8_lossy(bytes);
+    index.remove(&term);
 }
 
 /// Estimated heap memory currently held by the index, in bytes.

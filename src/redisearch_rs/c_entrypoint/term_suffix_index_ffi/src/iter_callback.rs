@@ -13,14 +13,16 @@
 //! per matched term, fully drained within the call.
 
 use std::ffi::{c_char, c_int, c_void};
-use std::{ptr, slice, str};
+use std::{ptr, slice};
 
 use super::*;
 
-/// Invoke `cb` once per member term containing the UTF-8 needle
+/// Invoke `cb` once per member term containing the needle
 /// `(needle, len)` as a substring; a term may be reported more than once.
 /// Iteration stops early when the callback returns a non-zero value. An
-/// empty needle reports no matches.
+/// empty needle reports no matches. Invalid UTF-8 sequences in `needle`
+/// are replaced with U+FFFD (REPLACEMENT CHARACTER) before matching,
+/// mirroring [`TermSuffixIndex_Add`].
 ///
 /// # Safety
 ///
@@ -35,7 +37,7 @@ use super::*;
 ///
 /// # Panics
 ///
-/// Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
+/// Panics if `cb` is NULL.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -55,8 +57,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let needle = str::from_utf8(bytes).expect("needle must be valid UTF-8");
-    for term in index.iter_contains(needle) {
+    let needle = String::from_utf8_lossy(bytes);
+    for term in index.iter_contains(&needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
             cb(
@@ -72,10 +74,12 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
     }
 }
 
-/// Invoke `cb` once per member term ending with the UTF-8 needle
+/// Invoke `cb` once per member term ending with the needle
 /// `(needle, len)`; each matching term is reported exactly once. Iteration
 /// stops early when the callback returns a non-zero value. An empty
-/// needle reports no matches.
+/// needle reports no matches. Invalid UTF-8 sequences in `needle` are
+/// replaced with U+FFFD (REPLACEMENT CHARACTER) before matching,
+/// mirroring [`TermSuffixIndex_Add`].
 ///
 /// # Safety
 ///
@@ -90,7 +94,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateContains(
 ///
 /// # Panics
 ///
-/// Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
+/// Panics if `cb` is NULL.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -110,8 +114,8 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(needle.cast::<u8>(), len) };
 
-    let needle = str::from_utf8(bytes).expect("needle must be valid UTF-8");
-    for term in index.iter_suffix(needle) {
+    let needle = String::from_utf8_lossy(bytes);
+    for term in index.iter_suffix(&needle) {
         // Safety: ensured by caller (3.)
         let outcome = unsafe {
             cb(
@@ -130,7 +134,9 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 /// Invoke `cb` once per member term matching the wildcard pattern
 /// `(pattern, len)` (`*` matches any run of characters, `?` exactly one
 /// byte); a term may be reported more than once. Iteration stops early
-/// when the callback returns a non-zero value.
+/// when the callback returns a non-zero value. Invalid UTF-8 sequences
+/// in `pattern` are replaced with U+FFFD (REPLACEMENT CHARACTER) before
+/// matching, mirroring [`TermSuffixIndex_Add`].
 ///
 /// When `should_stop` is non-NULL it is polled periodically while the
 /// candidate set is scanned; once it returns `true` the scan is abandoned
@@ -158,7 +164,7 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateSuffix(
 ///
 /// # Panics
 ///
-/// Panics if `cb` is NULL, or if `pattern` is not valid UTF-8.
+/// Panics if `cb` is NULL.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -180,10 +186,10 @@ pub unsafe extern "C" fn TermSuffixIndex_IterateWildcard(
     // Safety: ensured by caller (2.)
     let bytes = unsafe { slice::from_raw_parts(pattern.cast::<u8>(), len) };
 
-    let pattern = str::from_utf8(bytes).expect("pattern must be valid UTF-8");
+    let pattern = String::from_utf8_lossy(bytes);
     // Safety: ensured by caller (4.)
     let should_stop = || should_stop.is_some_and(|f| unsafe { f(stop_ctx) });
-    let Some(matches) = index.iter_wildcard(pattern, should_stop) else {
+    let Some(matches) = index.iter_wildcard(&pattern, should_stop) else {
         return 0;
     };
     for term in matches {

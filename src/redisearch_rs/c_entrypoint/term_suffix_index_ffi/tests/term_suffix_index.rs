@@ -133,6 +133,42 @@ fn iterate_wildcard_without_anchor_returns_zero() {
     });
 }
 
+#[test]
+fn invalid_utf8_is_lossily_converted_consistently() {
+    with_index(&[], |t| {
+        // `\xE9` is Latin-1 `é` — invalid UTF-8; lossy conversion maps
+        // the term to "caf\u{FFFD}".
+        let term = b"caf\xE9";
+        // Safety: `term` points to `term.len()` bytes and no iterator
+        // on `t` is alive.
+        unsafe { TermSuffixIndex_Add(t, term.as_ptr().cast(), term.len()) };
+
+        // A needle carrying the same invalid byte gets the same
+        // replacement, so it matches the term added above.
+        let needle = b"af\xE9";
+        let mut yielded = HashSet::new();
+        // Safety: `t` is valid, `needle` points to `needle.len()`
+        // bytes, and `ctx` points at a live set.
+        unsafe {
+            TermSuffixIndex_IterateContains(
+                t,
+                needle.as_ptr().cast(),
+                needle.len(),
+                Some(collect_cb),
+                (&raw mut yielded).cast(),
+            )
+        };
+        assert_eq!(yielded, to_set(&["caf\u{FFFD}"]));
+
+        // Removing with the same invalid bytes drops the entry too.
+        // Safety: `term` points to `term.len()` bytes and no iterator
+        // on `t` is alive.
+        unsafe { TermSuffixIndex_Remove(t, term.as_ptr().cast(), term.len()) };
+        let actual = collect(t, "caf", TermSuffixIndex_IterateContains);
+        assert!(actual.is_empty());
+    });
+}
+
 /// Create a [`TermSuffixIndex`], add `terms` to it, call the callback
 /// with the index pointer, and free the index.
 fn with_index<F>(terms: &[&str], f: F)

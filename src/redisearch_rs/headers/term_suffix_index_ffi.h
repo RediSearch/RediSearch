@@ -91,10 +91,12 @@ void TermSuffixIndex_Free(struct TermSuffixIndex *tsi);
 struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuffixIndex *tsi);
 
 /**
- * Invoke `cb` once per member term containing the UTF-8 needle
+ * Invoke `cb` once per member term containing the needle
  * `(needle, len)` as a substring; a term may be reported more than once.
  * Iteration stops early when the callback returns a non-zero value. An
- * empty needle reports no matches.
+ * empty needle reports no matches. Invalid UTF-8 sequences in `needle`
+ * are replaced with U+FFFD (REPLACEMENT CHARACTER) before matching,
+ * mirroring [`TermSuffixIndex_Add`].
  *
  * # Safety
  *
@@ -109,19 +111,24 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
  *
  * # Panics
  *
- * Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
+ * Panics if `cb` is NULL.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+ * Add `term` (`len` bytes) to the index. Adding an existing or
  * empty term is a no-op, as is adding a term whose lowercased form
  * exceeds `u16::MAX` bytes — the trie cannot represent such a key.
  *
  * Matching is case-insensitive: `term` is lowercased before insertion,
  * so subsequent lookups and removals are case-insensitive too.
+ *
+ * Invalid UTF-8 sequences in `term` are replaced with U+FFFD
+ * (REPLACEMENT CHARACTER) before insertion. Every entry point applies
+ * the same replacement, so a term added with invalid bytes is still
+ * matched by lookups and removals passing those same bytes.
  *
  * # Safety
  *
@@ -132,10 +139,6 @@ void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const ch
  *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
  *    may be alive.
  * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -170,10 +173,12 @@ void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t l
 int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
 
 /**
- * Invoke `cb` once per member term ending with the UTF-8 needle
+ * Invoke `cb` once per member term ending with the needle
  * `(needle, len)`; each matching term is reported exactly once. Iteration
  * stops early when the callback returns a non-zero value. An empty
- * needle reports no matches.
+ * needle reports no matches. Invalid UTF-8 sequences in `needle` are
+ * replaced with U+FFFD (REPLACEMENT CHARACTER) before matching,
+ * mirroring [`TermSuffixIndex_Add`].
  *
  * # Safety
  *
@@ -188,18 +193,22 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
  *
  * # Panics
  *
- * Panics if `cb` is NULL, or if `needle` is not valid UTF-8.
+ * Panics if `cb` is NULL.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+ * Remove `term` (`len` bytes) from the index. Removing an absent
  * or empty term is a no-op.
  *
  * Matching is case-insensitive: `term` is lowercased before lookup, so
  * it matches the entry regardless of the case it was added with.
+ *
+ * Invalid UTF-8 sequences in `term` are replaced with U+FFFD
+ * (REPLACEMENT CHARACTER) before lookup, mirroring
+ * [`TermSuffixIndex_Add`].
  *
  * # Safety
  *
@@ -210,10 +219,6 @@ void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char
  *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
  *    may be alive.
  * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -253,7 +258,9 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * Invoke `cb` once per member term matching the wildcard pattern
  * `(pattern, len)` (`*` matches any run of characters, `?` exactly one
  * byte); a term may be reported more than once. Iteration stops early
- * when the callback returns a non-zero value.
+ * when the callback returns a non-zero value. Invalid UTF-8 sequences
+ * in `pattern` are replaced with U+FFFD (REPLACEMENT CHARACTER) before
+ * matching, mirroring [`TermSuffixIndex_Add`].
  *
  * When `should_stop` is non-NULL it is polled periodically while the
  * candidate set is scanned; once it returns `true` the scan is abandoned
@@ -281,7 +288,7 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  *
  * # Panics
  *
- * Panics if `cb` is NULL, or if `pattern` is not valid UTF-8.
+ * Panics if `cb` is NULL.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
