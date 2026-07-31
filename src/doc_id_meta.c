@@ -123,28 +123,6 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   dictReleaseIterator(iter);
 }
 
-static void docIdMetaPruneRemovedSpecs(dict *specIdToDocId) {
-  dictIterator *iter = dictGetSafeIterator(specIdToDocId);
-  dictEntry *de;
-  while ((de = dictNext(iter))) {
-    uint64_t docId = VAL_TO_DOCID(dictGetVal(de));
-    uint64_t specId = KEY_TO_SPECID(dictGetKey(de));
-    if (docId == DOCID_META_INVALID || !isSpecValid(specId)) {
-      dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
-    }
-  }
-  dictReleaseIterator(iter);
-}
-
-static int docIdMetaRename(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
-  REDISMODULE_NOT_USED(ctx);
-  if (*meta == 0) return 0;
-
-  dict *specIdToDocId = (dict *)*meta;
-  docIdMetaPruneRemovedSpecs(specIdToDocId);
-  return dictSize(specIdToDocId) > 0;
-}
-
 // Return values for RedisModuleKeyMetaLoadFunc (documented on RM_CreateKeyMetaClass):
 //   1: attach the loaded meta to the key
 //   0: skip/ignore (do not attach) - not an error
@@ -276,7 +254,7 @@ bool DocIdMeta_Init(RedisModuleCtx *ctx) {
     .reset_value = 0,
     .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
     .copy = NULL, // If NULL, meta is not copied during copy operations
-    .rename = (RedisModuleKeyMetaRenameFunc)docIdMetaRename,
+    .rename = NULL, // If NULL, meta is kept during rename
     .move = (RedisModuleKeyMetaMoveFunc)docIdMetaMove,
     .unlink = (RedisModuleKeyMetaUnlinkFunc)docIdMetaUnlink,
     .free = (RedisModuleKeyMetaFreeFunc)docIdMetaFree,

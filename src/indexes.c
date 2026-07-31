@@ -855,8 +855,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
       RedisSearchCtx_LockSpecWrite(&sctx);
 
-      // After RENAME the docId metadata rides to to_key (rename callback keeps
-      // it), so look it up there and just update the stored key name.
+      // After RENAME the docId metadata rides to to_key (Redis keeps key-meta
+      // on rename when no rename callback is registered), so look it up there
+      // and just update the stored key name.
       uint64_t docId;
       if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         if (SearchDisk_IsEnabled()) {

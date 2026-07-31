@@ -40,7 +40,7 @@ int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
 void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
                          uint64_t *meta);
 void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta);
-int RMCK_KeyMetaRename(RedisModuleKeyMetaClassId classId, uint64_t *meta);
+bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId);
 std::string &RMCK_GetLastError(RedisModuleCtx *ctx);
 
 // Configure the mock cluster topology used by RedisModule_GetClusterNodesList /

@@ -1752,15 +1752,12 @@ void RMCK_KeyMetaUnlink(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
   it->second.unlink(nullptr, meta);
 }
 
-int RMCK_KeyMetaRename(RedisModuleKeyMetaClassId classId, uint64_t *meta) {
+bool RMCK_KeyMetaHasRename(RedisModuleKeyMetaClassId classId) {
   auto it = classConfigs.find(classId);
   if (it == classConfigs.end()) {
-    return 0;
+    return false;
   }
-  if (!it->second.rename) {
-    return 1;
-  }
-  return it->second.rename(nullptr, meta);
+  return it->second.rename != nullptr;
 }
 
 int RMCK_ConfigGetBool(RedisModuleCtx *ctx, const char *name, int *res) {

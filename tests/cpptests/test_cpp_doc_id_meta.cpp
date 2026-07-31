@@ -369,23 +369,8 @@ TEST_F(DocIdMetaTest, TestDeleteAndReget) {
   EXPECT_EQ(DocIdMeta_Get(ctx, testKeyName, SPEC1_ID, &retrieved), REDISMODULE_ERR);
 }
 
-TEST_F(DocIdMetaTest, TestRenamePrunesRemovedSpecEntries) {
-  addTestSpec("idx1", SPEC1_ID);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
-
-  uint64_t meta = getKeyMeta(testKeyName);
-  EXPECT_EQ(RMCK_KeyMetaRename(getDocIdMetaClassId(), &meta), 1);
-
-  verifyDocId(testKeyName, SPEC1_ID, 1001);
-  verifyDocIdMissing(testKeyName, SPEC2_ID);
-}
-
-TEST_F(DocIdMetaTest, TestRenameDropsMetaWhenAllSpecEntriesWereRemoved) {
-  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
-
-  uint64_t meta = getKeyMeta(testKeyName);
-  EXPECT_EQ(RMCK_KeyMetaRename(getDocIdMetaClassId(), &meta), 0);
+TEST_F(DocIdMetaTest, TestRenameCallbackIsNotRegistered) {
+  EXPECT_FALSE(RMCK_KeyMetaHasRename(getDocIdMetaClassId()));
 }
 
 // Deleting the last entry must reset the KeyMeta value and free the now-empty

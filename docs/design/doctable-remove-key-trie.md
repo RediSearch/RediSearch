@@ -26,15 +26,14 @@ These record where the implementation refined the plan below:
   matches, REPLACE cleanup). It is unified across modes: resolve docId via
   DocIdMeta, delete (DocTable/disk), then `dropDocIdMeta`. Physical key removal
   goes through the `unlink` callback → `IndexSpec_DeleteDocById`.
-- **Rename has two independent hooks.** Redis keyspace `rename_from`/`rename_to`
-  notifications are the RediSearch logical rename path: after Redis moves the
-  key metadata to `to_key`, `Indexes_ReplaceMatchingWithSchemaRules` resolves
+- **Rename uses Redis' default key-meta behavior.** DocIdMeta does not register
+  a key-meta `rename` callback; Redis therefore keeps the metadata attached
+  across `RENAME`. Redis keyspace `rename_from`/`rename_to` notifications are
+  the RediSearch logical rename path: after Redis moves the key metadata to
+  `to_key`, `Indexes_ReplaceMatchingWithSchemaRules` resolves
   `DocIdMeta_Get(to_key)` and updates the stored document key (RAM
   `DocTable_SetKeyById`, disk `SearchDisk_ReplaceKey`) or deletes the document
-  when the new key no longer matches. The Redis key-metadata `rename` callback
-  is registered in both modes only to prune invalid/removed spec entries from
-  the per-key `specId→docId` dict and decide whether the metadata should keep
-  riding with the renamed Redis key.
+  when the new key no longer matches.
 - **Q1 (legacy RDB) — resolved:** `DocTable_LegacyRdbLoad` no longer populates a
   key→docId structure. During `LOADING_ENDED`, `Indexes_UpgradeLegacyIndexes()`
   drops the old legacy index keyspace state, frees the loaded DocTable, resets
@@ -101,8 +100,9 @@ These record where the implementation refined the plan below:
   `test_issues.py::testMemAllocated`, `test_resp3.py`).
 - **Rename follow-up:** `test_flex_validation.py::test_flex_rename_updates_document_key`
   covers the simulate-in-Flex path for rename within the same index and rename
-  out of the index prefix. Existing RAM rename coverage remains in
-  `test_followhashes.py::testRename` and `test_filter.py`.
+  out of the index prefix with the key-meta `rename` callback left NULL. Existing
+  RAM rename coverage remains in `test_followhashes.py::testRename` and
+  `test_filter.py`.
 
 ## 1. Summary
 
@@ -122,8 +122,9 @@ Deletion is **unified on the `DocIdMeta` `unlink` callback** in both modes
 (the pattern disk already uses), retiring the RAM-only keyspace-notification
 delete path.
 
-`DocIdMeta_Init` is called in **both** modes. `free`, `move`, `rename` and
-`unlink` are registered in both modes; `rdb_save`/`rdb_load` are conditional.
+`DocIdMeta_Init` is called in **both** modes. `free`, `move` and `unlink` are
+registered in both modes; `rename` is left NULL so Redis keeps metadata during
+`RENAME`; `rdb_save`/`rdb_load` are conditional.
 RAM must **not** persist the mapping — a RAM RDB load rebuilds the index by
 re-scanning the keyspace and re-indexing, which re-assigns docIds and
 repopulates `DocIdMeta` from scratch, so a saved mapping would be stale.
@@ -257,10 +258,9 @@ disk via `SearchDisk_ReplaceKey`, RAM by rewriting `dmd->keyPtr`
 matches that index, delete by docId and drop that spec's `DocIdMeta` entry from
 the surviving key.
 
-The Redis key-metadata `rename` callback is separate from that logical rename
-flow. It does not update RediSearch's stored key name and does not re-index.
-It prunes invalid/removed spec entries from the per-key metadata dict, then
-returns whether the dict should remain attached to the renamed Redis key.
+DocIdMeta intentionally leaves the Redis key-metadata `rename` callback NULL.
+Per the Redis module API, NULL means the metadata is kept during rename; the
+logical RediSearch rename work still happens in the keyspace notification path.
 
 ### 4.5 DocIdMeta_Init: always-init, conditional callbacks
 
@@ -270,7 +270,7 @@ Split registration so RAM and disk register different persistence callbacks:
 |---|---|---|---|
 | `free` | ✅ | ✅ | free the per-key `specId→docId` dict when the key is freed |
 | `move` | ✅ | ✅ | docId is meaningless in another DB → drop meta on MOVE |
-| `rename` | ✅ | ✅ | prune invalid spec entries; keep non-empty meta with the key across RENAME |
+| `rename` | NULL | NULL | default Redis behavior keeps meta with the key across RENAME |
 | `unlink` | ✅ | ✅ | single unified delete trigger (§4.3) |
 | `rdb_save` | **NULL** | ✅ | RAM rebuilds via re-index on load; persisting = stale mapping |
 | `rdb_load` | **NULL** | ✅ | same |
