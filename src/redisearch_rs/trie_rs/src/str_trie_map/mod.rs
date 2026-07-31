@@ -94,9 +94,8 @@ impl<Data> StrTrieMap<Data> {
     /// order. See [`TrieMap::prefixed_iter`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// entry — the empty string is a prefix of every key.
     pub fn prefixed_iter(&self, prefix: &str) -> iter::PrefixedIter<'_, Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
@@ -105,9 +104,8 @@ impl<Data> StrTrieMap<Data> {
     /// `prefix`, in lexicographical order. See [`TrieMap::prefixed_values`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// value — the empty string is a prefix of every key.
     pub fn prefixed_values(&self, prefix: &str) -> iter::PrefixedValues<'_, Data> {
         iter::PrefixedValues::new(&self.inner, prefix)
     }
@@ -115,14 +113,15 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty
-    /// `suffix` yields zero matches.
+    /// `suffix` yields every entry — the empty string is a suffix of every
+    /// key.
     pub fn suffixed_iter(&self, suffix: &str) -> iter::SuffixedIter<'_, Data> {
         iter::SuffixedIter::new(&self.inner, suffix)
     }
 
     /// Yield every entry whose key contains `target` as a substring.
-    /// Empty `target` yields zero matches — without this short-circuit
-    /// memchr semantics would match every term.
+    /// Empty `target` yields every entry — the empty string is a substring
+    /// of every key.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
