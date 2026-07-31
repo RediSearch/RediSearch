@@ -267,7 +267,7 @@ impl TestContext {
     ///
     /// This populates the same `DocTable` that [`qctx`](TestContext::qctx) exposes
     /// via `docTable` (a docId -> DMD store), assigning a fresh incremental docId.
-    /// Key -> docId resolution is no longer part of the DocTable.
+    /// Key -> docId resolution lives in Redis key metadata, not in the DocTable.
     pub fn add_document(&self, key: &str) -> DocId {
         // SAFETY: `self.spec` is a valid, exclusively-owned `IndexSpec`, so
         // `&spec.docs` is a valid `DocTable`. The key bytes outlive the call,

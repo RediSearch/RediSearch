@@ -321,12 +321,12 @@ fn eval_wildcard<'index>(
 
 /// `QN_IDS` — filter by explicit document key names.
 ///
-/// The key -> docId mapping now lives on the Redis key as key-metadata
-/// (`DocIdMeta`) in both memory and disk mode, and resolving it opens the key
-/// (which requires the GIL). To keep that off the — possibly background —
-/// query-execution thread, INKEYS keys are resolved to `doc_ids` on the main
-/// thread during query construction (see `applyGlobalFilters` in
-/// `aggregate_request.c`). This function therefore only consumes the
+/// The key -> docId mapping lives on the Redis key as key-metadata
+/// (`DocIdMeta`), and resolving it opens the key (which requires the GIL). To
+/// keep that off the — possibly background — query-execution thread, INKEYS
+/// keys are resolved to `doc_ids` on the main thread during query construction
+/// (see `applyGlobalFilters` in `aggregate_request.c`). This function therefore
+/// only consumes the
 /// pre-resolved `doc_ids`, sorts, deduplicates, and builds a sorted
 /// [`IdListSorted`] iterator.
 ///

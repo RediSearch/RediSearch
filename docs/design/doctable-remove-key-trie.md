@@ -26,6 +26,15 @@ These record where the implementation refined the plan below:
   matches, REPLACE cleanup). It is unified across modes: resolve docId via
   DocIdMeta, delete (DocTable/disk), then `dropDocIdMeta`. Physical key removal
   goes through the `unlink` callback → `IndexSpec_DeleteDocById`.
+- **Rename has two independent hooks.** Redis keyspace `rename_from`/`rename_to`
+  notifications are the RediSearch logical rename path: after Redis moves the
+  key metadata to `to_key`, `Indexes_ReplaceMatchingWithSchemaRules` resolves
+  `DocIdMeta_Get(to_key)` and updates the stored document key (RAM
+  `DocTable_SetKeyById`, disk `SearchDisk_ReplaceKey`) or deletes the document
+  when the new key no longer matches. The Redis key-metadata `rename` callback
+  is registered in both modes only to prune invalid/removed spec entries from
+  the per-key `specId→docId` dict and decide whether the metadata should keep
+  riding with the renamed Redis key.
 - **Q1 (legacy RDB) — resolved:** `DocTable_LegacyRdbLoad` no longer populates a
   key→docId structure. During `LOADING_ENDED`, `Indexes_UpgradeLegacyIndexes()`
   drops the old legacy index keyspace state, frees the loaded DocTable, resets
@@ -61,11 +70,11 @@ These record where the implementation refined the plan below:
     / fork-GC yield pattern — so `FT.DROPINDEX` itself stays O(1) on the main
     thread. A delete-docs drop leaves the flag clear (those keys and their
     metadata are removed as the keys are deleted). Disk mode skips this.
-  - *Caveat — `_FREE_RESOURCE_ON_THREAD false`:* the eager KEEPDOCS-drop prune
-    runs only on the background (`cleanPool`) free path, which needs no GIL held.
-    Under the non-default `freeResourcesThread=false` (spec freed inline on an
-    unknown thread), the prune is skipped; those entries are reclaimed lazily
-    when their keys are eventually deleted (safe — the entries are inert).
+  - *Synchronous `_FREE_RESOURCE_ON_THREAD false` path:* when the spec is freed
+    inline, `DropIndexCommand` prunes from the Redis command path before
+    `Indexes_RemoveSpecFromGlobals` and before `DocTable_Free`. That caller
+    already holds the GIL and has the real command context, so it uses the same
+    batching without `ThreadSafeContextLock`/yield pauses.
 
 ### Verification (local, community build)
 
@@ -90,6 +99,10 @@ These record where the implementation refined the plan below:
   `key_table_size_mb` expectations that assumed a non-zero trie were updated to 0
   (`test.py::testInfoCommand`, `test_coordinator.py::testInfo`,
   `test_issues.py::testMemAllocated`, `test_resp3.py`).
+- **Rename follow-up:** `test_flex_validation.py::test_flex_rename_updates_document_key`
+  covers the simulate-in-Flex path for rename within the same index and rename
+  out of the index prefix. Existing RAM rename coverage remains in
+  `test_followhashes.py::testRename` and `test_filter.py`.
 
 ## 1. Summary
 
@@ -109,12 +122,11 @@ Deletion is **unified on the `DocIdMeta` `unlink` callback** in both modes
 (the pattern disk already uses), retiring the RAM-only keyspace-notification
 delete path.
 
-`DocIdMeta_Init` is called in **both** modes, but the key-meta **callback set is
-conditional**: the `rdb_save`/`rdb_load` callbacks (and `unlink`) are registered
-only where they are correct. RAM must **not** persist the mapping — a RAM RDB
-load rebuilds the index by re-scanning the keyspace and re-indexing, which
-re-assigns docIds and repopulates `DocIdMeta` from scratch, so a saved mapping
-would be stale.
+`DocIdMeta_Init` is called in **both** modes. `free`, `move`, `rename` and
+`unlink` are registered in both modes; `rdb_save`/`rdb_load` are conditional.
+RAM must **not** persist the mapping — a RAM RDB load rebuilds the index by
+re-scanning the keyspace and re-indexing, which re-assigns docIds and
+repopulates `DocIdMeta` from scratch, so a saved mapping would be stale.
 
 ## 2. Motivation
 
@@ -237,31 +249,39 @@ Replace the RAM `DocTable_GetId`-family calls with `DocIdMeta_Get(...)`:
 
 ### 4.4 Rename
 
-RAM `DocTable_Replace` is removed. Both modes: `DocIdMeta_Get(to_key)` → docId,
-then update the stored key — disk via `SearchDisk_ReplaceKey`, RAM by rewriting
-`dmd->keyPtr` (new small helper `DocTable_SetKeyById(docId, to_str, to_len)`).
-`DocIdMeta`'s `rename` callback stays NULL (meta rides with the key on rename),
-so no re-`Set` is needed.
+RAM `DocTable_Replace` is removed. Redis key metadata rides with the key during
+`RENAME`, so after `rename_to` both modes resolve `DocIdMeta_Get(to_key)` →
+docId. If the document still belongs in the same index, update the stored key:
+disk via `SearchDisk_ReplaceKey`, RAM by rewriting `dmd->keyPtr`
+(`DocTable_SetKeyById(docId, to_str, to_len)`). If the renamed key no longer
+matches that index, delete by docId and drop that spec's `DocIdMeta` entry from
+the surviving key.
+
+The Redis key-metadata `rename` callback is separate from that logical rename
+flow. It does not update RediSearch's stored key name and does not re-index.
+It prunes invalid/removed spec entries from the per-key metadata dict, then
+returns whether the dict should remain attached to the renamed Redis key.
 
 ### 4.5 DocIdMeta_Init: always-init, conditional callbacks
 
-Split registration so RAM and disk register different callback sets:
+Split registration so RAM and disk register different persistence callbacks:
 
 | callback | RAM | Disk | rationale |
 |---|---|---|---|
 | `free` | ✅ | ✅ | free the per-key `specId→docId` dict when the key is freed |
 | `move` | ✅ | ✅ | docId is meaningless in another DB → drop meta on MOVE |
-| `rename` | NULL | NULL | keep meta with the key across RENAME |
+| `rename` | ✅ | ✅ | prune invalid spec entries; keep non-empty meta with the key across RENAME |
 | `unlink` | ✅ | ✅ | single unified delete trigger (§4.3) |
 | `rdb_save` | **NULL** | ✅ | RAM rebuilds via re-index on load; persisting = stale mapping |
 | `rdb_load` | **NULL** | ✅ | same |
 | `aof_rewrite`/`defrag`/`mem_usage`/`free_effort` | NULL | NULL | unchanged |
 
 Implementation: `DocIdMeta_Init(ctx)` builds the `RedisModuleKeyMetaClassConfig`
-with `rdb_save`/`rdb_load` set only when `SearchDisk_IsEnabled()`. Call it
-unconditionally in `src/module.c` (remove the `if (SearchDisk_IsEnabled())`
-guard at `:4881`). `ForgetDocIdMetadata` and its `notifications.c` toggles remain
-disk-only concerns (they only matter when `rdb_save`/`rdb_load` are registered).
+with `rdb_save`/`rdb_load` set only when
+`SearchDisk_IsEnabledForValidation()`. Call it unconditionally in `src/module.c`
+(remove the `if (SearchDisk_IsEnabled())` guard at `:4881`).
+`ForgetDocIdMetadata` and its `notifications.c` toggles remain disk-only
+concerns (they only matter when `rdb_save`/`rdb_load` are registered).
 
 ## 5. Concurrency
 

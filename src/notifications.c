@@ -56,16 +56,12 @@ RedisModuleString **hashFields = NULL;
   X(set)                                  \
   X(rename_from)                          \
   X(rename_to)                            \
-  X(trimmed)                              \
-  X(key_trimmed)                          \
   X(restore)                              \
   X(hexpire)                              \
   X(hexpired)                             \
   X(expire)                               \
-  X(expired)                              \
   X(persist)                              \
   X(hpersist)                             \
-  X(evicted)                              \
   X(change)                               \
   X(loaded)                               \
   X(copy_to)
@@ -308,9 +304,11 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
  ********************************************************/
     case del_cmd:
     case set_cmd:
-      // De-indexed via the DocIdMeta `unlink` callback (both modes). For SET
-      // overwrites, Redis unlinks the old value before the notification; the
-      // later KeyMeta free callback only releases the per-key metadata dict.
+      // We still subscribe to GENERIC/STRING for other events, so DEL/SET can
+      // arrive. De-indexing is done earlier via the DocIdMeta `unlink` callback
+      // (both modes); for SET overwrites, Redis unlinks the old value before the
+      // notification. The later KeyMeta free callback only releases the per-key
+      // metadata dict.
       break;
 
 /********************************************************
@@ -350,17 +348,6 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, int type, enum RedisCmd redi
       // todo: here we will open the key again, we can optimize it by
       //       somehow passing the key pointer
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, kType, hashFields);
-      break;
-
-/********************************************************
- *  GROUP E: Physical key removal — DocIdMeta unlink handles it (both modes)
- ********************************************************/
-    case trimmed_cmd:
-    case key_trimmed_cmd:
-    case expired_cmd:
-    case evicted_cmd:
-      // De-indexed via the DocIdMeta `unlink` callback (both modes); we no longer
-      // subscribe to these events (see Initialize_KeyspaceNotifications).
       break;
   }
 
