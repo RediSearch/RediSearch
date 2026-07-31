@@ -25,9 +25,6 @@ use inverted_index::NumericFilter;
 /// handed. Anything else — a window taken from a user-supplied `LIMIT`, say —
 /// re-serves documents from the range straddling `offset` and yields fewer than
 /// `limit` fresh ones.
-///
-/// TODO: MOD-13920 — fold windowing into the callers that paginate, so
-/// [`find`](crate::NumericRangeTree::find) answers only value queries.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RangeWindow {
     /// Documents to skip before the first returned range.
@@ -47,6 +44,7 @@ impl RangeWindow {
     ///
     /// The single bridge from the window fields on [`NumericFilter`]; it goes
     /// away with them, leaving callers to pass their own [`RangeWindow`].
+    #[expect(deprecated, reason = "this is the bridge that retires them")]
     pub const fn from_filter(filter: &NumericFilter) -> Self {
         Self {
             offset: filter.offset,
