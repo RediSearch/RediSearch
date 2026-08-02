@@ -3839,9 +3839,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the request shell and its owning wrapper here, on the main
-  // thread, so the timeout callback always reaches an installed request
-  // through the blocked client's privdata. Parsing happens on the BG thread.
+  // Allocate the request shell and its owning wrapper before blocking the
+  // client, so the full context is already installed (as the blocked client's
+  // privdata) once the client is blocked. Parsing happens on the BG thread.
   AREQ *r;
   if (isDebug) {
     AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
@@ -3948,10 +3948,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Allocate the hybrid request shell and its owning wrapper here, on the
-  // main thread, so the timeout callback always reaches an installed request
-  // through the blocked client's privdata. Parsing happens on the BG thread;
-  // the sub-AREQ contexts are detached thread-safe contexts.
+  // Allocate the hybrid request shell and its owning wrapper before blocking
+  // the client, so the full context is already installed (as the blocked
+  // client's privdata) once the client is blocked. Parsing happens on the BG
+  // thread; the sub-AREQ contexts are detached thread-safe contexts.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
