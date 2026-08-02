@@ -55,8 +55,8 @@ void b4_utf16(uint32_t codepoint, uint16_t *lead, uint16_t *trail) {
 	 * xxxxxxyy yyyyyyyy       -> 110111yy yyyyyyyy |__ trail
 	 *                                              |
 	 *                                                */
-	 *lead = 0xD800 | ((codepoint - 0x10000) & 0x000FFC00) >> 10;
-	 *trail = 0xDC00 | (codepoint & 0x03FF);
+	*lead = 0xD800 | ((codepoint - 0x10000) & 0x000FFC00) >> 10;
+	*trail = 0xDC00 | (codepoint & 0x03FF);
 }
 
 static inline
