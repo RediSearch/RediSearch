@@ -2,6 +2,14 @@ from common import *
 from redis import ResponseError
 from time import sleep
 
+def test_profile_missing_query_error_on_coordinator():
+    """MOD-6841: exercise the distributed parser, not the single-shard optimization."""
+    env = Env(shardsCount=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'banana', 'banana').error().equal(
+        'The QUERY keyword is expected')
+
+
 @skip(cluster=False)
 def testInfo(env):
     conn = getConnectionByEnv(env)
