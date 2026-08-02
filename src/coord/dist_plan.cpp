@@ -142,7 +142,8 @@ struct ReducerDistCtx {
   }
 
   const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
+    // Type-aware: hybrid tail plans carry RString-backed arg cursors.
+    const char *s = AC_StringArg(&srcReducer->args, n, NULL);
     return stripAtPrefix(s);
   }
 };

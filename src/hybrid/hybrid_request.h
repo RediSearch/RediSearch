@@ -21,10 +21,13 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
-    /* Arguments converted to sds. Received on input */
-    // We need to copy the arguments so rlookup keys can point to them
-    // in short lifetime of the strings
-    sds *args;
+    /* Held references to the command argv (past the command and index
+     * tokens). Parse-time borrows (query strings, field names, RLookup keys)
+     * point into these strings, so they stay valid for the holder's lifetime
+     * independent of the dispatcher's argv. String refcounts are not thread
+     * safe: held and released on the main thread only (see
+     * HybridRequest_HoldArgv). */
+    RedisModuleString **argv;
     size_t nargs;
 
     arrayof(AREQ*) requests;
@@ -175,6 +178,16 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 * We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
 * For example lookup keys
 */
+/* Hold the command argv (past the command and index tokens) on the request
+ * and each sub-AREQ, so parse-time borrows into the argv strings stay valid
+ * for each holder's lifetime. Main-thread only (string refcount operations
+ * are not thread safe); released by the owners' free paths, which run on the
+ * main thread. */
+void HybridRequest_HoldArgv(HybridRequest *req, RedisModuleString **argv, int argc);
+
+/* Wrap the request's held argv in a parse cursor. Holds the argv first when
+ * the request does not hold it yet (main-thread callers); the coordinator
+ * dispatcher holds on the main thread before queuing the background parse. */
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
 
 /**

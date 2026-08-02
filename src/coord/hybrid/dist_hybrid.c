@@ -682,19 +682,17 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.reqConfig = &hreq->reqConfig;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
-    // RString cursor used only to detect the profile prefix and count tokens
-    // consumed. We don't feed it to parseHybridCommand because AC_GetString on
-    // an RString cursor returns pointers into auto-memory that dies with the
-    // dispatcher ctx.
+    // Scans this job's argv only to detect the profile prefix and count the
+    // tokens it consumed; nothing borrows from it.
     ArgsCursor profileAc = {0};
     ArgsCursor_InitRString(&profileAc, argv, argc);
     ProfileOptions profileOptions = EXEC_NO_FLAGS;
     int rc = ParseProfile(&profileAc, status, &profileOptions);
     if (rc == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    // Hreq-owned sds copies of argv[2:] (skips command + index). parseHybridCommand
-    // and the RLookup machinery borrow pointers into this cursor's strings, so they
-    // must outlive the dispatcher ctx.
+    // Parse from the request's held argv (taken by the dispatcher on the main
+    // thread): parseHybridCommand and the RLookup machinery borrow pointers
+    // into these strings, so they must outlive this job's own argv copies.
     ArgsCursor ac = {0};
     HybridRequest_InitArgsCursor(hreq, &ac, argv, argc);
 

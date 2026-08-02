@@ -257,6 +257,12 @@ typedef struct AREQ {
   sds *args;
   size_t nargs;
 
+  /* Held references to argv strings this request's plan borrows from (hybrid
+   * sub-AREQs; see HybridRequest_HoldArgv). Held and released on the main
+   * thread only. */
+  RedisModuleString **argvHolds;
+  size_t nargvHolds;
+
   /** Search query string */
   const char *query;
 
@@ -489,6 +495,11 @@ static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCt
  * sub-AREQs). Deleted with the wrapper refcount once the cursor-ownership
  * step makes the wrapper single-owner. */
 void AREQ_Free(AREQ *req);
+
+/* Hold references to `argv` strings whose contents this request's plan
+ * borrows (see HybridRequest_HoldArgv). Main-thread only; released in
+ * AREQ_Free, which runs on the main thread for wrapped requests. */
+void AREQ_HoldArgv(AREQ *req, RedisModuleString **argv, size_t argc);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 

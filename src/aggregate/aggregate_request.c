@@ -1918,9 +1918,27 @@ void AREQ_Free(AREQ *req) {
 
   rm_free(req->args);
 
+  if (req->argvHolds) {
+    // Runs on the main thread (wrapper OnFree / container free): argv string
+    // refcounts are not thread safe.
+    for (size_t ii = 0; ii < req->nargvHolds; ++ii) {
+      RedisModule_FreeString(NULL, req->argvHolds[ii]);
+    }
+    rm_free(req->argvHolds);
+  }
+
   RequestSyncState_Destroy(&req->syncState);
 
   rm_free(req);
+}
+
+void AREQ_HoldArgv(AREQ *req, RedisModuleString **argv, size_t argc) {
+  RS_ASSERT(req->argvHolds == NULL);
+  req->argvHolds = rm_calloc(argc, sizeof(*req->argvHolds));
+  req->nargvHolds = argc;
+  for (size_t ii = 0; ii < argc; ++ii) {
+    req->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
+  }
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {

@@ -3968,6 +3968,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // The tail sctx aliased this handler's ctx, which dies when the handler
   // returns. The BG executor re-points it at its own thread-safe ctx.
   sctx->redisCtx = NULL;
+  // Hold the argv strings the background parse will borrow from — string
+  // refcount operations are main-thread-only, and the ConcurrentCmdCtx's own
+  // argv copies die with the job.
+  HybridRequest_HoldArgv(hreq, argv, argc);
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
   hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
