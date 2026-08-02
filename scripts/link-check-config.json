@@ -1,5 +1,6 @@
 {
   "exclude_urls": [
+    "https://stackoverflow.com/questions/tagged/redis",
     "https://example.com/placeholder",
     "https://localhost",
     "http://localhost",
