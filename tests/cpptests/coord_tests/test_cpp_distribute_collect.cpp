@@ -80,6 +80,7 @@ protected:
 
     QueryError qerr = QueryError_Default();
     AREQ *r = AREQ_New();
+    BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
     int rc = AREQ_Compile(r, ctx, rmArgs, rmArgs.size(), false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);

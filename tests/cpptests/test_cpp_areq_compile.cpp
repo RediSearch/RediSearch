@@ -113,6 +113,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     const auto& test_data = GetParam();
 
     AREQ* req = AREQ_New();
+    BlockedRequestCtx_NewAREQ(req);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -202,6 +203,7 @@ INSTANTIATE_TEST_SUITE_P(
 // Test binary slot range parsing with single range
 TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     AREQ* req = AREQ_New();
+    BlockedRequestCtx_NewAREQ(req);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -243,6 +245,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
 // Test error handling for insufficient arguments
 TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     AREQ* req = AREQ_New();
+    BlockedRequestCtx_NewAREQ(req);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks
@@ -272,6 +275,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
 // Test complex aggregate query with cursor, scorer, and slot ranges
 TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     AREQ* req = AREQ_New();
+    BlockedRequestCtx_NewAREQ(req);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     ASSERT_NE(req, nullptr) << "AREQ_New should return a valid pointer";
 
     // Mark req as internal to bypass checks

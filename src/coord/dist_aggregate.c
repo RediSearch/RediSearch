@@ -766,8 +766,8 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   // must live as long as the request. The job argv mirrors the original, so
   // offsets computed on it index the holds too (debug flows only trim the
   // trailing debug params off argc, keeping the holds a superset).
-  RS_ASSERT(r->argvHolds && (size_t)argc <= r->nargvHolds);
-  rc = AREQ_Compile(r, ctx, r->argvHolds + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
+  RS_ASSERT(r->brc->argvHolds && (size_t)argc <= r->brc->nargvHolds);
+  rc = AREQ_Compile(r, ctx, r->brc->argvHolds + ac.offset, argc - ac.offset, SearchDisk_IsEnabledForValidation(), status);
   if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // User-facing cursors are unsupported on disk (flex). Reject before fan-out.

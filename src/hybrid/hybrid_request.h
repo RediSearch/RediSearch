@@ -21,15 +21,6 @@ struct Cursor;
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
 typedef struct HybridRequest {
-    /* Held references to the command argv (past the command and index
-     * tokens). Parse-time borrows (query strings, field names, RLookup keys)
-     * point into these strings, so they stay valid for the holder's lifetime
-     * independent of the dispatcher's argv. String refcounts are not thread
-     * safe: held and released on the main thread only (see
-     * HybridRequest_HoldArgv). */
-    RedisModuleString **argv;
-    size_t nargs;
-
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;

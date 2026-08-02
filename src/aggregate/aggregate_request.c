@@ -1220,6 +1220,14 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   } else {
     HybridRequest_Free(brc->query.hybrid);
   }
+  if (brc->argvHolds) {
+    // After the request: its plan borrows from these strings. Runs on the
+    // main thread; argv string refcounts are not thread safe.
+    for (size_t ii = 0; ii < brc->nargvHolds; ++ii) {
+      RedisModule_FreeString(NULL, brc->argvHolds[ii]);
+    }
+    rm_free(brc->argvHolds);
+  }
   rm_free(brc);
 }
 
@@ -1406,15 +1414,17 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
-  if (!req->argvHolds) {
+  BlockedRequestCtx *brc = req->brc;
+  RS_ASSERT(brc != NULL);
+  if (!brc->argvHolds) {
     // Parsing on the main thread with the caller's argv: hold references so
     // the plan's borrows stay valid for the request's lifetime. Flows that
     // parse on a background thread hold the argv at dispatch (on the main
     // thread) and pass a slice of the holds here instead.
-    AREQ_HoldArgv(req, argv, argc);
-    argv = req->argvHolds;
+    BlockedRequestCtx_HoldArgv(brc, argv, argc);
+    argv = brc->argvHolds;
   } else {
-    RS_ASSERT(req->argvHolds <= argv && argv + argc <= req->argvHolds + req->nargvHolds);
+    RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
   }
   req->parseArgv = argv;
 
@@ -1932,26 +1942,17 @@ void AREQ_Free(AREQ *req) {
     req->parsedVectorData = NULL;
   }
 
-  if (req->argvHolds) {
-    // Runs on the main thread (wrapper OnFree / container free): argv string
-    // refcounts are not thread safe.
-    for (size_t ii = 0; ii < req->nargvHolds; ++ii) {
-      RedisModule_FreeString(NULL, req->argvHolds[ii]);
-    }
-    rm_free(req->argvHolds);
-  }
-
   RequestSyncState_Destroy(&req->syncState);
 
   rm_free(req);
 }
 
-void AREQ_HoldArgv(AREQ *req, RedisModuleString **argv, size_t argc) {
-  RS_ASSERT(req->argvHolds == NULL);
-  req->argvHolds = rm_calloc(argc, sizeof(*req->argvHolds));
-  req->nargvHolds = argc;
+void BlockedRequestCtx_HoldArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
+  RS_ASSERT(brc->argvHolds == NULL);
+  brc->argvHolds = rm_calloc(argc, sizeof(*brc->argvHolds));
+  brc->nargvHolds = argc;
   for (size_t ii = 0; ii < argc; ++ii) {
-    req->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
+    brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
   }
 }
 

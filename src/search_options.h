@@ -108,7 +108,7 @@ typedef struct {
   struct {
     LegacyNumericFilter **filters;
     LegacyGeoFilter **geo_filters;
-    /* Borrowed from the request's held argv (see AREQ.argvHolds) */
+    /* Borrowed from the request's held argv (see BlockedRequestCtx.argvHolds) */
     RedisModuleString **infields;
     size_t ninfields;
   } legacy;

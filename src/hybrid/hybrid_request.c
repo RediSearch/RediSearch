@@ -306,6 +306,12 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
+        // Each sub-AREQ gets its own wrapper at construction (on the main
+        // thread, like every request wrapper): it carries the sub's argv
+        // holds, and cursor-backing sub-AREQs run RETURN_STRICT FT.CURSOR
+        // READ cycles against it. Freed with the sub-AREQ
+        // (AREQ_DecrRef -> BlockedRequestCtx_Free).
+        BlockedRequestCtx_NewAREQ(requests[i]);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
     }
@@ -329,33 +335,30 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 }
 
 void HybridRequest_HoldArgv(HybridRequest *req, RedisModuleString **argv, int argc) {
-  RS_ASSERT(req->argv == NULL);
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
   argv += step;
   argc -= step;
-  req->argv = rm_calloc(argc, sizeof(*req->argv));
-  req->nargs = argc;
-  for (int ii = 0; ii < argc; ++ii) {
-    req->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
-  }
-  // Each sub-AREQ takes its own holds: its plan's borrows must stay valid for
-  // the sub-AREQ's own lifetime, which can exceed the container's.
+  BlockedRequestCtx_HoldArgv(req->brc, argv, argc);
+  // Each sub-AREQ's wrapper takes its own holds: the sub's plan borrows must
+  // stay valid for the sub-AREQ's own lifetime, which can exceed the
+  // container's. The arrays are parallel: sub holds mirror the container's
+  // holds index for index.
   for (size_t i = 0; i < req->nrequests; i++) {
-    AREQ_HoldArgv(req->requests[i], req->argv, req->nargs);
+    BlockedRequestCtx_HoldArgv(req->requests[i]->brc, argv, argc);
   }
 }
 
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
-  if (!req->argv) {
+  if (!req->brc->argvHolds) {
     HybridRequest_HoldArgv(req, argv, argc);
   }
   // The caller's argc bounds the parse (the coordinator debug flow strips
   // trailing debug params); the holds may cover a superset.
-  RS_ASSERT((size_t)(argc - step) <= req->nargs);
-  ArgsCursor_InitRString(ac, req->argv, argc - step);
+  RS_ASSERT((size_t)(argc - step) <= req->brc->nargvHolds);
+  ArgsCursor_InitRString(ac, req->brc->argvHolds, argc - step);
 }
 
 /**
@@ -439,15 +442,6 @@ void HybridRequest_Free(HybridRequest *req) {
     rm_free(req->debugParams);
 
     RequestSyncState_Destroy(&req->syncState);
-
-    if (req->argv) {
-      // Runs on the main thread (wrapper OnFree / inline release): argv
-      // string refcounts are not thread safe.
-      for (size_t ii = 0; ii < req->nargs; ++ii) {
-        RedisModule_FreeString(NULL, req->argv[ii]);
-      }
-      rm_free(req->argv);
-    }
 
     rm_free(req);
 }

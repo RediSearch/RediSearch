@@ -57,6 +57,7 @@ TEST_F(AggTest, testBasic) {
   RedisModule_FreeString(ctx, vtmp);
 
   AREQ *rr = AREQ_New();
+  BlockedRequestCtx_NewAREQ(rr);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
@@ -306,6 +307,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
     QueryError qerr = QueryError_Default();
     AREQ *rr = AREQ_New();
+    BlockedRequestCtx_NewAREQ(rr);  // AREQ_Compile requires a wrapper (it carries the argv holds)
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     int rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);

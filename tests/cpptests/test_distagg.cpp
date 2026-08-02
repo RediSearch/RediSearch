@@ -35,6 +35,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 static void testAverage() {
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "sony",                                        // nl
                     "GROUPBY", "1", "@brand",                           // nl
@@ -94,6 +95,7 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
@@ -132,6 +134,7 @@ static void testCountDistinct() {
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
+  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl

@@ -253,16 +253,9 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 }
 
 typedef struct AREQ {
-  /* Held references to the argv strings this request's plan borrows from.
-   * Taken by AREQ_Compile (main-thread parse flows), the coordinator
-   * dispatcher (BG parse flows), or HybridRequest_HoldArgv (hybrid
-   * sub-AREQs). Held and released on the main thread only. May be a superset
-   * of the parsed slice. */
-  RedisModuleString **argvHolds;
-  size_t nargvHolds;
-
-  /* Where this request's arguments start within argvHolds. Borrowed view;
-   * the references are owned by argvHolds. */
+  /* Where this request's arguments start within its wrapper's held argv
+   * (brc->argvHolds). Borrowed view; the references are owned by the
+   * wrapper. */
   RedisModuleString **parseArgv;
 
   /** Search query string (borrowed from the held argv) and its length */
@@ -373,6 +366,15 @@ struct BlockedRequestCtx {
     AREQ *areq;
     struct HybridRequest *hybrid;
   } query;
+
+  /* Held references to the command argv strings the owned request's plan
+   * borrows from. Taken on the main thread only (string refcounts are not
+   * thread safe): by AREQ_Compile / HybridRequest_InitArgsCursor for flows
+   * that parse on the main thread, or by the coordinator dispatcher before
+   * going to the background. Released in BlockedRequestCtx_Free, after the
+   * owned request. May be a superset of the parsed slice. */
+  RedisModuleString **argvHolds;
+  size_t nargvHolds;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -499,12 +501,10 @@ static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCt
  * step makes the wrapper single-owner. */
 void AREQ_Free(AREQ *req);
 
-/* Hold references to `argv` strings whose contents this request's plan
- * borrows. Called by AREQ_Compile for flows that parse on the main thread,
- * by the coordinator dispatcher before going to the background, and by
- * HybridRequest_HoldArgv for hybrid sub-AREQs. Main-thread only; released in
- * AREQ_Free, which runs on the main thread for wrapped requests. */
-void AREQ_HoldArgv(AREQ *req, RedisModuleString **argv, size_t argc);
+/* Hold references to `argv` strings whose contents the wrapped request's
+ * plan borrows (see BlockedRequestCtx.argvHolds). Main-thread only; released
+ * in BlockedRequestCtx_Free, which runs on the main thread. */
+void BlockedRequestCtx_HoldArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 
