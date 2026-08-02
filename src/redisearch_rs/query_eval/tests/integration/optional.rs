@@ -89,7 +89,7 @@ mod optional {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::key_view;
 
     #[test]
     fn eval_optional_wraps_real_child_in_optional() {
@@ -105,7 +105,7 @@ mod optional {
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the two known documents.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a"), new_sds("doc_b")];
+        let keys = vec![key_view("doc_a"), key_view("doc_b")];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -127,10 +127,6 @@ mod optional {
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
 
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
@@ -196,7 +192,7 @@ mod optional {
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_a")];
+        let keys = vec![key_view("doc_a")];
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -215,9 +211,5 @@ mod optional {
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
 
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 }

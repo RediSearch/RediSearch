@@ -77,8 +77,16 @@ typedef struct {
   struct VectorQuery *vq;
 } QueryVectorNode;
 
+/* A borrowed (pointer, length) view of a string owned elsewhere. */
 typedef struct {
-  const sds *keys;
+  const char *data;
+  size_t len;
+} RSStringView;
+
+typedef struct {
+  /* Views of the key names, borrowing from the request's held argv. The
+   * array itself is owned by the node (freed in QueryNode_Free). */
+  RSStringView *keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;
   size_t len;

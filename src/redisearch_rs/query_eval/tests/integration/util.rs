@@ -9,14 +9,19 @@
 
 //! Shared helpers for the query_eval integration tests.
 
-/// Create an SDS string from `s`. The caller owns the result and must free
-/// it with [`ffi::sdsfree`].
-///
-/// Gated out under Miri: [`ffi::sdsnewlen`] calls into the C library, which
-/// Miri cannot execute.
-#[cfg(not(miri))]
-pub fn new_sds(s: &str) -> ffi::sds {
-    // SAFETY: `s` points to `s.len()` valid bytes; `sdsnewlen` copies them
-    // into a freshly allocated SDS string.
-    unsafe { ffi::sdsnewlen(s.as_ptr().cast(), s.len()) }
+/// A borrowed (pointer, length) view of `s`, as consumed by the id-filter
+/// node. `'static` keeps the borrow trivially valid for the test's lifetime.
+pub fn key_view(s: &'static str) -> ffi::RSStringView {
+    ffi::RSStringView {
+        data: s.as_ptr().cast(),
+        len: s.len(),
+    }
+}
+
+/// A NULL key view, for tests that never read the keys (pre-resolved doc ids).
+pub fn null_view() -> ffi::RSStringView {
+    ffi::RSStringView {
+        data: std::ptr::null(),
+        len: 0,
+    }
 }

@@ -20,15 +20,15 @@ use crate::{Evaluated, QueryEvalContext};
 /// Resolves each key to a document ID, sorts, deduplicates, and creates a
 /// sorted [`IdListSorted`] iterator.
 ///
-/// * `keys` — SDS key strings from the query node.  When `doc_ids` is
-///   `None`, each key is looked up in the [`DocTable`](ffi::DocTable) to
-///   obtain its document ID.
+/// * `keys` — (pointer, length) views of the key names from the query node.
+///   When `doc_ids` is `None`, each key is looked up in the
+///   [`DocTable`](ffi::DocTable) to obtain its document ID.
 /// * `doc_ids` — when present (search-on-disk mode), contains pre-resolved
 ///   document IDs positionally matching `keys`, bypassing the `DocTable`
 ///   lookup.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
-    keys: &[ffi::sds],
+    keys: &[ffi::RSStringView],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
     // Pre-resolved `doc_ids` are only produced on the search-on-disk path, so
@@ -52,13 +52,11 @@ pub(crate) fn eval<'index>(
         // In-memory: resolve each key to a doc id through the `DocTable`.
         None => keys
             .iter()
-            .filter_map(|&key| {
-                // SAFETY: `key` is a valid SDS string (guaranteed by
-                // `QueryNodeRef`); `sdslen_rust` reads its header.
-                let key_len = unsafe { ffi::sdslen_rust(key) };
-                // SAFETY: `doc_table()` returns a valid `DocTable` reference
-                // (`QueryEvalContext` invariant).
-                let did = unsafe { ffi::DocTable_GetId(ctx.doc_table(), key, key_len) };
+            .filter_map(|key| {
+                // SAFETY: `key` is a valid (pointer, length) view (guaranteed
+                // by `QueryNodeRef`) and `doc_table()` returns a valid
+                // `DocTable` reference (`QueryEvalContext` invariant).
+                let did = unsafe { ffi::DocTable_GetId(ctx.doc_table(), key.data, key.len) };
                 (did != 0).then_some(did)
             })
             .collect(),

@@ -96,9 +96,8 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  /* Owned sds copies of the INKEYS args (freed with the request): the
-   * id-filter evaluation, including its Rust side, consumes sds keys. */
-  sds *inkeys;
+  /* Borrowed from the request's held argv (see BlockedRequestCtx.argvHolds) */
+  RedisModuleString **inkeys;
   size_t ninkeys;
 
   const StopWordList *stopwords;

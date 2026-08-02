@@ -777,19 +777,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  // INKEYS: the id-filter evaluation (including its Rust side) consumes sds
-  // keys; materialize owned copies of just these args.
-  if (inKeys.argc) {
-    searchOpts->inkeys = rm_malloc(sizeof(*searchOpts->inkeys) * inKeys.argc);
-    for (size_t ii = 0; ii < inKeys.argc; ++ii) {
-      size_t n;
-      const char *s = AC_StringArg(&inKeys, ii, &n);
-      searchOpts->inkeys[ii] = sdsnewlen(s, n);
-    }
-  }
+  // INKEYS / INFIELDS: sub-cursors of the parse cursor; objs are
+  // RedisModuleString pointers, borrowed from the request's held argv.
+  searchOpts->inkeys = (RedisModuleString **)inKeys.objs;
   searchOpts->ninkeys = inKeys.argc;
-  // INFIELDS: a sub-cursor of the parse cursor; objs are RedisModuleString
-  // pointers, borrowed from the request's held argv.
   searchOpts->legacy.infields = (RedisModuleString **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
   // if language is NULL, set it to RS_LANG_UNSET and it will be updated
@@ -1577,25 +1568,33 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
-    QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
+    // The id-filter chain (including its Rust evaluation) consumes
+    // (pointer, length) views; build them over the held argv strings.
+    RSStringView *keys = rm_malloc(sizeof(*keys) * opts->ninkeys);
+    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+      keys[ii].data = RedisModule_StringPtrLen(opts->inkeys[ii], &keys[ii].len);
+    }
+    QAST_GlobalFilterOptions filterOpts = {.keys = keys, .nkeys = opts->ninkeys};
 
     // For SearchDisk, resolve docIds from keys on the main thread
     if (SearchDisk_IsEnabled()) {
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
-        RedisModuleString* keyName = RedisModule_CreateString(
-            sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
-        if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
+        if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) ==
+            REDISMODULE_OK) {
           filterOpts.docIds[ii] = docId;
         } else {
           filterOpts.docIds[ii] = 0;  // Mark as not found
         }
-        RedisModule_FreeString(sctx->redisCtx, keyName);
       }
     }
 
     QAST_SetGlobalFilters(ast, &filterOpts);
+    // Non-NULL only if the transfer to the query node did not happen.
+    if (filterOpts.keys) {
+      rm_free(filterOpts.keys);
+    }
     if (filterOpts.docIds) {
       rm_free(filterOpts.docIds);
     }
@@ -1909,12 +1908,6 @@ void AREQ_Free(AREQ *req) {
     SearchCtx_Free(sctx);
   }
 
-  if (req->searchopts.inkeys) {
-    for (size_t ii = 0; ii < req->searchopts.ninkeys; ++ii) {
-      sdsfree(req->searchopts.inkeys[ii]);
-    }
-    rm_free(req->searchopts.inkeys);
-  }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
       LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
