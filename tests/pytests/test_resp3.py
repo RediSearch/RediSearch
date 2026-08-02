@@ -166,9 +166,11 @@ def test_search_knn_limit_offset_resp3():
 
 def _search_knn_sortby_limit_total(protocol):
     # MOD-16818: with KNN + SORTBY <distance field>, the coordinator sized its
-    # merge heap by min(K, offset+count) and reported the heap count as the
-    # total, so `total` grew with the LIMIT window instead of staying at
-    # min(K, matches) on every page.
+    # merge heap by min(K, offset+count) and reported the heap count as
+    # `total_results`, so the reported number of matching documents was the size
+    # of the response window (0 for `LIMIT 0 0`) instead of min(K, matches).
+    # The same assertions run in standalone, where they always held - this pins
+    # the cluster reply to the single-shard behavior.
     env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -189,25 +191,26 @@ def _search_knn_sortby_limit_total(protocol):
             return res['total_results'], [row['id'] for row in res['results']]
         return res[0], res[1:]
 
-    # 30 matches, K=20: total must be 20 on every page, rows follow the window
-    for offset, count in [(0, 5), (5, 5), (15, 5), (0, 20)]:
+    # 30 documents match, K=20: the query matches 20 documents on every page,
+    # including the count-only `LIMIT 0 0`. Rows follow the window.
+    for offset, count in [(0, 0), (0, 5), (5, 5), (15, 5), (0, 20)]:
         total, ids = run('*=>[KNN 20 @v $B AS dist]', offset, count)
         env.assertEqual(total, 20, message=f'LIMIT {offset} {count}')
         env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, offset + count)],
                         message=f'LIMIT {offset} {count}')
 
     # filter (8 matches) smaller than K=20: total must be 8 on every page
-    for offset, count in [(0, 5), (5, 5)]:
+    for offset, count in [(0, 0), (0, 5), (5, 5)]:
         total, ids = run('@t:{tiny}=>[KNN 20 @v $B AS dist]', offset, count)
         env.assertEqual(total, 8, message=f'tiny LIMIT {offset} {count}')
         env.assertEqual(ids, [f'vdoc{{{i:02d}}}' for i in range(offset, min(offset + count, 8))],
                         message=f'tiny LIMIT {offset} {count}')
 
-@skip(cluster=False, redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0")
 def test_search_knn_sortby_limit_total_resp2():
     _search_knn_sortby_limit_total(protocol=2)
 
-@skip(cluster=False, redis_less_than="7.0.0")
+@skip(redis_less_than="7.0.0")
 def test_search_knn_sortby_limit_total_resp3():
     _search_knn_sortby_limit_total(protocol=3)
 

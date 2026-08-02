@@ -3102,13 +3102,19 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
         }
       }
     }
-    // ProcessKNNSearchReply does not accumulate the shards' totals, and the
-    // KNN heap is bounded by K, so the merged heap count is the total.
+    // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
+    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
+    // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
+    // above dropped nothing and its count is exactly the number of matching
+    // documents, min(K, global matches).
     rCtx->totalReplies = heap_count(rCtx->pq);
   } else {
-    // SORTBY-by-distance: rCtx->pq is a response window sized
-    // min(K, offset+count), so its count is not the total. processSearchReply
-    // summed the shards' totals (each at most K hits globally); clamp to K.
+    // SORTBY by the distance field: processSearchReply already summed each
+    // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
+    // a response window sized MIN(K, offset+count), so its count is not a hit
+    // count. Clamping the sum to K is exact: if every shard has at most K
+    // matches the sum *is* the global match count, and otherwise both the sum
+    // and the global match count are >= K.
     rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
   }
 }
