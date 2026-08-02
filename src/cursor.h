@@ -37,8 +37,13 @@ typedef struct Cursor {
    */
   StrongRef hybrid_ref;
 
-  /** Execution state. Opaque to the cursor - managed by consumer */
-  AREQ *execState;
+  /** The parked request's wrapper. Holds one wrapper reference, released by
+   * Cursor_FreeInternal (hybrid sub-cursors are the exception: the hybrid
+   * container owns the sub-AREQ, so their reference rides hybrid_ref instead —
+   * retired in Step 2b-ii). Ownership of the cursor (and with it the wrapper)
+   * belongs to the idle list while parked and to the executing cycle while
+   * taken. NULL only for the hybrid single-cursor fallback. */
+  BlockedRequestCtx *query;
 
   /** Time when this cursor will no longer be valid, in nanos */
   uint64_t nextTimeoutNs;
@@ -71,6 +76,13 @@ typedef struct Cursor {
    *  Should only be accessed under cursor list lock */
   bool delete_mark;
 } Cursor;
+
+/* The AREQ carried by this cursor's wrapper: the parked request for plain
+ * cursors, the sub-AREQ for hybrid sub-cursors. NULL for the hybrid
+ * single-cursor fallback (no wrapper). */
+static inline AREQ *Cursor_AREQ(const Cursor *cur) {
+  return cur->query && cur->query->kind == REQUEST_KIND_AREQ ? cur->query->query.areq : NULL;
+}
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
 /**

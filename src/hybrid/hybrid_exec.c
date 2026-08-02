@@ -762,7 +762,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
     RedisModule_Reply_Map(reply);
     for (size_t i = 0; i < array_len(cursors); i++) {
       Cursor *cursor = cursors[i];
-      AREQ *areq = cursor->execState;
+      AREQ *areq = Cursor_AREQ(cursor);
       if (IsHybridSearchSubquery(areq)) {
         RedisModule_ReplyKV_LongLong(reply, "SEARCH", cursor->id);
       } else if (IsHybridVectorSubquery(areq)) {
@@ -833,15 +833,16 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // The cursor lifetime will determine the hybrid request lifetime
-      cursor->execState = areq;
-      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
       // A cursor-backing sub-AREQ needs its own heap BlockedRequestCtx: RETURN_STRICT
       // FT.CURSOR READ cycles run the claim/done-latch handshake against the read
       // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
       // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
-      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
+      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free);
+      // the cursor's own hold rides hybrid_ref (until Step 2b-ii).
       BlockedRequestCtx_NewAREQ(areq);
+      // The cursor lifetime will determine the hybrid request lifetime
+      cursor->query = areq->brc;
+      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
       areq->cursor_id = cursor->id;

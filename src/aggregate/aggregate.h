@@ -55,8 +55,8 @@ typedef struct {
  * ## Cursor ↔ AREQ Ownership
  *
  * **Cursor owns AREQ** (not vice versa):
- * - cursor->execState points to the AREQ
- * - Cursor_FreeInternal calls AREQ_DecrRef(cur->execState)
+ * - cursor->query points to the AREQ's wrapper
+ * - Cursor_FreeInternal releases the wrapper reference
  *
  * **AREQ does NOT own Cursor**:
  * - The `cursor` field below is a NON-OWNING handle.
@@ -407,6 +407,16 @@ struct BlockedRequestCtx {
   // Destroyed at EndCycle (per cycle) and, idempotently, in
   // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;
+  /* Cursor disposition for this cycle. The point that decides the cursor's
+   * fate — the BG worker at cycle end, or the main-thread reply path once
+   * finishSendChunk has set QEXEC_S_ITERDONE — records it here instead of
+   * pausing/freeing directly; OnFree, the single park-or-free point, executes
+   * it under the cursor-list lock after the reply/timeout callback ran. This
+   * is what makes a cursor unreachable to other clients until the cycle fully
+   * ended (no park-before-OnFree overlap). NULL when the cycle has no cursor
+   * or on inline execution (brc->bc == NULL), which still disposes directly. */
+  struct Cursor *cursor;
+  bool cursor_dispose_free;
 
   /* ===== TRANSITIONAL(MOD-16691) — refactor scaffolding =====
    * Every field below is temporary bloat: each one bridges a gap that a later
