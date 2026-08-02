@@ -47,6 +47,22 @@
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
 
+// Record the sub-request's query argument: parseArgv points at the current
+// cursor token within the sub-request's OWN held argv (the container's holds
+// do not outlive the container; the sub-request may). Both hold the same
+// string references, so the token is located by pointer identity.
+static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
+  RedisModuleString *tok = (RedisModuleString *)AC_CURRENT(ac);
+  BlockedRequestCtx *brc = sub->brc;
+  for (size_t i = 0; i < brc->nargvHolds; i++) {
+    if (brc->argvHolds[i] == tok) {
+      sub->parseArgv = brc->argvHolds + i;
+      return;
+    }
+  }
+  RS_ABORT("sub-query token not found in the sub-request's held argv");
+}
+
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
@@ -85,7 +101,8 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  sreq->query = AC_GetStringNC(ac, &sreq->queryLen);
+  setSubQueryArg(sreq, ac);
+  AC_Advance(ac);
   RSSearchOptions *searchOpts = &sreq->searchopts;
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
@@ -330,12 +347,14 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
     return REDISMODULE_ERR;
   }
 
-  // Parse filter-expression (required, positional) - store in vreq->query directly
-  vreq->query = AC_GetStringNC(&argCursor, &vreq->queryLen);
-  if (!vreq->query) {
+  // Parse filter-expression (required, positional): becomes the sub-request's
+  // query argument.
+  if (AC_IsAtEnd(&argCursor)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
   }
+  setSubQueryArg(vreq, &argCursor);
+  AC_Advance(&argCursor);
 
   // Use ArgParser for optional POLICY and BATCH_SIZE
   ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
@@ -485,11 +504,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
       // it's a string, not a number, preserving some degree of backward compatibility
-      vreq->query = AC_GetStringNC(ac, &vreq->queryLen);
-      if (!vreq->query) {
+      if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
         goto error;
       }
+      setSubQueryArg(vreq, ac);
+      AC_Advance(ac);
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
     }
@@ -515,13 +535,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // Set implicit "*" filter if no explicit filter was provided.
+  // No explicit FILTER: the sub-request has no query argument, and AREQ_Query
+  // defaults to matching everything ("*").
   // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
   // so the vector node becomes the root directly (no PHRASE/intersection needed).
   // This preserves BY_SCORE ordering from the iterator.
-  if (!vreq->query) {
-    vreq->query = "*";
-    vreq->queryLen = 1;
+  if (!vreq->parseArgv) {
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {

@@ -254,13 +254,10 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 
 typedef struct AREQ {
   /* Where this request's arguments start within its wrapper's held argv
-   * (brc->argvHolds). Borrowed view; the references are owned by the
-   * wrapper. */
+   * (brc->argvHolds). The first argument is the request's query string (see
+   * AREQ_Query). Borrowed view; the references are owned by the wrapper.
+   * NULL for a hybrid VSIM sub-request with no FILTER (no query argument). */
   RedisModuleString **parseArgv;
-
-  /** Search query string (borrowed from the held argv) and its length */
-  const char *query;
-  size_t queryLen;
 
   /** For hybrid queries: contains parsed vector data and partially constructed query node */
   ParsedVectorData *parsedVectorData;
@@ -350,6 +347,17 @@ typedef struct AREQ {
   bool useReplyCallback;
 
 } AREQ;
+
+/* The request's query string: the first argument of its parse slice, backed
+ * by the wrapper's held argv. A request with no query argument (a hybrid
+ * VSIM sub-request without a FILTER) matches everything. */
+static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
+  if (!req->parseArgv) {
+    if (len) *len = 1;
+    return "*";
+  }
+  return RedisModule_StringPtrLen(req->parseArgv[0], len);
+}
 
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;

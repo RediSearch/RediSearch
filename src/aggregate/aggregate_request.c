@@ -1437,7 +1437,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_ERR;
   }
 
-  req->query = AC_GetStringNC(&ac, &req->queryLen);
+  AC_Advance(&ac);  // The query string: parseArgv[0], read via AREQ_Query
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1768,7 +1768,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
 
   if (!skipParse) {
-    int rv = QAST_Parse(ast, sctx, opts, req->query, req->queryLen, dialectVersion, status);
+    size_t queryLen;
+    const char *query = AREQ_Query(req, &queryLen);
+    int rv = QAST_Parse(ast, sctx, opts, query, queryLen, dialectVersion, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
