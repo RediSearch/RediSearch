@@ -4006,8 +4006,7 @@ static_assert(sizeof(kCursorSubNames) / sizeof(kCursorSubNames[0]) == CURSOR_SUB
 #endif
 
 static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                RedisModuleCmdFunc subcmd, ConcurrentCmdHandler dist_callback,
-                                CursorSubcommand sub) {
+                                RedisModuleCmdFunc subcmd, CursorSubcommand sub) {
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   } else if (!SearchCluster_Ready()) {
@@ -4021,45 +4020,25 @@ static inline int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
 
   VERIFY_ACL(ctx, argv[2])
 
-  if (NumShards == 1) {
-    // There is only one shard in the cluster. We can handle the command locally.
-    return subcmd(ctx, argv, argc);
-  } else if (cannotBlockCtx(ctx)) {
+  // Only a multi-shard READ ever blocks (RSCursorReadCommand parses COUNT and
+  // takes the cursor on the main thread, then dispatches coordinator-list
+  // cursors to the coordinator pool). DEL / GC are cursor-list operations that
+  // run entirely on the main thread — freeing a coordinator cursor posts the
+  // shards' cleanup to the IO runtime asynchronously — so they are served from
+  // any context, like on a single shard.
+  if (sub == CURSOR_SUBCMD_READ && NumShards != 1 && cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
-
-  // READ is handled by the same handler on every path: RSCursorReadCommand
-  // parses COUNT and takes the cursor on the main thread, then dispatches
-  // coordinator-list cursors to the coordinator pool.
-  if (sub == CURSOR_SUBCMD_READ) {
-    return subcmd(ctx, argv, argc);
-  }
-
-  // DEL / GC: generic dist re-entry on the coordinator pool.
-  RS_ASSERT(dist_callback != NULL);
-  ConcurrentSearchHandlerCtx handlerCtx;
-  ConcurrentSearchHandlerCtx_Init(&handlerCtx);
-
-  handlerCtx.spec_ref = (WeakRef){0};
-  return ConcurrentSearch_HandleRedisCommandEx(DIST_THREADPOOL, dist_callback, ctx, argv, argc,
-                                               &handlerCtx);
+  return subcmd(ctx, argv, argc);
 }
 
 
 #define CURSOR_SUBCOMMAND(name, sub_enum) \
-static void Cursor##name##CommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, struct ConcurrentCmdCtx *cmdCtx) { \
-  RSCursor##name##Command(ctx, argv, argc);                                                                                           \
-}                                                                                                                                     \
-int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {                                                  \
-  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, Cursor##name##CommandInternal, (sub_enum));                          \
+int Cursor##name##Command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {   \
+  return CursorCommand(ctx, argv, argc, RSCursor##name##Command, (sub_enum));          \
 }
 
-// READ takes the cursor on the main thread for every policy and never uses
-// the dist re-entry callback.
-int CursorReadCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return CursorCommand(ctx, argv, argc, RSCursorReadCommand, NULL, CURSOR_SUBCMD_READ);
-}
-
+CURSOR_SUBCOMMAND(Read, CURSOR_SUBCMD_READ)
 CURSOR_SUBCOMMAND(Del,  CURSOR_SUBCMD_DEL)
 CURSOR_SUBCOMMAND(GC,   CURSOR_SUBCMD_GC)
 
