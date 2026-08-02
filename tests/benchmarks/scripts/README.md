@@ -84,7 +84,18 @@ FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA
   headings TEXT WEIGHT 1.5
   body TEXT
   tags TAG SEPARATOR ","
+  n_uniform NUMERIC
+  n_uniform_small NUMERIC
+  n_cat NUMERIC
+  doc_len NUMERIC
 ```
+
+> **Note**: the NUMERIC fields exist only in datasets regenerated with the
+> current generator (deterministic per-doc values; see
+> `generate_numeric_fields_for_doc`). Declaring them against an older dataset
+> is harmless — the fields are simply absent from the documents — but the
+> `QUERY_numeric.csv` workload (and the numeric queries inside
+> `QUERY_all.csv`) is only meaningful against a regenerated dataset.
 
 > **Note**: Benchmark queries use `NOCONTENT` flag to avoid loading field values from keyspace,
 > enabling fair comparison with disk-based implementations (RoR vs RoF) that don't use a loader.
@@ -119,7 +130,8 @@ redis-server --loadmodule bin/linux-x64-release/search-community/redisearch.so -
 
 # 3. Create the index
 redis-cli FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA \
-  url TEXT title TEXT WEIGHT 2.0 headings TEXT WEIGHT 1.5 body TEXT tags TAG SEPARATOR ","
+  url TEXT title TEXT WEIGHT 2.0 headings TEXT WEIGHT 1.5 body TEXT tags TAG SEPARATOR "," \
+  n_uniform NUMERIC n_uniform_small NUMERIC n_cat NUMERIC doc_len NUMERIC
 
 # 4. Download and test with a small sample (first 1000 lines)
 curl -s "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/6M-msmarco-documents/6M-msmarco-documents.redisearch.commands.SETUP.csv" | head -1000 > sample.csv
@@ -139,7 +151,8 @@ docker run -d --name redis-search -p 6379:6379 redis/redis-stack-server:latest
 
 # Create index and test
 redis-cli -p 6379 FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA \
-  url TEXT title TEXT WEIGHT 2.0 headings TEXT WEIGHT 1.5 body TEXT tags TAG SEPARATOR ","
+  url TEXT title TEXT WEIGHT 2.0 headings TEXT WEIGHT 1.5 body TEXT tags TAG SEPARATOR "," \
+  n_uniform NUMERIC n_uniform_small NUMERIC n_cat NUMERIC doc_len NUMERIC
 ```
 
 ---
