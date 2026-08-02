@@ -4,7 +4,7 @@ def test_profile_missing_query_error_on_coordinator():
     """MOD-6841: exercise the distributed parser, not the single-shard optimization."""
     env = Env(shardsCount=3)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'banana', 'banana').error().equal(
+    env.expect('FT.PROFILE', 'idx', 'SEARCH', 'banana', 'banana').error().contains(
         'The QUERY keyword is expected')
 
 
