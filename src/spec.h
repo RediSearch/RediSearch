@@ -626,6 +626,7 @@ int IndexSpec_AddFields(StrongRef ref, IndexSpec *sp, RedisModuleCtx *ctx, ArgsC
                         QueryError *status);
 
 bool IndexSpec_IsCoherent(IndexSpec *sp, sds* prefixes, size_t n_prefixes);
+bool IndexSpec_IsCoherentArgs(IndexSpec *sp, RedisModuleString **prefixes, size_t n_prefixes);
 
 /**
  * Checks that the given parameters pass memory limits (used while starting from RDB)

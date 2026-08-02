@@ -96,7 +96,9 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  const sds *inkeys;
+  /* Owned sds copies of the INKEYS args (freed with the request): the
+   * id-filter evaluation, including its Rust side, consumes sds keys. */
+  sds *inkeys;
   size_t ninkeys;
 
   const StopWordList *stopwords;
@@ -106,7 +108,8 @@ typedef struct {
   struct {
     LegacyNumericFilter **filters;
     LegacyGeoFilter **geo_filters;
-    const char **infields;
+    /* Borrowed from the request's held argv (see AREQ.argvHolds) */
+    RedisModuleString **infields;
     size_t ninfields;
   } legacy;
 } RSSearchOptions;

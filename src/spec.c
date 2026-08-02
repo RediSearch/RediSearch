@@ -1616,6 +1616,30 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
   return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
 }
 
+bool IndexSpec_IsCoherentArgs(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
+  if (!spec || !spec->rule) {
+    return false;
+  }
+  arrayof(HiddenUnicodeString*) spec_prefixes = spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  for (size_t i = 0; i < n_prefixes; i++) {
+    size_t spec_len, arg_len;
+    const char *spec_str = HiddenUnicodeString_GetUnsafe(spec_prefixes[i], &spec_len);
+    const char *arg = RedisModule_StringPtrLen(prefixes[i], &arg_len);
+    if (spec_len != arg_len || memcmp(spec_str, arg, arg_len) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool IndexSpec_IsCoherent(IndexSpec *spec, sds* prefixes, size_t n_prefixes) {
   if (!spec || !spec->rule) {
     return false;

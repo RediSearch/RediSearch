@@ -3868,6 +3868,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     BlockedRequestCtx_NewAREQ(r);
   }
 
+  // Parsing runs on the BG thread with the job's argv copies, which die with
+  // the job. Hold the original argv here, on the main thread (string
+  // refcounts are not thread safe), so the plan's borrows stay valid for the
+  // request's lifetime; parsing borrows from these holds.
+  AREQ_HoldArgv(r, argv, argc);
+
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
 

@@ -777,9 +777,20 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  searchOpts->inkeys = (const sds*)inKeys.objs;
+  // INKEYS: the id-filter evaluation (including its Rust side) consumes sds
+  // keys; materialize owned copies of just these args.
+  if (inKeys.argc) {
+    searchOpts->inkeys = rm_malloc(sizeof(*searchOpts->inkeys) * inKeys.argc);
+    for (size_t ii = 0; ii < inKeys.argc; ++ii) {
+      size_t n;
+      const char *s = AC_StringArg(&inKeys, ii, &n);
+      searchOpts->inkeys[ii] = sdsnewlen(s, n);
+    }
+  }
   searchOpts->ninkeys = inKeys.argc;
-  searchOpts->legacy.infields = (const char **)inFields.objs;
+  // INFIELDS: a sub-cursor of the parse cursor; objs are RedisModuleString
+  // pointers, borrowed from the request's held argv.
+  searchOpts->legacy.infields = (RedisModuleString **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
   // if language is NULL, set it to RS_LANG_UNSET and it will be updated
   // later, taking the index language
@@ -1395,25 +1406,28 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 }
 
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
-  req->args = rm_malloc(sizeof(*req->args) * argc);
-  req->nargs = argc;
-  // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
-    req->args[ii] = sdsnewlen(s, n);
+  if (!req->argvHolds) {
+    // Parsing on the main thread with the caller's argv: hold references so
+    // the plan's borrows stay valid for the request's lifetime. Flows that
+    // parse on a background thread hold the argv at dispatch (on the main
+    // thread) and pass a slice of the holds here instead.
+    AREQ_HoldArgv(req, argv, argc);
+    argv = req->argvHolds;
+  } else {
+    RS_ASSERT(req->argvHolds <= argv && argv + argc <= req->argvHolds + req->nargvHolds);
   }
+  req->parseArgv = argv;
 
   // Parse the query and basic keywords first..
   ArgsCursor ac = {0};
-  ArgsCursor_InitSDS(&ac, req->args, req->nargs);
+  ArgsCursor_InitRString(&ac, argv, argc);
 
   if (AC_IsAtEnd(&ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  req->query = AC_GetStringNC(&ac, NULL);
+  req->query = AC_GetStringNC(&ac, &req->queryLen);
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1560,8 +1574,6 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
       for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
         uint64_t docId = 0;
-        // TODO: inkeys are extracted from RedisModuleString* in the command arguments, we should consider
-        // changing the search options to also use RedisModuleString* to avoid this extra conversion
         RedisModuleString* keyName = RedisModule_CreateString(
             sctx->redisCtx, opts->inkeys[ii], sdslen(opts->inkeys[ii]));
         if (DocIdMeta_Get(sctx->redisCtx, keyName, sctx->spec->specId, &docId) == REDISMODULE_OK) {
@@ -1587,11 +1599,12 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  sds *args = req->args;
-  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
+  RedisModuleString **args = req->parseArgv;
+  long long n_prefixes = 0;
+  RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
-  sds *prefixes = args + req->prefixesOffset + 2;
-  return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
+  RedisModuleString **prefixes = args + req->prefixesOffset + 2;
+  return IndexSpec_IsCoherentArgs(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
 
@@ -1698,8 +1711,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   if (opts->legacy.ninfields) {
     opts->fieldmask = 0;
     for (size_t ii = 0; ii < opts->legacy.ninfields; ++ii) {
-      const char *s = opts->legacy.infields[ii];
-      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, strlen(s));
+      size_t slen;
+      const char *s = RedisModule_StringPtrLen(opts->legacy.infields[ii], &slen);
+      t_fieldMask bit = IndexSpec_GetFieldBit(index, s, slen);
       opts->fieldmask |= bit;
     }
   }
@@ -1744,7 +1758,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   bool skipParse = req->parsedVectorData && req->parsedVectorData->skipFilterIntegration;
 
   if (!skipParse) {
-    int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
+    int rv = QAST_Parse(ast, sctx, opts, req->query, req->queryLen, dialectVersion, status);
     if (rv != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
@@ -1883,9 +1897,11 @@ void AREQ_Free(AREQ *req) {
     SearchCtx_Free(sctx);
   }
 
-  for (size_t ii = 0; ii < req->nargs; ++ii) {
-    sdsfree(req->args[ii]);
-    req->args[ii] = NULL;
+  if (req->searchopts.inkeys) {
+    for (size_t ii = 0; ii < req->searchopts.ninkeys; ++ii) {
+      sdsfree(req->searchopts.inkeys[ii]);
+    }
+    rm_free(req->searchopts.inkeys);
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
@@ -1915,8 +1931,6 @@ void AREQ_Free(AREQ *req) {
     ParsedVectorData_Free(req->parsedVectorData);
     req->parsedVectorData = NULL;
   }
-
-  rm_free(req->args);
 
   if (req->argvHolds) {
     // Runs on the main thread (wrapper OnFree / container free): argv string

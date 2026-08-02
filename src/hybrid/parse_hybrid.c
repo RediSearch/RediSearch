@@ -85,7 +85,7 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  sreq->query = AC_GetStringNC(ac, NULL);
+  sreq->query = AC_GetStringNC(ac, &sreq->queryLen);
   RSSearchOptions *searchOpts = &sreq->searchopts;
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
@@ -331,7 +331,7 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   }
 
   // Parse filter-expression (required, positional) - store in vreq->query directly
-  vreq->query = AC_GetStringNC(&argCursor, NULL);
+  vreq->query = AC_GetStringNC(&argCursor, &vreq->queryLen);
   if (!vreq->query) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
@@ -485,7 +485,7 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
       // it's a string, not a number, preserving some degree of backward compatibility
-      vreq->query = AC_GetStringNC(ac, NULL);
+      vreq->query = AC_GetStringNC(ac, &vreq->queryLen);
       if (!vreq->query) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
         goto error;
@@ -521,6 +521,7 @@ final:
   // This preserves BY_SCORE ordering from the iterator.
   if (!vreq->query) {
     vreq->query = "*";
+    vreq->queryLen = 1;
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {

@@ -381,7 +381,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
  *
  * Both halves of the split GROUPBY forward the original COLLECT argv pointers
  * verbatim; only what actually differs between the two sides is synthesized.
- * FIELDS / SORTBY tokens are reused directly from `src->args.objs` — no
+ * FIELDS / SORTBY tokens reuse the source tokens' own string buffers — no
  * per-token duplication.
  *
  * Limited path: whenever the user supplied `LIMIT offset count`, the remote
@@ -409,7 +409,16 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  auto srcObjs = (const char **)src->args.objs;
+  // Materialize the source tokens as C strings (type-aware: the plan cursor
+  // may be RString-backed, in which case objs are RedisModuleString pointers).
+  // No per-token duplication: each pointer is the token's own NUL-terminated
+  // buffer, owned by the request for its whole lifetime.
+  auto srcObjs = (const char **)BlkAlloc_Alloc(
+      rdctx->alloc, sizeof(char *) * srcArgc,
+      std::max(sizeof(char *) * srcArgc, DIST_REDUCER_BLOCK_SIZE));
+  for (size_t i = 0; i < srcArgc; i++) {
+    srcObjs[i] = AC_StringArg(&src->args, i, NULL);
+  }
 
   // Locate the LIMIT offset slot in the original argv.
   size_t limitValIdx = SIZE_MAX;  // index into srcObjs of the LIMIT offset token

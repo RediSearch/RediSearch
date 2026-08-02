@@ -253,18 +253,21 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 }
 
 typedef struct AREQ {
-  /* Arguments converted to sds. Received on input */
-  sds *args;
-  size_t nargs;
-
-  /* Held references to argv strings this request's plan borrows from (hybrid
-   * sub-AREQs; see HybridRequest_HoldArgv). Held and released on the main
-   * thread only. */
+  /* Held references to the argv strings this request's plan borrows from.
+   * Taken by AREQ_Compile (main-thread parse flows), the coordinator
+   * dispatcher (BG parse flows), or HybridRequest_HoldArgv (hybrid
+   * sub-AREQs). Held and released on the main thread only. May be a superset
+   * of the parsed slice. */
   RedisModuleString **argvHolds;
   size_t nargvHolds;
 
-  /** Search query string */
+  /* Where this request's arguments start within argvHolds. Borrowed view;
+   * the references are owned by argvHolds. */
+  RedisModuleString **parseArgv;
+
+  /** Search query string (borrowed from the held argv) and its length */
   const char *query;
+  size_t queryLen;
 
   /** For hybrid queries: contains parsed vector data and partially constructed query node */
   ParsedVectorData *parsedVectorData;
@@ -497,7 +500,9 @@ static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCt
 void AREQ_Free(AREQ *req);
 
 /* Hold references to `argv` strings whose contents this request's plan
- * borrows (see HybridRequest_HoldArgv). Main-thread only; released in
+ * borrows. Called by AREQ_Compile for flows that parse on the main thread,
+ * by the coordinator dispatcher before going to the background, and by
+ * HybridRequest_HoldArgv for hybrid sub-AREQs. Main-thread only; released in
  * AREQ_Free, which runs on the main thread for wrapped requests. */
 void AREQ_HoldArgv(AREQ *req, RedisModuleString **argv, size_t argc);
 AREQ *AREQ_IncrRef(AREQ *req);
