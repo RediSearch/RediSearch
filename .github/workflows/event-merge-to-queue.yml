@@ -77,7 +77,7 @@ jobs:
       # Full alignment UBSan currently exposes unrelated pre-existing UB in the
       # C/C++ suite. Keep the merge-queue lane focused on the trie regression
       # until those findings are fixed separately.
-      ubsan-unit-test-filter: 'TrieTest.test.*ScansPackedChildKeys'
+      ubsan-unit-test-filter: 'TrieTest.test*ScansPackedChildKeys'
       separate-coordinator-job: true
       rejson-branch: master
 
