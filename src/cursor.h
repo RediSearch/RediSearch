@@ -37,12 +37,11 @@ typedef struct Cursor {
    */
   StrongRef hybrid_ref;
 
-  /** The parked request's wrapper. Holds one wrapper reference, released by
-   * Cursor_FreeInternal (hybrid sub-cursors are the exception: the hybrid
-   * container owns the sub-AREQ, so their reference rides hybrid_ref instead —
-   * retired in Step 2b-ii). Ownership of the cursor (and with it the wrapper)
-   * belongs to the idle list while parked and to the executing cycle while
-   * taken. NULL only for the hybrid single-cursor fallback. */
+  /** The parked request's wrapper — the cursor is the request's owner between
+   * cycles, holding one wrapper reference released by Cursor_FreeInternal.
+   * NULL only for the hybrid single-cursor fallback.
+   * TRANSITIONAL(MOD-16691): hybrid sub-cursors hold their reference through
+   * hybrid_ref instead, until the container-handoff step retires it. */
   BlockedRequestCtx *query;
 
   /** Time when this cursor will no longer be valid, in nanos */

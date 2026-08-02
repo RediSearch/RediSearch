@@ -2160,7 +2160,7 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
  * blocked-client cycle (brc->bc set) the disposition is only recorded here and
  * executed by BlockedRequestCtx_OnFree on the main thread, so the cursor stays
  * unreachable to other clients until the cycle fully ended. Outside a cycle
- * (inline execution) it executes immediately, as before. */
+ * (inline execution) it executes immediately. */
 static void cursorEndOfCycle(AREQ *req, Cursor *cursor, bool free_it) {
   if (req->brc->bc) {
     req->brc->cursor = cursor;

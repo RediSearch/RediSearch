@@ -81,12 +81,11 @@ void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   // free_privdata fired without blocking the main thread in the callback.
   BlockedRequestOnFreeDebug_Increment();
 #endif
-  // Snapshot the cursor disposition before EndCycle clears the per-cycle
-  // fields, then execute it: OnFree is the single park-or-free point, so a
-  // parked cursor only becomes reachable to other clients once this cycle has
-  // fully ended (closing the park-before-OnFree overlap window). Cursor_Pause
-  // converts park to free when CURSOR DEL marked the cursor mid-cycle
-  // (delete_mark), under the cursor-list lock.
+  // Execute the cycle's cursor disposition (snapshot first — EndCycle clears
+  // the per-cycle fields). Parking here, after the reply/timeout callback, is
+  // what keeps a cycle's cursor unreachable to other clients mid-cycle.
+  // Cursor_Pause converts park to free when CURSOR DEL marked the cursor
+  // mid-cycle (delete_mark).
   struct Cursor *cursor = brc->cursor;
   bool dispose_free = brc->cursor_dispose_free;
   BlockedRequestCtx_EndCycle(brc);

@@ -837,8 +837,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       // FT.CURSOR READ cycles run the claim/done-latch handshake against the read
       // AREQ's wrapper (req->brc), at per-sub-AREQ granularity. Ownership is
       // unchanged — the hybrid request still owns the sub-AREQ, and the wrapper is
-      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free);
-      // the cursor's own hold rides hybrid_ref (until Step 2b-ii).
+      // freed with it (HybridRequest_Free -> AREQ_DecrRef -> BlockedRequestCtx_Free).
+      // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
+      // the container-handoff step.
       BlockedRequestCtx_NewAREQ(areq);
       // The cursor lifetime will determine the hybrid request lifetime
       cursor->query = areq->brc;

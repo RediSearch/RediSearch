@@ -408,13 +408,11 @@ struct BlockedRequestCtx {
   // BlockedRequestCtx_Free as a safety net.
   ChunkReplyState reply;
   /* Cursor disposition for this cycle. The point that decides the cursor's
-   * fate — the BG worker at cycle end, or the main-thread reply path once
-   * finishSendChunk has set QEXEC_S_ITERDONE — records it here instead of
-   * pausing/freeing directly; OnFree, the single park-or-free point, executes
-   * it under the cursor-list lock after the reply/timeout callback ran. This
-   * is what makes a cursor unreachable to other clients until the cycle fully
-   * ended (no park-before-OnFree overlap). NULL when the cycle has no cursor
-   * or on inline execution (brc->bc == NULL), which still disposes directly. */
+   * fate (the BG worker at cycle end, or the reply path once finishSendChunk
+   * set QEXEC_S_ITERDONE) records it here; OnFree — the single park-or-free
+   * point — executes it, so a cycle's cursor stays unreachable to other
+   * clients until the cycle fully ended. NULL when the cycle has no cursor;
+   * inline execution (brc->bc == NULL) disposes directly. */
   struct Cursor *cursor;
   bool cursor_dispose_free;
 
