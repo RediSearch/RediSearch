@@ -464,10 +464,12 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
  * loudly in debug builds. */
 static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  RS_ASSERT(brc->query.areq != NULL);
   return brc->query.areq;
 }
 static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  RS_ASSERT(brc->query.hybrid != NULL);
   return brc->query.hybrid;
 }
 

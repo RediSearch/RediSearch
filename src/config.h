@@ -93,8 +93,6 @@ typedef struct {
 } GCConfig;
 
 // Configuration parameters related to aggregate request.
-// Grouped so consumers snapshot the relevant sub-config in a single copy and
-// never read RSGlobalConfig from a BG thread afterwards.
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;

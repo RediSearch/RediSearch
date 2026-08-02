@@ -3850,6 +3850,8 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
       QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&status), 1, COORD_ERR_WARN);
       return QueryError_ReplyAndClear(ctx, &status);
     }
+    // Already wrapped by AREQ_Debug_New (the wrapper can only be attached
+    // after its rm_realloc).
     r = &debug_req->r;
   } else {
     r = AREQ_New();
@@ -3863,9 +3865,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   handlerCtx.spec_ref = StrongRef_Demote(spec_ref);
   handlerCtx.numShards = NumShards;  // Capture NumShards from main thread for thread-safe access
 
-  // Capture the policy on the main thread so BG and the timeout callback agree
-  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
   handlerCtx.bcCtx.brc = r->brc;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     handlerCtx.bcCtx.reply_callback = DistAggregateReplyCallback;
@@ -3952,17 +3952,14 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // main thread, so the timeout callback always reaches an installed request
   // through the blocked client's privdata. Parsing happens on the BG thread;
   // the sub-AREQ contexts are detached thread-safe contexts.
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
   // The tail sctx aliased this handler's ctx, which dies when the handler
   // returns. The BG executor re-points it at its own thread-safe ctx.
   sctx->redisCtx = NULL;
 
-  // Capture the policy on the main thread so BG and the timeout callback agree
-  // on one value (avoids a TOCTOU against a concurrent FT.CONFIG SET).
-  RSTimeoutPolicy policy = RSGlobalConfig.requestConfigParams.timeoutPolicy;
+  RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
   hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   ConcurrentSearchHandlerCtx handlerCtx;
