@@ -765,6 +765,26 @@ OOM_ERROR_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_errors_oom"
 OOM_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_oom"
 MAXPREFIXEXPANSIONS_WARNING_COORD_METRIC = f"{SEARCH_COORD_PREFIX}total_query_warnings_max_prefix_expansions"
 
+# LIMIT arguments that must be rejected with the exact same message by the standalone parser
+# (`handleCommonArgs`) and by the coordinator's FT.SEARCH parser (`rscParseRequest`). Both go
+# through `parseLimit()` (MOD-12465), which collapses "not a number" and "negative" into a
+# single message, so each case below must produce exactly INVALID_LIMIT_ERROR in both modes.
+# `LIMIT 5` (a single argument) is deliberately absent: the coordinator captures LIMIT as a
+# fixed 2-argument slice, so AC_ParseArgSpec rejects it with a different message
+# ("Need an argument for LIMIT") before `parseLimit` is reached - that case has no parity.
+INVALID_LIMIT_ERROR = 'SEARCH_PARSE_ARGS LIMIT needs two numeric arguments'
+INVALID_LIMIT_CASES = [
+  # (LIMIT arguments, description used in assertion messages)
+  (['-1', '10'], 'negative offset'),
+  (['0', '-1'], 'negative num'),
+  (['-1', '-1'], 'negative offset and num'),
+  (['AA', '10'], 'non-numeric offset'),
+  (['5', 'AA'], 'partially valid - numeric offset, non-numeric num'),
+]
+
+def _invalid_limit_case_message(cmd, limit_args, description):
+  return f"{cmd} LIMIT {' '.join(limit_args)} ({description})"
+
 # Expect env and conn so we can assert
 def _verify_metrics_not_changed(env, conn, prev_info_dict: dict, ignored_metrics : list):
   info_dict = info_modules_to_dict(conn)
@@ -789,7 +809,7 @@ def _common_warnings_errors_test_scenario(env):
   env.expect('HSET', 'vec:1', 'vector', np.array([1.0, 0.0]).astype(np.float32).tobytes(), 'text', 'hello world1').equal(2)
   env.expect('HSET', 'vec:2', 'vector', np.array([0.0, 1.0]).astype(np.float32).tobytes(), 'text', 'hello world2').equal(2)
 
-class testWarningsAndErrorsStandalone:
+class TestWarningsAndErrorsStandalone:
   """Test class for warnings and errors metrics in standalone mode"""
 
   def __init__(self):
@@ -848,6 +868,28 @@ class testWarningsAndErrorsStandalone:
     info_dict = info_modules_to_dict(self.env)
     args_error_count = info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC]
     self.env.assertEqual(args_error_count, '3')
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
+    _verify_metrics_not_changed(self.env, self.env, self.prev_info_dict, tested_in_this_test)
+
+  def test_invalid_limit_args_errors_SA(self):
+    # Standalone shards are considered as coordinator in the info metrics
+
+    # Every case in INVALID_LIMIT_CASES must fail with INVALID_LIMIT_ERROR and be counted as an
+    # args error. The same table and message are asserted in cluster mode by
+    # test_invalid_limit_args_errors_cluster, which is what pins the standalone/coordinator
+    # message parity that MOD-12465 introduced.
+    args_error_count = int(self.prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    for limit_args, description in INVALID_LIMIT_CASES:
+      for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+        msg = _invalid_limit_case_message(cmd, limit_args, description)
+        self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *limit_args).error().equal(INVALID_LIMIT_ERROR, message=msg)
+        # Test counter
+        args_error_count += 1
+        info_dict = info_modules_to_dict(self.env)
+        self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                             str(args_error_count), message=msg)
 
     # Test other metrics not changed
     tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
@@ -1220,6 +1262,37 @@ class testWarningsAndErrorsCluster:
 
     # Test other metrics not changed
     tested_in_this_test = [ARGS_ERROR_SHARD_METRIC, ARGS_ERROR_COORD_METRIC]
+    self._verify_metrics_not_changes_all_shards(tested_in_this_test)
+
+  def test_invalid_limit_args_errors_cluster(self):
+    # Same table and same expected message as test_invalid_limit_args_errors_SA: since
+    # MOD-12465 the coordinator validates LIMIT with the same `parseLimit()` as the standalone
+    # parser, so both modes must report the identical error for each case. The rejection happens
+    # on the coordinator before fan-out, so the shard counters must not move at all - otherwise a
+    # malformed LIMIT would be silently replaced by the default on its way to the shards.
+    coord_args_error_count = int(self.coord_prev_info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC])
+    shard_args_error_counts = {shardId: self.shards_prev_info_dict[shardId][WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC]
+                               for shardId in range(1, self.env.shardsCount + 1)}
+
+    for limit_args, description in INVALID_LIMIT_CASES:
+      for cmd in ('FT.SEARCH', 'FT.AGGREGATE'):
+        msg = _invalid_limit_case_message(cmd, limit_args, description)
+        self.env.expect(cmd, 'idx', 'hello world', 'LIMIT', *limit_args).error().equal(INVALID_LIMIT_ERROR, message=msg)
+        # Check coord metric (should change)
+        coord_args_error_count += 1
+        info_dict = info_modules_to_dict(self.env)
+        self.env.assertEqual(info_dict[COORD_WARN_ERR_SECTION][ARGS_ERROR_COORD_METRIC],
+                             str(coord_args_error_count), message=msg)
+        # Test counter on each shard (should not change - the command never reached them)
+        for shardId in range(1, self.env.shardsCount + 1):
+          shard_conn = self.env.getConnection(shardId)
+          shard_info_dict = info_modules_to_dict(shard_conn)
+          self.env.assertEqual(shard_info_dict[WARN_ERR_SECTION][ARGS_ERROR_SHARD_METRIC],
+                               shard_args_error_counts[shardId],
+                               message=f"Shard {shardId} has wrong args error count for {msg}")
+
+    # Test other metrics not changed
+    tested_in_this_test = [ARGS_ERROR_COORD_METRIC]
     self._verify_metrics_not_changes_all_shards(tested_in_this_test)
 
   def test_timeout_cluster(self):
