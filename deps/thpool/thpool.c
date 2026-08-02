@@ -335,8 +335,7 @@ static void redisearch_thpool_verify_init(struct redisearch_thpool_t *thpool_p) 
     }
   }
 
-  LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully",
-                thpool_p->n_threads)
+  LOG_IF_EXISTS("verbose", "Thread pool of size %zu initialized successfully", n_threads)
 }
 
 size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
@@ -371,7 +370,7 @@ size_t redisearch_thpool_add_threads(redisearch_thpool_t *thpool_p,
   }
 
   LOG_IF_EXISTS("verbose", "Thread pool size increased to %zu successfully", n_threads)
-  return thpool_p->n_threads;
+  return n_threads;
 }
 
 /* Add work to the thread pool */
