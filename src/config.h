@@ -8,6 +8,8 @@
 */
 #pragma once
 
+#include <stdint.h>
+
 #include "redismodule.h"
 #include "hiredis/sds.h"
 #include "query_error.h"
@@ -310,6 +312,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
 #define MAX_AGGREGATE_GROUPS (1ULL << 26)
 #define DEFAULT_MAX_AGGREGATE_GROUPS 1000000
+#define MAX_GROUPBY_PROPERTIES UINT16_MAX
 #define DEFAULT_MAX_CURSOR_IDLE 300000
 #define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
