@@ -272,6 +272,8 @@ static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
+  // Already locked by us, or borrowed from an outer scope that has held the lock
+  // since the iterators were built - nothing to lock or revalidate either way.
   if (sctx->lock_state != SPEC_LOCK_UNSET) {
     return false;
   }
