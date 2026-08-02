@@ -661,34 +661,34 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestWorkerCanAddJobsWhileTerminateWhenEm
  * test hangs). The loop gives the race window (the thread-spawn duration)
  * many chances to be hit. */
 TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
-    typedef struct {
+    struct RaceCtx {
         std::atomic<bool> &release;
         std::atomic<size_t> &executed;
-    } RaceCtx;
+    };
 
-    auto blockedJob = [](void *p) {
-        RaceCtx *ctx = (RaceCtx *)p;
+    auto blockedJob = [](void *p) {  // NOSONAR(S5008) thpool job signature
+        auto *ctx = (RaceCtx *)p;
         while (!ctx->release) {
-            usleep(1);
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
         }
         ctx->executed++;
     };
-    auto trivialJob = [](void *p) {
-        RaceCtx *ctx = (RaceCtx *)p;
+    auto trivialJob = [](void *p) {  // NOSONAR(S5008) thpool job signature
+        auto *ctx = (RaceCtx *)p;
         ctx->executed++;
     };
 
     for (int iter = 0; iter < 100; iter++) {
         redisearch_thpool_t *pool = redisearch_thpool_create(4, 0, LogCallback, "test");
 
-        std::atomic<bool> release{false};
+        std::atomic release{false};
         std::atomic<size_t> executed{0};
         RaceCtx ctx = {release, executed};
 
-        std::thread first_submitter([&] {
+        std::thread first_submitter([pool, &ctx, trivialJob] {  // NOSONAR(S6168) C++17
             redisearch_thpool_add_work(pool, trivialJob, &ctx, THPOOL_PRIORITY_HIGH);
         });
-        std::thread io_submitter([&] {
+        std::thread io_submitter([pool, &ctx, &release, blockedJob] {  // NOSONAR(S6168) C++17
             redisearch_thpool_add_work(pool, blockedJob, &ctx, THPOOL_PRIORITY_HIGH);
             // The blocked job only completes on progress made after add_work
             // returns, like a job depending on the IO thread's event loop.
@@ -699,7 +699,7 @@ TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
         io_submitter.join();
 
         while (executed < 2) {
-            usleep(1);
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
         }
         redisearch_thpool_destroy(pool);
     }
