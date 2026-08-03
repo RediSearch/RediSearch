@@ -55,6 +55,13 @@ fn empty_upholds_current_contract() {
     assert!(assert_current_contract(&mut it).is_empty());
 }
 
+#[test]
+fn optional_upholds_current_contract() {
+    // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
+    let mut it = rqe_iterators::optional::Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+}
+
 // ---------------------------------------------------------------------------
 // Not yet conforming
 //
@@ -91,14 +98,6 @@ fn not_upholds_current_contract() {
     let mut it =
         rqe_iterators::not::Not::new(utils::Mock::new([2u64, 4]), 5, 1.0, NoTimeoutChecker);
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
-}
-
-#[test]
-#[ignore = "fixed in the following change"]
-fn optional_upholds_current_contract() {
-    // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
-    let mut it = rqe_iterators::optional::Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
-    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
 }
 
 #[test]
