@@ -579,9 +579,7 @@ def testWildcardStarredNonFinalAnchorWithSuffixTrie():
     """On the suffix-trie path, a pattern whose best anchor token is starred
     and non-final (in w'verylongtoken*a', 'verylongtoken' out-scores the tail
     token 'a' despite the starred-anchor penalty) must return the same result
-    as the brute-force path: the anchor is NUL-terminated in place inside the
-    pattern rune buffer before the candidate re-filter runs, and that filter
-    must still see the full pattern."""
+    as the brute-force path."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
