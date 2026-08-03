@@ -40,6 +40,22 @@ pub struct RawWildcard<'query, Rf: Ref> {
 
     /// A reusable result object to avoid allocations on each `read` call.
     result: RawIndexResult<'query, Rf>,
+
+    /// Whether the iterator has run *past* `top_id`, i.e. a `read`/`skip_to`
+    /// found nothing.
+    ///
+    /// This is the state behind both [`current`](RQEIterator::current), which
+    /// reports no current once it is set, and [`at_eof`](RQEIterator::at_eof),
+    /// its negation.
+    ///
+    /// Distinct from [`Self::reached_top`], the look-ahead: on reaching `top_id`
+    /// the next read will find nothing, but that final id is still the current
+    /// result, so this flag stays clear until the iterator has moved past it.
+    ///
+    /// It cannot be folded into `result.doc_id`: that field *is*
+    /// [`last_doc_id`](RQEIterator::last_doc_id), which parents use to choose
+    /// skip targets, so pushing it past `top_id` would misreport the position.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawWildcard`] — the only instantiation with an
@@ -55,18 +71,34 @@ impl Wildcard<'_> {
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
+            past_end: false,
         }
+    }
+
+    /// Whether the iterator has reached `top_id`, so the next `read` will find
+    /// nothing.
+    ///
+    /// The look-ahead, used to terminate `read`/`skip_to`. It is true one step
+    /// before [`Self::past_end`] — while `top_id` is still the current result —
+    /// so it must not be confused with [`at_eof`](RQEIterator::at_eof).
+    #[inline(always)]
+    const fn reached_top(&self) -> bool {
+        self.result.doc_id >= self.top_id
     }
 }
 
 impl<'index> RQEIterator<'index> for Wildcard<'index> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.reached_top() {
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -78,7 +110,8 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.reached_top() {
+            self.past_end = true;
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
@@ -86,6 +119,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         if doc_id > self.top_id {
             // skip beyond range - set to EOF
             self.result.doc_id = self.top_id;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -95,6 +129,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
 
     fn rewind(&mut self) {
         self.result.doc_id = 0;
+        self.past_end = false;
     }
 
     // This should always return total results from the iterator, even after some yields.
@@ -107,7 +142,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.top_id
+        self.past_end
     }
 
     fn revalidate(

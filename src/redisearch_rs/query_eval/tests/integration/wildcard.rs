@@ -48,8 +48,11 @@ fn eval_wildcard_empty_index() {
         .expect("should not be None")
         .into_boxed();
 
-    assert!(it.at_eof());
+    // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
+    // of `current()`, so it flips once a read has run past the end.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
