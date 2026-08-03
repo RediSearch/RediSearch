@@ -26,6 +26,7 @@
 
 #include "config.h"
 #include "query_optimizer.h"
+#include "query_types.h"
 #include "redisearch.h"
 #include "search_ctx.h"
 #include "spec.h"
@@ -39,6 +40,37 @@
  * allocator). */
 QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
+/* Takes ownership of `its` and of every child it holds. */
+QueryIterator *NewUnionIterator(QueryIterator **its, int32_t num, bool quick_exit, double weight,
+                                QueryNodeType type_, const char *q_str,
+                                const IteratorsConfig *config);
+
+/* Spread `ids` round-robin over `arity` sorted-id-list iterators and union them.
+ *
+ * Every child then holds ids from across the whole doc-id space, so each step of
+ * the union interleaves them — the cost a single id list does not have. The
+ * union takes ownership of the array and of its children; `ids` is consumed
+ * here.
+ *
+ * The iterators release all three allocations with RedisModule_Free, so they are
+ * taken from the matching allocator rather than the C runtime's.
+ */
+static QueryIterator *make_union_child(t_docId *ids, size_t count, size_t arity,
+                                       const IteratorsConfig *config) {
+  QueryIterator **its = RedisModule_Alloc(arity * sizeof(*its));
+  for (size_t slot = 0; slot < arity; slot++) {
+    size_t len = count > slot ? (count - slot + arity - 1) / arity : 0;
+    t_docId *part = RedisModule_Alloc((len ? len : 1) * sizeof(*part));
+    size_t i = 0;
+    for (size_t j = slot; j < count; j += arity) {
+      part[i++] = ids[j];
+    }
+    its[slot] = NewSortedIdListIterator(part, len, 1.0);
+  }
+  RedisModule_Free(ids);
+  // quick_exit matches the union the query planner builds for a filter child.
+  return NewUnionIterator(its, (int32_t)arity, true, 1.0, QN_UNION, NULL, config);
+}
 
 /* Read an iterator to depletion and count the results.
  *
@@ -60,16 +92,25 @@ static size_t drain(QueryIterator *it) {
  * child iterator, which frees it via RedisModule_Free. A NULL `ids` selects a
  * wildcard child spanning doc ids 1..=`child_count`, the unfiltered case.
  *
+ * `union_arity` above 1 wraps the same ids in a union of that many sorted id
+ * lists, so the child costs more per read, skip and rewind than a single list.
+ *
  * The numeric filter spans the whole field and is created by the iterator
  * itself, which also sizes the first window from the child's estimate.
  */
 size_t bench_c_optimizer(RedisSearchCtx *sctx, const char *field_name, t_docId *ids,
-                         size_t child_count, size_t k, int ascending) {
+                         size_t child_count, size_t union_arity, size_t k, int ascending) {
   IteratorsConfig config;
   iteratorsConfig_init(&config);
 
-  QueryIterator *child = ids ? NewSortedIdListIterator(ids, child_count, 1.0)
-                             : NewWildcardIterator_NonOptimized(child_count, 1.0);
+  QueryIterator *child;
+  if (!ids) {
+    child = NewWildcardIterator_NonOptimized(child_count, 1.0);
+  } else if (union_arity > 1) {
+    child = make_union_child(ids, child_count, union_arity, &config);
+  } else {
+    child = NewSortedIdListIterator(ids, child_count, 1.0);
+  }
 
   QOptimizer opt = {0};
   opt.sctx = sctx;
