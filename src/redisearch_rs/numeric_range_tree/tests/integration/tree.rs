@@ -40,6 +40,22 @@ fn test_add_basic() {
 }
 
 #[test]
+fn test_has_multivalued_docs_tracks_repeated_doc_ids() {
+    let mut tree = NumericRangeTree::new(false);
+    assert!(!tree.has_multivalued_docs());
+
+    // Distinct doc ids leave every doc in a single range, whatever the
+    // multivalue flag says.
+    tree.add(1, 5.0, true, 0);
+    tree.add(2, 10.0, true, 0);
+    assert!(!tree.has_multivalued_docs());
+
+    // A second value for the same doc can land in another range.
+    tree.add(2, 20.0, true, 0);
+    assert!(tree.has_multivalued_docs());
+}
+
+#[test]
 fn test_duplicate_doc_id_rejected() {
     let mut tree = NumericRangeTree::new(false);
 

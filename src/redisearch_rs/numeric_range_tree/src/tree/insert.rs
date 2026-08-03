@@ -101,6 +101,9 @@ impl NumericRangeTree {
             );
             return AddResult::default();
         }
+        // A repeated doc id means this document now spans several values, and
+        // therefore possibly several ranges.
+        self.has_multivalued_docs |= doc_id == self.last_doc_id;
         self.last_doc_id = doc_id;
 
         // The one place the encoder's lossy step is applied. Everything below —
