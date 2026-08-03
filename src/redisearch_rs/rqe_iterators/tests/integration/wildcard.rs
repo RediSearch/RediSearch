@@ -253,3 +253,11 @@ fn skip_to_same_position() {
     // Try to skip backwards to the same position, should panic
     let _ = it.skip_to(5);
 }
+
+#[test]
+fn wildcard_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Wildcard::new(5, 1.0);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

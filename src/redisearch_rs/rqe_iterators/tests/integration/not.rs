@@ -655,3 +655,17 @@ fn skip_to_timeout_via_timeout_ctx() {
     // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
 }
+
+#[test]
+fn not_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    // Not over [2, 4] within 1..=5 yields the complement.
+    let mut it = rqe_iterators::not::Not::new(
+        crate::utils::Mock::new([2u64, 4]),
+        5,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

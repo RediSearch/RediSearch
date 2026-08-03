@@ -354,3 +354,13 @@ fn set_handle_non_null_invalidates_on_drop() {
     // After drop, the handle should be invalidated
     assert!(!handle.is_valid);
 }
+
+/// [`Metric`](rqe_iterators::Metric) delegates `current()` to an inner
+/// [`IdList`](rqe_iterators::IdList), as do `MetricLazy` and `IdListLazy`.
+#[test]
+fn metric_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]);
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

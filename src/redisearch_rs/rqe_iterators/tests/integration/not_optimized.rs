@@ -1004,3 +1004,17 @@ fn skip_to_landing_past_max_doc_id_with_child_there_returns_eof() {
     assert!(it.at_eof());
     assert_eq!(it.last_doc_id(), 5);
 }
+
+#[test]
+fn not_optimized_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = rqe_iterators::not_optimized::NotOptimized::new(
+        crate::utils::Mock::new([1u64, 2, 3, 4, 5]),
+        crate::utils::Mock::new([2u64, 4]),
+        5,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

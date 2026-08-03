@@ -383,3 +383,11 @@ mod via_resume {
         );
     }
 }
+
+#[test]
+fn profile_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Profile::new(Mock::new([10u64, 20, 30, 50, 80]));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}

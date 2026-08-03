@@ -33,7 +33,6 @@ use rstest_reuse::template;
 fn id_cases(#[case] case: &[u64]) {}
 
 mod c2rust;
-mod current_contract;
 mod deferred;
 mod empty;
 #[cfg(not(miri))]

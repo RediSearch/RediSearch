@@ -1014,3 +1014,16 @@ fn not_child_running_off_the_end_at_max_doc_id_yields_a_virtual_hit() {
     assert!(it.at_eof());
     assert!(it.current().is_none());
 }
+
+#[test]
+fn optional_optimized_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = OptionalOptimized::new(
+        utils::Mock::new([1u64, 2, 3, 4, 5]),
+        utils::Mock::new([2u64, 4]),
+        5,
+        2.0,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

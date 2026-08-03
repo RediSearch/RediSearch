@@ -1001,3 +1001,21 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
         self.doc_ids.len()
     }
 }
+
+const CONTRACT_DOCS: [DocId; 5] = [10, 20, 30, 50, 80];
+
+#[test]
+fn mock_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Mock::new(CONTRACT_DOCS);
+    assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+#[test]
+fn mock_vec_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = MockVec::new(CONTRACT_DOCS.to_vec());
+    assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}

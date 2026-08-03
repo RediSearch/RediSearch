@@ -261,3 +261,18 @@ mod via_resume {
             .expect_ok();
     }
 }
+
+#[test]
+fn id_list_sorted_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = IdListSorted::new(vec![10, 20, 30, 50, 80]);
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+#[test]
+fn id_list_unsorted_upholds_current_contract() {
+    use rqe_iterators_test_utils::assert_current_contract;
+    let mut it = IdListUnsorted::new(vec![10, 20, 30, 50, 80]);
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+}

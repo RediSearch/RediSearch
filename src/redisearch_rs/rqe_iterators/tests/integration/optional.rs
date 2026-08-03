@@ -1535,3 +1535,12 @@ mod via_resume {
     const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.0;
 }
+
+#[test]
+fn optional_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
+    let mut it = Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}

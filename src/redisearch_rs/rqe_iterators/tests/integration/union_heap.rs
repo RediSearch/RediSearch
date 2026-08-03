@@ -261,3 +261,15 @@ fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
          rather than by wrapping past it",
     );
 }
+
+#[test]
+fn union_full_heap_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(Mock::new([1u64, 3])),
+        Box::new(Mock::new([2u64, 4])),
+    ];
+    let mut it = UnionFullHeap::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+    assert_current_contract_via_skip_to(&mut it, 5);
+}

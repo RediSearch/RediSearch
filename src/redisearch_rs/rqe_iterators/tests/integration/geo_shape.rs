@@ -493,3 +493,11 @@ fn no_tracker_is_a_noop() {
     // Three u64s plus the struct overhead.
     assert!(it.mem_usage() >= 3 * std::mem::size_of::<u64>());
 }
+
+#[test]
+fn geo_shape_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = plain(vec![10, 20, 30, 50, 80]);
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}

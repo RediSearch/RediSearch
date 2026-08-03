@@ -87,3 +87,11 @@ mod via_resume {
             .expect_ok();
     }
 }
+
+#[test]
+fn empty_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Empty::default();
+    assert!(assert_current_contract(&mut it).is_empty());
+    assert_current_contract_via_skip_to(&mut it, 81);
+}
