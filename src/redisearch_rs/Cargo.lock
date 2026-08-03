@@ -1801,7 +1801,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "inverted_index",
  "proptest",
@@ -1846,6 +1845,7 @@ name = "query_term"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "idf",
  "nul_terminated_bytes",
  "workspace_hack",
 ]
@@ -2360,7 +2360,6 @@ dependencies = [
  "ffi",
  "field",
  "geo",
- "idf",
  "index_result",
  "index_spec",
  "insta",

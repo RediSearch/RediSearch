@@ -145,10 +145,7 @@ fn eval_disk<'index>(
     let terms = unsafe { CTrieRef::from_raw(spec.terms) };
     let num_docs_in_term = terms.num_docs(term_bytes.unwrap_or_default());
     let num_documents = spec.stats.scoring.numDocuments;
-    let idf = idf::calculate_idf(num_documents, num_docs_in_term);
-    let bm25_idf = idf::calculate_idf_bm25(num_documents, num_docs_in_term);
-    term.set_idf(idf);
-    term.set_bm25_idf(bm25_idf);
+    term.set_idfs(num_documents, num_docs_in_term);
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config);
 
