@@ -59,8 +59,18 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
     /// `0` in the initial state and after [`rewind`](RQEIterator::rewind),
     /// which is treated as virtual. Doc IDs start from 1, so 0 is a safe sentinel.
     last_doc_id: DocId,
-    /// Whether the iterator has reached EOF.
-    at_eof: bool,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing, or a revalidation landed past the end.
+    ///
+    /// This is the state behind both [`current`](RQEIterator::current), which
+    /// reports no current once it is set, and [`at_eof`](RQEIterator::at_eof),
+    /// its negation.
+    ///
+    /// Distinct from [`Self::reached_max`], the look-ahead: on reaching
+    /// `max_doc_id` the next read will find nothing, but that final result is
+    /// still in hand, so this flag stays clear until the iterator has moved past
+    /// it. Only [`rewind`](RQEIterator::rewind) clears it.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawOptionalOptimized`] — the only instantiation
@@ -100,8 +110,19 @@ where
             max_doc_id,
             weight,
             last_doc_id: 0,
-            at_eof: false,
+            past_end: false,
         }
+    }
+
+    /// Whether the iterator has yielded `max_doc_id`, so the next `read` will
+    /// find nothing.
+    ///
+    /// The look-ahead, used to terminate `read`. It is true one step before
+    /// [`Self::past_end`] — while `max_doc_id` is still the current result — so
+    /// it must not be confused with [`at_eof`](RQEIterator::at_eof).
+    #[inline(always)]
+    const fn reached_max(&self) -> bool {
+        self.last_doc_id >= self.max_doc_id
     }
 }
 
@@ -112,6 +133,10 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
+
         if self.last_doc_id != 0
             && self.child.last_doc_id() == self.last_doc_id
             && let Some(result) = self.child.current()
@@ -123,14 +148,17 @@ where
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof {
+        // The look-ahead, not `at_eof()`: having yielded `max_doc_id` means the
+        // next read finds nothing, and this is the read that records it.
+        if self.past_end || self.reached_max() {
+            self.past_end = true;
             return Ok(None);
         }
 
         // Advance wcii to the next existing document.
         let wcii_doc_id = match self.wcii.read()? {
             None => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(r) => r.doc_id,
@@ -138,7 +166,7 @@ where
 
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if wcii_doc_id > self.max_doc_id {
-            self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -148,8 +176,6 @@ where
         }
 
         self.last_doc_id = wcii_doc_id;
-        // Keep at_eof consistent so callers see true immediately after the last result.
-        self.at_eof = wcii_doc_id >= self.max_doc_id;
 
         let weight = self.weight;
         if self.child.last_doc_id() == wcii_doc_id {
@@ -173,8 +199,10 @@ where
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(doc_id > self.last_doc_id);
 
-        if doc_id > self.max_doc_id || self.at_eof {
-            self.at_eof = true;
+        // `doc_id > self.last_doc_id` is asserted above, so a target beyond
+        // `max_doc_id` also covers the `reached_max()` case.
+        if doc_id > self.max_doc_id || self.past_end {
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -182,7 +210,7 @@ where
         // present in the existing-documents index.
         let (found, effective_id) = match self.wcii.skip_to(doc_id)? {
             None => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(SkipToOutcome::Found(r)) => (true, r.doc_id),
@@ -191,7 +219,7 @@ where
 
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if effective_id > self.max_doc_id {
-            self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -201,8 +229,6 @@ where
         }
 
         self.last_doc_id = effective_id;
-        // Keep at_eof consistent so callers see true immediately after the last result.
-        self.at_eof = effective_id >= self.max_doc_id;
 
         let weight = self.weight;
         if self.child.last_doc_id() == effective_id {
@@ -243,12 +269,16 @@ where
             RQEValidateStatus::Ok => ValidateOutcome::Ok,
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
-                self.at_eof = true;
+                self.past_end = true;
                 return Ok(RQEValidateStatus::Moved { current: None });
             }
             RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
         };
-        self.at_eof = self.wcii.at_eof();
+        // A wildcard that has run past its end means we have too. Monotonic on
+        // purpose: an iterator that already returned `None` must not be revived by
+        // a wildcard that still has documents beyond `max_doc_id` — `rewind` is
+        // the way to restart one.
+        self.past_end |= self.wcii.at_eof();
 
         // `last_doc_id` is `None` in the initial/rewound state, which is always
         // virtual.
@@ -284,7 +314,7 @@ where
 
                 // wcii may have moved past max_doc_id.
                 if wcii_doc_id > self.max_doc_id {
-                    self.at_eof = true;
+                    self.past_end = true;
                     return Ok(RQEValidateStatus::Moved { current: None });
                 }
 
@@ -292,9 +322,9 @@ where
                     let _ = self.child.skip_to(wcii_doc_id)?;
                 }
 
+                // Landing *on* `max_doc_id` is a live position handed back below as
+                // `Moved { current: Some }`, so nothing is recorded here.
                 self.last_doc_id = wcii_doc_id;
-                // Keep at_eof consistent so callers see true immediately after the last result.
-                self.at_eof |= wcii_doc_id >= self.max_doc_id;
 
                 let weight = self.weight;
                 if self.child.last_doc_id() == wcii_doc_id {
@@ -321,7 +351,7 @@ where
     #[inline(always)]
     fn rewind(&mut self) {
         self.last_doc_id = 0;
-        self.at_eof = false;
+        self.past_end = false;
         self.virt.doc_id = 0;
         self.wcii.rewind();
         self.child.rewind();
@@ -339,7 +369,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.at_eof
+        self.past_end
     }
 
     fn type_(&self) -> crate::IteratorType {
@@ -362,7 +392,7 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
             wcii: self.wcii,
             virt: self.virt,
             last_doc_id: self.last_doc_id,
-            at_eof: self.at_eof,
+            past_end: self.past_end,
         }
     }
 }
