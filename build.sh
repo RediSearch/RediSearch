@@ -204,6 +204,8 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$SAN" == "alignment" ]]; then
+    FLAVOR="debug-alignment"
   elif [[ "$RUN_MIRI" == "1" ]]; then
     FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
@@ -536,8 +538,8 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
 
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
   if [[ -n "$SAN" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
   fi
 
@@ -832,9 +834,9 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
-  # Set sanitizer mode if requested
-  if [[ "$SAN" == "address" ]]; then
-    export SAN="address"
+  # Set sanitizer mode if requested.
+  if [[ -n "$SAN" ]]; then
+    export SAN
   fi
 
   # Call the unit-tests script from the sbin directory
