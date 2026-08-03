@@ -427,7 +427,7 @@ impl<'index> NumericIteratorVariant<'index> {
             }
         };
 
-        // The optimizer paginates the sort field by mutating the filter's window
+        // The optimizer paginates the sort field by changing the filter's window
         // between rewinds; every other query leaves it unbounded.
         let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
 

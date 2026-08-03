@@ -111,8 +111,7 @@ pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationCh
     ranges: NumericRangeIterator<'index>,
     /// Value predicate driving [`find_windowed`](NumericRangeTree::find_windowed).
     filter: NumericFilter,
-    /// Slice of the value-ordered stream currently being read, advanced in place
-    /// by the retry expansion.
+    /// Slice of the ranges currently being read; the retry expansion advances it.
     window: RangeWindow,
     /// The window the source started on, restored by [`rewind`](ScoreSource::rewind).
     initial_window: RangeWindow,
@@ -149,10 +148,10 @@ pub struct NumericScoreSource<'index, V: DocValidity = AllValid, E: ExpirationCh
 }
 
 impl<'index> NumericScoreSource<'index> {
-    /// Build a source for the unfiltered case (no filter child): an unbounded
-    /// value-ordered window with no retry. `filter` is the numeric range over
-    /// the sort field that picks which ranges to read; there is no window to
-    /// size, since `LIMIT k` is served by the heap plus the early `Stop`.
+    /// Build a source for the unfiltered case (no filter child): every range, in
+    /// value order, with no retry. `filter` is the numeric range over the sort
+    /// field that picks which ranges to read; there is no window to size, since
+    /// `LIMIT k` is served by the heap plus the early `Stop`.
     pub fn unfiltered(
         tree: &'index NumericRangeTree,
         filter: NumericFilter,

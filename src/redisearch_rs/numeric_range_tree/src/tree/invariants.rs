@@ -232,8 +232,8 @@ impl NumericRangeTree {
     /// 3. **Limit sufficiency** — when the window has a `limit` and the tree
     ///    contained enough matching documents (`total >= offset + limit`), the
     ///    returned ranges must collectively hold at least `limit` documents.
-    ///    Both sides of this are measured in the window's own approximate
-    ///    document count, so it is the weakest of the three.
+    ///    Both counts are rounded up to whole ranges, so this is the weakest of
+    ///    the three.
     pub(crate) fn check_find_invariants(
         ranges: &[&NumericRange],
         filter: &NumericFilter,
