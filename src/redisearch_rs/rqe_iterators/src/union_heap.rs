@@ -126,6 +126,11 @@ where
     }
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
+    ///
+    /// Relies on `at_eof()` being the negation of `current()` rather than a
+    /// look-ahead: a child that has merely returned its final document is *not*
+    /// at EOF and must still be pushed, or that document is lost — and the union
+    /// reports EOF outright if it was the only one left.
     fn rebuild_heap(&mut self) {
         self.heap.clear();
         for (idx, child) in self.children.iter().enumerate() {

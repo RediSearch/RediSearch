@@ -187,8 +187,9 @@ where
                     // Don't increment i - we need to check the swapped-in child
                     continue;
                 }
-                // Otherwise, child.last_doc_id() was updated by read()
-                // Even if at_eof() is now true, last_doc_id() is valid for this round
+                // Otherwise, child.last_doc_id() was updated by read(). The child
+                // is still positioned on that document — `at_eof()` only flips
+                // once a read has run *past* the end — so it stays active.
             }
 
             // Track minimum doc_id (fused with advance loop)
@@ -571,6 +572,12 @@ where
 
         // Sync num_active and find minimum doc_id.
         // Use swap_remove_child to move EOF children out of the active region.
+        //
+        // This relies on `at_eof()` being the negation of `current()` rather than
+        // a look-ahead: a child that has merely returned its final document is
+        // *not* at EOF, and must survive here — dropping it would lose that
+        // document, and report EOF for the whole union if it was the last active
+        // child.
         self.num_active = self.children.len();
         let mut min_doc_id: DocId = DocId::MAX;
         let mut min_child_idx: usize = 0;
