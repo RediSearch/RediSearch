@@ -1152,7 +1152,7 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     # Each inverted-index entry carries a per-field "this field has a TTL" bit,
     # set at index time, that expiration-aware iterators use to skip the
     # TTL-table lookup when it is clear. A document indexed WITHOUT any field TTL
-    # therefore has the bit cleared on all of its term/tag/numeric postings. A
+    # therefore has the bit cleared on all of its term/tag/numeric/geo postings. A
     # later HEXPIRE that gives a field its first TTL (the field's 0->1 transition)
     # must reindex the document so that field's postings get the bit set and the
     # now-expiring field is actually filtered out; otherwise the iterators would
@@ -1160,22 +1160,27 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
-               'SCHEMA', 't', 'TEXT', 'tg', 'TAG', 'n', 'NUMERIC').ok()
+               'SCHEMA', 't', 'TEXT', 'tg', 'TAG', 'n', 'NUMERIC', 'g', 'GEO').ok()
     env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
 
     # Indexed without any field TTL: every posting's expiration bit is 0.
-    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'tg', 'red', 'n', '42')
+    # GEO shares `numericIndexer` with NUMERIC, but a radius query reads the bit
+    # back through a union of geohash ranges rather than a single range.
+    conn.execute_command('HSET', 'doc:1', 't', 'hello', 'tg', 'red', 'n', '42',
+                         'g', '1.23,4.56')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
     # First field TTL on the matched fields (0->1) must trigger a reindex so the
-    # bit flips to 1; once the TTL lapses, all three field types filter the doc.
-    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '3', 't', 'tg', 'n')
+    # bit flips to 1; once the TTL lapses, all four field types filter the doc.
+    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '4', 't', 'tg', 'n', 'g')
     time.sleep(0.02)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([0])
 
 
 @skip(redis_less_than='7.3')
