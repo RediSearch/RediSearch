@@ -803,7 +803,13 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+  uint32_t propertyCount = (uint32_t)AC_NumArgs(&groupArgs);
+  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
+    return REDISMODULE_ERR;
+  }
+
+  for (uint32_t ii = 0; ii < propertyCount; ++ii) {
     if (*(char*)groupArgs.objs[ii] != '@') {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                          groupArgs.objs[ii], groupArgs.objs[ii]);
