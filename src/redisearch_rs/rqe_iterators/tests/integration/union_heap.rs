@@ -19,7 +19,7 @@ mod common {
     union_common_tests!(UnionFullHeap, UnionQuickHeap);
 }
 
-use crate::utils::{create_mock_2, create_mock_3};
+use crate::utils::{Mock, MockRevalidateResult, create_mock_2, create_mock_3};
 use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
 
 // =============================================================================
@@ -136,4 +136,98 @@ fn into_trimmed_quick_heap_trims_desc() {
     }
     // Active window [1..3), reads in reverse: child[2] then child[1].
     assert_eq!(docs, [5, 6, 3, 4]);
+}
+
+/// The same stale-entry problem with children that all have documents, which is
+/// the damaging shape: the union emits doc 0, advances the child whose stale
+/// entry it just consumed — dropping a document that child had already produced
+/// during heap setup — and never converges, because a duplicate entry keeps
+/// matching the id just yielded.
+///
+/// One child has to still be unread when the rebuild runs, so only the sibling
+/// reports `Moved` (which advances a `Mock` onto its first document).
+///
+/// The drain is bounded so a regression fails on the assertion below rather than
+/// spinning until the harness kills it.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn revalidate_before_first_read_keeps_every_document_of_non_empty_children() {
+    let moved: Mock<'static, 2> = Mock::new([5, 7]);
+    let mut moved_data = moved.data();
+    let untouched: Mock<'static, 2> = Mock::new([6, 8]);
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(moved), Box::new(untouched)];
+    let mut it = UnionFullHeap::new(children);
+
+    // `Moved` triggers the rebuild and leaves this child on doc 5, while the
+    // sibling stays at `last_doc_id() == 0` — the entry that would go stale.
+    moved_data.set_revalidate_result(MockRevalidateResult::Move);
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let _ = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate should not fail");
+
+    // One more than the 4 documents on offer, so an iterator that fails to
+    // converge is caught rather than drained forever.
+    const MAX_READS: usize = 5;
+    let mut doc_ids = Vec::new();
+    for _ in 0..MAX_READS {
+        match it.read().expect("read should not fail") {
+            Some(result) => doc_ids.push(result.doc_id),
+            None => break,
+        }
+    }
+
+    assert_eq!(
+        doc_ids,
+        vec![5, 6, 7, 8],
+        "the union must yield both children in full: no doc 0 ahead of them, no \
+         document dropped by a stale entry advancing a child twice, and no id \
+         repeated by a duplicate entry",
+    );
+}
+
+/// The active-child count is derived from the same pass that seeds the heap.
+///
+/// A pre-read revalidation can move a child onto its last document, which under a
+/// look-ahead `at_eof()` excludes it from `rebuild_heap` and from the count taken
+/// from that heap — while the reseed below legitimately puts it back. A count left
+/// over from the smaller heap then runs past zero as children exhaust, which
+/// panics in debug and wraps into a nonsense sort weight in release.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
+    // One document, so `Moved` leaves this child on its last one.
+    let moved: Mock<'static, 1> = Mock::new([5]);
+    let mut moved_data = moved.data();
+    let other: Mock<'static, 2> = Mock::new([6, 8]);
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(moved), Box::new(other)];
+    let mut it = UnionFullHeap::new(children);
+    assert_eq!(it.num_children_active(), 2);
+
+    moved_data.set_revalidate_result(MockRevalidateResult::Move);
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let _ = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate should not fail");
+
+    // One more than the 3 documents on offer, so a non-converging iterator is
+    // caught rather than drained forever.
+    const MAX_READS: usize = 4;
+    let mut doc_ids = Vec::new();
+    for _ in 0..MAX_READS {
+        match it.read().expect("read should not fail") {
+            Some(result) => doc_ids.push(result.doc_id),
+            None => break,
+        }
+    }
+
+    assert_eq!(doc_ids, vec![5, 6, 8], "every document, once, in order");
+    assert_eq!(
+        it.num_children_active(),
+        0,
+        "both children are exhausted, and the count reached zero by counting them \
+         rather than by wrapping past it",
+    );
 }
