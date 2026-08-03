@@ -338,32 +338,35 @@ def test_MOD1266(env):
 
 def testMemAllocated(env):
   conn = getConnectionByEnv(env)
-  # sanity
+  # The key->docId mapping used to be an in-memory TrieMap accounted for by
+  # key_table_size_mb. It now lives in Redis key-metadata (not module-tracked
+  # memory), so key_table_size_mb is always 0 regardless of how many documents
+  # are indexed or removed.
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('HSET', 'd3', 't', 'help')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0.00013828277587890625', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
 
   conn.execute_command('DEL', 'd3')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '8.296966552734375e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('DEL', 'doc1')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
   conn.execute_command('DEL', 'doc2')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx1', 'key_table_size_mb', 0, delta=0)
 
   # mass
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
   for i in range(1000):
     conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0.027684211730957031', delta=0.01)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', 0, delta=0)
 
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
+  assertInfoField(env, 'idx2', 'key_table_size_mb', 0, delta=0)
 
 def testUNF(env):
   conn = getConnectionByEnv(env)
