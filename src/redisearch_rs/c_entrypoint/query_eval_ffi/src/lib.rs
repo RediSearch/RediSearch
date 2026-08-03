@@ -8,7 +8,7 @@
 */
 
 //! C-callable bindings for the Rust query-evaluation dispatcher
-//! ([`query_eval::eval`]).
+//! ([`query_eval`]).
 
 use std::{
     ffi::{CStr, c_char},
@@ -20,8 +20,7 @@ use ffi::{
     RedisSearchCtx,
 };
 use query_eval::{
-    QueryEvalContext, QueryNodeMut, eval,
-    eval::Config,
+    Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate,
     scorers::{BuiltInScorer, slop_forces_offsets},
 };
 use query_types::QueryNodeOptions;
@@ -181,7 +180,7 @@ pub unsafe extern "C" fn Query_EvalNode_Rs(
     // SAFETY: `config` is non-null (checked) and points to a valid `Config`
     // (precondition 3); read by value here (`Config` is `Copy`).
     let config = unsafe { config.read() };
-    match eval::eval_node(&mut ctx, node, config) {
+    match eval_node(&mut ctx, node, config) {
         // The returned handle is heap-allocated and self-owning; erasing its
         // borrow is sound because the index data it reads outlives it
         // (precondition 1).
@@ -269,5 +268,5 @@ pub unsafe extern "C" fn QAST_Iterate(
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) outlives it.
-    eval::qast_iterate(&mut ctx, node, config).into_c_iterator()
+    qast_iterate(&mut ctx, node, config).into_c_iterator()
 }
