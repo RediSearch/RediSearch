@@ -62,7 +62,7 @@ impl<'index> NumericRangeIterator<'index> {
         }
     }
 
-    /// Re-resolve onto the (typically advanced) `window` and restart from its
+    /// Re-resolve onto `window`, usually the next one, and restart from its
     /// first matching range.
     ///
     /// The emitted-doc set is kept: expansion moves to a strictly worse,

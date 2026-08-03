@@ -38,12 +38,9 @@ impl NumericRangeTree {
         self.find_windowed(filter, RangeWindow::UNBOUNDED)
     }
 
-    /// Like [`find`](Self::find), but returning only the ranges that cover
-    /// `window`.
+    /// Like [`find`](Self::find), but returns only the ranges covering `window`.
     ///
-    /// Read [`RangeWindow`] before reaching for this: the window is measured in
-    /// whole ranges, so it holds only for a caller that walks the stream
-    /// end-to-end.
+    /// Ranges are returned whole, so the result overshoots the window's bounds.
     pub fn find_windowed<'a>(
         &'a self,
         filter: &NumericFilter,
@@ -159,7 +156,17 @@ impl NumericRangeTree {
                 }
             }
             NumericRangeNode::Leaf(leaf) => {
-                if cursor.admit_partial(leaf.range.num_docs() as usize) {
+                // This range only overlaps the filter, so an unknown number of its
+                // documents sit outside it. Counting them all could cover `limit` on
+                // the very first range, ending the traversal before a single match is
+                // collected. `1` — the smallest count that still admits the range —
+                // errs the other way, returning too many ranges rather than too few.
+                let num_docs = if cursor.at_window_start() {
+                    1
+                } else {
+                    leaf.range.num_docs() as usize
+                };
+                if cursor.admit(num_docs) {
                     ranges.push(&leaf.range);
                 }
             }
@@ -167,14 +174,13 @@ impl NumericRangeTree {
     }
 }
 
-/// Running position of a windowed walk over the tree's value-ordered stream.
+/// Position of a traversal within its [`RangeWindow`].
 ///
-/// Tracks how many documents the walk has passed so far, in traversal order,
-/// and decides from that whether a range falls inside [`RangeWindow`]. An
-/// unbounded window keeps every range and counts nothing.
+/// Counts the documents passed so far and decides from that which ranges to
+/// keep. An unbounded window keeps every range and counts nothing.
 struct WindowCursor {
     window: RangeWindow,
-    /// Documents passed so far, the unit the window's bounds are measured in.
+    /// Documents passed so far.
     total: usize,
 }
 
@@ -183,38 +189,23 @@ impl WindowCursor {
         Self { window, total: 0 }
     }
 
-    /// Whether the walk has reached the end of the window and can stop.
+    /// Whether the end of the window is reached and the traversal can stop.
     const fn is_covered(&self) -> bool {
         self.window.limit > 0 && self.total >= self.window.offset.saturating_add(self.window.limit)
     }
 
-    /// Account a range lying entirely within the filter bounds, reporting
-    /// whether it sits past `offset` and must be kept.
+    /// Whether the next range counted will be the first one kept.
+    const fn at_window_start(&self) -> bool {
+        self.total == 0 && self.window.offset == 0
+    }
+
+    /// Count a range's documents, returning whether the range sits past `offset`
+    /// and must be kept.
     const fn admit(&mut self, num_docs: usize) -> bool {
         if !self.window.is_bounded() {
             return true;
         }
         self.total += num_docs;
-        self.total > self.window.offset
-    }
-
-    /// Account a leaf that overlaps the filter bounds without being contained in
-    /// them, reporting whether it must be kept.
-    ///
-    /// Such a leaf holds an unknown mix of in-bounds and out-of-bounds
-    /// documents. Counting all of them would overstate how much of the window is
-    /// covered and cut the result short, so the leaf opening the window counts as
-    /// a single document: the walk errs toward returning more ranges than needed
-    /// and leaves exact filtering to the reader.
-    const fn admit_partial(&mut self, num_docs: usize) -> bool {
-        if !self.window.is_bounded() {
-            return true;
-        }
-        self.total += if self.total == 0 && self.window.offset == 0 {
-            1
-        } else {
-            num_docs
-        };
         self.total > self.window.offset
     }
 }
