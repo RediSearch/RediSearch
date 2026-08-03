@@ -336,21 +336,33 @@ fn initial_state() {
     assert_eq!(it.num_estimated(), 5);
 }
 
+/// `current()` is a has-current oracle: it tracks reads and reports `None` once
+/// the iterator has run past its last result.
+///
+/// This test previously asserted the opposite — that `current()` is always
+/// `Some` — which is what let a resuming parent mistake "moved off the end" for
+/// "moved to a new document".
 #[test]
-fn current_always_returns_some() {
+fn current_is_a_has_current_oracle() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2]);
     let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
-    // Before any read.
+    // Before any read: the reset sentinel, not yet meaningful but present.
     assert!(it.current().is_some());
-    // After a read.
+    // Positioned on a result.
     it.read().unwrap();
     assert!(it.current().is_some());
-    // After EOF.
+    // Run past the last result.
     while it.read().unwrap().is_some() {}
     assert!(it.at_eof());
+    assert!(
+        it.current().is_none(),
+        "no current result once the iterator has run past the end",
+    );
+    // Rewind clears it.
+    it.rewind();
     assert!(it.current().is_some());
 }
 

@@ -56,6 +56,18 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RawIndexResult<'query, Rf>,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// This is the state behind both [`current`](RQEIterator::current), which
+    /// reports no current once it is set, and [`at_eof`](RQEIterator::at_eof),
+    /// its negation.
+    ///
+    /// Distinct from [`Self::exhausted`], the look-ahead, which is already true
+    /// while the iterator sits on its final result — and from `forced_eof`, which
+    /// is narrower still. It cannot be folded into `result.doc_id`: that field
+    /// *is* [`last_doc_id`](RQEIterator::last_doc_id).
+    past_end: bool,
     /// Tracks the execution deadline for this iterator. Pass
     /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
@@ -87,6 +99,7 @@ where
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
+            past_end: false,
             result: RSIndexResult::build_virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -120,6 +133,18 @@ where
         self.child.as_ref()
     }
 
+    /// Whether there is nothing left to yield, so the next `read` will find
+    /// nothing: iteration completed, or the wildcard ran out.
+    ///
+    /// The look-ahead, used to terminate `read`/`skip_to`. It is already true
+    /// while the iterator sits on its final result — one step before
+    /// [`Self::past_end`] — so it must not be confused with
+    /// [`at_eof`](RQEIterator::at_eof).
+    #[inline(always)]
+    const fn exhausted(&self) -> bool {
+        self.forced_eof || self.result.doc_id >= self.max_doc_id
+    }
+
     /// Check whether the child iterator is positionally past `doc_id`
     /// (already advanced beyond it) or fully exhausted, meaning `doc_id`
     /// cannot be in the child without performing additional reads.
@@ -135,15 +160,15 @@ where
     /// Returns `Ok(true)` if a valid result was found (stored in
     /// `self.result.doc_id`), `Ok(false)` if EOF was reached.
     fn read_inner(&mut self) -> Result<bool, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             self.forced_eof = true;
             return Ok(false);
         }
 
         // Advance the wildcard iterator to the next document.
-        // We check the return value (not `at_eof`) because iterators
-        // may report `at_eof() == true` immediately after returning the last
-        // element, while the returned value is still valid.
+        // We check the return value, not the child's `at_eof()`: the latter only
+        // flips once a read has already run past the end, so it cannot tell us in
+        // advance whether this read will produce anything.
         if !self.advance_wcii_or_eof()? {
             return Ok(false);
         }
@@ -189,6 +214,9 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -197,6 +225,7 @@ where
         if self.read_inner()? {
             Ok(Some(&mut self.result))
         } else {
+            self.past_end = true;
             Ok(None)
         }
     }
@@ -208,17 +237,20 @@ where
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
-        if self.at_eof() {
+        if self.exhausted() {
+            self.past_end = true;
             return Ok(None);
         }
         if doc_id > self.max_doc_id {
             self.forced_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
         // Skip wcii to docId.
         if self.wcii.skip_to(doc_id)?.is_none() {
             self.forced_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -235,6 +267,7 @@ where
             if self.read_inner()? {
                 return Ok(Some(SkipToOutcome::NotFound(&mut self.result)));
             } else {
+                self.past_end = true;
                 return Ok(None);
             }
         }
@@ -251,6 +284,7 @@ where
     #[inline(always)]
     fn rewind(&mut self) {
         self.forced_eof = false;
+        self.past_end = false;
         self.result.doc_id = 0;
         self.wcii.rewind();
         self.child.rewind();
@@ -268,7 +302,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.forced_eof || self.result.doc_id >= self.max_doc_id
+        self.past_end
     }
 
     #[inline(always)]
@@ -326,6 +360,13 @@ where
                 }
             }
 
+            // Keep the has-current state in step with what we are about to
+            // report: a `Moved { current: None }` must leave `current()` — and
+            // `at_eof()`, its negation — agreeing with it, rather than handing
+            // back the stale pre-revalidation result. Landing on a valid position
+            // clears the flag, mirroring the `forced_eof` recovery above.
+            self.past_end = !have_valid_pos;
+
             Ok(RQEValidateStatus::Moved {
                 current: if have_valid_pos {
                     Some(&mut self.result)
@@ -361,6 +402,7 @@ where
             max_doc_id: self.max_doc_id,
             forced_eof: self.forced_eof,
             result: self.result,
+            past_end: self.past_end,
             timeout_ctx: self.timeout_ctx,
         }
     }

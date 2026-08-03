@@ -584,10 +584,22 @@ fn skip_to_timeout_via_timeout_ctx() {
         "expected timeout due to timeout context in Not iterator triggered"
     );
 
+    // The timeout latched `forced_eof`, so nothing more will be produced — but
+    // the iterator is still positioned on its last result, and `at_eof()` is the
+    // negation of `current()`. The read that runs past the end is what flips it.
+    assert!(!it.at_eof(), "still positioned on its last result");
+    assert!(it.current().is_some());
+
+    assert!(
+        it.read()
+            .expect("a latched forced_eof yields None rather than erroring")
+            .is_none()
+    );
     assert!(
         it.at_eof(),
         "iterator is expected to EOF once timed out via timeout context"
     );
+    assert!(it.current().is_none());
 
     it.rewind();
     assert!(
