@@ -12,8 +12,8 @@
 //! on those methods.
 //!
 //! Per-iterator suites test behaviour; this file tests that they all agree on
-//! the shared contract. Iterators that do not yet uphold it are listed here as
-//! `#[ignore]`d tests rather than omitted, so the gap stays visible.
+//! the shared contract — every iterator in the crate is covered here, so a new
+//! one that gets it wrong shows up as a failure rather than as an omission.
 //!
 //! [`RQEIterator::current`]: rqe_iterators::RQEIterator::current
 //! [`RQEIterator::at_eof`]: rqe_iterators::RQEIterator::at_eof
@@ -176,18 +176,7 @@ fn not_optimized_upholds_current_contract() {
     assert_current_contract_via_skip_to(&mut it, 6);
 }
 
-// ---------------------------------------------------------------------------
-// Not yet conforming
-//
-// Each of these clamps on its last result instead of recording the step past it,
-// so it fails both halves at once: `current()` keeps handing that result out
-// after `read()` has returned `None`, and `at_eof()` — derived from the same
-// position — reports EOF while the result is still live.
-// ---------------------------------------------------------------------------
-
 #[test]
-#[ignore = "OptionalOptimized clamps on its last result; fixed on the branch that \
-            reworks it (iter-reval-C3a-prof-opt), which is based elsewhere"]
 fn optional_optimized_upholds_current_contract() {
     let mut it = rqe_iterators::optional_optimized::OptionalOptimized::new(
         utils::Mock::new([1u64, 2, 3, 4, 5]),
@@ -196,4 +185,5 @@ fn optional_optimized_upholds_current_contract() {
         2.0,
     );
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }
