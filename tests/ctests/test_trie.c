@@ -30,6 +30,16 @@ size_t __trieNode_Sizeof(t_len numChildren, t_len slen);
 
 int count = 0;
 
+static size_t alignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static size_t expectedTrieNodeSize(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return alignUp(childKeysEnd, _Alignof(TrieNode *)) + (size_t)numChildren * sizeof(TrieNode *);
+}
+
 static float trieExactScore(TrieNode *n, rune *str, t_len len) {
   TrieNode *res = TrieNode_Get(n, str, len, true, NULL);
   return res ? res->score : 0;
@@ -1120,10 +1130,8 @@ int testTrieNodeSizeof() {
   size_t result = __trieNode_Sizeof(UINT16_MAX, UINT16_MAX);
   ASSERT(result > 0);
 
-  // Verify the size calculation matches expected formula
-  size_t expected = sizeof(TrieNode) +
-                    (size_t)UINT16_MAX * (sizeof(rune) + sizeof(TrieNode *)) +
-                    ((size_t)UINT16_MAX + 1) * sizeof(rune);
+  // Verify the size calculation matches the padded child-pointer layout.
+  size_t expected = expectedTrieNodeSize(UINT16_MAX, UINT16_MAX);
   ASSERT_EQUAL(result, expected);
 
   // Normal values
@@ -1132,8 +1140,7 @@ int testTrieNodeSizeof() {
 
   // Edge case: zero children and zero length
   result = __trieNode_Sizeof(0, 0);
-  // Should be sizeof(TrieNode) + sizeof(rune) for the null terminator
-  ASSERT_EQUAL(result, sizeof(TrieNode) + sizeof(rune));
+  ASSERT_EQUAL(result, expectedTrieNodeSize(0, 0));
 
   return 0;
 }
