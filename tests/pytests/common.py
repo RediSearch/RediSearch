@@ -497,7 +497,7 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
-def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
+def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
                             redis_greater_equal, min_shards, arch, gc_no_fork,
                             no_json):
     """True if the caller provided at least one skip condition.
@@ -505,12 +505,12 @@ def _any_skip_condition_set(*, cluster, macos, asan, msan, redis_less_than,
     With no conditions, @skip's legacy behaviour is to always skip — used as a
     "temporarily disable this test" marker.
     """
-    return ((cluster is not None) or macos or asan or msan or redis_less_than
+    return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
             or gc_no_fork or no_json)
 
 
-def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
+def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch,
                             no_json):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
@@ -520,6 +520,8 @@ def _skip_fires_statically(*, cluster, macos, asan, msan, min_shards, arch,
     if cluster is not None and cluster == CLUSTER:
         return True
     if macos and OS == 'macos':
+        return True
+    if musl and MUSL:
         return True
     if arch == platform.machine():
         return True
@@ -549,8 +551,8 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
-    static_kwargs = dict(cluster=cluster, macos=macos, asan=asan, msan=msan,
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False):
+    static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
                          min_shards=min_shards, arch=arch, no_json=no_json)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
