@@ -142,31 +142,16 @@ fn maybe_empty_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), DOCS);
 }
 
-// ---------------------------------------------------------------------------
-// Not yet conforming
-//
-// Each of these clamps on its last result instead of recording the step past it,
-// so it fails both halves at once: `current()` keeps handing that result out
-// after `read()` has returned `None`, and `at_eof()` — derived from the same
-// position — reports EOF while the result is still live.
-//
-// `Not`/`NotOptimized` do not implement `RQEIteratorBoxed` yet, so for them this
-// is a latent violation which becomes reachable when they are migrated.
-// ---------------------------------------------------------------------------
-
 #[test]
-#[ignore = "Not clamps on its last result; latent until Not is migrated to \
-            RQEIteratorBoxed"]
 fn not_upholds_current_contract() {
     // `Not` over [2, 4] within 1..=5 yields the complement.
     let mut it =
         rqe_iterators::not::Not::new(utils::Mock::new([2u64, 4]), 5, 1.0, NoTimeoutChecker);
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }
 
 #[test]
-#[ignore = "NotOptimized clamps on its last result; latent until it is migrated \
-            to RQEIteratorBoxed"]
 fn not_optimized_upholds_current_contract() {
     let mut it = rqe_iterators::not_optimized::NotOptimized::new(
         utils::Mock::new([1u64, 2, 3, 4, 5]),
@@ -176,7 +161,17 @@ fn not_optimized_upholds_current_contract() {
         NoTimeoutChecker,
     );
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }
+
+// ---------------------------------------------------------------------------
+// Not yet conforming
+//
+// Each of these clamps on its last result instead of recording the step past it,
+// so it fails both halves at once: `current()` keeps handing that result out
+// after `read()` has returned `None`, and `at_eof()` — derived from the same
+// position — reports EOF while the result is still live.
+// ---------------------------------------------------------------------------
 
 #[test]
 #[ignore = "OptionalOptimized clamps on its last result; fixed on the branch that \
