@@ -590,6 +590,13 @@ where
         // Success: disarm the guard and write the resumed children back into their
         // original slots (preserving their addresses — and `virt`'s, which never
         // moved), then reinterpret the reused allocation as the active form.
+        //
+        // Unlike `suspend_child_slot_in_place`/`resume_child_slot_in_place`, the
+        // window opened here needs no `AbortOnUnwind`: those helpers straddle a
+        // safe trait call that may panic, whereas everything between this
+        // `forget` and the two writes below is moves, pointer arithmetic and
+        // `const` assertions. None of it can unwind, so no unwind can observe the
+        // uninitialised slots.
         std::mem::forget(shell);
         // Statically enforce the size/alignment invariant the in-place writes
         // below rely on. `WildcardIterator` and the child are public safe traits,

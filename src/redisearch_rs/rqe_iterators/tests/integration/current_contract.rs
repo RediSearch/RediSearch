@@ -110,4 +110,3 @@ fn not_upholds_current_contract() {
         rqe_iterators::not::Not::new(utils::Mock::new([2u64, 4]), 5, 1.0, NoTimeoutChecker);
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
 }
-
