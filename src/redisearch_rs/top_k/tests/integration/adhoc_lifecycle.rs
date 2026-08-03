@@ -146,7 +146,12 @@ impl<'index> ErrOnSecondRead<'index> {
 
 impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
+        // Later reads fail rather than report depletion, so this stub never
+        // advances past its single document once it has been read.
+        if self.n == 0 {
+            return None;
+        }
+        Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {

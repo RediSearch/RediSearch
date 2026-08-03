@@ -84,24 +84,33 @@ impl<'index> RQEIterator<'index> for AbortOnRevalidate {
 /// surfacing the child's reposition as its own.
 struct MovedOnRevalidate<'index> {
     current: RSIndexResult<'index>,
+    /// Set once [`RQEIterator::read`] reported depletion, after which
+    /// [`RQEIterator::current`] no longer advertises a position.
+    at_eos: bool,
 }
 
 impl<'index> MovedOnRevalidate<'index> {
     fn new() -> Self {
         Self {
             current: RSIndexResult::build_virt().doc_id(7).build(),
+            at_eos: false,
         }
     }
 }
 
 impl<'index> RQEIterator<'index> for MovedOnRevalidate<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        None
+        // Sits on the document its `revalidate` reports as the moved-to position.
+        if self.at_eos {
+            return None;
+        }
+        Some(&mut self.current)
     }
 
     fn read(
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, rqe_iterators::RQEIteratorError> {
+        self.at_eos = true;
         Ok(None)
     }
 
@@ -133,7 +142,9 @@ impl<'index> RQEIterator<'index> for MovedOnRevalidate<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        false
+        // The next `read` does report depletion, even while `current` still
+        // reports a position.
+        true
     }
 
     fn type_(&self) -> rqe_iterator_type::IteratorType {
