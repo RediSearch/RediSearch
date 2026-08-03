@@ -101,6 +101,16 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   while (encoded_char < str + utf8_len) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    // Stop at the first NUL codepoint, exactly as the length-measuring pass
+    // above (nu_strtransformnlen) does. Without this the two passes disagree
+    // whenever a codepoint decodes to 0 before the end of the input — e.g. the
+    // overlong encoding of NUL (0xC0 0x80), which is not a literal NUL byte and
+    // so survives earlier processing: the buffer is sized for the codepoints up
+    // to the NUL while this loop would keep writing the ones after it, past the
+    // allocation.
+    if (codepoint == 0) {
+      break;
+    }
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
