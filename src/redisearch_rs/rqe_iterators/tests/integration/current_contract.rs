@@ -81,6 +81,13 @@ fn metric_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
 }
 
+#[test]
+fn wildcard_upholds_current_contract() {
+    let mut it = rqe_iterators::Wildcard::new(5, 1.0);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}
+
 // ---------------------------------------------------------------------------
 // Composites — these already delegated correctly; asserted so they stay that way
 // ---------------------------------------------------------------------------
@@ -143,18 +150,9 @@ fn maybe_empty_upholds_current_contract() {
 // after `read()` has returned `None`, and `at_eof()` — derived from the same
 // position — reports EOF while the result is still live.
 //
-// `Wildcard` already implements `RQEIteratorBoxed`, so that is reachable from a
-// resume today. `Not`/`NotOptimized` do not yet — for them this is a latent
-// violation, which becomes reachable when they are migrated.
+// `Not`/`NotOptimized` do not implement `RQEIteratorBoxed` yet, so for them this
+// is a latent violation which becomes reachable when they are migrated.
 // ---------------------------------------------------------------------------
-
-#[test]
-#[ignore = "Wildcard clamps on its last result; needs a past-the-end state like \
-            the inverted-index iterators have"]
-fn wildcard_upholds_current_contract() {
-    let mut it = rqe_iterators::Wildcard::new(5, 1.0);
-    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
-}
 
 #[test]
 #[ignore = "Not clamps on its last result; latent until Not is migrated to \
