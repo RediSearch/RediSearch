@@ -1565,13 +1565,9 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
-    // The id-filter chain (including its Rust evaluation) consumes
-    // (pointer, length) views; build them over the held argv strings.
-    RSStringView *keys = rm_malloc(sizeof(*keys) * opts->ninkeys);
-    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-      keys[ii].data = RedisModule_StringPtrLen(opts->inkeys[ii], &keys[ii].len);
-    }
-    QAST_GlobalFilterOptions filterOpts = {.keys = keys, .nkeys = opts->ninkeys};
+    // inkeys is a window into the held argv, which outlives the AST; the
+    // id-filter node borrows it as-is.
+    QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
     // For SearchDisk, resolve docIds from keys on the main thread
     if (SearchDisk_IsEnabled()) {
@@ -1589,9 +1585,6 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
 
     QAST_SetGlobalFilters(ast, &filterOpts);
     // Non-NULL only if the transfer to the query node did not happen.
-    if (filterOpts.keys) {
-      rm_free(filterOpts.keys);
-    }
     if (filterOpts.docIds) {
       rm_free(filterOpts.docIds);
     }

@@ -90,9 +90,9 @@ typedef struct {
   // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
   bool empty;
 
-  /** Views of the keys to limit to, and the length of that array. The array
-   * is transferred to the query node by QAST_SetGlobalFilters. */
-  RSStringView *keys;
+  /** The keys to limit to: a borrowed window into the request's held argv
+   * (see BlockedRequestCtx.argvHolds). Not owned. */
+  RedisModuleString **keys;
   /** Pre-resolved document IDs (for SearchDisk, resolved on main thread). Same length as keys. (Not owned) */
   t_docId *docIds;
   size_t nkeys;

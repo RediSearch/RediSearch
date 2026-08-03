@@ -130,8 +130,7 @@ mod union {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::key_view;
-
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_union_merges_distinct_children() {
@@ -159,8 +158,8 @@ mod union {
 
         // child 1 matches {doc_a, doc_b}; child 2 matches {doc_b, doc_c}; the
         // union is {doc_a, doc_b, doc_c}.
-        let keys1 = vec![key_view("doc_a"), key_view("doc_b")];
-        let keys2 = vec![key_view("doc_b"), key_view("doc_c")];
+        let keys1 = MockKeys::new(&["doc_a", "doc_b"]);
+        let keys2 = MockKeys::new(&["doc_b", "doc_c"]);
         let mut c1 = MockQueryNode::new(QueryNodeType::Ids);
         c1.set_ids(keys1.as_ptr(), std::ptr::null_mut(), keys1.len());
         let mut c2 = MockQueryNode::new(QueryNodeType::Ids);
@@ -181,7 +180,6 @@ mod union {
             assert_eq!(r.doc_id, expected);
         }
         assert!(matches!(it.read(), Ok(None)));
-
     }
 
     #[test]
@@ -216,7 +214,7 @@ mod union {
         let mut missing_child = MockQueryNode::new(QueryNodeType::Missing);
         missing_child.set_missing_field(context.field_spec());
         // child 2: QN_IDS resolving to a real document.
-        let keys = vec![key_view("doc_a")];
+        let keys = MockKeys::new(&["doc_a"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -235,6 +233,5 @@ mod union {
         let r = it.read().unwrap().expect("should have a result");
         assert_eq!(r.doc_id, 1);
         assert!(matches!(it.read(), Ok(None)));
-
     }
 }

@@ -15,7 +15,7 @@ use rqe_iterators::{IteratorType, RQEIterator};
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
-use crate::util::null_view;
+use crate::util::MockKeys;
 
 #[test]
 fn eval_ids_with_pre_resolved_doc_ids() {
@@ -23,7 +23,7 @@ fn eval_ids_with_pre_resolved_doc_ids() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys = vec![null_view(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![10, 5, 20];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -53,7 +53,7 @@ fn eval_ids_deduplicates() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys = vec![null_view(); 4];
+    let keys = MockKeys::nulls(4);
     let mut doc_ids: Vec<u64> = vec![3, 3, 7, 7];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -77,7 +77,7 @@ fn eval_ids_filters_zero_doc_ids() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys = vec![null_view(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![0, 5, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -99,7 +99,7 @@ fn eval_ids_all_zero_produces_empty_list() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys = vec![null_view(); 2];
+    let keys = MockKeys::nulls(2);
     let mut doc_ids: Vec<u64> = vec![0, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
@@ -123,7 +123,7 @@ fn eval_ids_empty_keys() {
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-    mock_node.set_ids(std::ptr::null(), std::ptr::null_mut(), 0);
+    mock_node.set_ids(std::ptr::null_mut(), std::ptr::null_mut(), 0);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = eval_node(&mut ctx, node, Config::default())
@@ -141,7 +141,7 @@ fn eval_ids_empty_keys() {
 // QN_IDS → IdList, resolving key names through the DocTable
 //
 // The lightweight `MockQueryEvalCtx` has an empty `DocTable`, so the key→docId
-// resolution path (`DocTable_GetId`) is exercised here with the full-FFI
+// resolution path (`DocTable_GetIdR`) is exercised here with the full-FFI
 // `TestContext`, which can register real documents.
 // ---------------------------------------------------------------------------
 
@@ -153,7 +153,7 @@ mod ids_doctable {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::key_view;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_ids_resolves_keys_through_doc_table() {
@@ -170,7 +170,7 @@ mod ids_doctable {
         // Query for both known keys plus an unknown one, which must resolve to
         // id 0 and be filtered out. `doc_ids` is NULL, so the DocTable lookup
         // path is taken.
-        let keys = vec![key_view("doc_b"), key_view("ghost"), key_view("doc_a")];
+        let keys = MockKeys::new(&["doc_b", "ghost", "doc_a"]);
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
@@ -198,7 +198,7 @@ mod ids_doctable {
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // None of these keys exist in the (empty) DocTable.
-        let keys = vec![key_view("nope"), key_view("missing")];
+        let keys = MockKeys::new(&["nope", "missing"]);
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());

@@ -84,7 +84,7 @@ mod not {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::key_view;
+    use crate::util::MockKeys;
 
     #[test]
     fn eval_not_wraps_real_child_in_not() {
@@ -107,7 +107,7 @@ mod not {
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
         // QN_IDS child resolving to the middle document only.
-        let keys = vec![key_view("doc_b")];
+        let keys = MockKeys::new(&["doc_b"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -128,7 +128,6 @@ mod not {
         }
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
     }
 
     #[test]
@@ -199,7 +198,7 @@ mod not {
         // QN_IDS child resolving to a real document → neither empty nor a
         // wildcard, so the reducer skips its shortcircuits and reaches the
         // optimized constructor.
-        let keys = vec![key_view("doc_b")];
+        let keys = MockKeys::new(&["doc_b"]);
         let mut ids_child = MockQueryNode::new(QueryNodeType::Ids);
         ids_child.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
 
@@ -218,6 +217,5 @@ mod not {
         // optimized NOT yields nothing — but it must drain cleanly.
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
     }
 }

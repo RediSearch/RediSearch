@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include "query_types.h"
 #include "redisearch.h"
+#include "redismodule.h"
 #include "hiredis/sds.h"
 #include "param.h"
 
@@ -77,16 +78,10 @@ typedef struct {
   struct VectorQuery *vq;
 } QueryVectorNode;
 
-/* A borrowed (pointer, length) view of a string owned elsewhere. */
 typedef struct {
-  const char *data;
-  size_t len;
-} RSStringView;
-
-typedef struct {
-  /* Views of the key names, borrowing from the request's held argv. The
-   * array itself is owned by the node (freed in QueryNode_Free). */
-  RSStringView *keys;
+  /* The key names: a borrowed window into the request's held argv (see
+   * BlockedRequestCtx.argvHolds), which outlives the AST. Not owned. */
+  RedisModuleString **keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;
   size_t len;
