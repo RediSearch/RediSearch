@@ -1343,6 +1343,97 @@ mod via_resume {
         );
     }
 
+    /// A resume whose re-read runs off the end must report `Moved` with **no
+    /// current** — not the stale pre-suspend result.
+    ///
+    /// `ResumeOutcome::Moved` carries no `Option`, so the caller recovers the
+    /// new position from `current()`. The legacy `revalidate` forwarded
+    /// `read()` straight into `Moved { current }` and so surfaced EOF as
+    /// `current: None`; the resume path discarded the re-read's outcome, which
+    /// left `current()` handing back the very position the resume was repairing.
+    #[test]
+    fn resume_reread_to_eof_reports_no_current() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `max_doc_id` of 1 with a child hit at doc 1: after reading it the
+        // iterator sits on its final result, so the resume's re-read finds
+        // nothing.
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut optional = Box::new(Optional::new(1, WEIGHT, child));
+
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 1);
+        assert_eq!(hit.weight, WEIGHT, "doc 1 is a real child hit");
+        assert!(
+            !optional.at_eof(),
+            "doc 1 is the bound, but it is still the current result, and at_eof() \
+             is the negation of current() rather than a look-ahead",
+        );
+        assert!(optional.current().is_some(), "doc 1 is the current result");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            active.current().is_none(),
+            "the re-read ran off the end, so the moved iterator has no current",
+        );
+    }
+
+    /// A child whose resume *re-seeks* past the end — the inverted-index shape
+    /// where the cached offset was invalidated, so the seek runs off the end and
+    /// leaves `last_doc_id()` reset to 0 rather than advanced.
+    ///
+    /// `Optional` cannot notice that by comparing the child's `last_doc_id`
+    /// before and after: it went backwards, not forwards. Only the child's
+    /// `current()` reporting `None` identifies it. What must not happen is
+    /// `Optional` handing back the real hit it was sitting on, which no longer
+    /// exists.
+    #[test]
+    fn resume_child_reseeking_past_end_does_not_yield_stale_hit() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Child hits at doc 2 only; `max_doc_id` of 4 leaves room to move on.
+        let child = Mock::new([2]);
+        child.data().set_resume_reseeks_past_end(true);
+        let mut optional = Box::new(Optional::new(4, WEIGHT, child));
+
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 1, "virtual");
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 2);
+        assert_eq!(hit.weight, WEIGHT, "doc 2 is a real child hit");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        let current = active
+            .current()
+            .expect("doc 3 is still within max_doc_id, so there is a current");
+        assert_eq!(
+            current.doc_id, 3,
+            "the re-read moved past the hit that vanished",
+        );
+        assert_eq!(
+            current.weight, 0.,
+            "doc 3 is virtual: the child is left unpositioned",
+        );
+        assert!(!active.at_eof());
+    }
+
     /// `Present` child that moves during resume, forcing a re-read whose own
     /// `read` then fails: the error propagates out of `Optional::resume`.
     #[test]
