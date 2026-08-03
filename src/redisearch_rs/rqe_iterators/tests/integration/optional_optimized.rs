@@ -1496,6 +1496,55 @@ mod via_resume {
         );
     }
 
+    /// The moved-wcii sibling of [`resume_preserves_bound_eof_when_wcii_unchanged`]:
+    /// a wildcard that resumes onto a live in-bound document does not revive an
+    /// iterator already past its own end — and must not *settle* on it either.
+    /// `revalidate`'s `past_end` guard reports the move and leaves the position and
+    /// the child untouched; resume has to make the same call rather than dragging
+    /// `last_doc_id` and the child forward on a finished iterator.
+    #[test]
+    fn resume_moved_wcii_does_not_settle_a_finished_iterator() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // wcii holds live in-bound docs beyond 1; the iterator is finished by its
+        // own bound instead (`skip_to` past `max_doc_id` sets `past_end` without
+        // moving wcii).
+        let wcii = utils::Mock::new([1u64, 5, 8]);
+        let mut wcii_data = wcii.data();
+        // The child sits at 3 after the first read's catch-up; a settle at wcii's
+        // moved-to doc 5 would have to seek it again, which the counter exposes.
+        let child = utils::Mock::new([3u64, 7]);
+        let child_data = child.data();
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 10, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 1);
+        assert!(it.skip_to(11).expect("skip_to").is_none());
+        assert!(it.at_eof());
+        let child_reads_before = child_data.read_count();
+
+        // GC moves the wildcard onto doc 5 — live and within the bound.
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved (wcii moved), got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        assert!(active.at_eof(), "past the end stays past the end");
+        assert!(active.current().is_none());
+        assert_eq!(
+            active.last_doc_id(),
+            1,
+            "a finished iterator's position must not be dragged forward",
+        );
+        assert_eq!(
+            child_data.read_count(),
+            child_reads_before,
+            "the child of a finished iterator is not seeked",
+        );
+    }
+
     /// If the virtual sentinel is no longer virtual — a consumer replaced it with
     /// index-backed data via the mutable `current()`/`read()`/`skip_to` handout —
     /// resume cannot re-validate it, so it aborts the whole iterator (returns
@@ -1522,6 +1571,151 @@ mod via_resume {
         assert!(
             matches!(outcome, ResumeOutcome::Aborted),
             "a non-virtual sentinel must abort the resume",
+        );
+    }
+
+    /// A wcii that moves to exactly `max_doc_id` still has a valid current result
+    /// there, and is *not* yet at EOF.
+    ///
+    /// This used to assert the opposite — `at_eof()` true alongside a live
+    /// `current()` — because `at_eof` was a look-ahead that `settle_at` raised the
+    /// moment the position reached the bound. `at_eof()` is now the negation of
+    /// `current()`, so landing on the last document of the range is an ordinary live
+    /// position and settling records nothing; the next `read` sees `!has_next()` and
+    /// sets `past_end` there.
+    ///
+    /// The hazard the test guards is unchanged: a caller must not lose the last
+    /// document of the range on a moved resume. No other moved-resume test lands
+    /// exactly on `max_doc_id`, so this is the only place the boundary is
+    /// distinguishable from an ordinary in-range hit.
+    #[test]
+    fn resume_moved_to_exactly_max_doc_id_keeps_the_hit() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // max_doc_id == 20, and the move lands exactly on it, with a child hit.
+        let wcii = utils::Mock::new([5u64, 20]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64, 20]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 20, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        wcii_data.set_revalidate_result(utils::MockRevalidateResult::Move);
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        assert!(
+            !active.at_eof(),
+            "doc 20 is the bound but still a live result, so nothing has run past the end",
+        );
+        let cur = active.current().expect("doc 20 is a valid current result");
+        assert_eq!(cur.doc_id, 20);
+        assert_eq!(cur.weight, WEIGHT, "a real hit carries the optional weight");
+
+        // Only the read *after* the bound runs past the end.
+        assert!(active.read().expect("read must not fail").is_none());
+        assert!(active.at_eof());
+        assert!(active.current().is_none());
+    }
+
+    /// A *type-erased wildcard* must survive the cycle.
+    ///
+    /// `suspend` dispatches both slots through `suspend_child_slot_in_place`
+    /// precisely because an erased slot's active and suspended forms carry
+    /// different vtables. Only the child slot was covered; a byte cast of the
+    /// wildcard slot would mis-dispatch on resume.
+    #[test]
+    fn resume_with_type_erased_wcii_survives() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let wcii = TypeErasedRQEIterator::new(Box::new(utils::Mock::new([1u64, 2, 3])));
+        let child = utils::Mock::new([2u64]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 1);
+
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) | ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Aborted => panic!("default mocks should not abort"),
+        };
+        // The erased wildcard still drives the iteration after the round trip.
+        let r = active.read().expect("read after resume").expect("result");
+        assert_eq!(r.doc_id, 2);
+        assert_eq!(r.weight, WEIGHT, "doc 2 is a real child hit");
+    }
+
+    /// Resuming a second time, with the child already replaced by `Empty`.
+    ///
+    /// The first resume aborts the child and installs `MaybeEmpty`'s `None`
+    /// arm; the second then has to suspend and resume *that* arm. Every other
+    /// test stops after one cycle, so the empty-child arm was never carried
+    /// through one.
+    #[test]
+    fn resume_twice_after_child_abort_stays_virtual() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let wcii = utils::Mock::new([5u64, 20, 50]);
+        let child = utils::Mock::new([5u64, 20]);
+        let mut child_data = child.data();
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+        assert_eq!(r.weight, WEIGHT, "doc 5 is a real child hit");
+
+        // First cycle: the child aborts and is replaced by `Empty`.
+        child_data.set_revalidate_result(utils::MockRevalidateResult::Abort);
+        let guard = mock_ctx.spec_read();
+        let active = match it.suspend().resume(&guard).expect("first resume failed") {
+            ResumeOutcome::Ok(a) | ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Aborted => panic!("an aborted child must not abort the whole iterator"),
+        };
+        assert!(active.child().is_none(), "child replaced by Empty");
+
+        // Second cycle: suspend/resume the `None` arm.
+        let mut active = match active
+            .suspend()
+            .resume(&guard)
+            .expect("second resume failed")
+        {
+            ResumeOutcome::Ok(a) | ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Aborted => panic!("an empty child must not abort the resume"),
+        };
+        assert!(active.child().is_none(), "still Empty after a second cycle");
+
+        // Still usable, and now purely virtual.
+        let r = active.read().expect("read after resume").expect("result");
+        assert_eq!(r.weight, 0., "the child is gone, so every hit is virtual");
+    }
+
+    /// An error from the wildcard's own `resume` propagates, exercising the
+    /// teardown guard.
+    ///
+    /// This is the early-return path where `FreeSuspendedShell` has to drop the
+    /// still-suspended `virt` and free the shell by hand, without touching the
+    /// moved-out child slots. Nothing else in the suite reaches it, so the
+    /// hand-rolled `dealloc` went unverified — including under miri.
+    #[test]
+    fn resume_wcii_error_propagates_and_frees_the_shell() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let wcii = utils::Mock::new([5u64, 20]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        wcii_data.set_error_on_resume(Some(utils::MockIteratorError::TimeoutError(None)));
+        let result = it.suspend().resume(&guard);
+        assert!(
+            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            "a wildcard resume failure must propagate out of OptionalOptimized::resume",
         );
     }
 }
