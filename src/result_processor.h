@@ -105,6 +105,10 @@ typedef struct {
   // Background indexing OOM warning
   bool bgScanOOM;
 
+  // Debug-only rendezvous used to invalidate a buffered result before the safe loader takes the
+  // Redis GIL. Set only by _FT.DEBUG queries.
+  bool debugPauseBeforeSafeLoaderGIL;
+
   bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;

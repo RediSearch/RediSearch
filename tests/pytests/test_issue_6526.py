@@ -1,0 +1,57 @@
+from common import *
+import threading
+
+
+@skip(cluster=True)
+def test_aggregate_drops_doc_reindexed_during_load():
+    """FT.AGGREGATE must not emit an empty row for a doc invalidated before LOAD."""
+    # A dedicated environment is required for the background safe-loader path and its debug hook.
+    if not MT_BUILD:
+        raise SkipTest('MT_BUILD is not set')
+    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 1')
+    conn = getConnectionByEnv(env)
+
+    env.expect(
+        'FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+        'SCHEMA', 'n', 'NUMERIC', 'title', 'TEXT', 'SORTABLE'
+    ).ok()
+    env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
+    conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one')
+    conn.execute_command('HSET', 'doc:2', 'n', '2', 'title', 'two')
+    waitForIndex(env, 'idx')
+
+    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', '1', '@n']
+    args = parseDebugQueryCommandArgs(query, ['PAUSE_BEFORE_SAFE_LOADER_GIL'])
+    query_conn = env.getConnection()
+    outcome = []
+
+    def run_query():
+        try:
+            outcome.append(query_conn.execute_command(debug_cmd(), *args))
+        except Exception as error:
+            outcome.append(error)
+
+    thread = threading.Thread(target=run_query, daemon=True)
+    thread.start()
+
+    wait_for_condition(
+        lambda: (getIsRPPaused(env) == 1, {}),
+        'Timeout waiting for the safe loader to release the spec lock'
+    )
+
+    try:
+        # Replacing doc:1 pops the metadata buffered by the query and assigns a new doc ID.
+        conn.execute_command('HSET', 'doc:1', 'n', '1', 'title', 'one-reindexed')
+    finally:
+        setPauseRPResume(env)
+
+    thread.join(timeout=10)
+    env.assertFalse(thread.is_alive(), message='query did not resume after loader signal')
+    env.assertEqual(len(outcome), 1, message=outcome)
+    env.assertFalse(isinstance(outcome[0], Exception), message=outcome[0])
+
+    total, rows = outcome[0][0], outcome[0][1:]
+    invalid_rows = [row for row in rows if row is None or row == []]
+    env.assertEqual(invalid_rows, [], message=f'invalid aggregate row: {outcome[0]}')
+    env.assertEqual(rows, [['n', '2']], message=outcome[0])
+    env.assertEqual(total, len(rows), message=outcome[0])

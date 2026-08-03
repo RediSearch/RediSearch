@@ -890,6 +890,16 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
+  if (rp->parent->debugPauseBeforeSafeLoaderGIL) {
+    // One-shot deterministic test hook: let the main thread re-index a buffered document after
+    // its old metadata was captured, but before the loader validates it under the Redis GIL.
+    rp->parent->debugPauseBeforeSafeLoaderGIL = false;
+    QueryDebugCtx_SetPause(true);
+    while (QueryDebugCtx_IsPaused()) {
+      usleep(1000);
+    }
+  }
+
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
   if (isQueryProfile) rs_wall_clock_init(&rpStartTime);
