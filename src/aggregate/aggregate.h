@@ -253,12 +253,6 @@ static inline void RequestSyncState_Destroy(RequestSyncState *st) {
 }
 
 typedef struct AREQ {
-  /* Where this request's arguments start within its wrapper's held argv
-   * (brc->argvHolds). The first argument is the request's query string (see
-   * AREQ_Query). Borrowed view; the references are owned by the wrapper.
-   * NULL for a hybrid VSIM sub-request with no FILTER (no query argument). */
-  RedisModuleString **parseArgv;
-
   /** For hybrid queries: contains parsed vector data and partially constructed query node */
   ParsedVectorData *parsedVectorData;
 
@@ -338,7 +332,7 @@ typedef struct AREQ {
   RequestSyncState syncState;
 
   // Non-owning back-pointer to the heap wrapper that owns this request.
-  // Set for the top-level request; NULL for hybrid sub-AREQs.
+  // Every AREQ is wrapped at construction (hybrid sub-AREQs included).
   BlockedRequestCtx *brc;
 
   // Flag to indicate whether to skip timeout checks using clock checks
@@ -347,17 +341,6 @@ typedef struct AREQ {
   bool useReplyCallback;
 
 } AREQ;
-
-/* The request's query string: the first argument of its parse slice, backed
- * by the wrapper's held argv. A request with no query argument (a hybrid
- * VSIM sub-request without a FILTER) matches everything. */
-static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
-  if (!req->parseArgv) {
-    if (len) *len = 1;
-    return "*";
-  }
-  return RedisModule_StringPtrLen(req->parseArgv[0], len);
-}
 
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;
@@ -383,6 +366,14 @@ struct BlockedRequestCtx {
    * superset of the parsed slice. */
   RedisModuleString **argvHolds;
   size_t nargvHolds;
+
+  /* Where the owned request's parse slice starts within argvHolds; the query
+   * string is argvHolds[parseOffset]. Set where the query is discovered:
+   * AREQ_Compile for plain requests, setSubQueryArg for hybrid sub-requests.
+   * SIZE_MAX (the constructor default) means no query argument — a hybrid
+   * VSIM sub-request without a FILTER, or a hybrid container (whose tail has
+   * no query of its own). Meaningless until parsing. */
+  size_t parseOffset;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -467,6 +458,17 @@ struct BlockedRequestCtx {
   void *registry_node;
   bool registry_node_is_cursor;
 };
+
+/* The request's query string: the first argument of its parse slice, backed
+ * by the wrapper's held argv. A request with no query argument (a hybrid
+ * VSIM sub-request without a FILTER) matches everything. */
+static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
+  if (req->brc->parseOffset == SIZE_MAX) {
+    if (len) *len = 1;
+    return "*";
+  }
+  return RedisModule_StringPtrLen(req->brc->argvHolds[req->brc->parseOffset], len);
+}
 
 /* Allocate a heap BlockedRequestCtx that takes ownership of the request,
  * initializes the result-production coordination state (refcount=1), and

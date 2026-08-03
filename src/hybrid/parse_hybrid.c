@@ -47,7 +47,7 @@
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
 
-// Record the sub-request's query argument: parseArgv points at the current
+// Record the sub-request's query argument: parseOffset locates the current
 // cursor token within the sub-request's OWN held argv (the container's holds
 // do not outlive the container; the sub-request may). Both hold the same
 // string references, so the token is located by pointer identity.
@@ -56,7 +56,7 @@ static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
   BlockedRequestCtx *brc = sub->brc;
   for (size_t i = 0; i < brc->nargvHolds; i++) {
     if (brc->argvHolds[i] == tok) {
-      sub->parseArgv = brc->argvHolds + i;
+      brc->parseOffset = i;
       return;
     }
   }
@@ -540,7 +540,7 @@ final:
   // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
   // so the vector node becomes the root directly (no PHRASE/intersection needed).
   // This preserves BY_SCORE ordering from the iterator.
-  if (!vreq->parseArgv) {
+  if (vreq->brc->parseOffset == SIZE_MAX) {
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {
