@@ -917,7 +917,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
 // Clear the borrow markers set for a foreground in-memory execution. The rwlock
 // is released by the scope that took it (see buildPipelineAndExecute).
-static void returnBorrowedSpecReadLocks(HybridRequest *hreq) {
+static void returnBorrowedSpecReadLocks(HybridRequest *hreq, bool borrowed) {
+  if (!borrowed) {
+    return;
+  }
   for (size_t i = 0; i < hreq->nrequests; i++) {
     RedisSearchCtx_ReturnSpecReadLock(AREQ_SearchCtx(hreq->requests[i]));
   }
@@ -1000,9 +1003,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
     goto error;
   }
 
-  if (borrowedByRequests) {
-    returnBorrowedSpecReadLocks(hreq);
-  }
+  returnBorrowedSpecReadLocks(hreq, borrowedByRequests);
   // Idempotent: a no-op if the lock was already released above or by the
   // background handoff.
   RedisSearchCtx_UnlockSpec(sctx);
@@ -1010,9 +1011,7 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   return REDISMODULE_OK;
 
 error:
-  if (borrowedByRequests) {
-    returnBorrowedSpecReadLocks(hreq);
-  }
+  returnBorrowedSpecReadLocks(hreq, borrowedByRequests);
   RedisSearchCtx_UnlockSpec(sctx);
   return REDISMODULE_ERR;
 }
