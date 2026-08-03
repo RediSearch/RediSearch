@@ -90,7 +90,8 @@ mod metrics_tests {
             assert_eq!(it.last_doc_id(), expected_id);
         }
 
-        assert!(it.at_eof());
+        // Sitting on the last id is not EOF; the read that runs past it is.
+        assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
 
@@ -117,7 +118,8 @@ mod metrics_tests {
         assert_eq!(entry.value(), metric_data[0]);
         assert_eq!(it.last_doc_id(), first_id);
         assert_eq!(it.current().unwrap().doc_id, first_id);
-        assert_eq!(it.at_eof(), Some(&first_id) == case.last());
+        // Positioned on an id, so not past the end, even when it is the last one.
+        assert!(!it.at_eof(), "still positioned on {first_id}");
 
         // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
         let last = *case.last().unwrap();
@@ -149,7 +151,7 @@ mod metrics_tests {
                 assert!(entry.key().is_none());
                 assert_eq!(entry.value(), metric_data[j]);
                 // Should land on next existing id
-                assert_eq!(it.at_eof(), Some(&id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {id}");
                 assert_eq!(it.last_doc_id(), id);
                 assert_eq!(it.current().unwrap().doc_id, id);
                 probe += 1;
@@ -167,7 +169,7 @@ mod metrics_tests {
             let entry = metrics.get(0).expect("should have one entry");
             assert!(entry.key().is_none());
             assert_eq!(entry.value(), metric_data[j]);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
             probe += 1;
@@ -186,7 +188,7 @@ mod metrics_tests {
             assert_eq!(res.doc_id, id);
             assert_eq!(it.last_doc_id(), id);
             assert_eq!(it.current().unwrap().doc_id, id);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
         }
     }
 
@@ -226,7 +228,7 @@ mod metrics_tests {
                 assert_eq!(doc_to.doc_id, to_id);
                 assert_eq!(it.last_doc_id(), to_id);
                 assert_eq!(it.current().unwrap().doc_id, to_id);
-                assert_eq!(it.at_eof(), Some(&to_id) == case.last());
+                assert!(!it.at_eof(), "still positioned on {to_id}");
             }
         }
     }

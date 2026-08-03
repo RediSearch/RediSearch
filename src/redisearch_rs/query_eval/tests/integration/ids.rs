@@ -108,8 +108,11 @@ fn eval_ids_all_zero_produces_empty_list() {
         .expect("should not be None")
         .into_boxed();
 
-    assert!(it.at_eof());
+    // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
+    // of `current()`, so it flips once a read has run past the end.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
@@ -125,8 +128,11 @@ fn eval_ids_empty_keys() {
         .expect("should not be None")
         .into_boxed();
 
-    assert!(it.at_eof());
+    // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
+    // of `current()`, so it flips once a read has run past the end.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 // ---------------------------------------------------------------------------
@@ -205,8 +211,10 @@ mod ids_doctable {
             .expect("should not be None")
             .into_boxed();
 
-        assert!(it.at_eof());
+        // Nothing to yield, but nothing read yet either.
+        assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
+        assert!(it.at_eof());
 
         for key in keys {
             // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
