@@ -471,10 +471,14 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
 }
 
 /* Allocate a heap BlockedRequestCtx that takes ownership of the request,
- * initializes the result-production coordination state (refcount=1), and
- * wires the non-owning back-pointer (`brc`) on the owned request. */
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq);
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid);
+ * initializes the result-production coordination state (refcount=1), wires
+ * the non-owning back-pointer (`brc`) on the owned request, and takes the
+ * argv holds (see `argvHolds`). Main-thread only — construction is where the
+ * string references are taken. `argv` may be NULL only for a request that is
+ * never parsed (parsing asserts the holds are present). */
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc);
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
+                                               RedisModuleString **argv, size_t argc);
 
 /* TRANSITIONAL(MOD-16691): increment / decrement the wrapper's reference
  * count. DecrRef triggers BlockedRequestCtx_Free when the count drops to
@@ -511,10 +515,6 @@ static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCt
  * step makes the wrapper single-owner. */
 void AREQ_Free(AREQ *req);
 
-/* Hold references to `argv` strings whose contents the wrapped request's
- * plan borrows (see BlockedRequestCtx.argvHolds). Main-thread only; released
- * in BlockedRequestCtx_Free, which runs on the main thread. */
-void BlockedRequestCtx_HoldArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc);
 AREQ *AREQ_IncrRef(AREQ *req);
 void AREQ_DecrRef(AREQ *req);
 

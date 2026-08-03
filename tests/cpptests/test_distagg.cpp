@@ -35,7 +35,6 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 static void testAverage() {
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "sony",                                        // nl
                     "GROUPBY", "1", "@brand",                           // nl
@@ -44,7 +43,7 @@ static void testAverage() {
                     "sortby", "2", "@avg_price", "DESC"                 // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_HoldArgv(r->brc, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -96,7 +95,6 @@ static void testAverage() {
  */
 static void testCountDistinct() {
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
@@ -105,7 +103,7 @@ static void testCountDistinct() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_HoldArgv(r->brc, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -136,7 +134,6 @@ static void testCountDistinct() {
 }
 static void testSplit() {
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);  // AREQ_Compile requires a wrapper (it carries the argv holds)
   AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
@@ -145,7 +142,7 @@ static void testSplit() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_HoldArgv(r->brc, vv, vv.size());
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));

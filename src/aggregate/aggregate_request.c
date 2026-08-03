@@ -1178,21 +1178,40 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
   }
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq) {
+/* Hold references to `argv` strings whose contents the wrapped request's
+ * plan borrows (see BlockedRequestCtx.argvHolds). Runs at construction, on
+ * the main thread; released in BlockedRequestCtx_Free, also on main. */
+static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
+  RS_ASSERT(brc->argvHolds == NULL);
+  brc->argvHolds = rm_malloc(argc * sizeof(*brc->argvHolds));
+  brc->nargvHolds = argc;
+  for (size_t ii = 0; ii < argc; ++ii) {
+    brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
+  }
+}
+
+BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(areq->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
+  if (argv) {
+    holdArgv(brc, argv, argc);
+  }
   return brc;
 }
 
-BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid) {
+BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
+                                               RedisModuleString **argv, size_t argc) {
   // Wrapping an already-wrapped request would silently leak the first wrapper.
   RS_ASSERT(hybrid->brc == NULL);
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;
+  if (argv) {
+    holdArgv(brc, argv, argc);
+  }
   return brc;
 }
 
@@ -1930,15 +1949,6 @@ void AREQ_Free(AREQ *req) {
   RequestSyncState_Destroy(&req->syncState);
 
   rm_free(req);
-}
-
-void BlockedRequestCtx_HoldArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
-  RS_ASSERT(brc->argvHolds == NULL);
-  brc->argvHolds = rm_malloc(argc * sizeof(*brc->argvHolds));
-  brc->nargvHolds = argc;
-  for (size_t ii = 0; ii < argc; ++ii) {
-    brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
-  }
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {

@@ -151,8 +151,14 @@ typedef struct blockedClientHybridCtx {
  * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
+ * @param argv The command argv; the container's and each sub-request's
+ *   wrapper take holds on the strings past the command and index tokens
+ *   (main-thread only — see BlockedRequestCtx.argvHolds). May be NULL only
+ *   for a request that is never parsed.
+ * @param argc Number of strings in argv
 */
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
+                                 RedisModuleString **argv, int argc);
 
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
@@ -162,23 +168,16 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
+ * @param argv Already-stepped argv slice each sub-request's wrapper holds
+ *   (see HybridRequest_New); may be NULL
+ * @param argc Number of strings in argv
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests);
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
+                        size_t nrequests, RedisModuleString **argv, int argc);
 
-/*
-* We need to clone the arguments so the objects that rely on them can use them throughout the lifetime of the hybrid request
-* For example lookup keys
-*/
-/* Hold the command argv (past the command and index tokens) on the request
- * and each sub-AREQ, so parse-time borrows into the argv strings stay valid
- * for each holder's lifetime. Main-thread only (string refcount operations
- * are not thread safe); released by the owners' free paths, which run on the
- * main thread. */
-void HybridRequest_HoldArgv(HybridRequest *req, RedisModuleString **argv, int argc);
-
-/* Wrap the request's held argv in a parse cursor. Holds the argv first when
- * the request does not hold it yet (main-thread callers); the coordinator
- * dispatcher holds on the main thread before queuing the background parse. */
+/* Wrap the request's held argv (taken at construction) in a parse cursor.
+ * The caller's argc bounds the parse; the holds may cover a superset (the
+ * coordinator debug flow strips trailing debug params). */
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor* ac, RedisModuleString **argv, int argc);
 
 /**
@@ -289,7 +288,7 @@ int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
 
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx);
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, int argc);
 
 /**
  * Add information to validation error messages based on request type (VSIM/SEARCH subquery).

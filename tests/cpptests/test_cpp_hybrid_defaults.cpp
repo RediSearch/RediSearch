@@ -37,12 +37,10 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
-    result = MakeDefaultHybridRequest(sctx);
+    // The request is constructed by parseCommand — construction takes the
+    // argv holds, so it needs the command args.
+    result = NULL;
     hybridParams = {0};
-    parseCtx.search = result->requests[0];
-    parseCtx.vector = result->requests[1];
-    parseCtx.tailPlan = &result->tailPipeline->ap;
-    parseCtx.hybridParams = &hybridParams;
   }
 
   void TearDown() override {
@@ -69,6 +67,12 @@ protected:
   HybridRequest *parseCommand(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
 
+    result = MakeDefaultHybridRequest(sctx, args, args.size());
+    parseCtx.search = result->requests[0];
+    parseCtx.vector = result->requests[1];
+    parseCtx.tailPlan = &result->tailPipeline->ap;
+    parseCtx.hybridParams = &hybridParams;
+
     EXPECT_TRUE(result->sctx != NULL) << "Failed to create search context";
 
     ParseHybridCommandCtx cmd = {0};
@@ -80,7 +84,6 @@ protected:
     cmd.cursorConfig = &result->cursorConfig;
 
     ArgsCursor ac = {0};
-    HybridRequest_HoldArgv(result, args, args.size());
     HybridRequest_InitArgsCursor(result, &ac, args, args.size());
     int rc =  parseHybridCommand(ctx, &ac, result->sctx, &cmd, &status, false, EXEC_NO_FLAGS);
     if (rc != REDISMODULE_OK) {

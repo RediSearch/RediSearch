@@ -193,7 +193,7 @@ protected:
         RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
         ASSERT_NE(sctx, nullptr) << "Failed to create search context";
 
-        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx, args, args.size());
         ASSERT_NE(hreq, nullptr) << "Failed to create hybrid request";
 
         // Stack-allocated variables (following hybrid_debug.c pattern)
@@ -208,7 +208,6 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_HoldArgv(hreq, args, args.size());
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
 
         QueryError status = QueryError_Default();
@@ -288,7 +287,7 @@ protected:
         RedisSearchCtx *sctx = NewSearchCtxC(ctx, "test_idx", true);
         EXPECT_NE(sctx, nullptr);
         if (!sctx) return out;
-        HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+        HybridRequest *hreq = MakeDefaultHybridRequest(sctx, args, args.size());
 
         HybridPipelineParams hybridParams = {};
         ParseHybridCommandCtx cmd = {};
@@ -301,7 +300,6 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
-        HybridRequest_HoldArgv(hreq, args, args.size());
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
         QueryError status = QueryError_Default();
         int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);

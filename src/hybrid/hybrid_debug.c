@@ -185,10 +185,9 @@ static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisMo
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>`
   int hybrid_argc = argc - debug_argv_count;
 
-  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-  // Hold the full argv on the main thread before parsing (a superset: the
-  // debug tail is trimmed off hybrid_argc).
-  HybridRequest_HoldArgv(hreq, argv, argc);
+  // Construction holds the full argv (a superset: the debug tail is trimmed
+  // off hybrid_argc below).
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   ArgsCursor ac = {0};
   HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
 

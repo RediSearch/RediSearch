@@ -114,7 +114,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     RedisSearchCtx *sctx = NewSearchCtxC(ctx, specName, true);
     if (!sctx) return false;
 
-    testCtx->hybridReq = MakeDefaultHybridRequest(sctx);
+    testCtx->hybridReq = MakeDefaultHybridRequest(sctx, args, args.size());
     if (!testCtx->hybridReq) return false;
 
     // Step 4: Parse the hybrid command
@@ -131,7 +131,6 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     };
 
     ArgsCursor ac = {0};
-    HybridRequest_HoldArgv(testCtx->hybridReq, args, args.size());
     HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false, EXEC_NO_FLAGS);

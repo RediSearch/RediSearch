@@ -3865,14 +3865,13 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     r = &debug_req->r;
   } else {
     r = AREQ_New();
-    BlockedRequestCtx_NewAREQ(r);
+    BlockedRequestCtx_NewAREQ(r, argv, argc);
   }
-
-  // Parsing runs on the BG thread with the job's argv copies, which die with
-  // the job. Hold the original argv here, on the main thread (string
-  // refcounts are not thread safe), so the plan's borrows stay valid for the
-  // request's lifetime; parsing borrows from these holds.
-  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
+  // Either construction path held the original argv here, on the main thread
+  // (string refcounts are not thread safe). Parsing runs on the BG thread
+  // with the job's argv copies, which die with the job — it borrows from
+  // these holds instead, so the plan's borrows stay valid for the request's
+  // lifetime.
 
   ConcurrentSearchHandlerCtx handlerCtx;
   ConcurrentSearchHandlerCtx_Init(&handlerCtx);
@@ -3970,14 +3969,13 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // thread; the sub-AREQ contexts are detached thread-safe contexts.
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, idx, true);
   RS_ASSERT(sctx != NULL);  // the index was validated above in the same GIL window
-  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
+  // Construction holds the argv strings the background parse will borrow
+  // from — string refcount operations are main-thread-only, and the
+  // ConcurrentCmdCtx's own argv copies die with the job.
+  HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   // The tail sctx aliased this handler's ctx, which dies when the handler
   // returns. The BG executor re-points it at its own thread-safe ctx.
   sctx->redisCtx = NULL;
-  // Hold the argv strings the background parse will borrow from — string
-  // refcount operations are main-thread-only, and the ConcurrentCmdCtx's own
-  // argv copies die with the job.
-  HybridRequest_HoldArgv(hreq, argv, argc);
 
   RSTimeoutPolicy policy = hreq->reqConfig.timeoutPolicy;
   hreq->brc->requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);

@@ -140,7 +140,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   }
 
   // Create HybridRequest and allocate hybrid params
-  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx);
+  HybridRequest* hybridReq = MakeDefaultHybridRequest(test_sctx, args, args.size());
   if (!hybridReq) {
     return nullptr;
   }
@@ -159,7 +159,6 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
   };
 
   ArgsCursor ac = {0};
-  HybridRequest_HoldArgv(hybridReq, args, args.size());
   HybridRequest_InitArgsCursor(hybridReq, &ac, args, args.size());
   // Parse the hybrid command - this fills out hybridParams
   int rc = parseHybridCommand(ctx, &ac, test_sctx, &cmd, status, false, EXEC_NO_FLAGS);

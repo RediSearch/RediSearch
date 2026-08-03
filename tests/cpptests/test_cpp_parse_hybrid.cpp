@@ -77,16 +77,12 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
-    hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
-
+    // The request is constructed per test by recreateHybridRequest —
+    // construction takes the argv holds, so it needs the command args.
+    // parseCommandInternal constructs lazily when a test did not.
+    hybridRequest = NULL;
     hybridParams = {0};
-    result.search = hybridRequest->requests[0];
-    result.vector = hybridRequest->requests[1];
-    result.tailPlan = &hybridRequest->tailPipeline->ap;
-    result.hybridParams = &hybridParams;
-    result.reqConfig = &hybridRequest->reqConfig;
-    result.cursorConfig = &hybridRequest->cursorConfig;
-    result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
+    result = {};
   }
 
   void TearDown() override {
@@ -127,22 +123,30 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
-    HybridRequest_HoldArgv(hybridRequest, args, args.size());
+    // Tests that mutate RSGlobalConfig construct explicitly (the request
+    // snapshots the config at construction); everyone else constructs here.
+    if (!hybridRequest) {
+      recreateHybridRequest(args);
+    }
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
     int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
 
-  // Request-scoped config is captured at request construction, not at parse.
-  // Tests that mutate RSGlobalConfig must reconstruct the request afterwards
-  // to observe the change.
-  void recreateHybridRequest() {
-    HybridRequest_DecrRef(hybridRequest);
-    hybridRequest = MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true));
+  // (Re)construct the request from the command args. Construction takes the
+  // argv holds and snapshots request-scoped config, so tests that mutate
+  // RSGlobalConfig call this after mutating to observe the change.
+  void recreateHybridRequest(RMCK::ArgvList& args) {
+    if (hybridRequest) {
+      HybridRequest_DecrRef(hybridRequest);
+    }
+    hybridRequest =
+        MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true), args, args.size());
     result.search = hybridRequest->requests[0];
     result.vector = hybridRequest->requests[1];
     result.tailPlan = &hybridRequest->tailPipeline->ap;
+    result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->reqConfig;
     result.cursorConfig = &hybridRequest->cursorConfig;
     result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
@@ -233,8 +237,8 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Fail;
-  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  recreateHybridRequest(args);
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
@@ -245,8 +249,8 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
-  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  recreateHybridRequest(args);
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
@@ -258,8 +262,8 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
 
   // Create a basic hybrid query: FT.HYBRID <index> SEARCH hello VSIM world
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
-  recreateHybridRequest();
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  recreateHybridRequest(args);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
   ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
@@ -274,12 +278,12 @@ TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
   unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
   RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
   RSGlobalConfig.requestConfigParams.dialectVersion = 4;
-  recreateHybridRequest();
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  recreateHybridRequest(args);
   // Simulate FT.CONFIG SET landing between dispatch and the background parse.
   RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;
   RSGlobalConfig.requestConfigParams.dialectVersion = 2;
 
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   parseCommand(args);
 
   ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
@@ -1043,7 +1047,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
-  HybridRequest_HoldArgv(hybridRequest, args, args.size());
+  recreateHybridRequest(args);
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
@@ -1064,7 +1068,7 @@ TEST_F(ParseHybridTest, testExternalCommandWithWithScores) {
 
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
-  HybridRequest_HoldArgv(hybridRequest, args, args.size());
+  recreateHybridRequest(args);
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Public FT.HYBRID should reject WITHSCORES";
@@ -1096,9 +1100,9 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   QueryError status = QueryError_Default();
 
+  recreateHybridRequest(args);
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
-  HybridRequest_HoldArgv(hybridRequest, args, args.size());
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
@@ -1122,7 +1126,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
-  HybridRequest_HoldArgv(hybridRequest, args, args.size());
+  recreateHybridRequest(args);
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);

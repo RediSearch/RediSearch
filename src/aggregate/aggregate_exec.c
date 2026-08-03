@@ -2079,10 +2079,10 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);
-  // Hold the argv here, on the main thread, and parse from the holds: the
-  // plan's borrows must outlive this handler (cursors, worker execution).
-  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
+  // Construction takes the argv holds (here, on the main thread); parsing
+  // reads from them, and the plan's borrows outlive this handler (cursors,
+  // worker execution).
+  BlockedRequestCtx_NewAREQ(r, argv, argc);
 
   if (prepareRequest(&r, ctx, r->brc->argvHolds, argc, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
@@ -2121,8 +2121,7 @@ int RSExecuteAggregateOrSearch(RedisModuleCtx *ctx, RedisModuleString **argv, in
 char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                           QueryError *status) {
   AREQ *r = AREQ_New();
-  BlockedRequestCtx_NewAREQ(r);
-  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
+  BlockedRequestCtx_NewAREQ(r, argv, argc);
   if (buildRequest(ctx, r->brc->argvHolds, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
@@ -2737,10 +2736,8 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   debug_params = debug_req->debug_params;
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  // Hold the full argv (a superset: the debug tail is trimmed off the parsed
-  // argc below, and separately held by AREQ_Debug_New).
-  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
-  // Parse the query, not including debug params
+  // Parse the query, not including debug params (the holds, taken by
+  // AREQ_Debug_New, cover the full argv — a superset)
 
   if (prepareRequest(&r, ctx, r->brc->argvHolds, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
