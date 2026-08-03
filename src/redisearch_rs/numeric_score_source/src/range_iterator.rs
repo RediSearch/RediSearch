@@ -132,9 +132,14 @@ impl<'index> NumericRangeIterator<'index> {
 ///
 /// A range read through [`FilterNumericReader`] yields only records whose value
 /// lies in the filter's window, since the tree's buckets are coarser than the
-/// window. Ranges overlap in doc-id space, so reading them back-to-back yields
-/// interleaved ids; the sort restores the increasing order that
-/// [`NumericScoreBatch`] requires for its `skip_to` `partition_point`.
+/// window.
+///
+/// A range is written under increasing doc ids, so its records arrive already
+/// ordered; ranges overlap in doc-id space, so reading several back-to-back
+/// yields one ascending run per range. Ordering therefore only has to merge
+/// those runs into the increasing order [`NumericScoreBatch`] requires for its
+/// `skip_to` `partition_point` — a single run is already there, and the stable
+/// sort detects and merges the rest rather than re-sorting from scratch.
 ///
 /// A multivalue field indexes one entry per value, so a doc id can occur several
 /// times with different scores. Occurrences within this batch's ranges are
@@ -157,9 +162,14 @@ fn merge_ranges(
     emitted: Option<&mut HashSet<DocId>>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
-    let mut items: Vec<(DocId, f64)> = Vec::new();
+    let capacity = ranges.iter().map(|r| r.num_docs() as usize).sum();
+    let mut items: Vec<(DocId, f64)> = Vec::with_capacity(capacity);
     let mut record = RSIndexResult::build_numeric(0.0).build();
+    // Ranges that contributed at least one record, i.e. the number of ascending
+    // runs `items` holds.
+    let mut runs = 0usize;
     for range in ranges {
+        let run_start = items.len();
         let mut reader = FilterNumericReader::new(filter, range.reader());
         while reader.next_record(&mut record)? {
             timeout.check_timeout()?;
@@ -174,9 +184,14 @@ fn merge_ranges(
                 .expect("numeric range yields numeric records");
             items.push((record.doc_id, score));
         }
+        runs += usize::from(items.len() > run_start);
     }
     timeout.check_timeout()?;
-    items.sort_unstable_by_key(|(doc_id, _)| *doc_id);
+    if runs > 1 {
+        // Stable sort: it finds the per-range runs and merges them, where an
+        // unstable sort would re-order data that is already mostly in place.
+        items.sort_by_key(|(doc_id, _)| *doc_id);
+    }
     if let Some(emitted) = emitted {
         coalesce_by_doc_id(&mut items, filter.ascending);
         emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
