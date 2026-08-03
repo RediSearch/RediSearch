@@ -8,10 +8,7 @@ def test_aggregate_drops_doc_reindexed_during_load():
     # A dedicated environment is required for the background safe-loader path and its debug hook.
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
-    env = Env(
-        enableDebugCommand=True,
-        moduleArgs='WORKERS 1 MIN_OPERATION_WORKERS 0',
-    )
+    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 1')
     conn = getConnectionByEnv(env)
 
     env.expect(
@@ -23,7 +20,7 @@ def test_aggregate_drops_doc_reindexed_during_load():
     conn.execute_command('HSET', 'doc:2', 'n', '2', 'title', 'two')
     waitForIndex(env, 'idx')
 
-    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', '1', '@n']
+    query = ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@n']
     args = parseDebugQueryCommandArgs(query, ['PAUSE_BEFORE_SAFE_LOADER_GIL'])
     query_conn = env.getConnection()
     outcome = []
@@ -37,10 +34,18 @@ def test_aggregate_drops_doc_reindexed_during_load():
     thread = threading.Thread(target=run_query, daemon=True)
     thread.start()
 
+    def loader_paused_or_query_finished():
+        paused = getIsRPPaused(env)
+        return paused == 1 or bool(outcome), {
+            'paused': paused,
+            'outcome': repr(outcome),
+        }
+
     wait_for_condition(
-        lambda: (getIsRPPaused(env) == 1, {}),
+        loader_paused_or_query_finished,
         'Timeout waiting for the safe loader to release the spec lock'
     )
+    env.assertEqual(outcome, [], message='query finished before reaching the safe loader pause')
 
     try:
         # Replacing doc:1 pops the metadata buffered by the query and assigns a new doc ID.
