@@ -1187,6 +1187,12 @@ static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t ar
   brc->nargvHolds = argc;
   for (size_t ii = 0; ii < argc; ++ii) {
     brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
+    // A held client argv string may carry network-buffer slack, and Redis
+    // auto-trims (reallocates) retained argv right after the command callback
+    // returns — racing any thread already reading the string, and moving the
+    // buffer under any borrowed pointer. Trim here instead: on the main
+    // thread, before parsing borrows the buffers or a worker can see them.
+    RedisModule_TrimStringAllocation(brc->argvHolds[ii]);
   }
 }
 
