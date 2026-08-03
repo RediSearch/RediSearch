@@ -918,11 +918,23 @@ mod optional_iterator_non_sequential_reads {
                 result: index_result::RSIndexResult::build_numeric(42.).build(),
             }
         }
+
+        /// Whether a `read`/`skip_to` has already run past the last step — the
+        /// state behind both `current()` and `at_eof()`.
+        fn past_end(&self) -> bool {
+            self.read_step == utils::past_end_cursor(N)
+        }
+
+        /// Whether the next `read` would find nothing, true one step before
+        /// [`Self::past_end`].
+        fn no_more_steps(&self) -> bool {
+            self.read_step >= N
+        }
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
-            if self.read_step == utils::past_end_cursor(N) {
+            if self.past_end() {
                 return None;
             }
             Some(&mut self.result)
@@ -932,7 +944,7 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
         ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
         {
-            if self.at_eof() {
+            if self.no_more_steps() {
                 self.read_step = utils::past_end_cursor(N);
                 return Ok(None);
             }
@@ -946,7 +958,7 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
             doc_id: DocId,
         ) -> Result<Option<SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError> {
-            while !self.at_eof() && self.result.doc_id < doc_id {
+            while !self.no_more_steps() && self.result.doc_id < doc_id {
                 self.result.doc_id = self.read_steps[self.read_step];
                 self.read_step += 1;
             }
@@ -975,7 +987,7 @@ mod optional_iterator_non_sequential_reads {
         }
 
         fn at_eof(&self) -> bool {
-            self.read_step >= N
+            self.past_end()
         }
 
         fn revalidate(

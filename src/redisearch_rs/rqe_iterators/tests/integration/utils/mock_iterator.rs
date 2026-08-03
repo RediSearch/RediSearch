@@ -203,10 +203,9 @@ impl MockData {
 
     /// Force the next call to `read()` to return `None` even if not at EOF.
     ///
-    /// This simulates an iterator that doesn't know it's at EOF until `read()` is called.
-    /// The Inverted Index iterator exhibits this behavior: `at_eof()` returns `false`
-    /// before a `read()` call, but `read()` discovers there are no more records and
-    /// returns `None` (then sets `at_eos = true`).
+    /// This simulates an iterator that reports `None` from `read()` while it still
+    /// holds documents. The `None` is fabricated rather than a genuine end, so the
+    /// mock's past-the-end bookkeeping is deliberately left untouched.
     ///
     /// The flag is automatically cleared after one use.
     pub fn set_force_read_none(&mut self, force: bool) -> &mut Self {
@@ -333,11 +332,26 @@ impl<'index, const N: usize> Mock<'index, N> {
             self.result.doc_id = doc_id;
         }
     }
+
+    /// Whether a `read`/`skip_to` has already run past the last document — the
+    /// state behind [`RQEIterator::current`] and [`RQEIterator::at_eof`].
+    fn past_end(&self) -> bool {
+        self.next_index == past_end_cursor(N)
+    }
+
+    /// Whether the next `read` would find nothing, which is what the internal
+    /// `read`/`skip_to` decisions turn on.
+    ///
+    /// Already true while the mock sits on its final document, hence separate
+    /// from [`Self::past_end`].
+    fn no_more_docs(&self) -> bool {
+        self.next_index >= N
+    }
 }
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        if self.next_index == past_end_cursor(N) {
+        if self.past_end() {
             return None;
         }
         Some(&mut self.result)
@@ -358,7 +372,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
                 return Ok(None);
             }
 
-            if self.at_eof() {
+            if self.no_more_docs() {
                 return if let Some(err) = data.error_at_done {
                     Err(err.into_rqe_iterator_error())
                 } else {
@@ -400,7 +414,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
             "skip_to called with a target at or below the current position"
         );
 
-        if self.at_eof() {
+        if self.no_more_docs() {
             return if let Some(err) = data.error_at_done {
                 Err(err.into_rqe_iterator_error())
             } else {
@@ -473,7 +487,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     }
 
     fn at_eof(&self) -> bool {
-        self.next_index >= N
+        self.past_end()
     }
 
     #[inline(always)]
@@ -668,11 +682,26 @@ impl<'index> MockVec<'index> {
     pub fn new_boxed(doc_ids: Vec<DocId>) -> Box<dyn RQEIterator<'index> + 'index> {
         Box::new(Self::new(doc_ids))
     }
+
+    /// Whether a `read`/`skip_to` has already run past the last document — the
+    /// state behind [`RQEIterator::current`] and [`RQEIterator::at_eof`].
+    fn past_end(&self) -> bool {
+        self.next_index == past_end_cursor(self.doc_ids.len())
+    }
+
+    /// Whether the next `read` would find nothing, which is what the internal
+    /// `read`/`skip_to` decisions turn on.
+    ///
+    /// Already true while the mock sits on its final document, hence separate
+    /// from [`Self::past_end`].
+    fn no_more_docs(&self) -> bool {
+        self.next_index >= self.doc_ids.len()
+    }
 }
 
 impl<'index> RQEIterator<'index> for MockVec<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        if self.next_index == past_end_cursor(self.doc_ids.len()) {
+        if self.past_end() {
             return None;
         }
         Some(&mut self.result)
@@ -690,7 +719,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
                 return Ok(None);
             }
 
-            if self.at_eof() {
+            if self.no_more_docs() {
                 return if let Some(err) = data.error_at_done {
                     Err(err.into_rqe_iterator_error())
                 } else {
@@ -729,7 +758,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         );
 
         let n = self.doc_ids.len();
-        if self.at_eof() {
+        if self.no_more_docs() {
             return if let Some(err) = data.error_at_done {
                 Err(err.into_rqe_iterator_error())
             } else {
@@ -802,7 +831,7 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
     }
 
     fn at_eof(&self) -> bool {
-        self.next_index >= self.doc_ids.len()
+        self.past_end()
     }
 
     #[inline(always)]
