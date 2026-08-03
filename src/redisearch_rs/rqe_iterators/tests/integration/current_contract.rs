@@ -99,6 +99,18 @@ fn wildcard_upholds_current_contract() {
     assert_current_contract_via_skip_to(&mut it, 6);
 }
 
+#[test]
+fn geo_shape_upholds_current_contract() {
+    let mut it = rqe_iterators::GeoShape::new(
+        DOCS.to_vec(),
+        NoTimeoutChecker,
+        rqe_iterators::NoOpChecker,
+        rqe_iterators::NoTracker,
+    );
+    assert_eq!(assert_current_contract(&mut it), DOCS);
+    assert_current_contract_via_skip_to(&mut it, PAST_DOCS);
+}
+
 // ---------------------------------------------------------------------------
 // Composites — these already delegated correctly; asserted so they stay that way
 // ---------------------------------------------------------------------------
@@ -197,17 +209,4 @@ fn optional_optimized_upholds_current_contract() {
         2.0,
     );
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
-}
-
-#[test]
-#[ignore = "GeoShape clamps on its last id; `offset` could encode past-the-end \
-            the way IdList's does"]
-fn geo_shape_upholds_current_contract() {
-    let mut it = rqe_iterators::GeoShape::new(
-        DOCS.to_vec(),
-        NoTimeoutChecker,
-        rqe_iterators::NoOpChecker,
-        rqe_iterators::NoTracker,
-    );
-    assert_eq!(assert_current_contract(&mut it), DOCS);
 }

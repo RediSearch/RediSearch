@@ -77,9 +77,12 @@ fn empty_initialization_works() {
     assert_eq!(0, result.doc_id);
     assert_eq!(RSResultKind::Virtual, result.kind());
 
-    assert!(it.at_eof());
+    // Unread rather than past its end, even with nothing to find.
+    assert!(!it.at_eof());
     assert_eq!(it.num_estimated(), 0);
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[test]
@@ -89,6 +92,9 @@ fn unsorted_input_is_sorted_on_construction() {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, expected);
     }
+    // Still positioned on the last id; the read that runs past it is what EOFs.
+    assert!(!it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 }
 
@@ -104,8 +110,9 @@ fn duplicate_ids_are_yielded_as_is() {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, expected);
     }
-    assert!(it.at_eof());
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
@@ -182,9 +189,11 @@ fn read(#[case] case: &[u64]) {
         assert_eq!(RSResultKind::Virtual, result.kind());
     }
 
-    assert!(it.at_eof());
+    // Sitting on the last id is not EOF; the read that runs past it is.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[apply(id_cases)]
@@ -210,7 +219,7 @@ fn skip_to(#[case] case: &[u64]) {
                 panic!("probe {probe} -> Expected NotFound landing on {id}");
             };
             assert_eq!(res.doc_id, id);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             probe += 1;
         }
@@ -270,6 +279,7 @@ fn rewind(#[case] case: &[u64]) {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, id);
     }
+    assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 
     it.rewind();
@@ -353,10 +363,9 @@ fn skip_to_onto_expired_run_to_eof() {
     assert!(it.at_eof());
     // `last_doc_id` is untouched: the iterator never settled on a valid match.
     assert_eq!(it.last_doc_id(), 0);
-    // The expired candidate must not leak through the reusable `current` result
-    // once the scan settles on EOF.
-    assert_ne!(it.current().unwrap().doc_id, 5);
-    assert_eq!(it.current().unwrap().doc_id, 0);
+    // The expired candidate cannot leak through the reusable `current` result:
+    // past the end there is no current at all.
+    assert!(it.current().is_none());
 }
 
 #[test]
@@ -369,8 +378,9 @@ fn read_to_eof_over_expired_tail_does_not_leak() {
     assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
-    // `current` reflects the last valid doc, not the expired tail.
-    assert_eq!(it.current().unwrap().doc_id, 2);
+    // The expired tail cannot leak: past the end there is no current at all,
+    // while `last_doc_id` still reports the last valid doc.
+    assert!(it.current().is_none());
     assert_eq!(it.last_doc_id(), 2);
 }
 
@@ -383,10 +393,10 @@ fn skip_to_onto_expired_target_does_not_leak_at_eof() {
 
     assert!(matches!(it.skip_to(5), Ok(None)));
     assert!(it.at_eof());
-    assert_ne!(it.current().unwrap().doc_id, 5);
-    assert_ne!(it.current().unwrap().doc_id, 7);
-    // Nothing valid was ever returned, so `current`/`last_doc_id` stay at 0.
-    assert_eq!(it.current().unwrap().doc_id, 0);
+    // Neither the expired target nor its expired successors can leak: past the
+    // end there is no current at all.
+    assert!(it.current().is_none());
+    // Nothing valid was ever returned, so `last_doc_id` stays at 0.
     assert_eq!(it.last_doc_id(), 0);
 }
 
