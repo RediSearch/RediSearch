@@ -1610,7 +1610,7 @@ static bool IsIndexCoherent(AREQ *req) {
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2
   RedisModuleString **prefixes = args + req->prefixesOffset + 2;
-  return IndexSpec_IsCoherentArgs(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
+  return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
 

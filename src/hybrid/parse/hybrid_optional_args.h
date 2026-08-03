@@ -57,7 +57,10 @@ typedef struct {
     RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
-    arrayof(sds) *prefixes;                 // Prefixes for the index
+    /* Index prefixes from _INDEX_PREFIXES: a borrowed window into the
+     * request's held argv (see BlockedRequestCtx.argvHolds). */
+    RedisModuleString **prefixes;
+    size_t nprefixes;
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
     uint32_t *keySpaceVersion;                 // Slots version for the request (referenced from AREQ)
     rs_wall_clock_ns_t *coordDispatchTime;     // Coordinator dispatch time for internal commands

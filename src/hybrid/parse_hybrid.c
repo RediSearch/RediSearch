@@ -840,9 +840,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  // Prefixes for the index
-  arrayof(sds) prefixes = array_new(sds, 0);
-
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
@@ -851,7 +848,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const char *vectorScoreFieldAlias = NULL;
   PLN_VectorNormalizerStep *vnStep = NULL;
   PLN_ArrangeStep *arrangeStep = NULL;
-  size_t prefixCount = 0;
   AggregationPipelineParams params;
   HybridParseContext hybridParseCtx;
 
@@ -878,12 +874,10 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
       .maxResults = &maxHybridResults,
-      .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
       .keySpaceVersion = &keySpaceVersion,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
-  // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
@@ -978,13 +972,12 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  prefixCount = array_len(*hybridParseCtx.prefixes);
-  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
+  if (hybridParseCtx.nprefixes &&
+      !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, hybridParseCtx.prefixes,
+                            hybridParseCtx.nprefixes)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -1024,8 +1017,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
   if (requestSlotRanges) {
     rm_free((void *)requestSlotRanges);
   }

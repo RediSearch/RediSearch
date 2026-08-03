@@ -23,6 +23,7 @@
 #include "slots_tracker_ffi.h"
 #include "hybrid/vector_query_utils.h"
 #include "vector_index.h"
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/aggregate.h"
@@ -489,21 +490,15 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
     ctx->specifiedArgs |= SPECIFIED_ARG_NUM_SSTRING;
 }
 
-// _INDEX_PREFIXES callback - implements EXACT original logic from handleIndexPrefixes
+// _INDEX_PREFIXES callback
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   ArgsCursor *paramsArgs = (ArgsCursor*)value;
-  QueryError *status = ctx->status;
-  while (!AC_IsAtEnd(paramsArgs)) {
-    const char *prefix;
-    size_t prefixLen;
-    if (AC_GetString(paramsArgs, &prefix, &prefixLen, 0) != AC_OK) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for _INDEX_PREFIXES");
-      return;
-    }
-    sds prefixSds = sdsnewlen(prefix, prefixLen);
-    array_ensure_append_1(*ctx->prefixes, prefixSds);
-  }
+  // The slice is a window into the request's held argv, which outlives the
+  // parse — borrow it instead of copying.
+  RS_ASSERT(paramsArgs->type == AC_TYPE_RSTRING);
+  ctx->prefixes = (RedisModuleString **)paramsArgs->objs;
+  ctx->nprefixes = paramsArgs->argc;
 }
 
 // SLOTS_STR callback - implements EXACT original logic from handleCommonArgs
