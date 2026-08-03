@@ -547,10 +547,7 @@ def testWildcardSuffixTrieMaxPrefixExpansions():
 def testWildcardQuestionMarkMultibyteWithoutSuffixTrie():
     """Without WITHSUFFIXTRIE, a wildcard query is evaluated by brute force over
     the rune terms trie (Wildcard_MatchRune), where `?` consumes one codepoint —
-    so w'entr?' matches 'entré' ('é' is two UTF-8 bytes but one codepoint).
-    Pins the current behavior; contrast with
-    testWildcardQuestionMarkMultibyteWithSuffixTrie, where the same query on the
-    same data misses."""
+    so w'entr?' matches 'entré' ('é' is two UTF-8 bytes but one codepoint)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -566,9 +563,7 @@ def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     """With WITHSUFFIXTRIE, the candidate terms found via the suffix trie are
     re-filtered byte-wise (Suffix_CB_Wildcard -> Wildcard_MatchChar), where `?`
     consumes one byte — so w'entr?' does NOT match 'entré' ('é' is two UTF-8
-    bytes). Pins the current behavior, which is inconsistent with the
-    brute-force path exercised by
-    testWildcardQuestionMarkMultibyteWithoutSuffixTrie."""
+    bytes)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
