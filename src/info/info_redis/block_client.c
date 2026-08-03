@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <stdatomic.h>
+
 #include "redismodule.h"
 #include "util/references.h"
 #include "info/info_redis/types/blocked_queries.h"
