@@ -63,16 +63,21 @@ fn cmp_for(ascending: bool) -> fn(&f64, &f64) -> Ordering {
 /// value: a numeric source has no native top-k, so the heap ([`TopKMode::Batches`]
 /// with no child) performs the selection. The sort direction is taken from the
 /// `source` (`SORTBY field ASC`/`DESC`).
+///
+/// The source's window is sized from `k`
+/// ([`narrow_window_to_top_k`](NumericScoreSource::narrow_window_to_top_k)), so
+/// only the best-scored ranges covering `k` documents are read.
 pub fn new_numeric_top_k_unfiltered<
     'index,
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
 >(
-    source: NumericScoreSource<'index, V, E, T>,
+    mut source: NumericScoreSource<'index, V, E, T>,
     k: NonZeroUsize,
 ) -> NumericTopKIterator<'index, V, E, T> {
     let cmp = cmp_for(source.ascending());
+    source.narrow_window_to_top_k(k.get());
     TopKIterator::new_with_mode(source, None, k, cmp, TopKMode::Batches)
 }
 
