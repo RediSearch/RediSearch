@@ -16,13 +16,14 @@
 //! Each chunk is materialized into a doc-id-ordered [`NumericScoreBatch`], so a
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
-use std::collections::HashSet;
+use std::{cmp::Ordering, collections::HashSet};
 
 use index_result::RSIndexResult;
-use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
+use inverted_index::{FilterNumericReader, IndexReader, NumericFilter};
 use numeric_range_tree::{NumericRange, NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
 use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
+use top_k::ChildCursor;
 
 use crate::score_batch::NumericScoreBatch;
 
@@ -112,6 +113,36 @@ impl<'index> NumericRangeIterator<'index> {
         n: usize,
         timeout: &mut impl TimeoutContext,
     ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
+        self.next_n_inner(n, None, timeout)
+    }
+
+    /// Like [`next_n`](Self::next_n), but keeping only the documents `child`
+    /// also holds.
+    ///
+    /// Each range is leapfrogged against `child` instead of read end to end, so
+    /// the blocks that hold no candidate are never decoded. The batch is a
+    /// subset of what [`next_n`](Self::next_n) would have produced, which the
+    /// caller's own intersection would have reduced to the same set anyway.
+    ///
+    /// A multivalue field falls back to the full read: taking a document's
+    /// first record in a range is not the same as taking its best-scored one,
+    /// and only a full read lets [`merge_ranges`] coalesce them.
+    pub fn next_n_filtered(
+        &mut self,
+        n: usize,
+        child: &mut dyn ChildCursor,
+        timeout: &mut impl TimeoutContext,
+    ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
+        let child = self.emitted.is_none().then_some(child);
+        self.next_n_inner(n, child, timeout)
+    }
+
+    fn next_n_inner(
+        &mut self,
+        n: usize,
+        child: Option<&mut dyn ChildCursor>,
+        timeout: &mut impl TimeoutContext,
+    ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
         if self.pos >= self.ranges.len() {
             return Ok(None);
         }
@@ -120,6 +151,7 @@ impl<'index> NumericRangeIterator<'index> {
             &self.ranges[self.pos..end],
             self.filter,
             self.emitted.as_mut(),
+            child,
             timeout,
         )?;
         self.pos = end;
@@ -160,6 +192,7 @@ fn merge_ranges(
     ranges: &[&NumericRange],
     filter: NumericFilter,
     emitted: Option<&mut HashSet<DocId>>,
+    mut child: Option<&mut dyn ChildCursor>,
     timeout: &mut impl TimeoutContext,
 ) -> Result<NumericScoreBatch, RQEIteratorError> {
     let capacity = ranges.iter().map(|r| r.num_docs() as usize).sum();
@@ -171,18 +204,22 @@ fn merge_ranges(
     for range in ranges {
         let run_start = items.len();
         let mut reader = FilterNumericReader::new(filter, range.reader());
-        while reader.next_record(&mut record)? {
-            timeout.check_timeout()?;
-            if emitted
-                .as_ref()
-                .is_some_and(|emitted| emitted.contains(&record.doc_id))
-            {
-                continue;
+        if let Some(child) = &mut child {
+            leapfrog_range(&mut reader, &mut **child, &mut record, &mut items, timeout)?;
+        } else {
+            while reader.next_record(&mut record)? {
+                timeout.check_timeout()?;
+                if emitted
+                    .as_ref()
+                    .is_some_and(|emitted| emitted.contains(&record.doc_id))
+                {
+                    continue;
+                }
+                let score = record
+                    .as_numeric()
+                    .expect("numeric range yields numeric records");
+                items.push((record.doc_id, score));
             }
-            let score = record
-                .as_numeric()
-                .expect("numeric range yields numeric records");
-            items.push((record.doc_id, score));
         }
         runs += usize::from(items.len() > run_start);
     }
@@ -201,6 +238,70 @@ fn merge_ranges(
         "a batch must hold one strictly-increasing entry per doc id"
     );
     Ok(NumericScoreBatch::new(items))
+}
+
+/// Append the documents `range` and `child` have in common to `items`, in
+/// increasing doc-id order.
+///
+/// Both sides are doc-id ordered, so the walk alternates seeks: whichever side
+/// is behind jumps to the other's position. Each seek on the reader skips whole
+/// index blocks, so a selective child leaves most of the range undecoded — the
+/// saving this exists for.
+///
+/// `child` is rewound first: ranges are value-disjoint but each spans the whole
+/// doc-id space, so every range restarts the same child.
+fn leapfrog_range<'index>(
+    reader: &mut impl IndexReader<'index>,
+    child: &mut dyn ChildCursor,
+    record: &mut RSIndexResult<'index>,
+    items: &mut Vec<(DocId, f64)>,
+    timeout: &mut impl TimeoutContext,
+) -> Result<(), RQEIteratorError> {
+    child.rewind();
+    // Doc ids start at 1, and `advance_to` needs a target past the child's
+    // just-reset position.
+    let Some(mut child_doc) = child.advance_to(1)? else {
+        return Ok(());
+    };
+    if !reader.seek_record(child_doc, record)? {
+        return Ok(());
+    }
+    let mut reader_doc = record.doc_id;
+
+    loop {
+        timeout.check_timeout()?;
+        match reader_doc.cmp(&child_doc) {
+            Ordering::Equal => {
+                let score = record
+                    .as_numeric()
+                    .expect("numeric range yields numeric records");
+                items.push((reader_doc, score));
+                // Advance the child first: seeking the reader to where it
+                // already sits would step over the record just consumed.
+                let Some(next) = child.advance_to(child_doc + 1)? else {
+                    break;
+                };
+                child_doc = next;
+                if !reader.seek_record(child_doc, record)? {
+                    break;
+                }
+                reader_doc = record.doc_id;
+            }
+            Ordering::Less => {
+                if !reader.seek_record(child_doc, record)? {
+                    break;
+                }
+                reader_doc = record.doc_id;
+            }
+            Ordering::Greater => {
+                let Some(next) = child.advance_to(reader_doc)? else {
+                    break;
+                };
+                child_doc = next;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,

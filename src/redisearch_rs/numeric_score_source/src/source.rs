@@ -20,7 +20,7 @@ use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIteratorError,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{BatchStrategy, ScoreSource};
+use top_k::{BatchStrategy, ChildCursor, ScoreSource};
 
 use crate::range_iterator::NumericRangeIterator;
 use crate::score_batch::NumericScoreBatch;
@@ -360,6 +360,35 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         self.ascending
     }
 
+    /// Drop entries that must not reach the bounded top-k, where they could
+    /// displace a live document: documents deleted or whole-doc expired, and
+    /// records whose sort field has expired. The range tree only sheds either at
+    /// GC time. Each gate keeps the common no-filtering case free of its
+    /// per-record check.
+    fn drop_stale(
+        &mut self,
+        batch: NumericScoreBatch,
+    ) -> Result<NumericScoreBatch, RQEIteratorError> {
+        let filter_validity = self.validity.may_filter();
+        let filter_expiration = self.expiration.has_expiration();
+        if !filter_validity && !filter_expiration {
+            return Ok(batch);
+        }
+        batch.retain(|doc_id, score| {
+            self.timeout.check_timeout()?;
+            if filter_validity && !self.validity.is_valid(doc_id) {
+                return Ok(false);
+            }
+            if filter_expiration {
+                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
+                if self.expiration.is_expired(&record) {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        })
+    }
+
     /// Hit ratio of the window just consumed: results collected from it over the
     /// window's limit. Returns `0.0` when the limit is `0`, guarding the
     /// division.
@@ -432,29 +461,20 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         else {
             return Ok(None);
         };
-        // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
-        // and field-level TTL, the two the range tree only sheds at GC time. Each
-        // gate keeps the common no-filtering case free of its per-record check.
-        let filter_validity = self.validity.may_filter();
-        let filter_expiration = self.expiration.has_expiration();
-        if !filter_validity && !filter_expiration {
-            return Ok(Some(batch));
-        }
-        let batch = batch.retain(|doc_id, score| {
-            self.timeout.check_timeout()?;
-            if filter_validity && !self.validity.is_valid(doc_id) {
-                return Ok(false);
-            }
-            if filter_expiration {
-                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                if self.expiration.is_expired(&record) {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        })?;
-        Ok(Some(batch))
+        self.drop_stale(batch).map(Some)
+    }
+
+    fn next_batch_with_child(
+        &mut self,
+        child: &mut dyn ChildCursor,
+    ) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        let Some(batch) =
+            self.ranges
+                .next_n_filtered(self.range_batch_size, child, &mut self.timeout)?
+        else {
+            return Ok(None);
+        };
+        self.drop_stale(batch).map(Some)
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {

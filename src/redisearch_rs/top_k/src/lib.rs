@@ -34,4 +34,4 @@ pub mod mock;
 
 pub use heap::{HeapResult, ScoredResult, TopKHeap};
 pub use iterator::{TopKIterator, TopKMode, TopKSourceProfile};
-pub use traits::{BatchStrategy, ScoreBatch, ScoreSource};
+pub use traits::{BatchStrategy, ChildCursor, ScoreBatch, ScoreSource};
