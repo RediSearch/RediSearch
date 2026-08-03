@@ -345,6 +345,7 @@ jobs:
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Build Redis (cached)
+        if: ${{ inputs.standalone || inputs.coordinator }}
         uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}

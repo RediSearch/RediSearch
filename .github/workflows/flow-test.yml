@@ -149,8 +149,8 @@ jobs:
       redis-ref: ${{ inputs.redis-ref }}
       rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
       rejson-branch: ${{ inputs.rejson-branch }}
-      coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && matrix.test-mode != 'standalone' }}
-      standalone: ${{ (contains(inputs.options, 'standalone') || inputs.standalone == true) && matrix.test-mode != 'coordinator' }}
+      coordinator: ${{ (contains(inputs.options, 'coordinator') || inputs.cluster == true) && (matrix.test-mode == 'coordinator' || matrix.test-mode == 'all') }}
+      standalone: ${{ (contains(inputs.options, 'standalone') || inputs.standalone == true) && (matrix.test-mode == 'standalone' || matrix.test-mode == 'all') }}
       unit-tests: ${{ (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
       rust-unit-tests: ${{ matrix.job-type != 'ubsan' }}
       unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || '' }}
