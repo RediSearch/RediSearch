@@ -54,6 +54,7 @@ members = [
     "vector_score_source",
     "vector_score_source_bencher",
     "numeric_score_source",
+    "numeric_score_source_bencher",
     "trie_rs",
     "ttl_table",
     "utf8parse",
