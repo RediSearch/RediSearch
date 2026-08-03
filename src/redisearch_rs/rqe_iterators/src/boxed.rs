@@ -129,6 +129,17 @@ pub trait RQESuspendedIterator<'query> {
     ///   is unrecoverable. No active iterator is produced; the suspended
     ///   iterator is dropped.
     ///
+    /// # Implementer obligation
+    ///
+    /// A composite returning [`Moved`](ResumeOutcome::Moved) must leave the
+    /// resumed iterator so that [`current`](RQEIterator::current) — and hence
+    /// [`at_eof`](RQEIterator::at_eof), its negation — answers truthfully:
+    /// `None` when the move landed past the last result, `Some` when it landed
+    /// on a live one. The pre-suspend result the iterator would otherwise keep
+    /// handing out is exactly the stale position that made the resume
+    /// necessary, and a composite cannot recover its own position from a child
+    /// that conflates the two.
+    ///
     /// Resume re-reads/seeks the index to restore position (mirroring
     /// [`RQEIterator::revalidate`]), so it can fail with an
     /// [`RQEIteratorError`] (e.g. [`IoError`](RQEIteratorError::IoError) or

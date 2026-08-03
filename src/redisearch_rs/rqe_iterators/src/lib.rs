@@ -169,12 +169,11 @@ pub trait RQEIterator<'index> {
     /// last result. Never a stale result once exhausted — that is what lets
     /// resume-path callers detect a move that landed at EOF.
     ///
-    /// [`at_eof`](Self::at_eof) does not answer the same question: it is a
-    /// *look-ahead* ("the next [`read`](Self::read) returns `None`") which, for
-    /// some iterators, is already `true` while they still sit on their last
-    /// result. An iterator that clamps on its last result rather than advancing
-    /// past it therefore keeps returning `Some(last)` from here while reporting
-    /// [`at_eof`](Self::at_eof).
+    /// [`at_eof`](Self::at_eof) is the same question inverted: it is `true`
+    /// exactly when this returns `None`. Both are therefore answers about one
+    /// piece of state — whether the iterator has run past its last result — and
+    /// an iterator that clamps on that result instead of recording the step past
+    /// it cannot answer either correctly.
     ///
     /// # Usage
     ///
@@ -228,9 +227,29 @@ pub trait RQEIterator<'index> {
     /// Returns the last doc id that was read or skipped to.
     fn last_doc_id(&self) -> DocId;
 
-    /// Returns `false` if the iterator can yield more results.
-    /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
-    /// when [`read`](Self::read) would return `Ok(None)`.
+    /// Returns `true` once the iterator has run *past* its last result.
+    ///
+    /// # Contract
+    ///
+    /// This is the negation of [`current`](Self::current): `at_eof()` is `true`
+    /// exactly when `current()` is `None`. It flips when a [`read`](Self::read)
+    /// or [`skip_to`](Self::skip_to) returns `None`, or when a resume moves the
+    /// iterator past the end — *not* while it is still positioned on its last
+    /// result. An iterator sitting on the final document still has that result
+    /// to give and must report `false`.
+    ///
+    /// It is therefore not a look-ahead. "The next [`read`](Self::read) yields
+    /// nothing" is a useful thing for an iterator to know about *itself* —
+    /// several compute it to terminate their own read loops — but it belongs in
+    /// a private predicate, not here: it cannot tell "on the final document"
+    /// from "positioned nowhere", and callers needing that difference get it
+    /// wrong. Composites rebuilding their set of live children after a resume
+    /// are the case that matters — dropping a child that reports EOF discards
+    /// the last document of one that was merely sitting on it.
+    ///
+    /// An iterator that can never yield a result (e.g. [`Empty`]) is at EOF from
+    /// the start. Every other iterator reports `false` before its first
+    /// [`read`](Self::read), including one whose first read will return `None`.
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.

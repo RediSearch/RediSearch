@@ -150,8 +150,8 @@ impl<E: Encoder> BaseTest<E> {
             i += 1;
         }
 
-        // Sitting on the last result: these iterators only flip `at_eof` once a
-        // read runs past it, so the two states are observable separately here.
+        // Sitting on the last result is not EOF: `at_eof` only flips once a read
+        // has run past it, in lockstep with `current` going `None`.
         let last_id = *self.doc_ids.last().unwrap();
         assert_eq!(it.current().unwrap().doc_id, last_id);
         assert!(!it.at_eof());
@@ -162,6 +162,7 @@ impl<E: Encoder> BaseTest<E> {
 
         let last_doc_id = it.last_doc_id();
         assert!(matches!(it.skip_to(last_doc_id + 1), Ok(None)));
+        assert!(it.current().is_none());
         assert!(it.at_eof());
 
         it.rewind();
