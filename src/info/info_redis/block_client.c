@@ -13,6 +13,9 @@
 #include "threads/main_thread.h"
 #include "cursor.h"
 #include "info/info_redis/block_client.h"
+#ifdef ENABLE_ASSERT
+#include "debug_commands.h"
+#endif
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
 
@@ -34,6 +37,7 @@ void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClie
   BlockedRequestCtx_IncrRef(brc);
   brc->bc = bc;
   brc->deferred_reply = (reply_cb != NULL);
+  atomic_store_explicit(&brc->strictReadOwner, BRC_READ_OWNER_NONE, memory_order_relaxed);
   RedisModule_BlockClientSetPrivateData(bc, brc);
 }
 
@@ -69,6 +73,11 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
 
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   BlockedRequestCtx *brc = privdata;
+#ifdef ENABLE_ASSERT
+  // Debug-only counter so tests can deterministically observe that
+  // free_privdata fired without blocking the main thread in the callback.
+  BlockedRequestOnFreeDebug_Increment();
+#endif
   BlockedRequestCtx_EndCycle(brc);
   BlockedRequestCtx_DecrRef(brc);
 }

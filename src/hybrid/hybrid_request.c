@@ -1,5 +1,5 @@
 #include "hybrid/hybrid_request.h"
-
+#include "config.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -271,7 +271,7 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request
@@ -283,6 +283,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
     hybridReq->kArgIndex = -1;
+    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
+    // the request's lifetime.
+    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
 
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -298,7 +301,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy, &hybridReq->tailPipelineError);
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {

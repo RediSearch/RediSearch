@@ -14,6 +14,7 @@
 #include "thpool/thpool.h"
 #include "util/references.h"
 #include "rs_wall_clock.h"
+#include "config.h"
 #include <string.h>
 
 #ifdef __cplusplus
@@ -49,15 +50,19 @@ typedef void (*ConcurrentCmdHandler)(RedisModuleCtx *, RedisModuleString **, int
 
 // Context for concurrent search handler
 // Contains additional parameters passed to ConcurrentSearch_HandleRedisCommandEx
-struct CoordRequestCtx;  // Forward declaration
+struct BlockedRequestCtx;  // Forward declaration
+struct Cursor;             // Forward declaration
 
 // Context for blocking client
 typedef struct ConcurrentSearchBlockClientCtx {
   RedisModuleCmdFunc reply_callback;      // Callback when UnblockClient is called (FAIL policy)
   RedisModuleCmdFunc timeout_callback;    // Callback when timeout fires (FAIL policy)
   rs_wall_clock_ms_t timeoutMS;           // Timeout value in milliseconds (0 if no timeout)
-  void *privdata;                         // Private data for the blocked client
-  void (*free_privdata)(RedisModuleCtx*, void*);           // Callback to free private data
+  // Wrapper owning the request executed by this command. Allocated on the main
+  // thread before blocking; becomes the blocked client's privdata (freed via
+  // BlockedRequestCtx_OnFree). ConcurrentSearch_HandleRedisCommandEx runs
+  // BlockedRequestCtx_BeginCycle on it right after blocking the client.
+  struct BlockedRequestCtx *brc;
 } ConcurrentSearchBlockClientCtx;
 
 typedef struct ConcurrentSearchHandlerCtx {
