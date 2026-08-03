@@ -1342,14 +1342,14 @@ def testEmptyLegacyGeoFilters():
     res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '2.2945', '48.8584', '10', 'km', 'DIALECT', 1)
     env.assertEqual(res, [1, 'Tel Aviv', ['location', '2.2945,48.8584']])
     
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km', 'DIALECT', 1)
-    env.assertEqual(res, [1, 'New York', ['location', '0,51.47']])
+    # Empty coordinate/radius values fail to parse in every dialect: command
+    # argv numbers go through the strict RedisModule string conversions.
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km', 'DIALECT', 1).error().contains('Bad arguments for <lon>')
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km', 'DIALECT', 1)
-    env.assertEqual(res, [1, 'Chicago', ['location', '51.47,0']])
-    
-    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Invalid GeoFilter radius')
-    
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km', 'DIALECT', 1).error().contains('Bad arguments for <lat>')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Bad arguments for <radius>')
+
     env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '1', '', 'DIALECT', 1).error().contains('Unknown distance unit')
 
     MAX_DIALECT = set_max_dialect(env)
@@ -1357,13 +1357,13 @@ def testEmptyLegacyGeoFilters():
         env.set_dialect(dialect)
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '2.2945', '48.8584', '10', 'km')
         env.assertEqual(res, [1, 'Tel Aviv', ['location', '2.2945,48.8584']])
-    
-        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km').error().contains('Numeric/Geo filter')
 
-        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km').contains('Numeric/Geo filter value/s')
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km').error().contains('Bad arguments for <lon>')
+
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km').error().contains('Bad arguments for <lat>')
         
-        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Invalid GeoFilter radius')
-        
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Bad arguments for <radius>')
+
         env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '1', '', 'DIALECT', 1).error().contains('Unknown distance unit')
 
 def testEmptyParam():

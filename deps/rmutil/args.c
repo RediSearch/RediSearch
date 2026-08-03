@@ -59,19 +59,6 @@ int AC_AdvanceIfMatch(ArgsCursor *ac, const char *s) {
     AC_Advance(ac);                \
   }
 
-/* The current token as a NUL-terminated C string, for any cursor backing.
- * Numeric conversions go through this so that a token means the same number
- * no matter what backs the cursor: request parsing has legacy contracts tied
- * to the strtoll/strtod semantics below (e.g. DIALECT 1 treats an empty
- * filter value as 0), and those must not change when a parse path switches
- * to RedisModuleString-backed cursors. */
-static const char *currentCString(ArgsCursor *ac) {
-  if (ac->type == AC_TYPE_RSTRING) {
-    return RedisModule_StringPtrLen(ac->objs[ac->offset], NULL);
-  }
-  return AC_CURRENT(ac);
-}
-
 static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   double dTmp = 0.0;
   if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
@@ -100,11 +87,21 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
   // Try to parse the number as a normal integer first. If that fails, try
   // to parse it as a double. This will work if the number is in the format of
   // 3.00, OR if the number is in the format of 3.14 *AND* AC_F_COALESCE is set.
-  const char *str = currentCString(ac);
-  char *endptr = (char *)str;
-  tmpll = strtoll(str, &endptr, 10);
-  if (*endptr != '\0' || tmpll == LLONG_MIN || tmpll == LLONG_MAX) {
-    hasErr = 1;
+  // Here and in AC_GetDouble: RSTRING-backed cursors carry user command argv
+  // and parse with the strict RedisModule conversions (canonical form, no
+  // whitespace, no empty tokens, overflow via errno). The char* branches keep
+  // C-library leniency and only ever see internally generated canonical
+  // tokens (e.g. serialized plan args).
+  if (ac->type == AC_TYPE_RSTRING) {
+    if (RedisModule_StringToLongLong(AC_CURRENT(ac), &tmpll) == REDISMODULE_ERR) {
+      hasErr = 1;
+    }
+  } else {
+    char *endptr = AC_CURRENT(ac);
+    tmpll = strtoll(AC_CURRENT(ac), &endptr, 10);
+    if (*endptr != '\0' || tmpll == LLONG_MIN || tmpll == LLONG_MAX) {
+      hasErr = 1;
+    }
   }
 
   if (hasErr && tryReadAsDouble(ac, &tmpll, flags) != AC_OK) {
@@ -152,11 +149,16 @@ GEN_AC_FUNC(AC_GetSize, size_t, 0, SIZE_MAX, 1)
 
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags) {
   double tmpd = 0;
-  const char *str = currentCString(ac);
-  char *endptr = (char *)str;
-  tmpd = strtod(str, &endptr);
-  if (*endptr != '\0' || tmpd == HUGE_VAL || tmpd == -HUGE_VAL) {
-    return AC_ERR_PARSE;
+  if (ac->type == AC_TYPE_RSTRING) {
+    if (RedisModule_StringToDouble(ac->objs[ac->offset], &tmpd) != REDISMODULE_OK) {
+      return AC_ERR_PARSE;
+    }
+  } else {
+    char *endptr = AC_CURRENT(ac);
+    tmpd = strtod(AC_CURRENT(ac), &endptr);
+    if (*endptr != '\0' || tmpd == HUGE_VAL || tmpd == -HUGE_VAL) {
+      return AC_ERR_PARSE;
+    }
   }
   if ((flags & AC_F_GE0) && tmpd < 0.0) {
     return AC_ERR_ELIMIT;
