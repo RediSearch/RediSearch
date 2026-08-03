@@ -66,13 +66,94 @@ pub fn rerun_if_c_changes(dir: &Path) -> std::io::Result<()> {
 ///
 /// This links a single combined static library (`libredisearch_c_bundle.a`) that bundles
 /// all C code and dependencies together. The combined library is created by CMake
-/// during the build process.
+/// during the build process. It also compiles and force-links the `RedisModule_*`
+/// API function-pointer table — see [`link_redis_module_api_table`].
 pub fn bind_foreign_c_symbols() {
     let bin_root = bin_root();
     force_link_time_symbol_resolution();
+    // Must be emitted before `libredisearch_c_bundle.a`, see the function's docs.
+    link_redis_module_api_table();
     link_redisearch_c_bundle(&bin_root).unwrap_or_else(|e| panic!("{e}"));
     link_mkl(&bin_root.join("_deps/svs-src/lib"));
     link_c_plusplus();
+}
+
+/// Define the `RedisModule_*` API function-pointer table for test and benchmark
+/// binaries.
+///
+/// `redismodule.h` declares the module API as `extern` function pointers in
+/// every translation unit but the one that defines `REDISMODULE_MAIN` — for
+/// RediSearch that is `src/module.c`, which is where the pointers actually live.
+/// Any Rust code that reads one of them (the `redis-module` crate's generated
+/// bindings do) therefore leaves the linker an undefined reference to resolve.
+/// If it resolves it out of `libredisearch_c_bundle.a`, it pulls in `module.c.o` and
+/// with it the module's whole command-dispatch layer — including every Rust FFI
+/// symbol that layer calls back into, which a single-crate test binary does not
+/// link. The link then fails on a wall of undefined `QueryError_*`, `RLookup_*`
+/// and friends.
+///
+/// `redis-module` already carries a definition of the table — its build script
+/// compiles a TU against its own vendored copy of the header, which has no
+/// `REDISMODULE_MAIN` gate — so this is purely a question of which definition the
+/// linker reaches first, and `libredisearch_c_bundle.a` gets there before that rlib.
+/// It bites even when the reference itself originates *inside* an rlib listed
+/// after the C archive, because lld resolves archives as a group rather than in a
+/// single left-to-right pass, so a later reference still reaches back and extracts
+/// `module.c.o`. Expect this wherever the link goes through lld; in this repo that
+/// is the nightly toolchain `SAN=address` selects, which is where it was found.
+///
+/// Compile a translation unit that defines nothing but the table and link it with
+/// `+whole-archive` before `libredisearch_c_bundle.a`, so the pointers are already
+/// defined by the time the C archive is considered.
+///
+/// This does not turn into a pile of duplicate definitions because
+/// `redismodule.h` tags every pointer with `REDISMODULE_ATTR_COMMON`
+/// (`__attribute__((__common__))`), so they are *common* symbols even though
+/// modern compilers default to `-fno-common`. Commons merge with each other, so
+/// the table coexists with `module.c.o` when something else in a test binary
+/// legitimately needs that object.
+///
+/// Two consequences worth knowing about:
+///
+/// - A crate that reads a `RedisModule_*` pointer without providing a definition
+///   now links and calls a NULL pointer at runtime, where it used to fail at link
+///   time. Reach for `redis_mock::mock_or_stub_missing_redis_c_symbols!` when a
+///   test needs a working entry point rather than a zeroed one.
+/// - A strong definition overrides a common only when it is in an object the
+///   linker already has. lld will *not* fetch an archive member just to upgrade a
+///   common, so a `mock_or_stub_missing_redis_c_symbols!` invoked at the top level
+///   of a *library* crate (the `*_bencher` crates do this) can lose to the zeroed
+///   table if nothing else pulls its codegen unit in. GNU ld does fetch it. If a
+///   mocked entry point ever reads back as NULL, check `nm` for `B` instead of `D`.
+///
+/// The reordering is verified against GNU ld and LLVM lld. Mach-O linkers resolve
+/// overrides of tentative definitions differently, so this is not known to fix
+/// macOS; the extra commons are harmless there either way.
+fn link_redis_module_api_table() {
+    let root = repository_root().expect("Could not find repository root for the RedisModule API");
+    let src = root.join("src");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+
+    let stub = out_dir.join("redismodule_api_table.c");
+    std::fs::write(
+        &stub,
+        "#define REDISMODULE_MAIN\n#include \"redismodule.h\"\n",
+    )
+    .expect("Failed to write the RedisModule API table translation unit");
+    println!(
+        "cargo::rerun-if-changed={}",
+        src.join("redismodule.h").display()
+    );
+
+    // `cc` emits the `-l`/`-L` directives, and with them the
+    // `rerun-if-env-changed` lines for the toolchain that builds this archive —
+    // otherwise cargo would happily force-link a stale archive built by a
+    // different compiler than the one the final binary is linked with.
+    cc::Build::new()
+        .file(&stub)
+        .include(&src)
+        .link_lib_modifier("-bundle,+whole-archive")
+        .compile("redismodule_api_table");
 }
 
 /// Require all symbols to be resolved at link time.
