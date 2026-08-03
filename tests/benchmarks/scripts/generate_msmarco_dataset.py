@@ -415,39 +415,48 @@ BENCHMARK_QUERIES = {
         "(@tags:{t01|t02}) @title:diabetes",
         "@tags:{t01} health -@url:wikipedia",
     ],
-    # Selectivities on the synthetic fields are exact by construction
-    # (n_uniform is uniform over the 2e8+1 values in [-1e8, 1e8],
-    # n_uniform_small over [0, 100000), n_cat over [0, 10)); doc_len
-    # selectivities are approximate (natural distribution). Numeric ranges
-    # are valid under the default dialect — no DIALECT argument needed.
-    "numeric": [
-        # n_uniform (large scale, mostly unique values): selectivity ladder
+}
+
+# NUMERIC benchmark queries, grouped so each group runs as its own benchmark:
+# fewer queries per benchmark means more samples per query and a dedicated
+# regression series per axis. Selectivities on the synthetic fields are exact
+# by construction (n_uniform is uniform over the 2e8+1 values in [-1e8, 1e8],
+# n_uniform_small over [0, 100000), n_cat over [0, 10)); doc_len
+# selectivities are approximate (natural distribution). Numeric ranges are
+# valid under the default dialect — no DIALECT argument needed.
+NUMERIC_QUERY_GROUPS = {
+    # Result-set size scaling: same operator shape, growing range
+    # (n_uniform is ~unique-valued; n_uniform_small ~60 docs/value at 6M).
+    "numeric-selectivity": [
         "@n_uniform:[0 1999]",                       # needle range, 0.001%
         "@n_uniform:[0 199999]",                     # 0.1%
         "@n_uniform:[0 1999999]",                    # 1%
         "@n_uniform:[0 19999999]",                   # 10%
         "@n_uniform:[0 99999999]",                   # 50%
-        # n_uniform: operator shapes at fixed selectivity
+        "@n_uniform_small:[500 500]",                # point w/ duplicates, 0.001%
+    ],
+    # Operator/iterator shape at fixed selectivity.
+    "numeric-operators": [
         "@n_uniform:[-999999 999999]",               # crosses zero, ~1%
         "@n_uniform:[-inf -80000001]",               # open lower, 10%
         "@n_uniform:[80000001 +inf]",                # open upper, 10%
         "@n_uniform:[(0 (2000000]",                  # exclusive bounds, ~1%
         "-@n_uniform:[-100000000 79999999]",         # NOT, 10%
         "(@n_uniform:[0 1999999] | @n_uniform:[50000000 51999999])",  # OR, 2%
-        # n_uniform_small (~60 docs/value at 6M docs): duplicates-per-value
-        # axis at selectivities matched to the n_uniform ladder
-        "@n_uniform_small:[500 500]",                # point w/ duplicates, 0.001%
-        "@n_uniform_small:[0 999]",                  # 1%, vs n_uniform 1%
-        # n_cat (10 distinct values): huge per-value postings
+    ],
+    # Value-distribution effects at matched selectivities + cross-field.
+    "numeric-distributions": [
+        "@n_uniform_small:[0 999]",                  # 1%, vs the ladder's 1%
         "@n_cat:[3 3]",                              # single value, 10%
         "@n_cat:[3 7]",                              # 5 of 10 values, 50%
-        # doc_len (natural skew): realistic value distribution
         "@doc_len:[0 1000]",                         # short docs (approx. selectivity)
         "@doc_len:[50000 +inf]",                     # long-tail docs (approx. selectivity)
-        # cross-field compound
         "(@n_uniform:[0 19999999] @n_cat:[3 3])",    # AND, 1%
     ],
 }
+BENCHMARK_QUERIES.update(NUMERIC_QUERY_GROUPS)
+# Combined pool (ad-hoc runs; CI uses the per-group workloads above).
+BENCHMARK_QUERIES["numeric"] = [q for qs in NUMERIC_QUERY_GROUPS.values() for q in qs]
 
 
 def generate_query_commands(
@@ -474,7 +483,10 @@ def generate_query_commands(
     # Get queries for this category
     if query_category == "all":
         queries = []
-        for cat_queries in BENCHMARK_QUERIES.values():
+        for cat, cat_queries in BENCHMARK_QUERIES.items():
+            # "numeric" duplicates the numeric-* groups — skip it.
+            if cat == "numeric":
+                continue
             queries.extend(cat_queries)
     elif query_category in BENCHMARK_QUERIES:
         queries = BENCHMARK_QUERIES[query_category]
@@ -662,7 +674,9 @@ def main():
         print("\n")
         # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
         # category — including tag predicates — is valid for both formats.
-        query_categories = ["baseline", "phrase", "and", "or", "not", "tag", "numeric", "all"]
+        query_categories = ["baseline", "phrase", "and", "or", "not", "tag",
+                            "numeric", "numeric-selectivity", "numeric-operators",
+                            "numeric-distributions", "all"]
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
             generate_query_commands(query_file, category, args.index_name, args.num_queries)
