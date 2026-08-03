@@ -13,7 +13,6 @@ use value_ffi::getters::RSValue_Number_Get;
 use value_ffi::map::*;
 use value_ffi::shared::RSValue_DecrRef;
 
-#[expect(non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
     redis_mock::globals::redis_module_ctx();
