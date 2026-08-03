@@ -247,6 +247,17 @@ impl<'index> WildcardIterator<'index> for crate::c2rust::CRQEIterator {}
 
 impl<'index> WildcardIterator<'index> for Box<dyn WildcardIterator<'index> + 'index> {}
 
+/// A [`TypeErasedRQEIterator`](crate::TypeErasedRQEIterator) may wrap a wildcard
+/// iterator, but — as with [`CRQEIterator`](crate::c2rust::CRQEIterator) — that
+/// cannot be verified statically once the concrete type is erased.
+///
+/// The caller is responsible for only using this impl when the erased iterator
+/// really is a wildcard. It exists so composites that take a wildcard base (e.g.
+/// [`OptionalOptimized`](crate::optional_optimized::OptionalOptimized)) can hold
+/// a type-erased one, which is what the suspend/resume path needs in order to
+/// dispatch the base's own `suspend`/`resume` through its vtable.
+impl<'index> WildcardIterator<'index> for crate::TypeErasedRQEIterator<'index> {}
+
 /// The result of [`new_wildcard_iterator`], representing the different kinds of
 /// wildcard iterators that can be created depending on the index configuration.
 pub enum NewWildcardIterator<'index> {
