@@ -35,7 +35,13 @@ fn empty_initialization_works() {
     assert_eq!(0, result.doc_id);
     assert_eq!(RSResultKind::Virtual, result.kind());
 
+    // Unread rather than past its end: `at_eof()` is the negation of `current()`,
+    // and both only flip once a read has actually found nothing.
+    assert!(!i.at_eof());
+
+    assert!(matches!(i.read(), Ok(None)));
     assert!(i.at_eof());
+    assert!(i.current().is_none());
 }
 
 #[test]
@@ -84,7 +90,8 @@ fn read(#[case] case: &[u64]) {
         assert_eq!(RSResultKind::Virtual, result.kind());
     }
 
-    assert!(it.at_eof());
+    // Sitting on the last id is not EOF; the read that runs past it is.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 
@@ -102,7 +109,9 @@ fn skip_to(#[case] case: &[u64]) {
     let first_id = case[0];
     assert_eq!(first_doc.doc_id, first_id);
     assert_eq!(it.last_doc_id(), first_id);
-    assert_eq!(it.at_eof(), Some(&first_id) == case.last());
+    // Positioned on an id, so not past the end — true even when it is the last
+    // one, since `at_eof()` is the negation of `current()` and not a look-ahead.
+    assert!(!it.at_eof());
 
     // Skip to higher than last doc id: expect EOF, last_doc_id unchanged
     let last = *case.last().unwrap();
@@ -127,7 +136,7 @@ fn skip_to(#[case] case: &[u64]) {
             };
             assert_eq!(res.doc_id, id);
             // Should land on next existing id
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             probe += 1;
         }
@@ -137,7 +146,7 @@ fn skip_to(#[case] case: &[u64]) {
             panic!("probe {probe} -> Expected `Found`");
         };
         assert_eq!(res.doc_id, id);
-        assert_eq!(it.at_eof(), Some(&id) == case.last());
+        assert!(!it.at_eof(), "still positioned on {id}");
         assert_eq!(it.last_doc_id(), id);
         probe += 1;
     }
@@ -154,7 +163,7 @@ fn skip_to(#[case] case: &[u64]) {
         };
         assert_eq!(res.doc_id, id);
         assert_eq!(it.last_doc_id(), id);
-        assert_eq!(it.at_eof(), Some(&id) == case.last());
+        assert!(!it.at_eof(), "still positioned on {id}");
     }
 }
 
@@ -190,7 +199,7 @@ fn skip_between_any_pair(#[case] case: &[u64]) {
             };
             assert_eq!(doc_to.doc_id, to_id);
             assert_eq!(it.last_doc_id(), to_id);
-            assert_eq!(it.at_eof(), Some(&to_id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {to_id}");
         }
     }
 }

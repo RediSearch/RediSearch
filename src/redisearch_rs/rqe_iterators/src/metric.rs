@@ -197,10 +197,10 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.base.at_eof() {
-            return Ok(None);
-        }
-
+        // No `at_eof()` short-circuit here: it would be redundant (the read below
+        // yields `None` in exactly that case) and it would skip the bookkeeping
+        // that records having run past the end, leaving `current()` reporting a
+        // stale result.
         let Some((result, offset)) = self.base.read_and_get_offset()? else {
             return Ok(None);
         };

@@ -147,6 +147,27 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         self.ids.get(self.offset).copied()
     }
 
+    /// Whether the iterator has run *past* its last id, i.e. a `read`/`skip_to`
+    /// found nothing.
+    ///
+    /// This is the state behind both [`current`](RQEIterator::current), which
+    /// reports no current once it holds, and [`at_eof`](RQEIterator::at_eof), its
+    /// negation.
+    ///
+    /// Distinct from the look-ahead `get_current().is_none()`: after reading the
+    /// final id `offset == ids.len()`, so the next read will find nothing, but
+    /// that id is still the current result. Only once a read or skip has run off
+    /// the end does `offset` take its extra step.
+    fn past_end(&self) -> bool {
+        self.offset > self.ids.len()
+    }
+
+    /// Record that a `read`/`skip_to` ran off the end. Idempotent, and one-way
+    /// until [`rewind`](RQEIterator::rewind).
+    fn mark_past_end(&mut self) {
+        self.offset = self.ids.len() + 1;
+    }
+
     // this function is needed by the metric iterator to get the offset,
     // because the metric iterator borrows the iterator as mutable for read(), and the offset is changed by read().
     // This is because the IndexResult is reused.
@@ -154,6 +175,7 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         &mut self,
     ) -> Result<Option<(&mut RSIndexResult<'index>, usize)>, RQEIteratorError> {
         let Some(doc_id) = self.get_current() else {
+            self.mark_past_end();
             return Ok(None);
         };
         self.offset += 1;
@@ -175,13 +197,16 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         }
 
         let len = self.ids.len();
-        if self.at_eof() ||
-            // No risk in unwrapping here since we are not at eof and
+        // The look-ahead, not `at_eof()`: this must also short-circuit when the
+        // list is exhausted-but-still-positioned (and when it is empty), which is
+        // what makes the unwrap below safe.
+        if self.get_current().is_none() ||
+            // No risk in unwrapping here since there is an id left to read, so
             // the list cannot be empty
             *self.ids.last().unwrap() < target_id
         {
             // The iterator has been advanced past the end of the ID list.
-            self.offset = len;
+            self.mark_past_end();
             // Update result.doc_id to the last element in the list
             if len > 0 {
                 self.result.doc_id = self.ids[len - 1];
@@ -263,6 +288,9 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end() {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -303,7 +331,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.get_current().is_none()
+        self.past_end()
     }
 
     #[inline(always)]

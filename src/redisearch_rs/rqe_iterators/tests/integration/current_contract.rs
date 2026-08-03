@@ -42,7 +42,7 @@ const DOCS: [DocId; 5] = [10, 20, 30, 50, 80];
 const PAST_DOCS: DocId = 81;
 
 // ---------------------------------------------------------------------------
-// Conforming
+// Test doubles
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -59,6 +59,10 @@ fn mock_vec_upholds_current_contract() {
     assert_current_contract_via_skip_to(&mut it, PAST_DOCS);
 }
 
+// ---------------------------------------------------------------------------
+// Leaves
+// ---------------------------------------------------------------------------
+
 #[test]
 fn empty_upholds_current_contract() {
     let mut it = Empty;
@@ -67,11 +71,79 @@ fn empty_upholds_current_contract() {
 }
 
 #[test]
+fn id_list_sorted_upholds_current_contract() {
+    let mut it: IdList<'_, true> = IdList::new(DOCS.to_vec());
+    assert_eq!(assert_current_contract(&mut it), DOCS);
+    assert_current_contract_via_skip_to(&mut it, PAST_DOCS);
+}
+
+#[test]
+fn id_list_unsorted_upholds_current_contract() {
+    let mut it: IdList<'_, false> = IdList::new(DOCS.to_vec());
+    assert_eq!(assert_current_contract(&mut it), DOCS);
+}
+
+#[test]
+fn metric_upholds_current_contract() {
+    // `Metric` delegates `current()` to an inner `IdList`, as do `MetricLazy`
+    // and `IdListLazy`.
+    let mut it =
+        rqe_iterators::metric::MetricSortedById::new(vec![1u64, 3, 5], vec![0.1, 0.3, 0.5]);
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+}
+
+// ---------------------------------------------------------------------------
+// Composites — these already delegated correctly; asserted so they stay that way
+// ---------------------------------------------------------------------------
+
+#[test]
 fn optional_upholds_current_contract() {
     // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
     let mut it = rqe_iterators::optional::Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
     assert_current_contract_via_skip_to(&mut it, 6);
+}
+
+#[test]
+fn intersection_upholds_current_contract() {
+    let children = vec![
+        utils::Mock::new([1u64, 2, 3]),
+        utils::Mock::new([2u64, 3, 9]),
+    ];
+    let mut it = rqe_iterators::Intersection::new(children, 1.0, false);
+    assert_eq!(assert_current_contract(&mut it), [2, 3]);
+}
+
+#[test]
+fn union_full_flat_upholds_current_contract() {
+    let children: Vec<Box<dyn rqe_iterators::RQEIterator<'static>>> = vec![
+        Box::new(utils::Mock::new([1u64, 3])),
+        Box::new(utils::Mock::new([2u64, 4])),
+    ];
+    let mut it = rqe_iterators::UnionFullFlat::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+}
+
+#[test]
+fn union_full_heap_upholds_current_contract() {
+    let children: Vec<Box<dyn rqe_iterators::RQEIterator<'static>>> = vec![
+        Box::new(utils::Mock::new([1u64, 3])),
+        Box::new(utils::Mock::new([2u64, 4])),
+    ];
+    let mut it = rqe_iterators::UnionFullHeap::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+}
+
+#[test]
+fn profile_upholds_current_contract() {
+    let mut it = rqe_iterators::profile::Profile::new(utils::Mock::new(DOCS));
+    assert_eq!(assert_current_contract(&mut it), DOCS);
+}
+
+#[test]
+fn maybe_empty_upholds_current_contract() {
+    let mut it = rqe_iterators::maybe_empty::MaybeEmpty::new(utils::Mock::new(DOCS));
+    assert_eq!(assert_current_contract(&mut it), DOCS);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,9 +156,9 @@ fn optional_upholds_current_contract() {
 // "did my child move to a new doc, or off the end?" cannot get a straight answer
 // either way round.
 //
-// `Wildcard` and `IdList` already implement `RQEIteratorBoxed`, so that is
-// reachable from a resume today. `Not`/`NotOptimized` do not yet — for them this
-// is a latent violation, which becomes reachable when they are migrated.
+// `Wildcard` already implements `RQEIteratorBoxed`, so that is reachable from a
+// resume today. `Not`/`NotOptimized` do not yet — for them this is a latent
+// violation, which becomes reachable when they are migrated.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -95,14 +167,6 @@ fn optional_upholds_current_contract() {
 fn wildcard_upholds_current_contract() {
     let mut it = rqe_iterators::Wildcard::new(5, 1.0);
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
-}
-
-#[test]
-#[ignore = "IdList clamps on its last result; `offset` could encode past-the-end \
-            the way the mocks' `next_index` does"]
-fn id_list_upholds_current_contract() {
-    let mut it: IdList<'_, true> = IdList::new(DOCS.to_vec());
-    assert_eq!(assert_current_contract(&mut it), DOCS);
 }
 
 #[test]
