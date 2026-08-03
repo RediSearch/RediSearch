@@ -18,6 +18,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <cstdint>
 
 typedef std::set<std::string> ElemSet;
 
@@ -85,6 +86,37 @@ static ElemSet trieIterRange(Trie *t, const char *begin, size_t nbegin, const ch
 
 static ElemSet trieIterRange(Trie *t, const char *begin, const char *end) {
   return trieIterRange(t, begin, begin ? strlen(begin) : 0, end, end ? strlen(end) : 0);
+}
+
+static constexpr rune kPackedChildKeyPrefix = 0x41;
+static constexpr int kPackedChildKeyChildCount = 128;
+
+static uintptr_t trieNodeChildKeyAddress(const TrieNode *n) {
+  return reinterpret_cast<uintptr_t>(n) + sizeof(TrieNode) + (n->len + 1) * sizeof(rune);
+}
+
+static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  *tOut = t;
+  *prefixNodeOut = nullptr;
+
+  ASSERT_EQ(TRIE_OK_NEW,
+            Trie_InsertRune(t, &kPackedChildKeyPrefix, 1, 1.0, 0, NULL, 0));
+
+  for (int i = 0; i < kPackedChildKeyChildCount; ++i) {
+    rune key[] = {kPackedChildKeyPrefix, static_cast<rune>(0x20 + i)};
+    ASSERT_EQ(TRIE_OK_NEW, Trie_InsertRune(t, key, 2, static_cast<double>(i), 0, NULL, 0));
+  }
+
+  // Regression: child-key storage is packed inside TrieNode and may start at an
+  // odd address. Scanning a wide score-sorted node must not let the compiler use
+  // aligned loads from that packed key array.
+  TrieNode *prefixNode = Trie_GetNode(t, &kPackedChildKeyPrefix, 1, true, NULL);
+  ASSERT_NE(nullptr, prefixNode);
+  ASSERT_EQ(kPackedChildKeyChildCount, TrieNode_NumChildren(prefixNode));
+  ASSERT_NE(0u, trieNodeChildKeyAddress(prefixNode) % alignof(rune));
+  ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) % alignof(TrieNode *));
+  *prefixNodeOut = prefixNode;
 }
 
 TEST_F(TrieTest, testBasicRange) {
@@ -159,6 +191,32 @@ TEST_F(TrieTest, testBasicRangeWithScore) {
   // No min, but has a max
   ret = trieIterRange(t, NULL, "5");
   ASSERT_EQ(445, ret.size());
+
+  TrieType_Free(t);
+}
+
+TEST_F(TrieTest, testGetScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
+
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  TrieNode *node = Trie_GetNode(t, key, 2, true, NULL);
+  ASSERT_NE(nullptr, node);
+
+  TrieType_Free(t);
+}
+
+TEST_F(TrieTest, testDeleteScansPackedChildKeys) {
+  Trie *t = nullptr;
+  TrieNode *prefixNode = nullptr;
+  buildPackedChildKeyScanTrie(&t, &prefixNode);
+  ASSERT_NE(nullptr, prefixNode);
+
+  rune key[] = {kPackedChildKeyPrefix, 0x20};
+  ASSERT_EQ(1, Trie_DeleteRunes(t, key, 2));
+  ASSERT_EQ(kPackedChildKeyChildCount, Trie_Size(t));
 
   TrieType_Free(t);
 }
