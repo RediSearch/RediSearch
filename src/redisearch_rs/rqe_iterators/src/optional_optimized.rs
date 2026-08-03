@@ -104,6 +104,7 @@ const _: () = {
     assert!(offset_of!(A, child) == offset_of!(S, child));
     assert!(offset_of!(A, virt) == offset_of!(S, virt));
     assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -535,10 +536,13 @@ where
             return Ok(ResumeOutcome::Aborted);
         }
 
-        // Capture pre-resume positions for the post-resume logic below (both reads
-        // happen before `self` is consumed by `Box::into_raw`). The `wcii` (base)
-        // child is genuinely a wildcard; its resumed type is a `WildcardIterator`.
-        let pre_wcii_last_doc_id = RQESuspendedIterator::last_doc_id(&self.wcii);
+        // Capture the child's pre-resume position: `current_was_virtual` below
+        // has to be judged against where the child was *before* it resumed, the
+        // way `revalidate` snapshots it before revalidating the child. The read
+        // happens before `self` is consumed by `Box::into_raw`.
+        //
+        // No such snapshot is needed for `wcii`: its resumed `current()` answers
+        // "did the move land anywhere" directly.
         let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&self.child);
 
         let raw = Box::into_raw(self);
@@ -624,15 +628,15 @@ where
             Box::from_raw(raw.cast::<OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>>())
         };
 
-        // Distinguish "wcii moved to a new valid position" from "wcii moved
-        // past all docs (no new current)". `ResumeOutcome::Moved` doesn't
-        // carry the {Some, None} distinction that legacy `revalidate` had, so
-        // we recover it by comparing wcii's pre/post `last_doc_id`: a true
-        // "Moved to EOF without a new doc" leaves the cached doc_id unchanged
-        // (the wcii has nothing new to surface). A "Moved to a new valid doc"
-        // advances the cached doc_id even if the wildcard is now at EOF (because
-        // that new doc is the LAST valid one).
-        if wcii_moved && active.wcii.at_eof() && active.wcii.last_doc_id() == pre_wcii_last_doc_id {
+        // Distinguish "wcii moved to a new valid position" from "wcii moved past
+        // all docs". `ResumeOutcome::Moved` carries no {Some, None}, so we ask
+        // the wildcard the has-current question directly.
+        //
+        // Comparing wcii's pre/post `last_doc_id` does *not* work: the
+        // inverted-index wildcards rewind before re-seeking
+        // (`RawInvIndIterator::resume_in_place`), so a move to EOF leaves the
+        // cached id at 0 — below the pre-resume value, not equal to it.
+        if wcii_moved && active.wcii.current().is_none() {
             active.past_end = true;
             return Ok(ResumeOutcome::Moved(active));
         }

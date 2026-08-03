@@ -1353,6 +1353,50 @@ mod via_resume {
         );
     }
 
+    /// Regression: a wildcard that resumes by re-seeking *past* the end must be
+    /// recognised as having no current, not settled onto doc 0.
+    ///
+    /// `resume` used to recover "moved to a new doc" vs "moved off the end" by
+    /// comparing the wildcard's pre- and post-resume `last_doc_id`, expecting
+    /// EOF to leave it unchanged. The inverted-index wildcards rewind before
+    /// re-seeking (`RawInvIndIterator::resume_in_place`), so a GC that removes
+    /// the current doc and everything after it returns EOF with `last_doc_id()`
+    /// reset to 0 — never equal to the pre-resume value. The comparison missed
+    /// it, fell through to the moved-to-a-valid-doc path with `wcii_doc_id == 0`
+    /// and produced a virtual result for the non-existent doc 0, reported as
+    /// `Moved` with `at_eof()` false.
+    #[test]
+    fn resume_wcii_reseeking_past_end_reports_no_current() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        // The wildcard still has ids after 5, so nothing about its *contents*
+        // signals EOF — only the rewind-then-miss resume does.
+        let wcii = utils::Mock::new([5u64, 20, 50]);
+        let mut wcii_data = wcii.data();
+        let child = utils::Mock::new([5u64]);
+        let mut it = Box::new(OptionalOptimized::new(wcii, child, 100, WEIGHT));
+
+        let r = it.read().expect("read").expect("result");
+        assert_eq!(r.doc_id, 5);
+
+        wcii_data.set_resume_reseeks_past_end(true);
+        let mut active = match it.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        assert!(
+            active.current().is_none(),
+            "the wildcard re-seeked past its end, so there is no current result",
+        );
+        assert!(active.at_eof(), "and the iterator is exhausted");
+        assert!(
+            active.read().expect("read after resume").is_none(),
+            "nothing left to read",
+        );
+    }
+
     /// A moved wcii that lands on a doc the child also matches must return that
     /// hit with the optional weight applied (mirrors `read`/`skip_to`), and must
     /// NOT report EOF for a valid in-bound doc even though the wildcard itself is
