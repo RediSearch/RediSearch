@@ -62,6 +62,17 @@ fn optional_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
 }
 
+#[test]
+fn optional_optimized_upholds_current_contract() {
+    let mut it = rqe_iterators::optional_optimized::OptionalOptimized::new(
+        utils::Mock::new([1u64, 2, 3, 4, 5]),
+        utils::Mock::new([2u64, 4]),
+        5,
+        2.0,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+}
+
 // ---------------------------------------------------------------------------
 // Not yet conforming
 //
@@ -100,14 +111,3 @@ fn not_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
 }
 
-#[test]
-#[ignore = "fixed in a following change"]
-fn optional_optimized_upholds_current_contract() {
-    let mut it = rqe_iterators::optional_optimized::OptionalOptimized::new(
-        utils::Mock::new([1u64, 2, 3, 4, 5]),
-        utils::Mock::new([2u64, 4]),
-        5,
-        2.0,
-    );
-    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
-}

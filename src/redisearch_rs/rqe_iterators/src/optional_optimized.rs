@@ -75,7 +75,21 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
     /// which is treated as virtual. Doc IDs start from 1, so 0 is a safe sentinel.
     last_doc_id: DocId,
     /// Whether the iterator has reached EOF.
+    ///
+    /// A *look-ahead*: [`settle_at`](OptionalOptimized::settle_at) sets it as
+    /// soon as the settled position reaches `max_doc_id`, while that position is
+    /// still the current result. It therefore cannot express "no current" — see
+    /// [`past_end`](Self::past_end).
     at_eof: bool,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// This is what makes [`current`](RQEIterator::current) a truthful
+    /// has-current oracle, and hence what lets a resume that lands off the end
+    /// report "no current" instead of the stale pre-suspend result. Kept
+    /// separate from `at_eof` because that one is already true on the last
+    /// valid result.
+    past_end: bool,
 }
 
 /// Alias for an [`Active`] [`RawOptionalOptimized`] — the only instantiation
@@ -99,6 +113,7 @@ const _: () = {
     assert!(offset_of!(A, child) == offset_of!(S, child));
     assert!(offset_of!(A, virt) == offset_of!(S, virt));
     assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -137,6 +152,7 @@ where
             weight,
             last_doc_id: 0,
             at_eof: false,
+            past_end: false,
         }
     }
 }
@@ -171,6 +187,7 @@ where
         }
 
         self.last_doc_id = doc_id;
+        self.past_end = false;
         // Look-ahead, so callers see true immediately after the last result.
         self.at_eof = doc_id >= self.max_doc_id;
 
@@ -214,6 +231,9 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         if self.last_doc_id != 0
             && self.child.last_doc_id() == self.last_doc_id
             && let Some(result) = self.child.current()
@@ -226,6 +246,7 @@ where
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         if self.at_eof {
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -233,6 +254,7 @@ where
         let wcii_doc_id = match self.wcii.read()? {
             None => {
                 self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(r) => r.doc_id,
@@ -241,6 +263,7 @@ where
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if wcii_doc_id > self.max_doc_id {
             self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -256,6 +279,7 @@ where
 
         if doc_id > self.max_doc_id || self.at_eof {
             self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -264,6 +288,7 @@ where
         let (found, effective_id) = match self.wcii.skip_to(doc_id)? {
             None => {
                 self.at_eof = true;
+                self.past_end = true;
                 return Ok(None);
             }
             Some(SkipToOutcome::Found(r)) => (true, r.doc_id),
@@ -273,6 +298,7 @@ where
         // wcii may jump past max_doc_id in a single step (e.g. sparse index).
         if effective_id > self.max_doc_id {
             self.at_eof = true;
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -302,6 +328,7 @@ where
             RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
             RQEValidateStatus::Moved { current: None } => {
                 self.at_eof = true;
+                self.past_end = true;
                 return Ok(RQEValidateStatus::Moved { current: None });
             }
             RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
@@ -344,6 +371,7 @@ where
                 // wcii may have moved past max_doc_id.
                 if wcii_doc_id > self.max_doc_id {
                     self.at_eof = true;
+                    self.past_end = true;
                     return Ok(RQEValidateStatus::Moved { current: None });
                 }
 
@@ -365,6 +393,7 @@ where
     fn rewind(&mut self) {
         self.last_doc_id = 0;
         self.at_eof = false;
+        self.past_end = false;
         self.virt.doc_id = 0;
         self.wcii.rewind();
         self.child.rewind();
@@ -499,10 +528,13 @@ where
             return Ok(ResumeOutcome::Aborted);
         }
 
-        // Capture pre-resume positions for the post-resume logic below (both reads
-        // happen before `self` is consumed by `Box::into_raw`). The `wcii` (base)
-        // child is genuinely a wildcard; its resumed type is a `WildcardIterator`.
-        let pre_wcii_last_doc_id = RQESuspendedIterator::last_doc_id(&self.wcii);
+        // Capture the child's pre-resume position: `current_was_virtual` below
+        // has to be judged against where the child was *before* it resumed, the
+        // way `revalidate` snapshots it before revalidating the child. The read
+        // happens before `self` is consumed by `Box::into_raw`.
+        //
+        // No such snapshot is needed for `wcii`: its resumed `current()` answers
+        // "did the move land anywhere" directly.
         let pre_child_last_doc_id = RQESuspendedIterator::last_doc_id(&self.child);
 
         let raw = Box::into_raw(self);
@@ -588,22 +620,23 @@ where
             Box::from_raw(raw.cast::<OptionalOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>>>())
         };
 
-        // Distinguish "wcii moved to a new valid position" from "wcii moved
-        // past all docs (no new current)". `ResumeOutcome::Moved` doesn't
-        // carry the {Some, None} distinction that legacy `revalidate` had, so
-        // we recover it by comparing wcii's pre/post `last_doc_id`: a true
-        // "Moved to EOF without a new doc" leaves the cached doc_id unchanged
-        // (the wcii has nothing new to surface). A "Moved to a new valid doc"
-        // advances the cached doc_id even if `at_eof` is now true (because
-        // that new doc is the LAST valid one).
-        if wcii_moved && active.wcii.at_eof() && active.wcii.last_doc_id() == pre_wcii_last_doc_id {
+        // Distinguish "wcii moved to a new valid position" from "wcii moved past
+        // all docs". `ResumeOutcome::Moved` carries no {Some, None}, so we ask
+        // the wildcard the has-current question directly.
+        //
+        // Comparing wcii's pre/post `last_doc_id` does *not* work: the
+        // inverted-index wildcards rewind before re-seeking
+        // (`RawInvIndIterator::resume_in_place`), so a move to EOF leaves the
+        // cached id at 0 — below the pre-resume value, not equal to it.
+        if wcii_moved && active.wcii.current().is_none() {
             active.at_eof = true;
+            active.past_end = true;
             return Ok(ResumeOutcome::Moved(active));
         }
         // NB: do NOT reset `at_eof` from `wcii.at_eof()` here. For an unchanged
         // wcii we keep the pre-suspend flag, so a bound-EOF from an earlier
-        // `skip_to(max_doc_id + 1)` survives resume; for a moved wcii it is set
-        // explicitly below from `wcii_doc_id >= max_doc_id`, matching `read`/`skip_to`.
+        // `skip_to(max_doc_id + 1)` survives resume; for a moved wcii `settle_at`
+        // sets it below, matching `read`/`skip_to`.
 
         let current_was_virtual =
             active.last_doc_id == 0 || pre_child_last_doc_id != active.last_doc_id;
@@ -624,6 +657,7 @@ where
         let wcii_doc_id = active.wcii.last_doc_id();
         if wcii_doc_id > active.max_doc_id {
             active.at_eof = true;
+            active.past_end = true;
             return Ok(ResumeOutcome::Moved(active));
         }
         // Settle exactly as `read`/`skip_to` do — including applying the optional
@@ -657,6 +691,7 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
             virt: self.virt,
             last_doc_id: self.last_doc_id,
             at_eof: self.at_eof,
+            past_end: self.past_end,
         }
     }
 }
