@@ -376,11 +376,11 @@ struct BlockedRequestCtx {
   } query;
 
   /* Held references to the command argv strings the owned request's plan
-   * borrows from. Taken on the main thread only (string refcounts are not
-   * thread safe): by AREQ_Compile / HybridRequest_InitArgsCursor for flows
-   * that parse on the main thread, or by the coordinator dispatcher before
-   * going to the background. Released in BlockedRequestCtx_Free, after the
-   * owned request. May be a superset of the parsed slice. */
+   * borrows from. Invariant: taken at the dispatch site, on the main thread
+   * (string refcounts are not thread safe), before any parsing begins —
+   * AREQ_Compile and HybridRequest_InitArgsCursor assert they are present.
+   * Released in BlockedRequestCtx_Free, after the owned request. May be a
+   * superset of the parsed slice. */
   RedisModuleString **argvHolds;
   size_t nargvHolds;
 

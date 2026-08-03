@@ -352,9 +352,9 @@ void HybridRequest_HoldArgv(HybridRequest *req, RedisModuleString **argv, int ar
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
-  if (!req->brc->argvHolds) {
-    HybridRequest_HoldArgv(req, argv, argc);
-  }
+  // The dispatch site held the argv on the main thread (HybridRequest_HoldArgv)
+  // before any parsing begins; string refcounts are main-thread-only.
+  RS_ASSERT(req->brc->argvHolds != NULL);
   // The caller's argc bounds the parse (the coordinator debug flow strips
   // trailing debug params); the holds may cover a superset.
   RS_ASSERT((size_t)(argc - step) <= req->brc->nargvHolds);

@@ -2080,8 +2080,11 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ *r = AREQ_New();
   BlockedRequestCtx_NewAREQ(r);
+  // Hold the argv here, on the main thread, and parse from the holds: the
+  // plan's borrows must outlive this handler (cursors, worker execution).
+  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
 
-  if (prepareRequest(&r, ctx, argv, argc, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, r->brc->argvHolds, argc, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
@@ -2119,7 +2122,8 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                           QueryError *status) {
   AREQ *r = AREQ_New();
   BlockedRequestCtx_NewAREQ(r);
-  if (buildRequest(ctx, argv, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
+  if (buildRequest(ctx, r->brc->argvHolds, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
@@ -2733,9 +2737,12 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   debug_params = debug_req->debug_params;
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  // Hold the full argv (a superset: the debug tail is trimmed off the parsed
+  // argc below, and separately held by AREQ_Debug_New).
+  BlockedRequestCtx_HoldArgv(r->brc, argv, argc);
   // Parse the query, not including debug params
 
-  if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, r->brc->argvHolds, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);

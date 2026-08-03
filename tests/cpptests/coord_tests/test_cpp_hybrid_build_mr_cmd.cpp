@@ -208,6 +208,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
+        HybridRequest_HoldArgv(hreq, args, args.size());
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
 
         QueryError status = QueryError_Default();
@@ -300,6 +301,7 @@ protected:
         cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
         ArgsCursor ac = {};
+        HybridRequest_HoldArgv(hreq, args, args.size());
         HybridRequest_InitArgsCursor(hreq, &ac, args, args.size());
         QueryError status = QueryError_Default();
         int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &status, false, EXEC_NO_FLAGS);

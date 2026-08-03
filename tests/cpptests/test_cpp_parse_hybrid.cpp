@@ -127,6 +127,7 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
+    HybridRequest_HoldArgv(hybridRequest, args, args.size());
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
     int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
@@ -1042,6 +1043,7 @@ TEST_F(ParseHybridTest, testExternalCommandWith_NUM_SSTRING) {
 
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
+  HybridRequest_HoldArgv(hybridRequest, args, args.size());
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Should fail as external command";
@@ -1062,6 +1064,7 @@ TEST_F(ParseHybridTest, testExternalCommandWithWithScores) {
 
   QueryError status = QueryError_Default();
   ArgsCursor ac = {0};
+  HybridRequest_HoldArgv(hybridRequest, args, args.size());
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_PARSE_ARGS) << "Public FT.HYBRID should reject WITHSCORES";
@@ -1095,6 +1098,7 @@ TEST_F(ParseHybridTest, testInternalCommandWith_NUM_SSTRING) {
 
   ASSERT_FALSE(result.hybridParams->aggregationParams.common.reqflags & QEXEC_F_TYPED);
   ArgsCursor ac = {0};
+  HybridRequest_HoldArgv(hybridRequest, args, args.size());
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, true, EXEC_NO_FLAGS);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_OK) << "Should succeed as internal command";
@@ -1118,6 +1122,7 @@ void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expecte
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
+  HybridRequest_HoldArgv(hybridRequest, args, args.size());
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args, args.size());
   int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);

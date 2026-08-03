@@ -131,6 +131,7 @@ bool SetupHybridIteratorTest(RedisModuleCtx *ctx,
     };
 
     ArgsCursor ac = {0};
+    HybridRequest_HoldArgv(testCtx->hybridReq, args, args.size());
     HybridRequest_InitArgsCursor(testCtx->hybridReq, &ac, args, args.size());
 
     int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, &testCtx->status, false, EXEC_NO_FLAGS);

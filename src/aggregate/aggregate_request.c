@@ -1407,16 +1407,12 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
-  if (!brc->argvHolds) {
-    // Parsing on the main thread with the caller's argv: hold references so
-    // the plan's borrows stay valid for the request's lifetime. Flows that
-    // parse on a background thread hold the argv at dispatch (on the main
-    // thread) and pass a slice of the holds here instead.
-    BlockedRequestCtx_HoldArgv(brc, argv, argc);
-    argv = brc->argvHolds;
-  } else {
-    RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
-  }
+  // The dispatch site held the argv on the main thread and passes a slice of
+  // the holds here; the plan's borrows stay valid for the request's lifetime.
+  // Holding lazily instead would touch string refcounts on whatever thread
+  // parses, and refcounts are main-thread-only.
+  RS_ASSERT(brc->argvHolds != NULL);
+  RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
   req->parseArgv = argv;
 
   // Parse the query and basic keywords first..

@@ -1344,6 +1344,9 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   CurrentThread_SetIndexSpec(spec_ref);
 
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx);
+  // This handler parses inline on the main thread; hold the argv the plans
+  // will borrow from before parsing starts.
+  HybridRequest_HoldArgv(hybridRequest, argv, argc);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;
   if (debugParams) {
