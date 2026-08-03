@@ -372,7 +372,13 @@ struct BlockedRequestCtx {
    * AREQ_Compile for plain requests, setSubQueryArg for hybrid sub-requests.
    * SIZE_MAX (the constructor default) means no query argument — a hybrid
    * VSIM sub-request without a FILTER, or a hybrid container (whose tail has
-   * no query of its own). Meaningless until parsing. */
+   * no query of its own). Meaningless until parsing.
+   * Per flow: 2 for standalone commands and shard-side _FT.AGGREGATE (holds
+   * cover the full argv; the slice starts past command + index name);
+   * variable for shard-side profile commands (past the ParseProfile prefix);
+   * 1 for the hybrid SEARCH sub (stepped holds are ["SEARCH", <query>, ...]);
+   * data-dependent for the hybrid VSIM sub's optional FILTER — the one
+   * position no context hardcodes, which is why this is a stored field. */
   size_t parseOffset;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
