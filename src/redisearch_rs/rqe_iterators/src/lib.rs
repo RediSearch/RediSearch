@@ -231,6 +231,16 @@ pub trait RQEIterator<'index> {
     /// Returns `false` if the iterator can yield more results.
     /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
     /// when [`read`](Self::read) would return `Ok(None)`.
+    ///
+    /// # Contract
+    ///
+    /// This is a *look-ahead* — "the next `read` yields nothing" — and not a
+    /// has-current test. It is therefore already `true` while the iterator is
+    /// still positioned on its last result, so it cannot distinguish "on the
+    /// final document" from "positioned nowhere".
+    ///
+    /// [`current`](Self::current) is the has-current question, and is the one
+    /// to ask when recovering a position after a [`ResumeOutcome::Moved`].
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.
