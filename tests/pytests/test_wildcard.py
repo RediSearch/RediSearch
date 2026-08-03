@@ -561,9 +561,9 @@ def testWildcardQuestionMarkMultibyteWithoutSuffixTrie():
 @skip(cluster=True)
 def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     """With WITHSUFFIXTRIE, the candidate terms found via the suffix trie are
-    re-filtered byte-wise (Suffix_CB_Wildcard -> Wildcard_MatchChar), where `?`
-    consumes one byte — so w'entr?' does NOT match 'entré' ('é' is two UTF-8
-    bytes)."""
+    re-filtered rune-wise (Suffix_CB_Wildcard -> Wildcard_MatchRune), where `?`
+    consumes one codepoint — so w'entr?' matches 'entré', the same result the
+    brute-force path produces without the suffix trie."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -572,4 +572,4 @@ def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     conn.execute_command('HSET', 'doc2', 't', 'entrx')
 
     res = env.cmd('FT.SEARCH', 'idx', "w'entr?'", 'NOCONTENT')
-    env.assertEqual(res, [1, 'doc2'])
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
