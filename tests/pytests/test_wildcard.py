@@ -331,6 +331,104 @@ def testLowerUpperCase(env):
   env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
   env.expect('FT.SEARCH', 'idx', "w'*EL*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
 
+# The overlong two-byte encoding of NUL. `nu_utf8_read` decodes it to codepoint
+# 0, but neither byte is a literal NUL, so it survives the escape/unescape steps
+# that would truncate a real NUL and reaches the rune conversion intact.
+_OVERLONG_NUL = bytes([0xC0, 0x80])
+
+def _assertSurvivesDecodedNulToken(env, conn, query):
+  """Send `query` (which decodes to a NUL codepoint mid-token) and assert the
+  server survives it.
+
+  Lowercasing a query token to runes sizes the output buffer in one pass and
+  fills it in another. The measuring pass stops at the first codepoint that
+  decodes to 0; the fill pass runs to the end of the token, so every codepoint
+  after an embedded decoded-NUL is written past the allocation — an attacker
+  controls both the length and the values of that write. Under AddressSanitizer
+  (`SAN=address`) this is an immediate, reliably-detected heap-buffer-overflow;
+  on a plain build it corrupts the heap. A correct build decodes the whole token
+  consistently and stays responsive.
+  """
+  try:
+    conn.execute_command('FT.SEARCH', 'idx', query, 'NOCONTENT')
+  except Exception:
+    # A graceful error reply is fine; a dropped connection means the server
+    # crashed, which the liveness assertion below reports. Either way the test
+    # must not stop here.
+    pass
+
+  env.assertTrue(env.isUp(),
+                 message='server crashed evaluating a decoded-NUL token: %r' % query)
+
+@skip(cluster=True)
+def testWildcardDecodedNulOverflow(env):
+  """Regression: a `w'...'` wildcard token whose bytes decode to a NUL codepoint
+  before their end must not overflow the rune buffer during evaluation.
+
+  The verbatim wildcard grammar accepts arbitrary bytes, so this is the easiest
+  path to reach the conversion with an embedded decoded-NUL. See
+  `_assertSurvivesDecodedNulToken` for the overflow mechanism.
+  """
+  conn = getConnectionByEnv(env)
+
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  # The leading overlong NUL sizes the rune buffer at one element; the 500
+  # trailing bytes are written past it.
+  _assertSurvivesDecodedNulToken(env, conn, b"w'" + _OVERLONG_NUL + b'a' * 500 + b"'")
+
+  # The server must still serve a well-formed wildcard query.
+  env.expect('FT.SEARCH', 'idx', "w'hel*'", 'NOCONTENT').equal([1, 'doc1'])
+
+@skip(cluster=True)
+def testPrefixDecodedNulOverflow(env):
+  """Regression: the same rune-buffer overflow is reachable through an ordinary
+  prefix query, not only verbatim wildcards.
+
+  A prefix token is copied verbatim (minus backslash escapes) and its length
+  taken with `strlen`, so the non-NUL bytes of an overlong NUL pass straight
+  through into the token that prefix evaluation lowercases to runes. No `w'...'`
+  syntax is required. See `_assertSurvivesDecodedNulToken` for the mechanism.
+  """
+  conn = getConnectionByEnv(env)
+
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  # `abc<overlong-NUL>` sizes the buffer for 3 runes; the trailing bytes before
+  # the `*` are written past it.
+  _assertSurvivesDecodedNulToken(env, conn, b'abc' + _OVERLONG_NUL + b'd' * 500 + b'*')
+
+  # The server must still serve a well-formed prefix query.
+  env.expect('FT.SEARCH', 'idx', 'hel*', 'NOCONTENT').equal([1, 'doc1'])
+
+@skip(cluster=True)
+def testWildcardEmptyPatternAfterDecodedNul(env):
+  """Regression: a `w'...'` token that decodes to an *empty* rune pattern must
+  not read before the start of the (empty) rune buffer.
+
+  When the token is exactly one decoded-NUL codepoint (no bytes before or
+  after it), `strToLowerRunes` now stops at that NUL immediately, so it
+  returns a non-NULL buffer with a rune count of 0 rather than overflowing it
+  (see `testWildcardDecodedNulOverflow`). `TrieNode_IterateWildcard` builds its
+  match context from `str[nstr - 1]` unconditionally to check for a trailing
+  `*`; with `nstr == 0` that reads `str[-1]`, one rune before the allocation.
+  """
+  conn = getConnectionByEnv(env)
+
+  env.expect(config_cmd(), 'SET', 'DEFAULT_DIALECT', 2).ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+
+  # The whole token is the overlong NUL: it decodes to zero runes.
+  _assertSurvivesDecodedNulToken(env, conn, b"w'" + _OVERLONG_NUL + b"'")
+
+  # The server must still serve a well-formed wildcard query.
+  env.expect('FT.SEARCH', 'idx', "w'hel*'", 'NOCONTENT').equal([1, 'doc1'])
+
 
 def testBasic():
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
