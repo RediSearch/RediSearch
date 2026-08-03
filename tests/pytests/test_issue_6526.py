@@ -8,7 +8,10 @@ def test_aggregate_drops_doc_reindexed_during_load():
     # A dedicated environment is required for the background safe-loader path and its debug hook.
     if not MT_BUILD:
         raise SkipTest('MT_BUILD is not set')
-    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 1')
+    env = Env(
+        enableDebugCommand=True,
+        moduleArgs='WORKERS 1 MIN_OPERATION_WORKERS 0',
+    )
     conn = getConnectionByEnv(env)
 
     env.expect(
