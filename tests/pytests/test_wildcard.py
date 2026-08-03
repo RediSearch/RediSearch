@@ -568,8 +568,6 @@ def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     conn = getConnectionByEnv(env)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
-    # Same corpus as the WithoutSuffixTrie test: the all-ASCII term still
-    # matches through the byte-wise filter, the multibyte one is dropped.
     conn.execute_command('HSET', 'doc1', 't', 'entré')
     conn.execute_command('HSET', 'doc2', 't', 'entrx')
 
