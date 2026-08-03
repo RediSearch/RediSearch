@@ -140,7 +140,30 @@ impl MockData {
             resume_error: None,
             delays: Vec::new(),
             force_read_none: false,
+            resume_reseeks_past_end: false,
         })))
+    }
+
+    /// Make `resume` reproduce an inverted-index re-seek that runs off the end.
+    ///
+    /// A plain [`MockRevalidateResult::Move`] models a resume that lands on a
+    /// later document. The real inverted-index iterators have a second, quite
+    /// different `Moved` shape that no mock could express: when GC invalidates
+    /// the cached block offset, `RawInvIndIterator::resume_in_place` *rewinds*
+    /// and then re-seeks to the last doc id. If that seek finds nothing, the
+    /// iterator ends up at EOF with `last_doc_id()` reset to `0` — its
+    /// pre-suspend position is gone rather than advanced.
+    ///
+    /// That matters because a composite cannot recognise this case by comparing
+    /// the child's pre- and post-resume `last_doc_id`: the cached id went
+    /// backwards, not forwards. Only [`RQEIterator::current`] returning `None`
+    /// identifies it.
+    ///
+    /// When set, `resume` ignores the configured [`MockRevalidateResult`] and
+    /// reports `Moved` with the iterator rewound and past its end.
+    pub fn set_resume_reseeks_past_end(&mut self, reseeks_past_end: bool) -> &mut Self {
+        self.0.borrow_mut().resume_reseeks_past_end = reseeks_past_end;
+        self
     }
 
     /// Configure the result that [`Mock::revalidate`] will report.
@@ -237,6 +260,9 @@ struct MockDataInternal {
     /// If true, the next call to `read()` will return `None` even if not at EOF.
     /// Simulates Inverted Index iterators that discover EOF only when `read()` is called.
     force_read_none: bool,
+    /// If true, `resume` rewinds and reports `Moved` past the end — see
+    /// [`MockData::set_resume_reseeks_past_end`].
+    resume_reseeks_past_end: bool,
 }
 
 impl MockDataInternal {
@@ -565,16 +591,32 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
-        let (revalidate_result, resume_error) = {
+        let (revalidate_result, resume_error, reseeks_past_end) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
-            (data.revalidate_result, data.resume_error)
+            (
+                data.revalidate_result,
+                data.resume_error,
+                data.resume_reseeks_past_end,
+            )
         };
         // Injected resume failure (see `MockData::set_error_on_resume`): drop the
         // suspended mock and surface the error, mirroring a real child whose
         // revalidation-via-resume fails.
         if let Some(err) = resume_error {
             return Err(err.into_rqe_iterator_error());
+        }
+        if reseeks_past_end {
+            // Reproduce `RawInvIndIterator::resume_in_place` on a GC-invalidated
+            // offset whose re-seek finds nothing: rewind, then end up at EOF with
+            // the cached doc id reset to 0 rather than advanced. See
+            // `MockData::set_resume_reseeks_past_end`.
+            self.result.doc_id = 0;
+            self.next_index = N + 1;
+            let raw = Box::into_raw(self);
+            // SAFETY: layout-identical (see [`Mock::suspend`]).
+            let active = unsafe { Box::from_raw(raw as *mut Mock<'a, N>) };
+            return Ok(rqe_iterators::ResumeOutcome::Moved(active));
         }
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
