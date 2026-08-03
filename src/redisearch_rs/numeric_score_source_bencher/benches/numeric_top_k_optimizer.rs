@@ -20,13 +20,16 @@
 //!   iterators nor the Rust source, on its default `NoTimeoutChecker`, polls
 //!   one, so no timeout bookkeeping is priced into either arm.
 //!
-//! Three groups × two sides (rust / c):
+//! Four groups × two sides (rust / c):
 //!
 //! - `numeric_top_k/filtered`    — sorted-id child passing a tenth of the index.
 //! - `numeric_top_k/unfiltered`  — no child filter on the Rust side, the child
 //!   the C planner uses for a bare `SORTBY` (a wildcard) on the C side.
 //! - `numeric_top_k/selectivity` — child selectivity swept at a fixed index size
 //!   and `k`, across the range where the retry expansion starts to bite.
+//! - `numeric_top_k/expensive_child` — the same sweep with the ids behind a
+//!   union of eight id lists, so that reading, skipping and rewinding the child
+//!   costs what a real filter subtree costs.
 //!
 //! Known asymmetries:
 //!
@@ -61,7 +64,7 @@ use numeric_score_source::{
     NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
 use rqe_core::DocId;
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::{IdList, RQEIterator, UnionQuickFlat};
 use rqe_iterators_test_utils::TestContext;
 
 /// Sort direction both sides run in (`SORTBY <field> ASC`).
@@ -78,12 +81,14 @@ const FIELD: &CStr = c"num_field";
 unsafe extern "C" {
     /// Drive the real C `OptimizerIterator` over a child filter and count
     /// results. A null `ids` selects a wildcard child over doc ids
-    /// `1..=child_count`, otherwise the ids are taken as a sorted-id child.
+    /// `1..=child_count`, otherwise the ids are taken as a sorted-id child —
+    /// spread over a union of `union_arity` such lists when that exceeds 1.
     fn bench_c_optimizer(
         sctx: *mut RedisSearchCtx,
         field_name: *const c_char,
         ids: *mut DocId,
         child_count: usize,
+        union_arity: usize,
         k: usize,
         ascending: c_int,
     ) -> usize;
@@ -178,7 +183,10 @@ impl Index {
 }
 
 /// Run one Rust top-k scan against the given child ids, returning result count.
-fn run_rust_filtered(index: &Index, ids: &[DocId], k: NonZeroUsize) -> usize {
+///
+/// `union_arity` above 1 spreads the ids over that many id lists behind a union,
+/// making every child read, skip and rewind cost more than a single list would.
+fn run_rust_filtered(index: &Index, ids: &[DocId], union_arity: usize, k: NonZeroUsize) -> usize {
     let child_estimate = ids.len();
     let filter = NumericFilter {
         limit: estimate_limit(index.n, child_estimate, k.get()),
@@ -192,14 +200,35 @@ fn run_rust_filtered(index: &Index, ids: &[DocId], k: NonZeroUsize) -> usize {
         index.n,
         child_estimate,
     );
-    // Fresh owned copy each call, mirroring the C side's per-run id allocation.
-    let child = IdList::<true>::new(ids.to_vec());
-    let mut it = new_numeric_top_k_filtered(source, child, k);
+    // Fresh owned copies each call, mirroring the C side's per-run allocation.
     let mut count = 0usize;
-    while it.read().unwrap().is_some() {
-        count += 1;
+    if union_arity > 1 {
+        let child = UnionQuickFlat::new(partition_ids(ids, union_arity));
+        let mut it = new_numeric_top_k_filtered(source, child, k);
+        while it.read().unwrap().is_some() {
+            count += 1;
+        }
+    } else {
+        let child = IdList::<true>::new(ids.to_vec());
+        let mut it = new_numeric_top_k_filtered(source, child, k);
+        while it.read().unwrap().is_some() {
+            count += 1;
+        }
     }
     count
+}
+
+/// Spread `ids` round-robin over `arity` sorted id lists.
+///
+/// Every list then holds ids from across the whole doc-id space, so each step of
+/// the union over them interleaves the lists rather than draining one at a time.
+fn partition_ids(ids: &[DocId], arity: usize) -> Vec<IdList<'static, true>> {
+    (0..arity)
+        .map(|slot| {
+            let part: Vec<DocId> = ids.iter().skip(slot).step_by(arity).copied().collect();
+            IdList::new(part)
+        })
+        .collect()
 }
 
 /// Run one Rust top-k scan with no child filter, returning result count.
@@ -215,7 +244,7 @@ fn run_rust_unfiltered(index: &Index, k: NonZeroUsize) -> usize {
 
 /// Run one C OptimizerIterator scan to depletion, returning result count.
 /// `ids` of `None` selects the wildcard child, matching the Rust unfiltered run.
-fn run_c(index: &Index, ids: Option<&[DocId]>, k: NonZeroUsize) -> usize {
+fn run_c(index: &Index, ids: Option<&[DocId]>, union_arity: usize, k: NonZeroUsize) -> usize {
     // Fresh owned copy each call: the child iterator frees it via RedisModule_Free.
     let (ids_ptr, child_count) = match ids {
         Some(ids) => (alloc_owned_ids(ids), ids.len()),
@@ -230,6 +259,7 @@ fn run_c(index: &Index, ids: Option<&[DocId]>, k: NonZeroUsize) -> usize {
             FIELD.as_ptr(),
             ids_ptr,
             child_count,
+            union_arity,
             k.get(),
             ASCENDING as c_int,
         )
@@ -239,11 +269,11 @@ fn run_c(index: &Index, ids: Option<&[DocId]>, k: NonZeroUsize) -> usize {
 /// Validate that both sides produce the expected result count before the timed
 /// loop starts. Catches iterator bugs, shim error paths, and index setup
 /// mistakes that would otherwise silently corrupt the Rust/C timing comparison.
-fn preflight(index: &Index, ids: Option<&[DocId]>, k: NonZeroUsize) {
+fn preflight(index: &Index, ids: Option<&[DocId]>, union_arity: usize, k: NonZeroUsize) {
     let expected = k.get().min(ids.map_or(index.n, <[DocId]>::len));
 
     let rust_count = match ids {
-        Some(ids) => run_rust_filtered(index, ids, k),
+        Some(ids) => run_rust_filtered(index, ids, union_arity, k),
         None => run_rust_unfiltered(index, k),
     };
     assert_eq!(
@@ -255,7 +285,7 @@ fn preflight(index: &Index, ids: Option<&[DocId]>, k: NonZeroUsize) {
         child = ids.map(<[DocId]>::len),
     );
 
-    let c_count = run_c(index, ids, k);
+    let c_count = run_c(index, ids, union_arity, k);
     assert_eq!(
         c_count,
         expected,
@@ -278,14 +308,14 @@ fn bench_filtered(c: &mut Criterion) {
             let ids = child_ids(n, (n / 10).max(k.get()));
             let param_str = format!("n{n}_k{k}");
 
-            preflight(&index, Some(&ids), k);
+            preflight(&index, Some(&ids), 1, k);
 
             group.bench_with_input(BenchmarkId::new("rust", &param_str), &(n, k), |b, _| {
-                b.iter(|| black_box(run_rust_filtered(&index, &ids, k)))
+                b.iter(|| black_box(run_rust_filtered(&index, &ids, 1, k)))
             });
 
             group.bench_with_input(BenchmarkId::new("c", &param_str), &(n, k), |b, _| {
-                b.iter(|| black_box(run_c(&index, Some(&ids), k)))
+                b.iter(|| black_box(run_c(&index, Some(&ids), 1, k)))
             });
         }
     }
@@ -304,14 +334,14 @@ fn bench_unfiltered(c: &mut Criterion) {
         for k in [10usize, 100].map(|k| NonZeroUsize::new(k).unwrap()) {
             let param_str = format!("n{n}_k{k}");
 
-            preflight(&index, None, k);
+            preflight(&index, None, 1, k);
 
             group.bench_with_input(BenchmarkId::new("rust", &param_str), &(n, k), |b, _| {
                 b.iter(|| black_box(run_rust_unfiltered(&index, k)))
             });
 
             group.bench_with_input(BenchmarkId::new("c", &param_str), &(n, k), |b, _| {
-                b.iter(|| black_box(run_c(&index, None, k)))
+                b.iter(|| black_box(run_c(&index, None, 1, k)))
             });
         }
     }
@@ -355,19 +385,62 @@ fn bench_selectivity(c: &mut Criterion) {
     for case in SELECTIVITY_CASES {
         let ids = child_ids(N, case.child_count);
 
-        preflight(&index, Some(&ids), k);
+        preflight(&index, Some(&ids), 1, k);
 
         group.bench_with_input(BenchmarkId::new("rust", case.label), &(), |b, _| {
-            b.iter(|| black_box(run_rust_filtered(&index, &ids, k)));
+            b.iter(|| black_box(run_rust_filtered(&index, &ids, 1, k)));
         });
 
         group.bench_with_input(BenchmarkId::new("c", case.label), &(), |b, _| {
-            b.iter(|| black_box(run_c(&index, Some(&ids), k)));
+            b.iter(|| black_box(run_c(&index, Some(&ids), 1, k)));
         });
     }
 
     group.finish();
 }
 
-criterion_group!(benches, bench_filtered, bench_unfiltered, bench_selectivity);
+// ── Expensive child ──────────────────────────────────────────────────────────
+//
+// The same selectivities as above, but with the ids spread over a union of eight
+// id lists instead of one. Every child read, skip and rewind now costs a pass
+// over eight sub-iterators, which is what a real text filter subtree looks like.
+//
+// Both sides walk this child; only the Rust side walks it twice, once to prune
+// the batch during materialization and once to intersect it. This group is what
+// prices that second walk.
+
+/// Number of id lists the expensive child's union spans.
+const UNION_ARITY: usize = 8;
+
+fn bench_expensive_child(c: &mut Criterion) {
+    let mut group = c.benchmark_group("numeric_top_k/expensive_child");
+
+    const N: usize = 100_000;
+    let k = NonZeroUsize::new(100).unwrap();
+    let index = Index::new(N);
+
+    for case in SELECTIVITY_CASES {
+        let ids = child_ids(N, case.child_count);
+
+        preflight(&index, Some(&ids), UNION_ARITY, k);
+
+        group.bench_with_input(BenchmarkId::new("rust", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_rust_filtered(&index, &ids, UNION_ARITY, k)));
+        });
+
+        group.bench_with_input(BenchmarkId::new("c", case.label), &(), |b, _| {
+            b.iter(|| black_box(run_c(&index, Some(&ids), UNION_ARITY, k)));
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_filtered,
+    bench_unfiltered,
+    bench_selectivity,
+    bench_expensive_child
+);
 criterion_main!(benches);
