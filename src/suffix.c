@@ -361,11 +361,15 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
     return 0;
   }
 
-  rune *token = sufCtx->rune + idx[useIdx];
   size_t toklen = lens[useIdx];
-  if (token[toklen] == (rune)'*') {
+  if (sufCtx->rune[idx[useIdx] + toklen] == (rune)'*') {
     toklen++;
   }
+  // The trie walk wants a NUL-terminated token, but the pattern buffer must
+  // stay intact: Suffix_CB_Wildcard re-filters every candidate against
+  // sufCtx->rune while the iteration is running. Terminate a copy instead.
+  rune token[toklen + 1];
+  memcpy(token, sufCtx->rune + idx[useIdx], toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
   Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
