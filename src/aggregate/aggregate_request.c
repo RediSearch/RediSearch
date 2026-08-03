@@ -1544,6 +1544,10 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     // Resolve INKEYS key names -> docIds here (main thread, both modes):
     // DocIdMeta_Get opens the key (needs the GIL) so it must not run on a
     // background query thread. The evaluator then only consumes docIds.
+    // Resolving at admission rather than at snapshot time leaves a window: a key
+    // re-indexed before the worker takes the spec read lock keeps its stale, now
+    // deleted docId and drops out of the results - the same observable outcome as
+    // the Result_ExpiredDoc path takes for any doc re-indexed mid-query.
     filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
       uint64_t docId = 0;
