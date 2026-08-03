@@ -1018,6 +1018,20 @@ static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **ar
   return RedisModule_ReplyWithError(ctx, "INVOCATION FAILED");
 }
 
+// Refuse a forced GC on a disk index while background work is paused: the
+// compaction's wait=true memtable flush cannot be scheduled until a resume, so
+// the cycle parks — stranding a GC worker that holds the disk-GC run lock, or
+// blocking the main thread on the no-GCContext fallback. Mirrors DISK_FLUSH.
+// Replies with an error and returns true when the caller must refuse.
+static bool rejectForcedGCWhileBgWorkPaused(RedisModuleCtx *ctx, IndexSpec *sp) {
+  if (sp->diskSpec && SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    RedisModule_ReplyWithError(
+        ctx, "Cannot run GC while background work is paused; use DISK_RESUME_BG_WORK first");
+    return true;
+  }
+  return false;
+}
+
 // FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
 DEBUG_COMMAND(GCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1031,6 +1045,10 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (rejectForcedGCWhileBgWorkPaused(ctx, sp)) {
+    return REDISMODULE_OK;
   }
 
   // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
@@ -1125,8 +1143,8 @@ DEBUG_COMMAND(DiskFlushNoWait) {
 
 // FT.DEBUG DISK_PAUSE_BG_WORK <index>
 // Pause background flush and compaction on the index's database. Blocks until
-// in-flight jobs drain. Must be balanced by DISK_RESUME_BG_WORK; a blocking
-// DISK_FLUSH while paused is rejected to avoid a deadlock.
+// in-flight jobs drain. Must be balanced by DISK_RESUME_BG_WORK; while paused,
+// DISK_FLUSH, GC_FORCEINVOKE and GC_FORCEBGINVOKE are rejected — all deadlock.
 DEBUG_COMMAND(DiskPauseBackgroundWork) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1191,6 +1209,9 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+  if (rejectForcedGCWhileBgWorkPaused(ctx, sp)) {
+    return REDISMODULE_OK;
   }
   GCContext_ForceBGInvoke(sp->gc);
   RedisModule_ReplyWithSimpleString(ctx, "OK");

@@ -321,6 +321,11 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * the compaction callback table that was bound to the IndexSpec at open time;
  * those callbacks take the IndexSpec write lock around the update window.
  *
+ * MUST NOT be called while background work is paused
+ * (SearchDisk_IsBackgroundWorkPaused): the compaction flushes the memtable
+ * first with wait=true, and that flush can only be scheduled once background
+ * work resumes.
+ *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
  * `stats` before the call.
@@ -871,7 +876,9 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
  * Reference-counted: each call must be balanced by
  * SearchDisk_ContinueBackgroundWork. Blocks until in-flight background jobs
  * drain. Test-support primitive used with SearchDisk_FlushNoWait to observe
- * flush-state INFO metrics deterministically.
+ * flush-state INFO metrics deterministically. While paused, neither
+ * SearchDisk_Flush nor SearchDisk_RunGC may be issued — both wait on the
+ * parked worker.
  *
  * @param index Pointer to the disk index spec
  */
