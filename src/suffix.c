@@ -301,7 +301,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     // 1. long string are likely to have less results
-    // 2. tokens at end of pattern are likely to be more relevant
+    // 2. score ties are broken in favor of the later token (`>=` below)
     int curScore = tokenLen[i] + 1;
 
     // iterating all children is demanding
