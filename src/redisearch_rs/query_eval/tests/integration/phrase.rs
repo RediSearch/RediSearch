@@ -9,7 +9,7 @@
 
 //! QN_PHRASE → Intersection
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -34,7 +34,7 @@ fn eval_phrase_single_child_returns_child() {
     phrase.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -104,7 +104,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -164,7 +164,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -225,7 +225,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -280,7 +280,7 @@ mod phrase {
         phrase.set_children(&[missing_child.as_ptr(), ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 
@@ -336,7 +336,7 @@ mod phrase {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -384,7 +384,7 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 
@@ -415,7 +415,7 @@ mod phrase_reducer {
         phrase.set_children(&[c1.as_ptr(), c2.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(phrase.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, node, Config::default())
+        let mut it = eval_node(&mut ctx, node, Config::default())
             .expect("a multi-child phrase always yields an iterator")
             .into_boxed();
 
