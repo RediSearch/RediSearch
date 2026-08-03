@@ -58,16 +58,6 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
         }
     }
 
-    /// Creates a new empty contains iterator, that yields no entries.
-    pub(crate) fn empty() -> Self {
-        Self {
-            stack: vec![],
-            key: vec![],
-            finder: Finder::new(b""),
-            timeout: IteratorTimeoutState::no_timeout(),
-        }
-    }
-
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
         self.timeout = timeout.into()
     }

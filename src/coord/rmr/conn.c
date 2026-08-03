@@ -9,8 +9,7 @@
 #include "conn.h"
 
 #include <uv.h>
-#include <openssl/ssl3.h>
-#include <openssl/types.h>
+#include <openssl/ssl.h>
 #include <string.h>
 #include <sys/time.h>
 

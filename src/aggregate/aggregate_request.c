@@ -949,18 +949,24 @@ static int parseGroupby(AGGPlan *plan, ArgsCursor *ac, QueryError *status) {
   const char *s;
   AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
 
-  long long nproperties;
-  int rv = AC_GetLongLong(ac, &nproperties, 0);
+  ArgsCursor propertiesAC = {0};
+  int rv = AC_GetVarArgs(ac, &propertiesAC);
   if (rv != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
-  const char **properties = array_newlen(const char *, nproperties);
-  for (size_t i = 0; i < nproperties; ++i) {
+  uint32_t propertyCount = (uint32_t)AC_NumArgs(&propertiesAC);
+  if (propertyCount > MAX_GROUPBY_PROPERTIES) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(AC_ERR_ELIMIT));
+    return REDISMODULE_ERR;
+  }
+
+  const char **properties = array_newlen(const char *, propertyCount);
+  for (uint32_t i = 0; i < propertyCount; ++i) {
     const char *property;
     size_t propertyLen;
-    rv = AC_GetString(ac, &property, &propertyLen, 0);
+    rv = AC_GetString(&propertiesAC, &property, &propertyLen, 0);
     if (rv != AC_OK) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for GROUPBY: %s", AC_Strerror(rv));
       array_free(properties);
@@ -1131,7 +1137,6 @@ AREQ *AREQ_New(void) {
   req->querySlots = NULL;
   RequestSyncState_Init(&req->syncState);
   req->brc = NULL;
-  req->storedReplyState.err = QueryError_Default();
   return req;
 }
 
@@ -1153,6 +1158,7 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   brc->safeLoadersHoldingGIL = 0;
   pthread_mutex_init(&brc->aggregateResultsLock, NULL);
   pthread_cond_init(&brc->aggregateResultsCond, NULL);
+  brc->reply.err = QueryError_Default();
   return brc;
 }
 
@@ -1193,6 +1199,10 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
+  // Idempotent after EndCycle; still required for cycles that do not run
+  // EndCycle yet (coordinator paths until Step 5). Must run while the owned
+  // request is alive: disposing a stashed cursor clears its execState.
+  ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
     AREQ_Free(brc->query.areq);
@@ -1820,7 +1830,6 @@ void AREQ_Free(AREQ *req) {
     // Debug requests are allocated as AREQ_Debug (AREQ is the first member).
     AREQ_Debug_FreeParams((AREQ_Debug *)req);
   }
-  ChunkReplyState_Destroy(&req->storedReplyState);
 
   // Check if rootiter exists but pipeline was never built (no result processors)
   // In this case, we need to free the rootiter manually since no RPQueryIterator
@@ -1906,9 +1915,9 @@ void AREQ_Free(AREQ *req) {
 }
 
 void AREQ_CleanUpStoredCursor(AREQ *req) {
-  if (req->storedReplyState.cursor) {
-    Cursor *cursor = req->storedReplyState.cursor;
-    req->storedReplyState.cursor = NULL;
+  if (req->brc->reply.cursor) {
+    Cursor *cursor = req->brc->reply.cursor;
+    req->brc->reply.cursor = NULL;
     Cursor_Free(cursor);
   }
 }

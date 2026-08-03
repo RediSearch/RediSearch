@@ -13,11 +13,11 @@ pub mod iter;
 mod node;
 mod utils;
 
+use crate::automaton::{Automaton, wildcard::WildcardNfa};
 use crate::trie_map::{
     iter::{
-        Automaton, AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter,
-        RangeFilter, RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter,
-        WildcardNfa, filter::VisitAll,
+        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter,
+        RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,

@@ -288,7 +288,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     rs_wall_clock_init(&now);
 
     // Initialize error tracking for each individual request
-    hybridReq->errors = array_new(QueryError, nrequests);
+    hybridReq->errors = array_newlen(QueryError, nrequests);
     memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states
@@ -312,7 +312,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
     RequestSyncState_Init(&hybridReq->syncState);
     pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-    hybridReq->storedReplyState.err = QueryError_Default();
 
 
 }
@@ -418,9 +417,6 @@ void HybridRequest_Free(HybridRequest *req) {
 
     // Clean up the tail pipeline error
     QueryError_ClearError(&req->tailPipelineError);
-
-    // Clean up storedReplyState
-    ChunkReplyState_Destroy(&req->storedReplyState);
 
     // Destroy the cursor mutex
     pthread_mutex_destroy(&req->cursorMutex);

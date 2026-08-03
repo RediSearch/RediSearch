@@ -41,6 +41,24 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Collect GC delta data for every numeric and geo field in the spec and send
+ * it to the parent process over the pipe.
+ *
+ * For each NUMERIC or GEO field whose tree has been initialised, sends the
+ * field name and unique ID as a header, followed by one entry per tree node
+ * with GC work, then a per-field terminator. A final terminator is sent once
+ * all fields have been processed.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
  * Collect GC delta data for the spec's `existingDocs` inverted index and
  * send it to the parent process over the pipe.
  *
@@ -181,9 +199,10 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
  * On receipt of a `SIZE_MAX` length prefix (end-of-stream terminator), writes
  * `SIZE_MAX` to `*len` and a null pointer to `*buf`. Callers detect
  * end-of-stream by checking `*len == SIZE_MAX`. On a zero-length prefix,
- * writes `0` and a null pointer. Otherwise leaks a boxed payload slice,
+ * writes `0` and a null pointer. Otherwise allocates a payload buffer,
  * writing its pointer and length to `*buf` / `*len`; the caller is
- * responsible for releasing it with [`FGC_freeBuffer`].
+ * responsible for releasing it with [`FGC_freeBuffer`]. The payload is
+ * NUL-terminated (one byte past `*len`).
  *
  * On read error (timeout, short stream, ...), returns `REDISMODULE_ERR`
  * and leaves `*buf` / `*len` unchanged.
@@ -201,7 +220,9 @@ int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
  * Receive a field header (field name + unique id).
  *
  * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,
- * or an error variant on pipe failure.
+ * or an error variant on pipe failure. On success, the field name written to
+ * `*field_name` is NUL-terminated (one byte past `*field_name_len`).
+ * Release it with [`FGC_freeBuffer`].
  *
  * # Safety
  *

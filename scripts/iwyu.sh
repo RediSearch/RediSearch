@@ -16,5 +16,8 @@ if [[ -z "${DB:-}" ]]; then
 fi
 echo "# compile db: $DB"
 
-iwyu_tool -p "$DB" "${@:-src}" \
+# Absolute: iwyu_tool runs each compilation from the compile db's directory.
+MAPPING=$(cd "$(dirname "$0")" && pwd)/iwyu.imp
+
+iwyu_tool -p "$DB" "${@:-src}" -- -Xiwyu "--mapping_file=$MAPPING" \
   | fix_include --nocomments --ignore_re '\.h$|query_parser/|src/geometry/rtree.cpp'

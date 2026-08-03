@@ -899,6 +899,12 @@ void SearchDisk_PreFork(IndexSpec *sp);
 void SearchDisk_PostFork(IndexSpec *sp);
 
 /**
+ * @brief Hot-restart save-ended hook: re-enable compactions, keep the numeric
+ * consistency gate closed. See IndexDiskAPI.hotRestartSaveEnded.
+ */
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp);
+
+/**
  * @brief Master-side SST replication ABORT hook for a single index.
  *
  * Dispatches to the disk-side replicationAbort hook, then releases whichever
@@ -944,6 +950,13 @@ typedef enum {
   SEARCH_DISK_SITE_COMPACTION_BEGIN = 0,
   SEARCH_DISK_SITE_COMPACTION_COMPLETED = 1,
   SEARCH_DISK_SITE_PRE_CHECKPOINT = 2,
+  // A numeric split between its Step B scan and its Step C+D commit (GC
+  // thread) — the mid-flight, nothing-committed point.
+  SEARCH_DISK_SITE_NUMERIC_SPLIT_PRE_COMMIT = 3,
+  // index_spec_pre_checkpoint right after the consistency gate of the
+  // numeric index closes (main thread); cross-wake source for
+  // deterministically deferring a held split.
+  SEARCH_DISK_SITE_NUMERIC_GATE_CLOSED = 4,
 } SearchDiskCompactionSite;
 
 /**

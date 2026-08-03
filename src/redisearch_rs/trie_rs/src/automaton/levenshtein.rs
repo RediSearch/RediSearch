@@ -23,7 +23,7 @@
 //! [`CodepointDecoder`]; keys that are not valid UTF-8 never match.
 
 use super::utf8::CodepointDecoder;
-use crate::iter::{Automaton, StateClass};
+use super::{Automaton, StateClass};
 
 /// Streaming automaton accepting keys within a Levenshtein distance of a
 /// needle, compared case-insensitively. See the [module docs](self) for the

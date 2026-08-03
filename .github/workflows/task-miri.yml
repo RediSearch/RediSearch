@@ -51,6 +51,7 @@ env:
 
 jobs:
   get-config:
+    permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
     with:
@@ -58,6 +59,9 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   build-image:
+    permissions: # task-build-cached-container.yml pushes the image to GHCR
+      contents: read
+      packages: write
     needs: get-config
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
@@ -145,7 +149,7 @@ jobs:
         run: eval "$POST_SETUP_SCRIPT"
 
       - name: Full checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
 
@@ -173,7 +177,7 @@ jobs:
 
       - name: Set log artifact name
         # Artifact names can't contain : / etc. (platform is e.g. "ubuntu:latest")
-        # and must be unique per shard, or actions/upload-artifact@v4 errors on
+        # and must be unique per shard, or actions/upload-artifact errors on
         # the second shard. Fold the partition (e.g. count:1/3) into the name and
         # sanitise invalid characters.
         id: log-artifact
@@ -208,7 +212,7 @@ jobs:
 
       - name: Upload Test Logs (failure)
         if: failure() || steps.rust_unit_tests_miri.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.log-artifact.outputs.name }}
           path: tests/**/logs/*.log*

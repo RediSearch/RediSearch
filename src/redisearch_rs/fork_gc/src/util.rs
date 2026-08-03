@@ -16,6 +16,7 @@ use std::{
 
 use hidden_string::HiddenStringRef;
 use nix::poll::{PollFd, PollFlags};
+use nul_terminated_bytes::NulTerminatedBytes;
 use redis_module::raw::RedisModule_ExitFromChild;
 
 /// Log a write error and terminate the current process.
@@ -82,7 +83,10 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
 }
 
 /// Wrap `bytes` in a temporary, non-owning [`HiddenStringRef`], pass it to `f`, then free it.
-pub fn with_hidden_string_ref<R>(bytes: &[u8], f: impl FnOnce(HiddenStringRef<'_>) -> R) -> R {
+pub fn with_hidden_string_ref<R>(
+    bytes: &NulTerminatedBytes,
+    f: impl FnOnce(HiddenStringRef<'_>) -> R,
+) -> R {
     // SAFETY: NewHiddenString wraps `bytes` into a heap-allocated HiddenString;
     // we only need it for the duration of `f` and free it immediately after.
     let hidden_string =

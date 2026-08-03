@@ -9,7 +9,6 @@
 
 //! A UTF-8 keyed trie map. See [`StrTrieMap`].
 
-pub mod automaton;
 pub mod iter;
 
 use crate::TrieMap;
@@ -95,9 +94,8 @@ impl<Data> StrTrieMap<Data> {
     /// order. See [`TrieMap::prefixed_iter`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// entry — the empty string is a prefix of every key.
     pub fn prefixed_iter(&self, prefix: &str) -> iter::PrefixedIter<'_, Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
@@ -106,9 +104,8 @@ impl<Data> StrTrieMap<Data> {
     /// `prefix`, in lexicographical order. See [`TrieMap::prefixed_values`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// value — the empty string is a prefix of every key.
     pub fn prefixed_values(&self, prefix: &str) -> iter::PrefixedValues<'_, Data> {
         iter::PrefixedValues::new(&self.inner, prefix)
     }
@@ -116,28 +113,29 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty
-    /// `suffix` yields zero matches.
+    /// `suffix` yields every entry — the empty string is a suffix of every
+    /// key.
     pub fn suffixed_iter(&self, suffix: &str) -> iter::SuffixedIter<'_, Data> {
         iter::SuffixedIter::new(&self.inner, suffix)
     }
 
     /// Yield every entry whose key contains `target` as a substring.
-    /// Empty `target` yields zero matches — without this short-circuit
-    /// memchr semantics would match every term.
+    /// Empty `target` yields every entry — the empty string is a substring
+    /// of every key.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }
 
     /// Yield every entry whose key equals `needle` after per-codepoint case
     /// folding, in lexicographical key order. See
-    /// [`CaseFoldExact`](automaton::CaseFoldExact) for the matching model.
+    /// [`CaseFoldExact`](crate::automaton::CaseFoldExact) for the matching model.
     pub fn case_insensitive_iter(&self, needle: &str) -> iter::CaseInsensitiveIter<'_, Data> {
         iter::CaseInsensitiveIter::new(&self.inner, needle)
     }
 
     /// Yield every entry whose case-folded key is within Levenshtein distance
     /// `max_dist` (in codepoints) of `needle`, in lexicographical key order.
-    /// See [`CaseFoldLevenshtein`](automaton::CaseFoldLevenshtein) for the
+    /// See [`CaseFoldLevenshtein`](crate::automaton::CaseFoldLevenshtein) for the
     /// matching model.
     pub fn fuzzy_iter(&self, needle: &str, max_dist: u32) -> iter::FuzzyIter<'_, Data> {
         iter::FuzzyIter::new(&self.inner, needle, max_dist)
@@ -158,7 +156,7 @@ impl<Data> StrTrieMap<Data> {
     /// Codepoint semantics: `?` matches one codepoint (`entr?` matches
     /// `entré`), `*` any run of codepoints. Differs from
     /// [`TrieMap::wildcard_iter`], which matches raw bytes. Matching is
-    /// case-sensitive. See [`CodepointWildcard`](automaton::CodepointWildcard)
+    /// case-sensitive. See [`CodepointWildcard`](crate::automaton::CodepointWildcard)
     /// for the matching model.
     pub fn wildcard_iter(&self, pattern: &str) -> iter::WildcardIter<'_, Data> {
         iter::WildcardIter::new(&self.inner, pattern)

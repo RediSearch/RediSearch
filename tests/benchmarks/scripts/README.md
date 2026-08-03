@@ -153,9 +153,56 @@ redis-cli -p 6379 FT.CREATE ms_marco_idx ON HASH PREFIX 1 doc: SCHEMA \
 
 ---
 
+# Dropindex KEEPDOCS Writer Contention Dataset
+
+Generate the dataset used by
+`tests/benchmarks/search-dropindex-keepdocs-gil-writer-contention.yml`.
+
+The default dataset creates 10K HASH indexes, loads 500 documents per index
+(5M HASH keys), then generates a deterministic benchmark stream where every
+`FT._DROPINDEXIFX ... _FORCEKEEPDOCS` is immediately followed by 100 short
+foreground `INCR` writes. The deterministic stream keeps those writes adjacent
+to background cleanup and avoids measuring a writer-only tail after all indexes
+are dropped.
+
+```bash
+python3 generate_dropindex_writer_contention_dataset.py \
+  --output-dir ./output/dropindex-keepdocs-gil-10K-indexes-500-docs
+
+./upload_to_s3.sh \
+  dropindex-keepdocs-gil-10K-indexes-500-docs \
+  ./output/dropindex-keepdocs-gil-10K-indexes-500-docs
+```
+
+The regular benchmark runner expects the SETUP and BENCH files to be available
+at the public S3 URLs referenced by the benchmark YAML.
+
+Run only this benchmark on `oss-standalone` with:
+
+```bash
+gh workflow run benchmark-runner.yml \
+  --repo RediSearch/RediSearch \
+  --ref master \
+  -f extended=false \
+  -f allowed_setup=oss-standalone \
+  -f benchmark_filter=search-dropindex-keepdocs-gil-writer-contention.yml
+```
+
+For local smoke testing, scale the workload down:
+
+```bash
+python3 generate_dropindex_writer_contention_dataset.py \
+  --dataset-name dropindex-keepdocs-gil-smoke \
+  --index-count 10 \
+  --docs-per-index 50 \
+  --writes-per-drop 10 \
+  --output-dir ./output/dropindex-keepdocs-gil-smoke
+```
+
+---
+
 ## References
 
 - [ir-datasets: msmarco-document-v2](https://ir-datasets.com/msmarco-document-v2.html)
 - [ftsb - Full-Text Search Benchmark](https://github.com/RediSearch/ftsb)
 - Confluence: "Performance Search - Load & Index measurements"
-

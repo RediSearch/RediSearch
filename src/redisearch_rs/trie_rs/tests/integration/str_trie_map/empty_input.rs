@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! The wrapper short-circuits three iterators when their input is empty,
-//! diverging from the inner [`TrieMap`](trie_rs::TrieMap) (whose
-//! [`prefixed_iter(&[])`](trie_rs::TrieMap::prefixed_iter) yields every
-//! entry).
+//! Empty search input matches every entry: the empty string is a prefix,
+//! suffix, and substring of every key — the same semantics as the inner
+//! [`TrieMap`](trie_rs::TrieMap).
 
 use trie_rs::str_trie_map::StrTrieMap;
 
@@ -23,22 +22,29 @@ fn populated() -> StrTrieMap<i32> {
 }
 
 #[test]
-fn prefixed_iter_empty_prefix_yields_nothing() {
+fn prefixed_iter_empty_prefix_yields_every_entry() {
     let trie = populated();
     let hits: Vec<_> = trie.prefixed_iter("").collect();
-    assert!(hits.is_empty());
+    assert_eq!(hits.len(), trie.len());
 }
 
 #[test]
-fn contains_iter_empty_target_yields_nothing() {
+fn prefixed_values_empty_prefix_yields_every_value() {
+    let trie = populated();
+    let hits: Vec<_> = trie.prefixed_values("").collect();
+    assert_eq!(hits.len(), trie.len());
+}
+
+#[test]
+fn contains_iter_empty_target_yields_every_entry() {
     let trie = populated();
     let hits: Vec<_> = trie.contains_iter("").collect();
-    assert!(hits.is_empty());
+    assert_eq!(hits.len(), trie.len());
 }
 
 #[test]
-fn suffixed_iter_empty_suffix_yields_nothing() {
+fn suffixed_iter_empty_suffix_yields_every_entry() {
     let trie = populated();
     let hits: Vec<_> = trie.suffixed_iter("").collect();
-    assert!(hits.is_empty());
+    assert_eq!(hits.len(), trie.len());
 }

@@ -349,13 +349,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/rlookup_load_document.h",
-        fns: &[
-            "loadIndividualKeys",
-            "RLookup_LoadDocumentAll",
-            "RLookup_LoadDocumentIndividual",
-            "sdslen_rust",
-        ],
-        types: &["RLookupLoadOptions"],
+        fns: &["sdslen_rust"],
+        types: &[],
         vars: &[],
     },
     HeaderAllowlist {

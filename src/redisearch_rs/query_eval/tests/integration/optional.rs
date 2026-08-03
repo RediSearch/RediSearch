@@ -9,7 +9,7 @@
 
 //! QN_OPTIONAL → Optional / Wildcard (via the reducer shortcircuits)
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -28,9 +28,9 @@ fn eval_optional_empty_child_falls_back_to_wildcard() {
     let mut opt = MockQueryNode::new(QueryNodeType::Optional);
     opt.opts_mut().weight = 1.0;
     opt.set_children(&[null_child.as_ptr()]);
-    let node = unsafe { QueryNodeRef::new(opt.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(opt.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -57,9 +57,9 @@ fn eval_optional_wildcard_child_passes_through() {
     let mut opt = MockQueryNode::new(QueryNodeType::Optional);
     opt.opts_mut().weight = 2.0;
     opt.set_children(&[wc_child.as_ptr()]);
-    let node = unsafe { QueryNodeRef::new(opt.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(opt.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+    let mut it = eval::eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -112,9 +112,9 @@ mod optional {
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;
         opt.set_children(&[ids_child.as_ptr()]);
-        let node = unsafe { QueryNodeRef::new(opt.as_non_null()) };
+        let node = unsafe { QueryNodeMut::new(opt.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+        let mut it = eval::eval_node(&mut ctx, node, Config::default())
             .expect("should not be None")
             .into_boxed();
 
@@ -160,9 +160,9 @@ mod optional {
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;
         opt.set_children(&[missing_child.as_ptr()]);
-        let node = unsafe { QueryNodeRef::new(opt.as_non_null()) };
+        let node = unsafe { QueryNodeMut::new(opt.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+        let mut it = eval::eval_node(&mut ctx, node, Config::default())
             .expect("an optional node always yields an iterator")
             .into_boxed();
 
@@ -203,9 +203,9 @@ mod optional {
         let mut opt = MockQueryNode::new(QueryNodeType::Optional);
         opt.opts_mut().weight = 1.0;
         opt.set_children(&[ids_child.as_ptr()]);
-        let node = unsafe { QueryNodeRef::new(opt.as_non_null()) };
+        let node = unsafe { QueryNodeMut::new(opt.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
+        let mut it = eval::eval_node(&mut ctx, node, Config::default())
             .expect("an optional node always yields an iterator")
             .into_boxed();
 

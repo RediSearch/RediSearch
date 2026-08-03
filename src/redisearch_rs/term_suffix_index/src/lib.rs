@@ -164,9 +164,17 @@ impl TermSuffixIndex {
     /// `needle` yields nothing. A term may be yielded more than once
     /// (once per matching suffix entry).
     pub fn iter_contains(&self, needle: &str) -> impl Iterator<Item = &str> {
-        let lowered = unicode::tolower_cow(needle);
-        self.inner
-            .prefixed_values(&lowered)
+        // An empty needle denotes no term here, but to the trie it is a
+        // prefix of every key.
+        let subtree = if needle.is_empty() {
+            None
+        } else {
+            let lowered = unicode::tolower_cow(needle);
+            Some(self.inner.prefixed_values(&lowered))
+        };
+        subtree
+            .into_iter()
+            .flatten()
             .flat_map(|data| data.terms().map(|term| &**term))
     }
 

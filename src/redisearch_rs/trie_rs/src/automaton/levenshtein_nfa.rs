@@ -47,7 +47,7 @@
 //! fall back to the DP-row automaton.
 
 use super::utf8::CodepointDecoder;
-use crate::iter::{Automaton, StateClass};
+use super::{Automaton, StateClass};
 use std::ops::{BitAnd, BitOr};
 
 /// Largest `max_dist` the inline row array holds ([`MAX_ROWS`]` - 1`).
@@ -61,7 +61,7 @@ const MAX_ROWS: usize = MAX_NFA_DIST as usize + 1;
 ///
 /// The `u64` impl serves needles up to 63 folded codepoints, `u128` up
 /// to 127. Mirrors the wildcard NFA's
-/// [`NfaBitSet`](crate::iter::NfaBitSet) split so the same automaton code
+/// [`NfaBitSet`](super::NfaBitSet) split so the same automaton code
 /// monomorphises against both widths.
 pub trait LevRow:
     Copy + Eq + BitAnd<Output = Self> + BitOr<Output = Self> + std::fmt::Debug

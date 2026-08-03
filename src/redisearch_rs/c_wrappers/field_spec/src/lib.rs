@@ -12,6 +12,7 @@
 use enumflags2::BitFlags;
 use enumflags2::bitflags;
 use hidden_string::HiddenStringRef;
+use numeric_range_tree::NumericRangeTree;
 #[cfg(feature = "unittest")]
 use std::ffi::CStr;
 use std::fmt;
@@ -84,6 +85,20 @@ impl FieldSpec {
     pub const fn field_path(&self) -> HiddenStringRef<'_> {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
         unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
+    }
+
+    /// Return the field types as a typed [`FieldSpecTypes`] bitmask.
+    pub fn types(&self) -> FieldSpecTypes {
+        BitFlags::from_bits_truncate(self.0.types())
+    }
+
+    /// Return a reference to the numeric range tree, or `None` if not initialised.
+    pub fn tree(&self) -> Option<&NumericRangeTree> {
+        // SAFETY: when non-null, fs.tree is a valid NumericRangeTree allocated by
+        // open_numeric_or_geo_index and stored in the FieldSpec.
+        unsafe {
+            std::ptr::NonNull::new(self.0.tree.cast::<NumericRangeTree>()).map(|p| p.as_ref())
+        }
     }
 }
 

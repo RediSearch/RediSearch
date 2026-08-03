@@ -27,10 +27,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.x'
 
@@ -106,7 +106,7 @@ jobs:
 
       - name: Send reports to Slack
         if: always()
-        uses: slackapi/slack-github-action@v3
+        uses: slackapi/slack-github-action@0d95c9a7becc1e6e297d76df9bc735c44f4cbcbc # v3.0.5
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL_RQE_CI_RESULT }}
           webhook-type: incoming-webhook
@@ -122,7 +122,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-reports-${{ steps.date.outputs.date }}
           path: |

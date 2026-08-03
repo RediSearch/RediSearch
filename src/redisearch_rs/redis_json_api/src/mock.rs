@@ -18,6 +18,9 @@ use std::ptr::{self, NonNull};
 struct MockState {
     /// The document `openKeyWithFlags` resolves to. `None` models a missing document.
     doc: Option<serde_json::Value>,
+    /// When set, `getJsonFromHandle` returns NULL regardless of `doc`, modelling a
+    /// pinned handle that cannot be resolved to a JSON root.
+    handle_returns_null: bool,
     /// Owns the serialized buffers (`getJSON` / `getJSONFromIter`) minted during
     /// the mock's lifetime. `redis_mock`'s `RedisModule_CreateString` copies its
     /// input, so retaining them here is not required for correctness; it simply
@@ -36,8 +39,26 @@ pub fn with_json_api<R>(
     doc: Option<serde_json::Value>,
     f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
 ) -> R {
+    with_json_api_state(doc, false, f)
+}
+
+/// Like [`with_json_api`], but `getJsonFromHandle` resolves to NULL so callers can
+/// exercise the by-name open fallback in the borrowed-handle path.
+pub fn with_json_api_broken_handle<R>(
+    doc: Option<serde_json::Value>,
+    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+) -> R {
+    with_json_api_state(doc, true, f)
+}
+
+fn with_json_api_state<R>(
+    doc: Option<serde_json::Value>,
+    handle_returns_null: bool,
+    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+) -> R {
     let state = MockState {
         doc,
+        handle_returns_null,
         strings: RefCell::new(Vec::new()),
     };
     // Derive the handle from a shared reference: we never form `&mut state`
@@ -179,8 +200,8 @@ unsafe extern "C" fn get_json_from_handle(key: *mut ffi::RedisModuleKey) -> ffi:
     // Safety: ensured by caller (1.)
     let state = unsafe { &*key.cast::<MockState>() };
     match &state.doc {
-        Some(value) => ptr::from_ref(value).cast(),
-        None => ptr::null(),
+        Some(value) if !state.handle_returns_null => ptr::from_ref(value).cast(),
+        _ => ptr::null(),
     }
 }
 

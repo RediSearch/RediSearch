@@ -23,7 +23,7 @@
 //! pruning that subtree.
 
 use super::utf8::CodepointDecoder;
-use crate::iter::{Automaton, StateClass};
+use super::{Automaton, StateClass};
 
 /// Streaming automaton accepting keys equal to a needle up to per-codepoint
 /// case folding. See the [module docs](self) for the matching model.

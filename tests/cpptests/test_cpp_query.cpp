@@ -22,14 +22,17 @@ extern "C" {
 #include "query_test_utils.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
+#include "rmalloc.h"
 
 #include "gtest/gtest.h"
 
 #include <array>
+#include <cstring>
 #include <stdio.h>
 
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                    DocumentType type, RedisModuleKey *openKey);
+
 
 #define QUERY_PARSE_CTX(ctx, qt, opts) NewQueryParseCtx(&ctx, qt, strlen(qt), &opts);
 
@@ -1092,4 +1095,49 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
   Indexes_RemoveSpecFromGlobals(ref, false);
+}
+
+// A PARAM_TERM_CASE value is binary-safe and may contain interior NULs. It must
+// be duplicated in full, NUL-terminated, with the reported length matching the
+// allocation. A previous implementation used rm_strdup, which truncated the copy
+// at the first interior NUL while still reporting the full length, so reading the
+// reported target_len bytes ran past the end of the allocation. The value below
+// has a long tail after the interior NUL, so reading all target_len bytes runs
+// far past the truncated allocation — a heap-buffer-overflow under
+// AddressSanitizer — while also asserting the value is preserved intact.
+TEST_F(QueryTest, testParamTermCaseBinaryValue) {
+  QueryError err = QueryError_Default();
+  dict *params = Param_DictCreate();
+
+  // 'a', interior NUL, then a long tail. rm_strdup would stop at the NUL and
+  // allocate only 2 bytes while still reporting the full length.
+  char value[64];
+  value[0] = 'a';
+  value[1] = '\0';
+  memset(value + 2, 'b', sizeof(value) - 2);
+  ASSERT_EQ(0, Param_DictAdd(params, "p", value, sizeof(value), &err));
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  char *resolved = NULL;
+  size_t resolved_len = 0;
+  Param param = {};
+  param.name = "p";
+  param.len = 1;
+  param.type = PARAM_TERM_CASE;
+  param.target = &resolved;
+  param.target_len = &resolved_len;
+
+  int rc = QueryParam_Resolve(&param, params, 2, &err);
+  ASSERT_EQ(1, rc);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+  // The whole binary value is preserved, not truncated at the interior NUL.
+  // Reading all resolved_len bytes here is where a truncated allocation faults.
+  ASSERT_EQ(sizeof(value), resolved_len);
+  ASSERT_EQ(0, memcmp(resolved, value, resolved_len));
+  // A trailing terminator sits at index len, so the allocation spans len + 1.
+  ASSERT_EQ('\0', resolved[resolved_len]);
+
+  rm_free(resolved);
+  Param_DictFree(params);
 }

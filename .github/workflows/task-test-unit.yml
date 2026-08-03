@@ -181,7 +181,7 @@ jobs:
           $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
           df -h
       - name: Full checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
       - name: Setup build environment
@@ -196,7 +196,7 @@ jobs:
           sanitizer-setup: 'true'
 
       - name: Download build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz + nextest-archive.tar.zst land in the working directory.
@@ -308,7 +308,7 @@ jobs:
             steps.rust_unit_tests.outcome == 'failure' ||
             steps.c_unit_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Unit Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -338,7 +338,7 @@ jobs:
       - name: Upload Failed-Only Test Logs
         # Guard kept in lockstep with "Collect failed-test-only logs" above.
         if: ${{ steps.c_unit_tests.outcome == 'failure' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
@@ -360,7 +360,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload unit coverage
         if: inputs.coverage
-        uses: codecov/codecov-action@v6 # NOSONAR
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true

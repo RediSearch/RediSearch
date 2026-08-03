@@ -671,6 +671,19 @@ typedef struct IndexDiskAPI {
    * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
    */
   char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
+
+  /**
+   * @brief Hot-restart save-ended hook.
+   *
+   * Called once per index after a successful foreground hot-restart save.
+   * Re-enables compactions (the on-disk DBs are kept and the process exits
+   * shortly) but deliberately leaves the numeric consistency gate closed:
+   * reopening it would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
+   *
+   * @param index Pointer to the disk index spec
+   */
+  void (*hotRestartSaveEnded)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

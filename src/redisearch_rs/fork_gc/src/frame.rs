@@ -12,6 +12,8 @@ use std::{
     ops::Deref,
 };
 
+use nul_terminated_bytes::NulTerminatedBytes;
+
 pub(crate) const EMPTY: usize = 0;
 pub(crate) const TERMINATOR: usize = usize::MAX;
 
@@ -22,8 +24,10 @@ pub(crate) const TERMINATOR: usize = usize::MAX;
 /// length.
 ///
 /// `D` is the data container for the [`Frame::Data`] variant. Use `Box<[u8]>`
-/// on the read path (as returned by [`Frame::decode`]) or `&[u8]` on the write
-/// path (passed to [`Frame::encode`]) to avoid copying.
+/// on the read path (as returned by [`Frame::decode`]), [`NulTerminatedBytes`]
+/// on the FFI read path that needs a NUL-terminated payload (as returned by
+/// [`Frame::decode_nul_terminated`]), or `&[u8]` on the write path (passed to
+/// [`Frame::encode`]) to avoid copying.
 #[derive(Debug, Clone)]
 pub enum Frame<D> {
     /// End-of-stream sentinel; no payload follows.
@@ -42,6 +46,28 @@ pub enum Frame<D> {
     Data(FrameData<D>),
 }
 
+/// Shared read path for [`Frame::decode`] and [`Frame::decode_nul_terminated`].
+fn decode_with<D>(
+    reader: &mut impl Read,
+    extra_capacity: usize,
+    into_payload: impl FnOnce(Vec<u8>) -> D,
+) -> io::Result<Frame<D>> {
+    let mut len_bytes = [0u8; size_of::<usize>()];
+    reader.read_exact(&mut len_bytes)?;
+
+    Ok(match usize::from_ne_bytes(len_bytes) {
+        TERMINATOR => Frame::Terminator,
+        EMPTY => Frame::Empty,
+        len => {
+            let mut data = Vec::with_capacity(len + extra_capacity);
+            data.resize(len, 0);
+            reader.read_exact(&mut data)?;
+
+            Frame::Data(FrameData(into_payload(data)))
+        }
+    })
+}
+
 impl Frame<Box<[u8]>> {
     /// Read one frame from `reader`.
     ///
@@ -58,21 +84,25 @@ impl Frame<Box<[u8]>> {
     /// [`io::ErrorKind::UnexpectedEof`] if the stream ends before the length
     /// prefix or payload are fully read.
     pub fn decode(reader: &mut impl Read) -> io::Result<Self> {
-        let mut len_bytes = [0u8; size_of::<usize>()];
-        reader.read_exact(&mut len_bytes)?;
-        let len = usize::from_ne_bytes(len_bytes);
+        decode_with(reader, 0, Vec::into_boxed_slice)
+    }
+}
 
-        if len == TERMINATOR {
-            return Ok(Frame::Terminator);
-        }
-        if len == EMPTY {
-            return Ok(Frame::Empty);
-        }
-
-        let mut data = vec![0u8; len].into_boxed_slice();
-        reader.read_exact(&mut data)?;
-
-        Ok(Frame::Data(FrameData(data)))
+impl Frame<NulTerminatedBytes> {
+    /// Read one frame from `reader`, reading the payload into a NUL-terminated
+    /// buffer.
+    ///
+    /// Behaves exactly like [`Frame::decode`], except the [`Frame::Data`]
+    /// payload is a [`NulTerminatedBytes`]: a single `len + 1`-byte allocation
+    /// holding the `len` payload bytes followed by a trailing NUL.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`io::Error`] from `reader`, including
+    /// [`io::ErrorKind::UnexpectedEof`] if the stream ends before the length
+    /// prefix or payload are fully read.
+    pub fn decode_nul_terminated(reader: &mut impl Read) -> io::Result<Self> {
+        decode_with(reader, 1, NulTerminatedBytes::from)
     }
 }
 

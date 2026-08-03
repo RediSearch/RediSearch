@@ -20,7 +20,7 @@ use geo::GEO_RANGE_COUNT;
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
 use query_eval::{
-    QueryEvalContext, QueryNodeRef,
+    QueryEvalContext, QueryNodeMut,
     eval::{self, Config, EvalResult},
 };
 use query_types::QueryNodeType;
@@ -89,8 +89,8 @@ impl GeoFixture {
     /// evaluation produced no iterator.
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
-        let node_ref = unsafe { QueryNodeRef::new(self.node.as_non_null()) };
-        eval::eval_node(&mut self.ctx, &node_ref, Config::default()).map(|e| e.into_boxed())
+        let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
+        eval::eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
     }
 }
 

@@ -637,6 +637,11 @@ void SearchDisk_PostFork(IndexSpec *sp) {
   disk->index.postFork(sp->diskSpec);
 }
 
+void SearchDisk_HotRestartSaveEnded(IndexSpec *sp) {
+  RS_ASSERT(disk && sp && sp->diskSpec);
+  disk->index.hotRestartSaveEnded(sp->diskSpec);
+}
+
 void SearchDisk_ReplicationAbort(IndexSpec *sp) {
   RS_ASSERT(disk && sp && sp->diskSpec);
   disk->index.replicationAbort(sp->diskSpec);
