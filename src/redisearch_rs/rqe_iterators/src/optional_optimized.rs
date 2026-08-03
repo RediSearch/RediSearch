@@ -163,6 +163,67 @@ where
     const fn has_next(&self) -> bool {
         self.last_doc_id < self.max_doc_id
     }
+
+    /// Settle on `doc_id`, the position `wcii` has just landed on, and report
+    /// whether the child has a real hit there.
+    ///
+    /// Advances the child to catch up, records the new position, and prepares the
+    /// result to hand out: the child's hit with
+    /// [`Self::weight`] applied when it has one at `doc_id`, otherwise the
+    /// virtual sentinel.
+    ///
+    /// Shared by `read`, `skip_to`, `revalidate` and the resume path so this
+    /// bookkeeping — in particular applying the optional weight — exists once
+    /// rather than in four copies that can drift apart.
+    ///
+    /// `doc_id` must already be within `max_doc_id`; every caller bound-checks
+    /// before settling.
+    fn settle_at(&mut self, doc_id: DocId) -> Result<bool, RQEIteratorError> {
+        debug_assert!(
+            doc_id <= self.max_doc_id,
+            "callers must bound-check against max_doc_id before settling",
+        );
+
+        // Advance the child to catch up with wcii.
+        if doc_id > self.child.last_doc_id() {
+            let _ = self.child.skip_to(doc_id)?;
+        }
+
+        // Landing *on* `max_doc_id` is a live position, handed back to the caller as a
+        // result, so nothing about running past the end is recorded here. `past_end` is
+        // set only where a call actually carries no result — the next `read` sees
+        // `!has_next()` and sets it there.
+        self.last_doc_id = doc_id;
+
+        let weight = self.weight;
+        // `current()` is the oracle for what a real hit is, so this agrees with
+        // `RQEIterator::current` by construction: a child may report a matching
+        // `last_doc_id` while having run past its own last result, in which case the
+        // virtual sentinel is used rather than unwrapping a `None`.
+        if let Some(result) = self.child.current()
+            && result.doc_id == doc_id
+        {
+            // Real hit: apply the optional weight.
+            result.weight = weight;
+            Ok(true)
+        } else {
+            // Virtual hit: wcii has a doc ID but the child does not.
+            self.virt.doc_id = doc_id;
+            Ok(false)
+        }
+    }
+
+    /// The result [`settle_at`](Self::settle_at) settled on, given the `is_real`
+    /// it returned.
+    fn settled_result(&mut self, is_real: bool) -> &mut RSIndexResult<'index> {
+        if is_real {
+            self.child
+                .current()
+                .expect("settle_at established a child result at this position")
+        } else {
+            &mut self.virt
+        }
+    }
 }
 
 impl<'index, W, I> RQEIterator<'index> for OptionalOptimized<'index, W, I>
@@ -212,25 +273,8 @@ where
             return Ok(None);
         }
 
-        // Advance child to catch up with wcii.
-        if wcii_doc_id > self.child.last_doc_id() {
-            let _ = self.child.skip_to(wcii_doc_id)?;
-        }
-
-        self.last_doc_id = wcii_doc_id;
-
-        let weight = self.weight;
-        if let Some(result) = self.child.current()
-            && result.doc_id == wcii_doc_id
-        {
-            // Real hit: the child has a result at this position.
-            result.weight = weight;
-            Ok(Some(result))
-        } else {
-            // Virtual hit: wcii has a doc ID but the child does not.
-            self.virt.doc_id = wcii_doc_id;
-            Ok(Some(&mut self.virt))
-        }
+        let is_real = self.settle_at(wcii_doc_id)?;
+        Ok(Some(self.settled_result(is_real)))
     }
 
     fn skip_to(
@@ -263,33 +307,14 @@ where
             return Ok(None);
         }
 
-        // Advance child to effective_id if needed.
-        if effective_id > self.child.last_doc_id() {
-            let _ = self.child.skip_to(effective_id)?;
-        }
-
-        self.last_doc_id = effective_id;
-
-        let weight = self.weight;
-        if let Some(result) = self.child.current()
-            && result.doc_id == effective_id
-        {
-            // Real hit — outcome (Found/NotFound) mirrors wcii.
-            result.weight = weight;
-            if found {
-                Ok(Some(SkipToOutcome::Found(result)))
-            } else {
-                Ok(Some(SkipToOutcome::NotFound(result)))
-            }
+        let is_real = self.settle_at(effective_id)?;
+        let result = self.settled_result(is_real);
+        // Found/NotFound mirrors wcii, for real and virtual hits alike.
+        Ok(Some(if found {
+            SkipToOutcome::Found(result)
         } else {
-            // Virtual hit — outcome (Found/NotFound) mirrors wcii.
-            self.virt.doc_id = effective_id;
-            if found {
-                Ok(Some(SkipToOutcome::Found(&mut self.virt)))
-            } else {
-                Ok(Some(SkipToOutcome::NotFound(&mut self.virt)))
-            }
-        }
+            SkipToOutcome::NotFound(result)
+        }))
     }
 
     fn revalidate(
@@ -364,30 +389,10 @@ where
                     return Ok(RQEValidateStatus::Moved { current: None });
                 }
 
-                if wcii_doc_id > self.child.last_doc_id() {
-                    let _ = self.child.skip_to(wcii_doc_id)?;
-                }
-
-                // Landing *on* `max_doc_id` is a live position handed back below as
-                // `Moved { current: Some }`, so nothing is recorded here.
-                self.last_doc_id = wcii_doc_id;
-
-                let weight = self.weight;
-                if let Some(result) = self.child.current()
-                    && result.doc_id == wcii_doc_id
-                {
-                    // Real hit at the new wcii position.
-                    result.weight = weight;
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(result),
-                    })
-                } else {
-                    // Virtual hit at the new wcii position.
-                    self.virt.doc_id = wcii_doc_id;
-                    Ok(RQEValidateStatus::Moved {
-                        current: Some(&mut self.virt),
-                    })
-                }
+                let is_real = self.settle_at(wcii_doc_id)?;
+                Ok(RQEValidateStatus::Moved {
+                    current: Some(self.settled_result(is_real)),
+                })
             }
         }
     }
@@ -658,28 +663,11 @@ where
             active.past_end = true;
             return Ok(ResumeOutcome::Moved(active));
         }
-        if wcii_doc_id > active.child.last_doc_id() {
-            active.child.skip_to(wcii_doc_id)?;
-        }
-        // Landing *on* `max_doc_id` is a live position, handed back below as a moved
-        // result, so nothing about running past the end is recorded here; the next
-        // `read` sees `!has_next()` and sets `past_end` there.
-        active.last_doc_id = wcii_doc_id;
-
-        if active.child.last_doc_id() != wcii_doc_id {
-            // Virtual hit: wcii has a doc ID but the child does not.
-            active.virt.doc_id = wcii_doc_id;
-        } else {
-            // Real hit: apply the optional weight to the child result, mirroring
-            // `read`/`skip_to` — otherwise a moved-to real hit surfaces the child's
-            // unweighted score.
-            let weight = active.weight;
-            let result = active
-                .child
-                .current()
-                .expect("child has a result at wcii_doc_id");
-            result.weight = weight;
-        }
+        // Settle exactly as `read`/`skip_to` do — including applying the optional
+        // weight to a moved-to real hit, which this path used to omit. Landing *on*
+        // `max_doc_id` is a live position, so settling records no end-of-input; the
+        // next `read` sees `!has_next()` and sets `past_end` there.
+        let _ = active.settle_at(wcii_doc_id)?;
         Ok(ResumeOutcome::Moved(active))
     }
 
