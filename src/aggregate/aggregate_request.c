@@ -1944,7 +1944,7 @@ void AREQ_Free(AREQ *req) {
 
 void BlockedRequestCtx_HoldArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
   RS_ASSERT(brc->argvHolds == NULL);
-  brc->argvHolds = rm_calloc(argc, sizeof(*brc->argvHolds));
+  brc->argvHolds = rm_malloc(argc * sizeof(*brc->argvHolds));
   brc->nargvHolds = argc;
   for (size_t ii = 0; ii < argc; ++ii) {
     brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
