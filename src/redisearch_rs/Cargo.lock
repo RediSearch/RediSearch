@@ -3020,7 +3020,6 @@ dependencies = [
  "ffi",
  "itertools 0.15.0",
  "proptest",
- "rqe_wildcard",
  "rstest",
  "string_utils",
  "trie_rs",
