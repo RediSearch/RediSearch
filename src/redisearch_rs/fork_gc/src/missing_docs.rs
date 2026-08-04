@@ -9,15 +9,14 @@
 
 //! GC collection and application for the `missingFieldDict` inverted indexes.
 
+use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
 
+use crate::{ForkGC, Frame};
+use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
-use nul_terminated_bytes::NulTerminatedBytes;
 use serde::Serialize as _;
-
-use crate::util::with_hidden_string_ref;
-use crate::{ForkGC, Frame};
 
 /// Successful outcome of [`handle_missing_docs`].
 #[derive(Debug, Clone, Copy)]
@@ -91,7 +90,7 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
             continue;
         };
 
-        let field_name = entry.key().into_secret_value();
+        let field_name = entry.key().secret_value();
         Frame::data(field_name.to_bytes()).encode(writer)?;
         deltas
             .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
@@ -104,12 +103,16 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<(NulTerminatedBytes, GcScanDelta)>, HandleError> {
+) -> Result<Option<(CString, GcScanDelta)>, HandleError> {
     match Frame::decode_nul_terminated(reader)? {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
             let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)?;
-            Ok(Some((field_name.into_inner(), delta)))
+            let field_name = field_name
+                .into_inner()
+                .into_c_string()
+                .expect("child always sends a field name that is a valid C string");
+            Ok(Some((field_name, delta)))
         }
         Frame::Empty => Err(HandleError::UnexpectedFrame),
     }
@@ -121,39 +124,39 @@ pub fn receive_missing_docs(
 ///
 /// Returns [`ApplyInfo`] with counters the caller can forward to [`update_stats`].
 pub fn apply_missing_docs(
-    field_name: &NulTerminatedBytes,
+    field_name: &CStr,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<ApplyInfo, HandleError> {
-    with_hidden_string_ref(field_name, |key| {
-        let Some(ii) = guard.missing_field_dict_mut().fetch_mut(key) else {
-            return Err(HandleError::FieldNotFound);
-        };
+    let hidden = OwnedHiddenString::new(field_name);
 
-        let gc_info = ii.apply_gc(delta);
+    let Some(ii) = guard.missing_field_dict_mut().fetch_mut(&hidden) else {
+        return Err(HandleError::FieldNotFound);
+    };
 
-        let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
-            let extra = ii.memory_usage();
-            let remaining_blocks = ii.number_of_blocks();
-            guard.missing_field_dict_mut().remove(key);
-            (extra, remaining_blocks)
-        } else {
-            (0, 0)
-        };
+    let gc_info = ii.apply_gc(delta);
 
-        Ok(ApplyInfo {
-            added_block_count: gc_info
-                .block_count_delta
-                .checked_sub(remaining_blocks as i64)
-                .expect("block count delta should never underflow/overflow"),
-            bytes_freed: gc_info
-                .bytes_freed
-                .checked_add(extra)
-                .expect("freed bytes should never overflow"),
-            bytes_allocated: gc_info.bytes_allocated,
-            entries_removed: gc_info.entries_removed,
-            ignored_last_block: gc_info.ignored_last_block,
-        })
+    let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
+        let extra = ii.memory_usage();
+        let remaining_blocks = ii.number_of_blocks();
+        guard.missing_field_dict_mut().remove(&hidden);
+        (extra, remaining_blocks)
+    } else {
+        (0, 0)
+    };
+
+    Ok(ApplyInfo {
+        added_block_count: gc_info
+            .block_count_delta
+            .checked_sub(remaining_blocks as i64)
+            .expect("block count delta should never underflow/overflow"),
+        bytes_freed: gc_info
+            .bytes_freed
+            .checked_add(extra)
+            .expect("freed bytes should never overflow"),
+        bytes_allocated: gc_info.bytes_allocated,
+        entries_removed: gc_info.entries_removed,
+        ignored_last_block: gc_info.ignored_last_block,
     })
 }
 

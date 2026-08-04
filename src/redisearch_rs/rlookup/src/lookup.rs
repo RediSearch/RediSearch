@@ -502,8 +502,8 @@ fn create_key_from_data<'a>(
     } else {
         let index = usize::try_from(index).expect("index must be positive and fit into usize");
         let field_spec = &field_specs[index];
-        let field_name = field_spec.field_name().into_secret_value();
-        let path = field_spec.field_path().into_secret_value();
+        let field_name = field_spec.field_name().secret_value();
+        let path = field_spec.field_path().secret_value();
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }
