@@ -114,6 +114,7 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, RedisModule
   request->cursorInfo = (CursorInfo) {0};
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
+  request->err = QueryError_Default();
   QueryRequest_SetUseReplyCallback(request, false);
   QueryRequestTimeout_ClearTimedOut(&request->timeout);
   QueryRequestTimeout_SetSkipChecks(&request->timeout, false);
@@ -133,6 +134,7 @@ void QueryRequest_ResetReply(QueryRequest *request) {
 
 void QueryRequest_Destroy(QueryRequest *request) {
   QueryRequest_ResetReply(request);
+  QueryError_ClearError(&request->err);
   QueryRequestAsyncState_Destroy(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (request->args.argv) {

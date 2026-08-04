@@ -195,6 +195,11 @@ typedef struct QueryRequest {
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
+  /* The request's execution error, consumed together with `reply` when the
+   * cycle replies. The request's pipeline reports into this slot (cursor
+   * reads repoint the pipeline's error pointer per read). Cleared with the
+   * request. */
+  QueryError err;
   /* false: BG replies inline through a thread-safe context; true: BG stores
    * results and the Redis reply callback serializes them on the main thread. */
   bool useReplyCallback;

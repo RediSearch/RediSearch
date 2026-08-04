@@ -27,7 +27,6 @@ typedef struct HybridRequest {
     arrayof(AREQ*) requests;
     size_t nrequests;
     QueryError tailPipelineError;
-    QueryError *errors;
     Pipeline *tailPipeline;
     RequestConfig reqConfig;
     CursorConfig cursorConfig;
