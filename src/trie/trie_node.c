@@ -25,6 +25,7 @@
 #include "trie/rune_util.h"
 #include "trie/trie_node.h"
 #include "util/arr/arr.h"
+#include "util/likely.h"
 #include "wildcard/wildcard.h"
 
 struct timespec;
@@ -652,19 +653,20 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
   int rc = 0;
 
   while (n && offset < len) {
-    if (stackPos == stackCap) {
+    if (unlikely(stackPos == stackCap)) {
       size_t newStackCap = stackCap * 2;
       TrieNode **newStack = NULL;
-      if (stack == localStack) {
+      if (likely(stack == localStack)) {
         newStack = rm_malloc(newStackCap * sizeof(*newStack));
+        if (!newStack) {
+          goto end;
+        }
+        memcpy(newStack, stack, stackPos * sizeof(*stack));
       } else {
         newStack = rm_realloc(stack, newStackCap * sizeof(*newStack));
-      }
-      if (!newStack) {
-        goto end;
-      }
-      if (stack == localStack) {
-        memcpy(newStack, stack, stackPos * sizeof(*stack));
+        if (!newStack) {
+          goto end;
+        }
       }
       stack = newStack;
       stackCap = newStackCap;
