@@ -587,44 +587,54 @@ where
         // `VALIDATE_MOVED` means the position moved *forward*, and `Not::revalidate`
         // asserts that of its child — which is where a `QUICK_EXIT` union usually sits.
         //
-        // Staying put loses nothing: the next `read`/`skip_to` seeks every child that
-        // has not moved past `last_doc_id()` — including the lagging one whose position
-        // was rejected here — and finds the true next document there, by code that can
-        // report a failure, rather than here, where an `Err` would reach the caller as
-        // `VALIDATE_ABORTED`.
-        //
-        // The result is still republished, at the unchanged position, because it holds
-        // raw pointers into the children's own results — one that moved leaves it
-        // describing another document, and one that aborted was dropped above and
-        // leaves it dangling. From a single child, as everywhere else in this mode:
-        // `min.child_idx` cannot be used for it, being the lagging child just rejected,
-        // so the one still on the current position is looked up instead.
+        // The result has to be republished either way, because it holds raw pointers into
+        // the children's own results — one that moved leaves it describing another
+        // document, and one that aborted was dropped above and leaves it dangling. What
+        // it can be republished *from* decides the outcome. From a single child, as
+        // everywhere else in this mode: `min.child_idx` cannot serve, being the lagging
+        // child just rejected, so the one still on the current position is looked up.
         //
         // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
         // rather than paying for a comparison that its invariant already rules out.
         if QUICK_EXIT && min.doc_id < original_last_doc_id {
-            match self
+            if let Some(idx) = self
                 .children
                 .iter()
                 .position(|c| !c.at_eof() && c.last_doc_id() == original_last_doc_id)
             {
-                Some(idx) => self.quick_set_from_child(idx),
-                None => {
-                    // Every child that was here has moved on. The caller gets `Ok`, so
-                    // it reads rather than consuming this; the result only has to be
-                    // free of the stale pointers `reset_aggregate` drops.
-                    self.result.reset_aggregate();
-                    self.result.doc_id = original_last_doc_id;
-                }
+                // Still backed, so the union has not moved and its current stands.
+                self.quick_set_from_child(idx);
+
+                debug_assert_eq!(
+                    self.last_doc_id(),
+                    original_last_doc_id,
+                    "staying put must leave the position untouched",
+                );
+
+                return Ok(RQEValidateStatus::Ok);
             }
 
-            debug_assert_eq!(
-                self.last_doc_id(),
-                original_last_doc_id,
-                "staying put must leave the position untouched",
-            );
-
-            return Ok(RQEValidateStatus::Ok);
+            // Nothing is left on the union's document: the child that supplied it has
+            // moved on too. Reporting `Ok` would promise a `current` that no child backs.
+            //
+            // So the union advances instead, which is what it would have done on the next
+            // read anyway — `read_quick` targets `last_doc_id() + 1` and seeks every
+            // lagging child past it, including the one whose position was rejected here.
+            // Skipping over the abandoned document costs nothing: it has already been
+            // delivered, and a quick union never promised to aggregate every child that
+            // holds it, so no contribution is dropped by leaving it behind.
+            //
+            // This is the one place a `QUICK_EXIT` revalidation reads. An `Err` here
+            // reaches the caller as `VALIDATE_ABORTED`, which frees the iterator and
+            // substitutes an empty one — the failure is reported, if bluntly, which beats
+            // publishing a result that describes nothing.
+            return match self.read_quick()? {
+                Some(result) => Ok(RQEValidateStatus::Moved {
+                    current: Some(result),
+                }),
+                // Seeking past the abandoned position ran the union out of documents.
+                None => Ok(RQEValidateStatus::Moved { current: None }),
+            };
         }
 
         if QUICK_EXIT {

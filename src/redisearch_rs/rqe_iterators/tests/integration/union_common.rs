@@ -1156,6 +1156,73 @@ macro_rules! union_common_tests {
             assert!(union.at_eof());
         }
 
+        /// The sibling case to [`revalidate_child_behind_union_position_is_kept`]: there,
+        /// a child was still sitting on the union's document, so staying put left a
+        /// result that child backs. Here the child that supplied it has moved on too, so
+        /// there is nothing left to describe that position with.
+        ///
+        /// Staying put would then have to publish a result no child holds, while
+        /// reporting `Ok` — which tells the caller the current result is still valid. The
+        /// union advances to its next document and reports the move instead.
+        ///
+        /// Advancing past the old position loses nothing *because* this is `QUICK_EXIT`:
+        /// the document was already delivered, and a quick union never promised to
+        /// aggregate every child that holds it, so no contribution is dropped by moving on.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advances_when_nothing_backs_the_current_position() {
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            let child1: Mock<'static, 2> = Mock::new([15, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionQuick::new(children);
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union",
+            );
+
+            // child0 supplied doc 20 and now moves off it, so nothing is left on 20.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+
+            // child1's 25 is the next document: child0 has gone to 40, and child1 is
+            // seeked past the abandoned position on the way.
+            let current = match &status {
+                RQEValidateStatus::Moved { current: Some(r) } => r,
+                other => panic!("expected a forward Moved, got {other:?}"),
+            };
+            assert_eq!(current.doc_id, 25, "the union's new position");
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "the reported result must be backed by the child that holds it",
+            );
+            assert_eq!(union.last_doc_id(), 25);
+
+            // And it carries on from there, with nothing re-delivered.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 40, "child0's moved-to document");
+            assert!(union.read().expect("read failed").is_none());
+            assert!(union.at_eof());
+        }
 
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
