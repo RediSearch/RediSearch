@@ -59,13 +59,13 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         // Aborts the hybrid pipeline if any subquery on a disk index can't take a
         // snapshot — falling back to live reads is unsafe because the parent unlock
         // is unconditional and subsequent depleter / cursor reads would race with GC.
-        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &req->errors[i]) != REDISMODULE_OK) {
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->brc->err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);
+        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &areq->brc->err);
 
         rs_wall_clock parseClock;
         if (isProfile) {
@@ -79,7 +79,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        rc = AREQ_BuildPipeline(areq, &areq->brc->err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
@@ -228,8 +228,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // Build the depletion pipeline for extracting results from individual search requests
     if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
-        if (QueryError_HasError(&req->errors[i])) {
-          QueryError_CloneFrom(&req->errors[i], status);
+        QueryError *subErr = &req->requests[i]->brc->err;
+        if (QueryError_HasError(subErr)) {
+          QueryError_CloneFrom(subErr, status);
           break;
         }
       }
@@ -290,10 +291,6 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
 
-    // Initialize error tracking for each individual request
-    hybridReq->errors = array_newlen(QueryError, nrequests);
-    memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
-
     // Initialize return codes array for tracking subqueries final states
     hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
 
@@ -311,8 +308,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
         // while parsing, and sub pipelines borrow beyond their slice anyway
         // (distributed tail steps like LOAD, PARAMS).
         BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
-        hybridReq->errors[i] = QueryError_Default();
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->brc->err);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -398,8 +394,6 @@ void HybridRequest_Free(HybridRequest *req) {
     }
     array_free(req->requests);
 
-    array_free_ex(req->errors, QueryError_ClearError((QueryError*)ptr));
-
     rm_free(req->subqueriesReturnCodes);
     req->subqueriesReturnCodes = NULL;
 
@@ -470,8 +464,9 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 
     // Priority 2: Individual AREQ errors (sub-query failures)
     for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (QueryError_HasError(&hreq->errors[i])) {
-            QueryError_CloneFrom(&hreq->errors[i], status);
+        QueryError *subErr = &hreq->requests[i]->brc->err;
+        if (QueryError_HasError(subErr)) {
+            QueryError_CloneFrom(subErr, status);
             return REDISMODULE_ERR;
         }
     }
@@ -483,7 +478,7 @@ int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
 void HybridRequest_ClearErrors(HybridRequest *req) {
   QueryError_ClearError(&req->tailPipelineError);
   for (size_t i = 0; i < req->nrequests; i++) {
-    QueryError_ClearError(&req->errors[i]);
+    QueryError_ClearError(&req->requests[i]->brc->err);
   }
 }
 

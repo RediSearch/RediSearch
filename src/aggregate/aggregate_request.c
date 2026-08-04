@@ -1154,6 +1154,7 @@ static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
   brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
+  brc->err = QueryError_Default();
   brc->refcount = 1;
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
@@ -1259,6 +1260,7 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   } else {
     HybridRequest_Free(brc->query.hybrid);
   }
+  QueryError_ClearError(&brc->err);
   // Every wrapper is born with its holds (construction invariant), released
   // after the request: its plan borrows from these strings.
   RS_ASSERT(brc->argv != NULL);

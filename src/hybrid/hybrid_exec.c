@@ -154,7 +154,7 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
 
   // Handle warnings from each subquery, adding appropriate suffix
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    QueryError* err = &hreq->errors[i];
+    QueryError* err = &hreq->requests[i]->brc->err;
     const char* suffix = i == 0 ? SEARCH_SUFFIX : VSIM_SUFFIX;
     const int subQueryReturnCode = hreq->subqueriesReturnCodes[i];
     warnings |= handleAndReplyWarning(reply, err, subQueryReturnCode, suffix, false);
@@ -778,7 +778,7 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      QueryError *err = &hreq->errors[i];
+      QueryError *err = &hreq->requests[i]->brc->err;
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
         const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
         char buf[128];
