@@ -28,9 +28,10 @@ use crate::{
 /// `QN_PREFIX` — expand a prefix, suffix, or contains pattern over the spec's
 /// terms trie into a union of per-term readers.
 ///
-/// Returns `None` when the pattern is shorter than the configured minimum or is
-/// too long (the length error is reported via
-/// [`status`](QueryEvalContext::status)).
+/// Returns `None` both when the pattern is shorter than the configured minimum
+/// — silently, since such a query is well-formed and simply matches nothing —
+/// and when it is too long, which is reported as an error via
+/// [`status`](QueryEvalContext::status).
 /// The number of expansions is capped by the configured
 /// [`Config::max_prefix_expansions`].
 pub(crate) fn eval<'index>(
@@ -41,7 +42,10 @@ pub(crate) fn eval<'index>(
     config: Config,
 ) -> Option<Evaluated<'index>> {
     // A pattern shorter than the configured minimum is rejected to avoid
-    // over-broad expansions (e.g. a bare `a*`).
+    // over-broad expansions (e.g. a bare `a*`). Not setting a ctx error: the minimum
+    // is a resource guard rather than a validation rule, so the query stays
+    // well-formed and simply matches nothing. Contrast the too-long case below,
+    // which cannot be looked up at all and so is an error.
     if tok.len() < config.min_term_prefix as usize {
         return None;
     }
