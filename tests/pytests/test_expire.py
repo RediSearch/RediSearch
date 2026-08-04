@@ -1147,25 +1147,18 @@ def test_expire_past_timestamp_removes_doc(env):
     env.expect('FT.SEARCH', 'idx', '*', 'NOCONTENT').equal([1, 'doc:2'])
 
 
-@skip(redis_less_than='7.3')
-def test_inline_field_expiration_bit_reindex_on_hexpire(env):
-    # Each inverted-index entry carries a per-field "this field has a TTL" bit,
-    # set at index time, that expiration-aware iterators use to skip the
-    # TTL-table lookup when it is clear. A document indexed WITHOUT any field TTL
-    # therefore has the bit cleared on all of its term/tag/numeric/geo postings. A
-    # later HEXPIRE that gives a field its first TTL (the field's 0->1 transition)
-    # must reindex the document so that field's postings get the bit set and the
-    # now-expiring field is actually filtered out; otherwise the iterators would
-    # keep skipping the check and wrongly return the expired field.
+@skip(cluster=True, redis_less_than='7.3')
+def test_hexpire_after_indexing_is_respected_by_search(env):
+    # A document indexed while none of its fields had a TTL must still honour a
+    # TTL added afterwards: once the field expires, queries on it stop matching.
+    # MOD-16350 regression, covering text, tag, numeric and geo fields.
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
                'SCHEMA', 't', 'TEXT', 'tg', 'TAG', 'n', 'NUMERIC', 'g', 'GEO').ok()
     env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
 
-    # Indexed without any field TTL: every posting's expiration bit is 0.
-    # GEO shares `numericIndexer` with NUMERIC, but a radius query reads the bit
-    # back through a union of geohash ranges rather than a single range.
+    # Indexed with no field TTLs at all: every field matches.
     conn.execute_command('HSET', 'doc:1', 't', 'hello', 'tg', 'red', 'n', '42',
                          'g', '1.23,4.56')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
@@ -1173,8 +1166,7 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # First field TTL (0->1) reindexes. Keep the TTL long so the reindex sees the
-    # fields alive and really rewrites their postings with the bit set.
+    # Every field gets its first TTL, long enough to still be alive: all still match.
     conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '4', 't', 'tg', 'n', 'g')
     waitForIndex(env, 'idx')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
@@ -1182,8 +1174,8 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # Shortening it is a 1->1 change, so no reindex: the filtering below can only
-    # come from the bit set above.
+    # Shorten the TTLs, rather than setting a first one, and let them lapse: the
+    # expired fields must no longer match.
     conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '4', 't', 'tg', 'n', 'g')
     time.sleep(0.1)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
@@ -1192,15 +1184,11 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([0])
 
 
-@skip(redis_less_than='7.3')
-def test_inline_field_expiration_bit_reindex_when_sibling_field_already_expiring(env):
-    # Field-granular regression: a document is indexed with field `b` already
-    # carrying a TTL but field `a` not. So `a`'s postings have the bit cleared
-    # even though the document is already in the TTL table (because of `b`). When
-    # `a` later gets its first TTL, the per-field 0->1 transition must still
-    # reindex — a doc-level "has any TTL" trigger would miss it (the doc already
-    # had `b`'s TTL), leaving `a`'s postings with a stale 0 bit and wrongly
-    # returning the expired `a`.
+@skip(cluster=True, redis_less_than='7.3')
+def test_hexpire_on_second_field_is_respected_by_search(env):
+    # As above, but the document already has a TTL on a sibling field when the
+    # queried field gets its first one — the new TTL must still be honoured
+    # per-field, and the sibling's longer TTL must keep matching.
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
@@ -1208,18 +1196,16 @@ def test_inline_field_expiration_bit_reindex_when_sibling_field_already_expiring
     env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')
 
     conn.execute_command('HSET', 'doc:1', 'a', 'hello', 'b', 'world')
-    # Give only `b` a (long) TTL: the document enters the TTL table, but `a`'s
-    # postings keep bit=0.
+    # Only `b` gets a (long) TTL; `a` has none.
     conn.execute_command('HEXPIRE', 'doc:1', '10000', 'FIELDS', '1', 'b')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # Now `a` gets its first TTL (per-field 0->1 even though the doc already had
-    # `b`'s TTL): must reindex so `a`'s postings flip to 1. Long TTL as above.
+    # Now `a` gets its first TTL, also long enough to still be alive.
     conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '1', 'a')
     waitForIndex(env, 'idx')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # 1->1 change, so no reindex: `a` can only be filtered out by the bit set above.
+    # Shorten `a`'s TTL, rather than setting a first one, and let it lapse.
     conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '1', 'a')
     time.sleep(0.1)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
