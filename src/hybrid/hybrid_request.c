@@ -329,11 +329,9 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
                                  RedisModuleString **argv, int argc) {
     // Skip the command and index tokens; the wrappers hold the rest. Each sub
     // takes its own holds — a sub's borrows can outlive the container.
-    if (argv) {
-      const int step = argc > 2 ? 2 : argc;
-      argv += step;
-      argc -= step;
-    }
+    const int step = argc > 2 ? 2 : argc;
+    argv += step;
+    argc -= step;
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
     HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
     // Wrap the top-level hybrid request in its single-owner sync context.
@@ -345,7 +343,6 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
-  RS_ASSERT(req->brc->argvHolds != NULL);
   // argc bounds the parse; the holds may cover a superset (debug flows)
   RS_ASSERT((size_t)(argc - step) <= req->brc->nargvHolds);
   ArgsCursor_InitRString(ac, req->brc->argvHolds, argc - step);

@@ -1182,6 +1182,7 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
  * plan borrows (see BlockedRequestCtx.argvHolds). Runs at construction, on
  * the main thread; released in BlockedRequestCtx_Free, also on main. */
 static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
+  RS_ASSERT(argv != NULL);
   RS_ASSERT(brc->argvHolds == NULL);
   brc->argvHolds = rm_malloc(argc * sizeof(*brc->argvHolds));
   brc->nargvHolds = argc;
@@ -1200,9 +1201,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **arg
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_AREQ);
   brc->query.areq = areq;
   areq->brc = brc;
-  if (argv) {
-    holdArgv(brc, argv, argc);
-  }
+  holdArgv(brc, argv, argc);
   return brc;
 }
 
@@ -1213,9 +1212,7 @@ BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
   BlockedRequestCtx *brc = BlockedRequestCtx_NewCommon(REQUEST_KIND_HYBRID);
   brc->query.hybrid = hybrid;
   hybrid->brc = brc;
-  if (argv) {
-    holdArgv(brc, argv, argc);
-  }
+  holdArgv(brc, argv, argc);
   return brc;
 }
 
@@ -1432,7 +1429,6 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   RS_ASSERT(brc != NULL);
   // `argv` must be a slice of the holds taken at construction — holding here
   // instead would touch string refcounts on whatever thread parses.
-  RS_ASSERT(brc->argvHolds != NULL);
   RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
   brc->parseSlice = argv;
 

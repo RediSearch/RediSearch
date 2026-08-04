@@ -468,8 +468,7 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
 
 /* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
  * `brc` back-pointer, and take the argv holds (see `argvHolds`). Main-thread
- * only. `argv` may be NULL only for a request that is never parsed (parsing
- * asserts the holds are present). */
+ * only; `argv` must not be NULL. */
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
                                                RedisModuleString **argv, size_t argc);

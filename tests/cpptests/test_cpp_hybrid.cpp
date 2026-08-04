@@ -27,7 +27,10 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   requests = array_ensure_append_1(requests, req1);
   requests = array_ensure_append_1(requests, req2);
 
-  HybridRequest *hybridReq = HybridRequest_New(NULL, requests, 2, NULL, 0);
+  // Construction requires an argv; the command + index tokens are stepped
+  // over, so the wrappers hold nothing here.
+  RMCK::ArgvList args(NULL, "FT.HYBRID", "idx");
+  HybridRequest *hybridReq = HybridRequest_New(NULL, requests, 2, args, args.size());
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);

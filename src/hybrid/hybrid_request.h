@@ -151,10 +151,9 @@ typedef struct blockedClientHybridCtx {
  * @param sctx The main search context for the hybrid request - the redisCtx inside can change if moving to different thread
  * @param requests Array of AREQ pointers representing individual search requests, the hybrid request will take ownership of the array
  * @param nrequests Number of requests in the array
- * @param argv The command argv; the container's and each sub-request's
- *   wrapper take holds on the strings past the command and index tokens
- *   (main-thread only — see BlockedRequestCtx.argvHolds). May be NULL only
- *   for a request that is never parsed.
+ * @param argv The command argv, not NULL; the container's and each
+ *   sub-request's wrapper take holds on the strings past the command and
+ *   index tokens (main-thread only — see BlockedRequestCtx.argvHolds)
  * @param argc Number of strings in argv
 */
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
@@ -169,7 +168,7 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
  * @param argv Already-stepped argv slice each sub-request's wrapper holds
- *   (see HybridRequest_New); may be NULL
+ *   (see HybridRequest_New); not NULL
  * @param argc Number of strings in argv
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests,
