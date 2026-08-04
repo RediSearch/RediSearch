@@ -423,6 +423,10 @@ def testWildcardOnFieldWithoutSuffixTrie():
     env.expect('FT.SEARCH', 'idx', "@t2:w'hel*o'").error() \
         .contains('WITHSUFFIXTRIE')
 
+    # The error does not depend on the pattern: an empty pattern errors too
+    env.expect('FT.SEARCH', 'idx', "@t2:w'$p'", 'PARAMS', 2, 'p', '').error() \
+        .contains('WITHSUFFIXTRIE')
+
 _MAX_EXPANSIONS_WARNING = 'Max prefix expansions limit was reached'
 
 # A cap above 1, so a truncated expansion is distinguishable from an empty one,

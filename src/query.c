@@ -665,36 +665,39 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
+  if (spec->suffix && qn->opts.fieldMask != RS_FIELDMASK_ALL &&
+      (spec->suffixMask & qn->opts.fieldMask) != qn->opts.fieldMask) {
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
+                        "Contains query on fields without WITHSUFFIXTRIE support");
+    rm_free(str);
+    return NewUnionIterator(ctx.its, 0, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str,
+                            q->config);
+  }
+
   bool fallbackBruteForce = false;
   // spec support using suffix trie
   if (spec->suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // TEXT terms are stored lowercased, so recheck against the lowercased
-      // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
-      size_t lcstrlen;
-      char *lcstr = runesToStr(str, nstr, &lcstrlen);
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .cstr = lcstr,
-        .cstrlen = lcstrlen,
-        .type = SUFFIX_TYPE_WILDCARD,
-        .callback = charIterCb, // the difference is weather the function receives char or rune
-        .cbCtx = &ctx,
-        .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
-      };
-      if (Suffix_IterateWildcard(&sufCtx) == 0) {
-        // if suffix trie cannot be used, use brute force
-        fallbackBruteForce = true;
-      }
-      rm_free(lcstr);
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+    // TEXT terms are stored lowercased, so recheck against the lowercased
+    // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
+    size_t lcstrlen;
+    char *lcstr = runesToStr(str, nstr, &lcstrlen);
+    SuffixCtx sufCtx = {
+      .trie = spec->suffix,
+      .rune = str,
+      .runelen = nstr,
+      .cstr = lcstr,
+      .cstrlen = lcstrlen,
+      .type = SUFFIX_TYPE_WILDCARD,
+      .callback = charIterCb, // the difference is weather the function receives char or rune
+      .cbCtx = &ctx,
+      .timeout = &q->sctx->time.timeout,
+      .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
+    };
+    if (Suffix_IterateWildcard(&sufCtx) == 0) {
+      // if suffix trie cannot be used, use brute force
+      fallbackBruteForce = true;
     }
+    rm_free(lcstr);
   }
 
   if (!spec->suffix || fallbackBruteForce) {
