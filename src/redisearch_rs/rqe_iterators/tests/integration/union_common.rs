@@ -1017,6 +1017,13 @@ macro_rules! union_common_tests {
             );
         }
 
+        /// Only the `QUICK_EXIT` variant is instantiated, because only it can put a
+        /// child behind the union: the full variants advance every child on every
+        /// `read`/`skip_to`, so their children are never behind the minimum they were
+        /// last asked for, and a child's own `revalidate` may only move it forward.
+        /// The full variants still run the same clamp — reached through
+        /// [`revalidate_minimum_unchanged_returns_ok`] — they just cannot reach it with
+        /// a candidate minimum that is strictly behind.
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_child_behind_union_position_is_kept() {
@@ -1047,14 +1054,38 @@ macro_rules! union_common_tests {
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(
-                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
-                "Expected Moved with a current result, got {status:?}",
-            );
-            assert_eq!(union.last_doc_id(), 50, "union should move to child1 (50)");
 
-            let r = union.read().expect("read failed").unwrap();
-            assert_eq!(r.doc_id, 100);
+            // The lagging child's 50 is *behind* doc 100, which this union has already
+            // handed out, so it is not a position to move to. Reporting it would have
+            // the caller emit 50 in place of a read and then resume from there,
+            // re-delivering 100. The union stays where it is and reports `Ok`; the
+            // next read advances the lagging child on its way past 100.
+            assert!(
+                matches!(status, RQEValidateStatus::Ok),
+                "Expected Ok — the only candidate minimum is behind us, got {status:?}",
+            );
+            assert_eq!(union.last_doc_id(), 100, "the union must not move backwards");
+
+            // Staying put still has to rebuild the aggregate — it held raw pointers
+            // into children that have since moved — and rebuilding it at a position
+            // that is *not* the minimum is what the heap variant cannot do by
+            // descending its heap: the root sits at 50, fails the `!= min_id` prune
+            // and stops the descent before reaching child0, which is still on 100.
+            let current = union
+                .current()
+                .expect("staying put leaves the union on its current document");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current
+                    .as_aggregate()
+                    .expect("a union result is an aggregate")
+                    .len(),
+                1,
+                "child0 is still on doc 100 and must be in the rebuilt aggregate",
+            );
+
+            // Nothing already delivered comes back, and the lagging child's remaining
+            // documents are still yielded.
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 200, "child1's doc 200 must not be lost");
             let r = union.read().expect("read failed").unwrap();

@@ -59,6 +59,7 @@ pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
 pub type UnionHeap<'index, I, const QUICK_EXIT: bool> =
     RawUnionHeap<'index, Active<'index>, I, QUICK_EXIT>;
 
+// Methods used in both modes.
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -124,6 +125,7 @@ where
     pub fn into_trimmed(self, limit: usize, asc: bool) -> Option<super::UnionTrimmed<'index, I>> {
         (self.children.len() >= 3).then(|| super::UnionTrimmed::new(self.children, limit, asc))
     }
+
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
     ///
@@ -138,114 +140,6 @@ where
                 self.heap.push(child.last_doc_id(), idx);
             }
         }
-    }
-
-    /// Advances children at the heap root whose `last_doc_id` equals `current_id`.
-    fn advance_matching_children(&mut self, current_id: DocId) -> Result<(), RQEIteratorError> {
-        if self.heap.is_empty() {
-            return Ok(());
-        }
-        loop {
-            let root = self.heap.peek().unwrap();
-            if root.doc_id != current_id {
-                break;
-            }
-
-            let child = &mut self.children[root.child_idx];
-            if child.read()?.is_some() {
-                self.heap.replace_root(child.last_doc_id(), root.child_idx);
-            } else {
-                self.heap.pop();
-                self.num_active -= 1;
-                if self.heap.is_empty() {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Aggregates results from all children whose `last_doc_id` equals `min_id`.
-    ///
-    /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
-    /// (heap property guarantees all descendants are also `>= doc_id`).
-    fn build_aggregate_result(&mut self, min_id: DocId) {
-        self.result.reset_aggregate();
-        self.result.doc_id = min_id;
-
-        // Borrow the heap data slice once so the compiler can hoist bounds
-        // checks out of the loop.
-        let heap_data = self.heap.as_slice();
-
-        if heap_data.is_empty() {
-            return;
-        }
-
-        // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
-        let mut stack = [0usize; 64];
-        let mut stack_len = 1;
-        stack[0] = 0;
-
-        while stack_len > 0 {
-            stack_len -= 1;
-            let heap_idx = stack[stack_len];
-
-            if heap_idx >= heap_data.len() {
-                continue;
-            }
-
-            let entry = heap_data[heap_idx];
-            if entry.doc_id != min_id {
-                continue;
-            }
-
-            if let Some(child_result) = self.children[entry.child_idx].current() {
-                let drained_metrics = std::mem::take(&mut child_result.metrics);
-                let child_ptr: *const RSIndexResult<'index> = child_result;
-                // SAFETY: We need a raw pointer to decouple the borrow of the child's
-                // result from `&mut self.result`. This is sound because:
-                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
-                // 2. The child is owned by `self`, so the 'index data remains valid.
-                let child_ref = unsafe { &*child_ptr };
-                self.result.push_borrowed(child_ref, drained_metrics);
-            }
-            // both children of heap_idx are >= doc_id due to heap property
-            let left_heap_idx = 2 * heap_idx + 1;
-            let right_heap_idx = 2 * heap_idx + 2;
-
-            if left_heap_idx < heap_data.len() && stack_len < 64 {
-                stack[stack_len] = left_heap_idx;
-                stack_len += 1;
-            }
-            if right_heap_idx < heap_data.len() && stack_len < 64 {
-                stack[stack_len] = right_heap_idx;
-                stack_len += 1;
-            }
-        }
-    }
-
-    /// Performs initial read on all children and builds the heap.
-    ///
-    /// Clears the heap first: a `revalidate` before the first read runs
-    /// [`Self::rebuild_heap`] while every child is still at `last_doc_id() == 0`,
-    /// and those doc-0 entries would otherwise sort ahead of every real id.
-    fn initialize_children(&mut self) -> Result<(), RQEIteratorError> {
-        self.heap.clear();
-        for (idx, child) in self.children.iter_mut().enumerate() {
-            if child.last_doc_id() == 0 && !child.at_eof() {
-                if child.read()?.is_some() {
-                    self.heap.push(child.last_doc_id(), idx);
-                }
-            } else if child.last_doc_id() > 0 {
-                self.heap.push(child.last_doc_id(), idx);
-            }
-        }
-        // Derived here rather than adjusted, for the same reason the heap is:
-        // a `rebuild_heap` before the first read counts only the children it kept,
-        // and this pass can seed the heap with one it dropped. Leaving the count
-        // alone would let the per-child decrements below run past zero.
-        self.num_active = self.heap.len();
-        Ok(())
     }
 
     /// Advances all lagging children in the heap to at least `doc_id`.
@@ -311,13 +205,173 @@ where
             self.advance_lagging_children(doc_id)
         }
     }
+}
+
+// Methods reachable only when `QUICK_EXIT` is `false`, grouped so that the full-mode
+// read path reads together. Each guards its mode at entry rather than being typed on
+// `UnionHeap<'index, I, false>`: the callers are the generic `RQEIterator` impl, which cannot
+// reach a method that exists for only one value of a const generic, and splitting that
+// impl in two would also strand the `ProfileChildren` impl, whose `RQEIterator`
+// supertrait bound is stated for a generic `QUICK_EXIT`.
+impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    /// Advances the children at the heap root that are sitting on `current_id`.
+    ///
+    /// Only [`Self::read_full`] calls this, so `QUICK_EXIT` is always `false` here and
+    /// the root can never be *behind* `current_id`: a full union advances every child in
+    /// the heap on every `read`/`skip_to`, and a child's own `revalidate` may only move
+    /// it forward. A root that were behind would have to be seeked rather than read —
+    /// one read need not clear `current_id` — and would otherwise stay the minimum and
+    /// hand back a document already delivered. That case is asserted away rather than
+    /// handled, so it cannot be introduced silently.
+    fn advance_matching_children(&mut self, current_id: DocId) -> Result<(), RQEIteratorError> {
+        if QUICK_EXIT {
+            panic!("a quick union reads through skip_to instead");
+        }
+
+        if self.heap.is_empty() {
+            return Ok(());
+        }
+        loop {
+            let root = self.heap.peek().unwrap();
+            debug_assert!(
+                root.doc_id >= current_id,
+                "a full union's child cannot fall behind it: {} < {current_id}",
+                root.doc_id,
+            );
+            if root.doc_id != current_id {
+                break;
+            }
+
+            let child = &mut self.children[root.child_idx];
+            if child.read()?.is_some() {
+                self.heap.replace_root(child.last_doc_id(), root.child_idx);
+            } else {
+                self.heap.pop();
+                self.num_active -= 1;
+                if self.heap.is_empty() {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Aggregates results from all children whose `last_doc_id` equals `min_id`.
+    ///
+    /// Uses DFS over the heap array, pruning subtrees where `doc_id > min_id`
+    /// (heap property guarantees all descendants are also `>= doc_id`).
+    ///
+    /// `min_id` must be the heap's own minimum. The prune reads any mismatch as
+    /// "past `min_id`, and so is everything below", which only holds when nothing in
+    /// the heap sorts *below* `min_id` — pointed anywhere else, the descent stops at
+    /// the root and the aggregate comes back empty. Only `QUICK_EXIT == false` callers
+    /// reach here, and each passes `self.heap.peek()`, so that holds by construction.
+    fn build_aggregate_result(&mut self, min_id: DocId) {
+        if QUICK_EXIT {
+            panic!("a quick union never aggregates; it reports a single child");
+        }
+        debug_assert_eq!(
+            self.heap.peek().map(|min| min.doc_id),
+            Some(min_id),
+            "the descent's prune is only valid at the heap's minimum",
+        );
+
+        self.result.reset_aggregate();
+        self.result.doc_id = min_id;
+
+        // Borrow the heap data slice once so the compiler can hoist bounds
+        // checks out of the loop.
+        let heap_data = self.heap.as_slice();
+
+        if heap_data.is_empty() {
+            return;
+        }
+
+        // A 64-element stack is sufficient for a binary heap of up to 2^64 elements.
+        let mut stack = [0usize; 64];
+        let mut stack_len = 1;
+        stack[0] = 0;
+
+        while stack_len > 0 {
+            stack_len -= 1;
+            let heap_idx = stack[stack_len];
+
+            if heap_idx >= heap_data.len() {
+                continue;
+            }
+
+            let entry = heap_data[heap_idx];
+            if entry.doc_id != min_id {
+                continue;
+            }
+
+            if let Some(child_result) = self.children[entry.child_idx].current() {
+                let drained_metrics = std::mem::take(&mut child_result.metrics);
+                let child_ptr: *const RSIndexResult<'index> = child_result;
+                // SAFETY: We need a raw pointer to decouple the borrow of the child's
+                // result from `&mut self.result`. This is sound because:
+                // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
+                // 2. The child is owned by `self`, so the 'index data remains valid.
+                let child_ref = unsafe { &*child_ptr };
+                self.result.push_borrowed(child_ref, drained_metrics);
+            }
+            // both children of heap_idx are >= doc_id due to heap property
+            let left_heap_idx = 2 * heap_idx + 1;
+            let right_heap_idx = 2 * heap_idx + 2;
+
+            if left_heap_idx < heap_data.len() && stack_len < 64 {
+                stack[stack_len] = left_heap_idx;
+                stack_len += 1;
+            }
+            if right_heap_idx < heap_data.len() && stack_len < 64 {
+                stack[stack_len] = right_heap_idx;
+                stack_len += 1;
+            }
+        }
+    }
+
+    /// Performs initial read on all children and builds the heap.
+    ///
+    /// Clears the heap first: a `revalidate` before the first read runs
+    /// [`Self::rebuild_heap`] while every child is still at `last_doc_id() == 0`,
+    /// and those doc-0 entries would otherwise sort ahead of every real id.
+    fn initialize_children(&mut self) -> Result<(), RQEIteratorError> {
+        if QUICK_EXIT {
+            panic!("a quick union builds its heap through advance_to instead");
+        }
+
+        self.heap.clear();
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            if child.last_doc_id() == 0 && !child.at_eof() {
+                if child.read()?.is_some() {
+                    self.heap.push(child.last_doc_id(), idx);
+                }
+            } else if child.last_doc_id() > 0 {
+                self.heap.push(child.last_doc_id(), idx);
+            }
+        }
+        // Derived here rather than adjusted, for the same reason the heap is:
+        // a `rebuild_heap` before the first read counts only the children it kept,
+        // and this pass can seed the heap with one it dropped. Leaving the count
+        // alone would let the per-child decrements below run past zero.
+        self.num_active = self.heap.len();
+        Ok(())
+    }
 
     /// Full mode read — advances matching children and finds minimum.
     fn read_full(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.last_doc_id() == 0 {
+        if QUICK_EXIT {
+            panic!("a quick union reads through read_quick");
+        }
+
+        let previous_id = self.last_doc_id();
+        if previous_id == 0 {
             self.initialize_children()?;
         } else {
-            self.advance_matching_children(self.last_doc_id())?;
+            self.advance_matching_children(previous_id)?;
         }
 
         let Some(min) = self.heap.peek() else {
@@ -325,12 +379,31 @@ where
             return Ok(None);
         };
 
+        // The root was advanced past `previous_id`, so it has to name a later
+        // document. Handing back one this union already delivered would have the
+        // caller emit it twice.
+        debug_assert!(
+            min.doc_id > previous_id,
+            "a read must move forward: {previous_id} -> {}",
+            min.doc_id,
+        );
+
         self.build_aggregate_result(min.doc_id);
         Ok(Some(&mut self.result))
     }
+}
 
+// Methods reachable only when `QUICK_EXIT` is `true`. See the note above.
+impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
     /// Quick mode read — delegates to `skip_to(last_doc_id + 1)`.
     fn read_quick(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if !QUICK_EXIT {
+            panic!("a full union reads through read_full");
+        }
+
         let next_id = self.last_doc_id().saturating_add(1);
         match self.skip_to(next_id)? {
             Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => Ok(Some(r)),
@@ -340,6 +413,10 @@ where
 
     /// Sets the union result directly from the child at `child_idx`.
     fn quick_set_from_child(&mut self, child_idx: usize) {
+        if !QUICK_EXIT {
+            panic!("a full union aggregates every matching child instead");
+        }
+
         let child = &mut self.children[child_idx];
 
         self.result.reset_aggregate();
@@ -489,19 +566,86 @@ where
             return Ok(RQEValidateStatus::Moved { current: None });
         };
 
+        // Without `QUICK_EXIT` no child can fall behind the union: every child in the
+        // heap is advanced on every `read`/`skip_to`, and a child's own `revalidate` may
+        // only move it forward — one that has run past its end reports no `current` and
+        // is left out by `rebuild_heap`. So the minimum is at worst *equal* to the
+        // current position, which is simply a child still sitting on the document it
+        // supplied.
+        debug_assert!(
+            QUICK_EXIT || min.doc_id >= original_last_doc_id,
+            "a full union's child cannot fall behind it: {} < {original_last_doc_id}",
+            min.doc_id,
+        );
+
+        // With `QUICK_EXIT` it can: `rebuild_heap` keys on `last_doc_id()`, which answers
+        // 0 for a child that has never been read and an earlier round's id for one that
+        // `advance_lagging_children` left in the heap when it returned on an exact match.
+        // Such a minimum is not a position to move to — adopting it would replay
+        // documents, because `VALIDATE_MOVED` has the caller emit `current` in place of a
+        // read and the read after that resumes from there. `iterator_api.h` says
+        // `VALIDATE_MOVED` means the position moved *forward*, and `Not::revalidate`
+        // asserts that of its child — which is where a `QUICK_EXIT` union usually sits.
+        //
+        // Staying put loses nothing: the next `read`/`skip_to` seeks every child that
+        // has not moved past `last_doc_id()` — including the lagging one whose position
+        // was rejected here — and finds the true next document there, by code that can
+        // report a failure, rather than here, where an `Err` would reach the caller as
+        // `VALIDATE_ABORTED`.
+        //
+        // The result is still republished, at the unchanged position, because it holds
+        // raw pointers into the children's own results — one that moved leaves it
+        // describing another document, and one that aborted was dropped above and
+        // leaves it dangling. From a single child, as everywhere else in this mode:
+        // `min.child_idx` cannot be used for it, being the lagging child just rejected,
+        // so the one still on the current position is looked up instead.
+        //
+        // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
+        // rather than paying for a comparison that its invariant already rules out.
+        if QUICK_EXIT && min.doc_id < original_last_doc_id {
+            match self
+                .children
+                .iter()
+                .position(|c| !c.at_eof() && c.last_doc_id() == original_last_doc_id)
+            {
+                Some(idx) => self.quick_set_from_child(idx),
+                None => {
+                    // Every child that was here has moved on. The caller gets `Ok`, so
+                    // it reads rather than consuming this; the result only has to be
+                    // free of the stale pointers `reset_aggregate` drops.
+                    self.result.reset_aggregate();
+                    self.result.doc_id = original_last_doc_id;
+                }
+            }
+
+            debug_assert_eq!(
+                self.last_doc_id(),
+                original_last_doc_id,
+                "staying put must leave the position untouched",
+            );
+
+            return Ok(RQEValidateStatus::Ok);
+        }
+
         if QUICK_EXIT {
             self.quick_set_from_child(min.child_idx);
         } else {
             self.build_aggregate_result(min.doc_id);
         }
 
-        if self.last_doc_id() != original_last_doc_id {
-            Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
+        // Return MOVED only if lastDocId changed
+        if self.last_doc_id() == original_last_doc_id {
+            return Ok(RQEValidateStatus::Ok);
         }
+
+        debug_assert!(
+            self.last_doc_id() > original_last_doc_id,
+            "a reported move must be forward",
+        );
+
+        Ok(RQEValidateStatus::Moved {
+            current: Some(&mut self.result),
+        })
     }
 
     #[inline(always)]
