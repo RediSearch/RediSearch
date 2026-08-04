@@ -71,10 +71,20 @@ pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard)
 pub fn receive_existing_docs(
     reader: &mut impl Read,
 ) -> Result<Option<GcScanDelta>, HandleError<ExistingDocsDeleted>> {
-    match Frame::decode(reader)? {
-        Frame::Empty => Ok(Some(rmp_serde::from_read::<_, GcScanDelta>(reader)?)),
+    let frame = Frame::decode(reader)
+        .map_err(|e| HandleError::codec("reading the existing-docs header frame", e))?;
+
+    match frame {
+        Frame::Empty => {
+            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
+                .map_err(|e| HandleError::codec("decoding the existing-docs delta", e))?;
+            Ok(Some(delta))
+        }
         Frame::Terminator => Ok(None),
-        Frame::Data(_) => Err(HandleError::UnexpectedFrame),
+        Frame::Data(_) => Err(HandleError::codec(
+            "expected an empty or terminator frame for existing-docs",
+            "got a data frame",
+        )),
     }
 }
 

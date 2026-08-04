@@ -78,11 +78,7 @@ pub unsafe extern "C" fn FGC_parentHandleMissingDocs(gc: *mut ffi::ForkGC) -> FG
     match handle_missing_docs(fgc) {
         Ok(HandleOutcome::Collected) => FGCError::Collected,
         Ok(HandleOutcome::Done) => FGCError::Done,
-        Err(
-            HandleError::PipeReadError(_)
-            | HandleError::DeserializationFailed(_)
-            | HandleError::UnexpectedFrame,
-        ) => FGCError::ChildError,
+        Err(HandleError::Codec { .. }) => FGCError::ChildError,
         Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
         Err(HandleError::Custom(FieldNotFound)) => FGCError::ParentError,
     }

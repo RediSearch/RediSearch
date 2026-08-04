@@ -75,17 +75,24 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 pub fn receive_missing_docs(
     reader: &mut impl Read,
 ) -> Result<Option<(CString, GcScanDelta)>, HandleError<FieldNotFound>> {
-    match Frame::decode_nul_terminated(reader)? {
+    let frame = Frame::decode_nul_terminated(reader)
+        .map_err(|e| HandleError::codec("reading the missing-docs field-name frame", e))?;
+
+    match frame {
         Frame::Terminator => Ok(None),
         Frame::Data(field_name) => {
-            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)?;
+            let delta = rmp_serde::from_read::<_, GcScanDelta>(reader)
+                .map_err(|e| HandleError::codec("decoding the missing-docs delta", e))?;
             let field_name = field_name
                 .into_inner()
                 .into_c_string()
                 .expect("child always sends a field name that is a valid C string");
             Ok(Some((field_name, delta)))
         }
-        Frame::Empty => Err(HandleError::Custom(FieldNotFound)),
+        Frame::Empty => Err(HandleError::codec(
+            "expected a field-name or terminator frame for missing-docs",
+            "got an empty frame",
+        )),
     }
 }
 

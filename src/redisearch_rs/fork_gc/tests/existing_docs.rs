@@ -119,11 +119,14 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_pipe_read_error() {
+fn receive_malformed_frame_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_existing_docs(&mut cursor),
-        Err(HandleError::PipeReadError(_))
+        Err(HandleError::Codec {
+            msg: "reading the existing-docs header frame",
+            ..
+        })
     ));
 }
 
