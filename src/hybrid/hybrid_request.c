@@ -353,7 +353,9 @@ void HybridRequest_Free(HybridRequest *req) {
     // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
     RS_ASSERT(req->cursors == NULL);
 
-    // Free all individual AREQ requests and their pipelines.
+    // Free all individual AREQ requests and their pipelines — unless the
+    // handoff transferred them to their cursors (each sub is then freed by
+    // its cursor, like any parked request).
     //
     // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
     // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
@@ -361,7 +363,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // construction time. Freeing sctx first would dangle those borrows during
     // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
     // to tear down iterators, then free sctx + thctx ourselves.
-    for (size_t i = 0; i < req->nrequests; i++) {
+    for (size_t i = 0; !req->cursorsOwnSubqueries && i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       RedisModuleCtx *thctx = NULL;
       RedisSearchCtx *sctx = NULL;

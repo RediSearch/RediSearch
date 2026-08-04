@@ -61,6 +61,13 @@ typedef struct HybridRequest {
     // - HybridRequest_StartCursors: checks timedOut flag before publishing, or frees on error
     arrayof(struct Cursor*) cursors;
 
+    // The handoff marker (shard-internal WITHCURSOR): set under cursorMutex
+    // when the sub-cursors are published, transferring ownership of each
+    // sub-AREQ from the container to its cursor. HybridRequest_Free then
+    // frees the container-only remainder and leaves the subs to their
+    // cursors.
+    bool cursorsOwnSubqueries;
+
     // Optional debug parameters for _FT.DEBUG FT.HYBRID.
     // When non-NULL, debug timeouts are applied after pipeline building.
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.

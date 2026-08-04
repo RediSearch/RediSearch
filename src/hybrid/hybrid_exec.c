@@ -833,13 +833,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // FT.CURSOR READ cycles run against the read sub-AREQ's wrapper.
-      // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
-      // the container-handoff step.
-      RS_ASSERT(areq->brc != NULL);
-      // The cursor lifetime will determine the hybrid request lifetime
-      cursor->query = areq->brc;
-      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      // cursor->query stays NULL until the handoff at publish time: a cursor
+      // freed on the error paths below is a bare handle, and the sub-AREQ is
+      // still owned by the container.
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
       areq->cursor_id = cursor->id;
@@ -863,8 +859,6 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       rc = RPDepleter_DepleteAll(depleters);
     }
 
-    array_free(depleters);
-
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
       if (rc == RS_RESULT_TIMEDOUT && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return) {
@@ -872,6 +866,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         depletionTimedOut = true;
       } else {
         // Fatal error or FAIL policy — free everything
+        array_free(depleters);
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
@@ -888,10 +883,27 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     HybridRequest_LockCursors(req);
     if (HybridRequest_TimedOut(req)) {
       HybridRequest_UnlockCursors(req);
+      array_free(depleters);
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
+    // The handoff (design §3.6): each cursor takes ownership of its sub-AREQ
+    // through the sub's wrapper — the container's sub reference transfers to
+    // the cursor, and the container no longer outlives the initial cycle: it
+    // is freed at OnFree, after the cursor IDs were replied, and the client
+    // cannot read a cursor before receiving those IDs. Sever the subs' last
+    // borrow of container state: the safe depleters' downstream ctx is the
+    // container's tail sctx, never read once depletion flipped to Yield
+    // (which DepleteAll guarantees for every depleter, on every rc).
+    for (size_t i = 0; i < req->nrequests; i++) {
+      RS_ASSERT(req->requests[i]->brc != NULL);
+      cursors[i]->query = req->requests[i]->brc;
+      if (backgroundDepletion) {
+        RPSafeDepleter_DetachNextThreadCtx(depleters[i]);
+      }
+    }
+    req->cursorsOwnSubqueries = true;
     req->cursors = cursors;
     cursors = NULL;
     // Cursors are published: the remaining work is handing off the mapping reply,
@@ -899,6 +911,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // timeout already fired, via the SetExecutionStage freeze).
     HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
     HybridRequest_UnlockCursors(req);
+    array_free(depleters);
 
     // Pause after store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);

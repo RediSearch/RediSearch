@@ -292,6 +292,15 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base);
 
 /**
+* Detach the depleter's downstream (next-thread) search context. Only valid
+* once depletion has completed — the Yield path never reads it. Used by the
+* hybrid cursor handoff: the ctx belongs to the hybrid container, which dies
+* at the end of the initial cycle while the sub-request lives on with its
+* cursor.
+*/
+void RPSafeDepleter_DetachNextThreadCtx(ResultProcessor *base);
+
+/**
 * Get the depletion time for RPSafeDepleter.
 * This is the time spent in the background thread depleting upstream results.
 * @param rp The RPSafeDepleter result processor

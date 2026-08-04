@@ -2254,6 +2254,13 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base) {
   RPSafeDepleter_StartDepletionThread(self);
 }
 
+void RPSafeDepleter_DetachNextThreadCtx(ResultProcessor *base) {
+  RS_ASSERT(base->type == RP_SAFE_DEPLETER);
+  RPSafeDepleter *self = (RPSafeDepleter *)base;
+  RS_ASSERT(base->Next == RPSafeDepleter_Next_Yield);
+  self->nextThreadCtx = NULL;
+}
+
 void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   RS_ASSERT(base->type == RP_SAFE_DEPLETER);
   const RPSafeDepleter *self = (RPSafeDepleter *)base;
