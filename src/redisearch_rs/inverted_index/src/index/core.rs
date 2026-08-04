@@ -14,7 +14,7 @@ use std::{
 };
 use thin_vec::ThinVec;
 
-use super::unique_id::IndexUniqueId;
+use super::{ExpirationBits, unique_id::IndexUniqueId};
 use crate::{
     BlockCapacity, Encoder, IdDelta,
     controlled_cursor::ControlledCursor,
@@ -88,28 +88,10 @@ pub struct IndexBlock {
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
 
-    /// Bitset indexed by entry ordinal within this block: bit `i` is set when the
-    /// `i`-th entry belongs to a field that has a field-level expiration (HFE) for
-    /// its document. (For tag/numeric indexes that is the single owning field; for
-    /// term indexes it is any field in the posting's field mask.)
-    ///
-    /// This is *not* part of the encoded `buffer`; it is kept alongside it so the
-    /// document-id codec stays untouched. It is grown lazily and only as far as
-    /// the highest expiring ordinal. Readers consult it by entry ordinal to set
-    /// [`RSIndexResult::has_field_expiration`](index_result::RSIndexResult::has_field_expiration),
-    /// letting expiration-aware iterators skip the TTL-table lookup for documents
-    /// that have no field TTL.
-    ///
-    /// `Option<Box<[u8]>>` is chosen over `Option<Vec<u8>>` deliberately. `Option`
-    /// keeps the common case — a block whose documents have no field expirations —
-    /// allocation-free (`None`, no heap buffer). `Box<[u8]>` over `Vec<u8>` drops
-    /// the capacity word: the field is then a 2-word fat pointer (16 bytes) rather
-    /// than a 3-word `Vec` header (24 bytes), saving 8 bytes per block. The spare
-    /// capacity a `Vec` carries would be dead weight here anyway, since the bitset
-    /// is reallocated to an exact size on demand (see `set_expiration_bit`) rather
-    /// than pushed into. It is serialized along with the block (the fork GC
-    /// round-trips blocks through `rmp_serde`), so the bits survive GC.
-    pub(crate) expiration_bits: Option<Box<[u8]>>,
+    /// The entries in this block that belong to a field with a field-level expiration, see
+    /// [`ExpirationBits`]. `None` — and so free of any heap allocation — while no entry in the
+    /// block does, which is the common case.
+    pub(crate) expiration_bits: Option<ExpirationBits>,
 }
 
 impl IndexBlock {
@@ -129,7 +111,9 @@ impl IndexBlock {
 
     /// The number of bytes occupied by the field-expiration bitset, if any.
     fn expiration_bits_len(&self) -> usize {
-        self.expiration_bits.as_deref().map_or(0, <[u8]>::len)
+        self.expiration_bits
+            .as_ref()
+            .map_or(0, ExpirationBits::mem_usage)
     }
 
     /// Get the memory usage of this block, including the stack size, the capacity of the bytes
@@ -139,33 +123,19 @@ impl IndexBlock {
     }
 
     /// Record that the entry at `ordinal` (its 0-based position within this block)
-    /// belongs to a document with at least one field-level expiration. The bitset
-    /// grows on demand; ordinals below the highest set bit that were never set stay
-    /// `0` (no expiration), which is exactly what we want for non-expiring entries.
+    /// belongs to a document with at least one field-level expiration.
     pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
-        let byte = ordinal as usize / 8;
-        let needed = byte + 1;
-        let bits = match self.expiration_bits.take() {
-            Some(bits) if bits.len() >= needed => bits,
-            Some(bits) => {
-                let mut grown = vec![0u8; needed];
-                grown[..bits.len()].copy_from_slice(&bits);
-                grown.into_boxed_slice()
-            }
-            None => vec![0u8; needed].into_boxed_slice(),
-        };
-        self.expiration_bits = Some(bits);
-        // SAFETY-free: we just ensured `Some` with len >= needed.
-        self.expiration_bits.as_mut().unwrap()[byte] |= 1 << (ordinal % 8);
+        match &mut self.expiration_bits {
+            Some(bits) => bits.insert(ordinal),
+            None => self.expiration_bits = Some(ExpirationBits::new(ordinal)),
+        }
     }
 
-    /// Whether the entry at `ordinal` belongs to a document with a field-level
-    /// expiration. Ordinals beyond the (lazily grown) bitset read as `false`.
+    /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
     pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
-        let byte = ordinal as usize / 8;
         self.expiration_bits
-            .as_deref()
-            .is_some_and(|bits| byte < bits.len() && (bits[byte] >> (ordinal % 8)) & 1 != 0)
+            .as_ref()
+            .is_some_and(|bits| bits.contains(ordinal))
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
