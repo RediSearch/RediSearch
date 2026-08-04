@@ -75,7 +75,7 @@ pub(crate) fn eval<'index>(
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
 
-    let (trie_prefix, trie_suffix) = match mode {
+    let (match_prefix, match_suffix) = match mode {
         WildcardMode::Prefix => (true, false),
         WildcardMode::Suffix => (false, true),
         WildcardMode::Contains => (true, true),
@@ -109,7 +109,7 @@ pub(crate) fn eval<'index>(
     // during the query (`QueryEvalContext` invariants 1/2).
     let terms = unsafe { CTrieRef::from_raw(terms_trie) };
 
-    let children = if trie_suffix && !suffix_trie.is_null() {
+    let children = if match_suffix && !suffix_trie.is_null() {
         // The spec maintains a suffix trie for this pattern's fields: expand
         // through it.
         // SAFETY: `suffix_trie` is non-null (checked above) and is the spec's
@@ -119,13 +119,13 @@ pub(crate) fn eval<'index>(
             suffix,
             terms,
             &pattern,
-            trie_prefix,
+            match_prefix,
             node_field_mask,
             suffix_mask,
         )
     } else {
         // Brute-force expansion over the primary terms trie.
-        expansion.expand_via_terms_trie(terms, &pattern, trie_prefix, trie_suffix, timeout)
+        expansion.expand_via_terms_trie(terms, &pattern, match_prefix, match_suffix, timeout)
     };
 
     // Prefix unions always take the quick-exit path — they only need the
@@ -218,15 +218,15 @@ impl Expansion<'_> {
     /// Brute-force expand `pattern` over the primary terms trie, returning one
     /// reader per matching term.
     ///
-    /// `terms` wraps the spec's primary terms trie. `trie_prefix`/`trie_suffix`
+    /// `terms` wraps the spec's primary terms trie. `match_prefix`/`match_suffix`
     /// anchor the walk (prefix, suffix, or — both set — contains); `timeout`
     /// bounds it (`None` runs it to completion).
     fn expand_via_terms_trie(
         mut self,
         terms: CTrieRef,
         pattern: &[ffi::rune],
-        trie_prefix: bool,
-        trie_suffix: bool,
+        match_prefix: bool,
+        match_suffix: bool,
         timeout: Option<NonNull<ffi::timespec>>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
@@ -246,7 +246,7 @@ impl Expansion<'_> {
         // opens per-term readers, which read the spec's inverted indexes rather
         // than the terms trie being walked.
         unsafe {
-            terms.iterate_contains(pattern, trie_prefix, trie_suffix, timeout, on_runes);
+            terms.iterate_contains(pattern, match_prefix, match_suffix, timeout, on_runes);
         }
         self.children
     }
