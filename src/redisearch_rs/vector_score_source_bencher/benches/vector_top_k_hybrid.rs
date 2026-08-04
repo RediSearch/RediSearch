@@ -56,7 +56,7 @@ use vector_score_source::VectorScoreSource;
 
 /// Score order for vector distance: ascending (lower distance = better).
 /// Matches the comparator `vector_score_source` uses internally.
-fn asc_cmp(a: f64, b: f64) -> Ordering {
+fn asc_cmp(a: &f64, b: &f64) -> Ordering {
     a.partial_cmp(&b).unwrap_or(Ordering::Equal)
 }
 
