@@ -69,7 +69,8 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::ForkGC`].
+/// 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+///    alive for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleMissingDocs(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
