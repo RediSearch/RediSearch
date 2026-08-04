@@ -183,12 +183,9 @@ static t_fieldMask docExpiringTextFieldMask(const IndexSpec *spec, t_docId docId
 static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
   IndexSpec *spec = ctx->spec;
-  // A term posting's inline field-expiration bit is set when the term occurs in
-  // a field that carries a field-level expiration for this document, so that
-  // expiration-aware iterators can skip the TTL-table lookup for postings whose
-  // fields never expire. Build that mask once (text fields only;
-  // `doc->fieldExpirations` was moved into the TTL table by `doAssignIds`, so we
-  // read it back from the doc table), then test each entry's field mask.
+  // Text fields carrying a field-level expiration for this document; a posting's
+  // inline expiration bit is set when its field mask overlaps this one. Read back
+  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);

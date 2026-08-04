@@ -727,12 +727,12 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
 }
 
 // Returns true if `after` contains a field index that is not present in
-// `before` — i.e. some field gained a field-level expiration. Both arrays are
+// `before` — i.e. some field was given a field-level expiration. Both arrays are
 // sorted ascending by field index; either may be NULL (treated as empty). Used
 // to decide whether an HEXPIRE/HPERSIST must reindex the document so the inline
 // per-field expiration bit on that field's postings flips from 0 to 1.
-static bool fieldExpirationGained(const struct FieldExpirationSlice before,
-                                  const FieldExpirations *after) {
+static bool fieldExpirationAdded(const struct FieldExpirationSlice before,
+                                 const FieldExpirations *after) {
   const struct FieldExpirationSlice afterSlice = FieldExpirations_AsSlice(after);
   size_t bi = 0;
   for (size_t ai = 0; ai < afterSlice.len; ++ai) {
@@ -747,8 +747,8 @@ static bool fieldExpirationGained(const struct FieldExpirationSlice before,
   return false;
 }
 
-static void reindexDocAfterFieldExpirationGain(RedisModuleCtx *ctx, IndexSpec *spec,
-                                               RedisModuleString *key, DocumentType type) {
+static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *spec,
+                                                RedisModuleString *key, DocumentType type) {
   // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
   // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
   // table in one pass. If the schema FILTER no longer accepts the doc, delete it
@@ -860,11 +860,11 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
       const struct FieldExpirationSlice before =
           DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
 
-      if (fieldExpirationGained(before, &sorted)) {
+      if (fieldExpirationAdded(before, &sorted)) {
         DMD_Return(cdmd);
         RedisSearchCtx_UnlockSpec(&sctx);
         FieldExpirations_Free(&sorted);
-        reindexDocAfterFieldExpirationGain(ctx, spec, key, type);
+        reindexDocAfterFieldExpirationAdded(ctx, spec, key, type);
         continue;
       }
 

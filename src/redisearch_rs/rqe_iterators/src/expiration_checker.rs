@@ -130,16 +130,10 @@ impl ExpirationChecker for FieldExpirationChecker {
             return false;
         }
 
-        // The reader set this bit from the block's per-entry expiration bitset: it is
-        // set iff one of the fields this entry belongs to has a field-level expiration
-        // for this document.
-        //
-        // We only short-circuit on it for the `Default` predicate. There, a clear bit
-        // means none of the entry's fields can be expired, and a query's matched
-        // fields are always a subset of the entry's fields, so `Verify*` would report
-        // the document as valid (not expired) — we skip the TTL-table lookup entirely.
-        // This removes the per-record probe for entries whose fields never expire (the
-        // common case once any document in the index uses HFE).
+        // Short-circuit on the entry's expiration bit, but only for the `Default`
+        // predicate: there a clear bit means none of the entry's fields can be expired,
+        // and a query's matched fields are always a subset of the entry's fields, so
+        // `Verify*` would report the document as valid anyway.
         //
         // The `Missing` predicate (`ismissing`) is excluded: it reads a per-field
         // missing-docs index whose postings do not carry this bit, and its `Verify`

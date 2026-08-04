@@ -193,9 +193,7 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
 }
 
 // Returns true if `docId` has a field-level expiration registered for the field
-// at the given spec field index. Used during indexing to set the per-field
-// inline expiration bit on tag/numeric postings (which belong to a single
-// field). The field-expiration array is sorted by field index.
+// at the given spec field index.
 static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
                                                t_fieldIndex fieldIndex) {
   const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
