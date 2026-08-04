@@ -1387,6 +1387,10 @@ static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
 void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
                               TrieRangeCallback callback, void *ctx, struct timespec *timeout,
                               bool skipTimeoutChecks) {
+  // An empty pattern matches no term, and the initializer below reads str[nstr - 1]
+  if (nstr <= 0) {
+    return;
+  }
   // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks
   RangeCtx r = {
       .callback = callback,
