@@ -422,3 +422,123 @@ def testWildcardOnFieldWithoutSuffixTrie():
     # Wildcard on t2 should error: spec->suffix exists (from t1) but t2 is not in suffixMask
     env.expect('FT.SEARCH', 'idx', "@t2:w'hel*o'").error() \
         .contains('WITHSUFFIXTRIE')
+
+_MAX_EXPANSIONS_WARNING = 'Max prefix expansions limit was reached'
+
+# A cap above 1, so a truncated expansion is distinguishable from an empty one,
+# and below the size of one document family, so it is always reached inside the
+# first one.
+_EXPANSION_CAP = 3
+# Large enough that the terms trie's lexicographic order and the suffix trie's
+# insertion order disagree within the first `_EXPANSION_CAP` terms, which is what
+# lets the two tests below tell the two walks apart by their result.
+_EXPANSION_DOCS = 12
+assert _EXPANSION_CAP < _EXPANSION_DOCS
+assert _EXPANSION_DOCS >= 12
+
+def _setupExpansionIndex(env, *schemaArgs):
+    """Index two families of `_EXPANSION_DOCS` documents, one distinct term
+    each: `val<i>common` under `doc:<i>`, then `xal<i>common` under `xdoc:<i>`.
+    Every pattern the max-expansion tests use matches both families."""
+    conn = getConnectionByEnv(env)
+    # NOSTEM so the terms trie holds exactly the terms indexed below: a stemmed
+    # form is stored as a separate '+'-prefixed term, which could match the
+    # patterns below and make the expected expansion depend on the stemmer.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM', *schemaArgs).ok()
+
+    # The suffix trie records terms in indexing order, which
+    # testWildcardSuffixTrieMaxPrefixExpansions depends on. Documents must
+    # therefore be written after FT.CREATE, one at a time, in this order —
+    # writing them first and letting the background scan index them, or reloading
+    # the index, would rebuild that order from a keyspace scan instead.
+    for letter, keyPrefix in (('v', 'doc'), ('x', 'xdoc')):
+        for i in range(_EXPANSION_DOCS):
+            conn.execute_command('HSET', f'{keyPrefix}:{i}', 't', f'{letter}al{i}common')
+
+def _capExpansions(env):
+    """Lower MAXPREFIXEXPANSIONS to `_EXPANSION_CAP`, returning the value it
+    held before, which the caller must restore."""
+    # Capture rather than hardcode the default, so this keeps restoring the right
+    # value if it ever changes.
+    reply = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')
+    previous = reply['MAXPREFIXEXPANSIONS'] if isinstance(reply, dict) else reply[0][1]
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', _EXPANSION_CAP).ok()
+    return previous
+
+def _assertMaxExpansionsWarning(env, res):
+    """Assert `res` carries the max-expansion warning and nothing else."""
+    # Matching the whole list rather than searching it, so an extra unrelated
+    # warning does not pass unnoticed either.
+    env.assertEqual(res['warning'], [_MAX_EXPANSIONS_WARNING], message=res)
+
+@skip(cluster=True)
+def testWildcardMaxPrefixExpansions():
+    """A wildcard query brute-forcing the terms trie stops expanding at
+    MAXPREFIXEXPANSIONS terms, and warns."""
+    # protocol=3 so the warning is a named reply field rather than positional;
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    # No WITHSUFFIXTRIE, so the expansion brute-forces the terms trie.
+    _setupExpansionIndex(env)
+    query = "w'*al*'"
+
+    # Negative control: uncapped, the query expands to every indexed term. So the
+    # capped result below is the cap truncating this expansion, not the pattern
+    # matching three documents for some unrelated reason.
+    res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT')
+    env.assertEqual(res['total_results'], 2 * _EXPANSION_DOCS, message=res)
+    env.assertEqual(res['warning'], [], message=res)
+
+    previous = _capExpansions(env)
+    try:
+        # Asserting the ids, not just the count: every term holds exactly one
+        # document, so a count alone cannot tell a correctly truncated expansion
+        # from one that opened three unrelated readers. The terms trie is walked
+        # lexicographically, so the first three terms are 'val0common',
+        # 'val10common', 'val11common' — digits sort ahead of the 'c' of
+        # 'val1common'.
+        #
+        # Compared as a set: which terms the walk keeps is the assertion, while
+        # the order they come back in is the scorer's business — every document
+        # here holds one term and so scores equally.
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT')
+        env.assertEqual(res['total_results'], _EXPANSION_CAP, message=res)
+        env.assertEqual(sorted(doc['id'] for doc in res['results']),
+                        sorted(['doc:0', 'doc:10', 'doc:11']), message=res)
+        _assertMaxExpansionsWarning(env, res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', previous).ok()
+
+@skip(cluster=True)
+def testWildcardSuffixTrieMaxPrefixExpansions():
+    """A wildcard query expanding through the suffix trie stops expanding at
+    MAXPREFIXEXPANSIONS terms, and warns."""
+    # See testWildcardMaxPrefixExpansions for why this Env is customised.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
+    _setupExpansionIndex(env, 'WITHSUFFIXTRIE')
+
+    # Anchored on 'common', which the suffix trie can look up, so the expansion
+    # runs through the suffix trie rather than the terms trie — a walk the rest
+    # of this file never takes under a cap.
+    query = "w'*common'"
+
+    # Negative control, as in testWildcardMaxPrefixExpansions.
+    res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT')
+    env.assertEqual(res['total_results'], 2 * _EXPANSION_DOCS, message=res)
+    env.assertEqual(res['warning'], [], message=res)
+
+    previous = _capExpansions(env)
+    try:
+        # The ids are what pin the walk to the suffix trie: it lists the terms
+        # carrying 'common' in indexing order, so the cap truncates that list to
+        # 'val0common', 'val1common', 'val2common'. Should the suffix trie ever
+        # decline this pattern, the fallback brute-force walk warns identically
+        # and returns the same number of documents — but the lexicographic set
+        # testWildcardMaxPrefixExpansions asserts, not this one.
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT')
+        env.assertEqual(res['total_results'], _EXPANSION_CAP, message=res)
+        env.assertEqual(sorted(doc['id'] for doc in res['results']),
+                        sorted(['doc:0', 'doc:1', 'doc:2']), message=res)
+        _assertMaxExpansionsWarning(env, res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', previous).ok()
