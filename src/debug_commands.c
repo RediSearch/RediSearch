@@ -1036,8 +1036,9 @@ DEBUG_COMMAND(GCForceInvoke) {
   // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
   // indexes get a higher default timeout.
   long long timeout = sp->diskSpec ? 60000 : 30000;
-  if (argc == 4) {
-    RedisModule_StringToLongLong(argv[3], &timeout);
+  if (argc == 4 &&
+      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
