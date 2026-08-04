@@ -13,7 +13,6 @@ use std::ptr::NonNull;
 
 use c_trie::CTrieRef;
 use field::FieldMaskOrIndex;
-use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
 use query_types::QueryNodeOptions;
 use rqe_core::FieldMask;
@@ -21,7 +20,7 @@ use rqe_iterators::build_term_iterator;
 use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion_needs_offsets};
+use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, disk, expansion_needs_offsets};
 
 /// `QN_TOKEN` — a single-term lookup.
 ///
@@ -149,25 +148,8 @@ fn eval_disk<'index>(
 
     let needs_offsets = expansion_needs_offsets(ctx, opts, config);
 
-    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-        .expect("query.sctx.diskSnapshot is null for a disk-backed token query");
-    // SAFETY: `disk` wraps the spec's disk index, valid for `'index`
-    // (`QueryEvalContext` invariants 1/2), and single-threaded query evaluation
-    // gives us the only live reference to it; the enterprise iterators are
-    // registered whenever a disk index is in use; `snapshot` is the disk snapshot
-    // taken at query start.
-    let iter = unsafe {
-        disk.new_term_iterator(term, effective_field_mask, weight, needs_offsets, snapshot)
-    };
+    let iter =
+        disk::new_term_iterator(ctx, disk, term, effective_field_mask, weight, needs_offsets)?;
 
-    match iter {
-        Ok(it) => Some(Evaluated::RustLeaf(it)),
-        Err(err) => {
-            // Surface the failure via `status` so the query aborts with an
-            // error rather than silently returning empty results.
-            ctx.status()
-                .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
-            None
-        }
-    }
+    Some(Evaluated::RustLeaf(iter))
 }

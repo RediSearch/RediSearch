@@ -18,21 +18,20 @@
 use std::{ops::ControlFlow, ptr::NonNull};
 
 use field::FieldMaskOrIndex;
-use query_error::QueryErrorCode;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use search_disk::SearchDiskHandle;
 
-use crate::QueryEvalContext;
+use crate::{QueryEvalContext, disk};
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
 /// enterprise disk iterator as a [`CRQEIterator`].
 ///
 /// `num_docs` is the term's document count, used to compute its IDF;
 /// `needs_offsets` selects the offset-carrying iterator variant. Returns `None`
-/// (and records a [`DiskIteratorCreation`](QueryErrorCode::DiskIteratorCreation)
-/// error) when the iterator cannot be built.
+/// — after [`disk::new_term_iterator`] records the failure on the query status —
+/// when the iterator cannot be built.
 fn open_expanded_term_reader_disk(
     ctx: &mut QueryEvalContext,
     disk: SearchDiskHandle,
@@ -46,26 +45,12 @@ fn open_expanded_term_reader_disk(
     let token_id = ctx.next_token_id() as i32;
     let mut term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
     term.set_idfs(num_documents, num_docs);
-    let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
-        .expect("query.sctx.diskSnapshot is null for a disk-backed expansion");
-    // SAFETY: `disk` wraps the spec's disk index, valid for the query; the
-    // enterprise iterators are registered whenever a disk index is in use;
-    // `snapshot` is the disk snapshot taken at query start.
-    match unsafe { disk.new_term_iterator(term, field_mask, weight, needs_offsets, snapshot) } {
-        Ok(it) => {
-            let ptr = RQEIteratorWrapper::boxed_new(it);
-            let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
-            // SAFETY: `nn` is a valid, owning C `QueryIterator`.
-            Some(unsafe { CRQEIterator::new(nn) })
-        }
-        Err(err) => {
-            // Surface the failure so the query aborts with an error rather
-            // than silently dropping this expansion.
-            ctx.status()
-                .set_error(QueryErrorCode::DiskIteratorCreation, &err.to_string());
-            None
-        }
-    }
+
+    let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, needs_offsets)?;
+    let ptr = RQEIteratorWrapper::boxed_new(it);
+    let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
+    // SAFETY: `nn` is a valid, owning C `QueryIterator`.
+    Some(unsafe { CRQEIterator::new(nn) })
 }
 
 /// Open a reader for a single expanded term produced by a prefix
