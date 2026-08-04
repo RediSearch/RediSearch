@@ -1173,10 +1173,19 @@ def test_inline_field_expiration_bit_reindex_on_hexpire(env):
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
 
-    # First field TTL on the matched fields (0->1) must trigger a reindex so the
-    # bit flips to 1; once the TTL lapses, all four field types filter the doc.
-    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '4', 't', 'tg', 'n', 'g')
-    time.sleep(0.02)
+    # First field TTL (0->1) reindexes. Keep the TTL long so the reindex sees the
+    # fields alive and really rewrites their postings with the bit set.
+    conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '4', 't', 'tg', 'n', 'g')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # Shortening it is a 1->1 change, so no reindex: the filtering below can only
+    # come from the bit set above.
+    conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '4', 't', 'tg', 'n', 'g')
+    time.sleep(0.1)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', '@tg:{red}', 'NOCONTENT').equal([0])
     env.expect('FT.SEARCH', 'idx', '@n:[42 42]', 'NOCONTENT').equal([0])
@@ -1205,9 +1214,14 @@ def test_inline_field_expiration_bit_reindex_when_sibling_field_already_expiring
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
 
     # Now `a` gets its first TTL (per-field 0->1 even though the doc already had
-    # `b`'s TTL): must reindex so `a`'s postings flip to 1 and `a` is filtered.
-    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'a')
-    time.sleep(0.02)
+    # `b`'s TTL): must reindex so `a`'s postings flip to 1. Long TTL as above.
+    conn.execute_command('HPEXPIRE', 'doc:1', '5000', 'FIELDS', '1', 'a')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:1'])
+
+    # 1->1 change, so no reindex: `a` can only be filtered out by the bit set above.
+    conn.execute_command('HPEXPIRE', 'doc:1', '50', 'FIELDS', '1', 'a')
+    time.sleep(0.1)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     # `b` is still valid (long TTL), so a query on `b` still returns the doc.
     env.expect('FT.SEARCH', 'idx', 'world', 'NOCONTENT').equal([1, 'doc:1'])
