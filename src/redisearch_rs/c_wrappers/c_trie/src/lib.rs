@@ -17,7 +17,10 @@ use std::{
     ptr::NonNull,
 };
 
-use ffi::{SuffixCtx, SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX};
+use ffi::{
+    SuffixCtx, SuffixType, SuffixType_SUFFIX_TYPE_CONTAINS, SuffixType_SUFFIX_TYPE_SUFFIX,
+    SuffixType_SUFFIX_TYPE_WILDCARD,
+};
 
 /// Which side(s) of a term a [`CTrieRef::iterate_suffix`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +55,7 @@ impl From<SuffixMode> for SuffixType {
 ///   case `runes` is ignored).
 ///
 /// Both hold when the trie invokes this through the function pointer installed
-/// by [`CTrieRef::iterate_contains`].
+/// by [`CTrieRef::iterate_contains`] or [`CTrieRef::iterate_wildcard`].
 unsafe extern "C" fn range_trampoline<F>(
     runes: *const ffi::rune,
     len: usize,
@@ -94,7 +97,8 @@ where
 /// - `s` must point to `len` valid bytes, or `len` must be `0`.
 ///
 /// Both hold when the suffix trie invokes this through the function pointer
-/// installed by [`CTrieRef::iterate_suffix`].
+/// installed by [`CTrieRef::iterate_suffix`] or
+/// [`CTrieRef::iterate_suffix_wildcard`].
 unsafe extern "C" fn suffix_trampoline<F>(
     s: *const c_char,
     len: usize,
@@ -116,6 +120,118 @@ where
         ControlFlow::Continue(()) => 0,
         ControlFlow::Break(()) => 1,
     }
+}
+
+/// A lowercased wildcard pattern, in both encodings the wildcard walks need.
+///
+/// The lowercasing is the *caller's* job and is not checked here. A pattern
+/// built from unfolded runes matches case-sensitively rather than erroring,
+/// because the tries store folded keys and nothing on the way in can tell an
+/// already-folded rune from one that was never folded.
+///
+/// The walks read one element *past* the pattern — its value decides the match
+/// for a pattern ending in `*` — and [`iterate_suffix_wildcard`] also writes a
+/// terminator there. So both encodings carry a zero sentinel past their content,
+/// which a plain `Vec` of the converted pattern would not have. This type owns
+/// that layout instead of leaving each call site to remember it, and derives the
+/// byte form from the rune form so the two cannot disagree.
+///
+/// [`iterate_suffix_wildcard`]: CTrieRef::iterate_suffix_wildcard
+#[derive(Debug)]
+pub struct LoweredPattern {
+    /// The content runes followed by one zero sentinel, so `len()` is
+    /// `runes.len() - 1`.
+    runes: Vec<ffi::rune>,
+    /// The same pattern as bytes, followed by one zero sentinel.
+    bytes: Vec<u8>,
+}
+
+impl LoweredPattern {
+    /// Build a pattern from its lowercased runes, appending the sentinel to both
+    /// encodings.
+    ///
+    /// `runes` must hold only the content — the sentinel is added here.
+    ///
+    /// Returns [`None`], which every caller treats as matching nothing, rather
+    /// than building a pattern that could not name a stored term or could not be
+    /// walked safely:
+    ///
+    /// - a rune slice longer than [`MAX_RUNE_STR_LEN`](ffi::MAX_RUNE_STR_LEN),
+    ///   which the byte conversion declines. A pattern that *is* built therefore
+    ///   fits the `int` length the walks take;
+    /// - a slice holding a zero rune. The byte conversion stops there while the
+    ///   rune form keeps the rest, so the two encodings would describe different
+    ///   patterns — and [`iterate_suffix_wildcard`](CTrieRef::iterate_suffix_wildcard)
+    ///   picks its anchor from the runes but filters candidates by the bytes,
+    ///   which would then report matches the full pattern rejects. The shorter
+    ///   byte form also undersizes that walk's stack scratch space.
+    pub fn new(runes: &[ffi::rune]) -> Option<Self> {
+        // The length check below does not subsume this: enough multibyte runes
+        // before the zero keep the truncated byte form longer than the rune one.
+        if runes.contains(&0) {
+            return None;
+        }
+
+        let mut len: usize = 0;
+        // SAFETY: `runes` is a valid slice of `runes.len()` runes. `runesToStr`
+        // returns a freshly allocated, NUL-terminated buffer of `len` bytes, or
+        // NULL when the slice exceeds `MAX_RUNE_STR_LEN`.
+        let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
+        let ptr = NonNull::new(ptr)?;
+        // SAFETY: `ptr` addresses `len` bytes written by the call above.
+        let bytes = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
+        // SAFETY: `RedisModule_Free` is set during module init and not mutated
+        // afterwards.
+        let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+        // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
+        unsafe { rm_free(ptr.as_ptr().cast::<c_void>()) };
+
+        let mut runes = runes.to_vec();
+        runes.push(0);
+        let mut bytes = bytes;
+        bytes.push(0);
+
+        // Implied by the zero-rune rejection above, but kept as a backstop:
+        // violating the scratch-space invariant overflows a stack buffer rather
+        // than giving a wrong answer.
+        if bytes.len() < runes.len() {
+            return None;
+        }
+
+        Some(Self { runes, bytes })
+    }
+
+    /// The number of content runes, excluding the sentinel.
+    pub const fn len(&self) -> usize {
+        self.runes.len() - 1
+    }
+
+    /// Whether the pattern has no content.
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Outcome of [`CTrieRef::iterate_suffix_wildcard`].
+///
+/// Neither variant is a failure: declining a pattern the suffix trie cannot
+/// anchor on is a routine handover to the primary terms trie. The distinction is
+/// carried in the type because it also decides who owns the pattern afterwards.
+#[derive(Debug)]
+#[must_use = "a declined walk leaves the pattern un-walked, and dropping it here \
+              silently skips the terms-trie fallback"]
+pub enum SuffixWalk {
+    /// The walk ran and every matching term was delivered to the callback.
+    ///
+    /// The pattern is not returned: the walk terminates its anchor token in
+    /// place, so what remains no longer describes what the caller asked for.
+    Walked,
+    /// The pattern held no literal run to anchor on, so nothing was visited.
+    ///
+    /// The pattern comes back intact — that decision is made before any write —
+    /// ready for a fallback walk over the primary terms trie with
+    /// [`iterate_wildcard`](CTrieRef::iterate_wildcard).
+    NoAnchor(LoweredPattern),
 }
 
 /// Result of a decrement operation on the C Trie.
@@ -280,9 +396,8 @@ impl CTrieRef {
     ///
     /// - A `Some` `timeout` must point to a valid [`timespec`](ffi::timespec)
     ///   that stays valid, and is not mutated (including by another thread), for
-    ///   the duration of the call. The walk reads `*timeout` unsynchronized on
-    ///   every deadline check, so a concurrent write to the pointee is a data
-    ///   race.
+    ///   the duration of the call. The walk reads `*timeout` unsynchronized, so a
+    ///   concurrent write to the pointee is a data race.
     /// - The wrapped trie must not be mutated, freed, or iterated again for the
     ///   duration of the call — including from within `callback`. The walk caches
     ///   raw node and child pointers and reuses them after each callback
@@ -393,6 +508,171 @@ impl CTrieRef {
         // closure outlives the call.
         unsafe {
             ffi::Suffix_IterateContains(std::ptr::from_mut(&mut suffix_ctx));
+        }
+    }
+
+    /// Visit every term matching a wildcard `pattern` — one admitting `*` (any
+    /// run of characters) and `?` (exactly one) — by walking the primary terms
+    /// trie.
+    ///
+    /// For each match the callback receives the term's runes and the number of
+    /// documents indexed under it, and returns [`ControlFlow`] to continue or stop
+    /// the walk early (e.g. once an expansion cap is reached). The walk honours a
+    /// [`Break`] only on the sub-tree path it takes for a pattern ending in `*`;
+    /// otherwise it keeps visiting terms, so a caller enforcing a cap must make
+    /// every further callback a no-op itself.
+    ///
+    /// An empty pattern visits nothing: it can match only the empty term, which
+    /// this trie never holds — a zero-length key is refused on insertion, so an
+    /// indexed empty value exists only as an inverted index. A caller that wants
+    /// to match it has to open that index itself.
+    ///
+    /// `timeout` bounds the walk: `Some(deadline)` aborts it once the deadline
+    /// passes, while `None` runs it to completion with no deadline.
+    ///
+    /// [`Break`]: ControlFlow::Break
+    ///
+    /// # Safety
+    ///
+    /// - A `Some` `timeout` must point to a valid [`timespec`](ffi::timespec)
+    ///   that stays valid, and is not mutated (including by another thread), for
+    ///   the duration of the call. The walk reads `*timeout` unsynchronized, so a
+    ///   concurrent write to the pointee is a data race.
+    /// - The wrapped trie must not be mutated, freed, or iterated again for the
+    ///   duration of the call — including from within `callback`. The walk caches
+    ///   raw node and child pointers and reuses them after each callback
+    ///   invocation, so mutating the trie (e.g. deleting a term, or decrementing
+    ///   one to zero, through another handle) can free a node mid-walk and leave
+    ///   those pointers dangling.
+    pub unsafe fn iterate_wildcard<F>(
+        &self,
+        pattern: &LoweredPattern,
+        timeout: Option<NonNull<ffi::timespec>>,
+        mut callback: F,
+    ) where
+        F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
+    {
+        // An empty pattern can match only the empty term, which this trie never
+        // holds (see the doc comment), so skip the walk rather than have it
+        // discover that.
+        if pattern.is_empty() {
+            return;
+        }
+        // As in `iterate_contains`: the walk only honours a deadline when timeout
+        // checks are enabled and treats a null deadline as already-expired, so the
+        // two must move together.
+        let (timeout, skip_timeout_checks) = match timeout {
+            Some(deadline) => (deadline.as_ptr(), false),
+            None => (std::ptr::null_mut(), true),
+        };
+        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `pattern`
+        // addresses its content runes followed by the readable zero sentinel the
+        // matcher requires (`LoweredPattern` invariant); `&mut callback` stays
+        // alive for the whole call, so the `ctx` the trampoline reconstitutes is
+        // valid; and `timeout` is null or the valid pointer the caller supplied.
+        unsafe {
+            ffi::Trie_IterateWildcard(
+                self.ptr,
+                pattern.runes.as_ptr(),
+                pattern.len() as c_int,
+                Some(range_trampoline::<F>),
+                std::ptr::from_mut(&mut callback).cast(),
+                timeout,
+                skip_timeout_checks,
+            );
+        }
+    }
+
+    /// Visit every term matching a wildcard `pattern` through the *suffix* trie,
+    /// which indexes terms by their suffixes so a pattern that is not
+    /// front-anchored can be answered without a full scan.
+    ///
+    /// `self` must wrap a suffix trie, not the primary terms trie. Each matching
+    /// term is delivered to `callback` as a byte string — already converted from
+    /// runes by the suffix trie — with no document count; the callback returns
+    /// [`ControlFlow`] to continue or stop. A term reachable under several
+    /// matching suffix keys is delivered once per key, so `callback` may see
+    /// duplicates.
+    ///
+    /// A [`Break`](ControlFlow::Break) carries the same weak guarantee as in
+    /// [`iterate_wildcard`](Self::iterate_wildcard): it is honoured outright only
+    /// when the anchor token the walk settles on is `*`-terminated, and otherwise
+    /// ends just the current suffix key's terms. Which token is chosen is not the
+    /// caller's to predict, so treat the weaker guarantee as the contract.
+    ///
+    /// The suffix trie can only answer a pattern that contains a literal run to
+    /// anchor on. When it does not, nothing is visited and the pattern is handed
+    /// back as [`SuffixWalk::NoAnchor`] so the caller can fall back to
+    /// [`iterate_wildcard`](Self::iterate_wildcard) over the primary terms trie.
+    ///
+    /// `pattern` is consumed because a walk that *does* happen corrupts it:
+    /// terminating the anchor token overwrites whatever followed it — the
+    /// sentinel for a token ending at the pattern's end, but a content rune
+    /// otherwise.
+    ///
+    /// `timeout` bounds the walk, as for [`iterate_wildcard`](Self::iterate_wildcard).
+    ///
+    /// # Safety
+    ///
+    /// - `self` must wrap a suffix trie, whose nodes carry a suffix-data payload.
+    ///   The iterator reinterprets each visited node's payload as that type and
+    ///   dereferences it, so passing the primary terms trie (or any trie with a
+    ///   different payload) is type confusion and undefined behavior.
+    /// - A `Some` `timeout` must satisfy the same validity and no-concurrent-write
+    ///   requirement as in [`iterate_wildcard`](Self::iterate_wildcard).
+    /// - The wrapped trie must not be mutated, freed, or iterated again for the
+    ///   duration of the call — including from within `callback` — for the same
+    ///   dangling-pointer reason as [`iterate_wildcard`](Self::iterate_wildcard).
+    ///   A `callback` that consults the *primary* trie is fine; it is a separate
+    ///   trie.
+    pub unsafe fn iterate_suffix_wildcard<F>(
+        &self,
+        mut pattern: LoweredPattern,
+        timeout: Option<NonNull<ffi::timespec>>,
+        mut callback: F,
+    ) -> SuffixWalk
+    where
+        F: FnMut(&[u8]) -> ControlFlow<()>,
+    {
+        // An empty pattern has no token to anchor on, which is the answer the walk
+        // itself would give — but it would first size a stack array from the byte
+        // length, so answer it here.
+        if pattern.is_empty() {
+            return SuffixWalk::NoAnchor(pattern);
+        }
+
+        let (timeout_ptr, skip_timeout_checks) = match timeout {
+            Some(deadline) => (deadline.as_ptr(), false),
+            None => (std::ptr::null_mut(), true),
+        };
+
+        let mut suffix_ctx = SuffixCtx {
+            trie: self.ptr,
+            rune: pattern.runes.as_mut_ptr(),
+            runelen: pattern.len(),
+            cstr: pattern.bytes.as_ptr().cast::<c_char>(),
+            cstrlen: pattern.bytes.len() - 1,
+            // The wildcard walk never reads this back, but a stale `Contains`
+            // would misdescribe the context in a debugger.
+            type_: SuffixType_SUFFIX_TYPE_WILDCARD,
+            callback: Some(suffix_trampoline::<F>),
+            cbCtx: std::ptr::from_mut(&mut callback).cast(),
+            timeout: timeout_ptr,
+            skipTimeoutChecks: skip_timeout_checks,
+        };
+        // SAFETY: every `suffix_ctx` field is initialised above with a valid
+        // value — `self.ptr` is a valid suffix `Trie` (caller contract), the rune
+        // and byte pointers describe the same live pattern, each followed by the
+        // sentinel the walk reads and writes (`LoweredPattern` invariant), the
+        // callback closure outlives the call, and `timeout` is null or the valid
+        // pointer the caller supplied.
+        let used = unsafe { ffi::Suffix_IterateWildcard(std::ptr::from_mut(&mut suffix_ctx)) };
+        if used == 0 {
+            // Nothing was visited and, because that decision precedes every write,
+            // the pattern is still intact.
+            SuffixWalk::NoAnchor(pattern)
+        } else {
+            SuffixWalk::Walked
         }
     }
 
