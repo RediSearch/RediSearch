@@ -645,13 +645,29 @@ static int __trieNode_optimizeChildren(TrieNode *n, TrieFreeCallback freecb) {
 
 int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback freecb) {
   t_len offset = 0;
-  TrieNode *stack[TRIE_INITIAL_STRING_LEN];
-  int stackPos = 0;
+  TrieNode *localStack[TRIE_INITIAL_STRING_LEN];
+  TrieNode **stack = localStack;
+  size_t stackCap = TRIE_INITIAL_STRING_LEN;
+  size_t stackPos = 0;
   int rc = 0;
 
   while (n && offset < len) {
-    if (stackPos == TRIE_INITIAL_STRING_LEN) {
-      goto end;
+    if (stackPos == stackCap) {
+      size_t newStackCap = stackCap * 2;
+      TrieNode **newStack = NULL;
+      if (stack == localStack) {
+        newStack = rm_malloc(newStackCap * sizeof(*newStack));
+      } else {
+        newStack = rm_realloc(stack, newStackCap * sizeof(*newStack));
+      }
+      if (!newStack) {
+        goto end;
+      }
+      if (stack == localStack) {
+        memcpy(newStack, stack, stackPos * sizeof(*stack));
+      }
+      stack = newStack;
+      stackCap = newStackCap;
     }
     stack[stackPos++] = n;
     t_len localOffset = 0;
@@ -699,8 +715,12 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
 
 end:
 
-  while (stackPos--) {
+  while (stackPos) {
+    --stackPos;
     __trieNode_optimizeChildren(stack[stackPos], freecb);
+  }
+  if (stack != localStack) {
+    rm_free(stack);
   }
   return rc;
 }
