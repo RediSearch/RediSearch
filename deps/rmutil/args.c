@@ -64,6 +64,15 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
+  // Converting a double outside [LLONG_MIN, 2^63) to long long is undefined
+  // behavior, and the RString conversion accepts literal "inf". A single
+  // range predicate rejects inf, nan (both comparisons are false for nan)
+  // and finite out-of-range values before either cast below. Note
+  // (double)LLONG_MAX rounds up to exactly 2^63, making it the correct
+  // exclusive bound; (double)LLONG_MIN is exact.
+  if (!(dTmp >= (double)LLONG_MIN && dTmp < (double)LLONG_MAX)) {
+    return AC_ERR_PARSE;
+  }
   if (flags & AC_F_COALESCE) {
     *ll = dTmp;
     return AC_OK;
