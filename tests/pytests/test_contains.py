@@ -296,37 +296,41 @@ def testContainsGC(env):
 
 @skip(cluster=True)
 def testContainsGCDeepSuffixTrie(env):
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
-  env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000000).ok()
+  max_prefix_expansions = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
+  try:
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000000).ok()
 
-  conn = getConnectionByEnv(env)
-  conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
-                       'STOPWORDS', '0', 'SCHEMA', 't', 'TEXT', 'NOSTEM',
-                       'WITHSUFFIXTRIE')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:',
+                         'STOPWORDS', '0', 'SCHEMA', 't', 'TEXT', 'NOSTEM',
+                         'WITHSUFFIXTRIE')
 
-  # 528 exceeds twice TrieNode_Delete's initial stack cap (256), covering the
-  # heap realloc path in addition to the first local-to-heap stack growth.
-  max_len = 528
-  pipe = conn.pipeline()
-  for n in range(1, max_len + 1):
-    pipe.execute_command('HSET', f'doc:{n}', 't', 'a' * n)
-    if n % 50 == 0:
-      pipe.execute()
-  pipe.execute()
-  waitForIndex(env, 'idx')
+    # 528 exceeds twice TrieNode_Delete's initial stack cap (256), covering the
+    # heap realloc path in addition to the first local-to-heap stack growth.
+    max_len = 528
+    pipe = conn.pipeline()
+    for n in range(1, max_len + 1):
+      pipe.execute_command('HSET', f'doc:{n}', 't', 'a' * n)
+      if n % 50 == 0:
+        pipe.execute()
+    pipe.execute()
+    waitForIndex(env, 'idx')
 
-  suffix_terms = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
-  env.assertContains('a' * max_len, suffix_terms)
-  env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 1])
+    suffix_terms = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
+    env.assertContains('a' * max_len, suffix_terms)
+    env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 1])
 
-  conn.execute_command('DEL', f'doc:{max_len}')
-  forceInvokeGC(env, 'idx')
+    conn.execute_command('DEL', f'doc:{max_len}')
+    forceInvokeGC(env, 'idx')
 
-  suffix_terms = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
-  env.assertNotContains('a' * max_len, suffix_terms)
-  env.assertContains('a' * (max_len - 1), suffix_terms)
-  env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([max_len - 1])
-  env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 2])
+    suffix_terms = env.cmd(debug_cmd(), 'DUMP_SUFFIX_TRIE', 'idx')
+    env.assertNotContains('a' * max_len, suffix_terms)
+    env.assertContains('a' * (max_len - 1), suffix_terms)
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([max_len - 1])
+    env.expect('FT.SEARCH', 'idx', '*aa', 'LIMIT', 0, 0).equal([max_len - 2])
+  finally:
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', max_prefix_expansions).ok()
 
 @skip(cluster=True)
 def testContainsGCTag(env):
