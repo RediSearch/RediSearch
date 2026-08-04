@@ -50,9 +50,10 @@ impl ExpirationBits {
             .is_some_and(|byte| byte & Self::mask(ordinal) != 0)
     }
 
-    /// The number of heap bytes this set occupies.
+    /// The number of heap bytes this set occupies, including the `ThinVec` header and any
+    /// reserved capacity. Zero while empty, since nothing is allocated then.
     pub(crate) fn mem_usage(&self) -> usize {
-        self.0.len()
+        self.0.mem_usage()
     }
 
     /// Index of the byte holding `ordinal`'s bit.
