@@ -652,10 +652,6 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 }
 
-static inline bool loaderResultIsEmittable(const SearchResult *r) {
-  return !(r->flags & Result_ExpiredDoc);
-}
-
 static inline void loaderDropResult(ResultProcessor *base, SearchResult *r) {
   base->parent->skippedResults++;
   SearchResult_Destroy(r);
@@ -842,8 +838,11 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // Only deletion before loading means the row was invalidated in the unlocked window.
+    // Loading can itself mark a lazily expired key deleted on Redis 6/7.
+    bool wasDeletedBeforeLoad = curr_res->dmd->flags & Document_Deleted;
     rpLoader_loadDocument(&self->base_loader, curr_res);
-    if (!loaderResultIsEmittable(curr_res)) {
+    if (wasDeletedBeforeLoad) {
       loaderDropResult(&self->base_loader.base, curr_res);
     }
   }

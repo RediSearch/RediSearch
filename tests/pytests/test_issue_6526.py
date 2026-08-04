@@ -63,3 +63,25 @@ def test_aggregate_drops_doc_reindexed_during_load():
     env.assertEqual(invalid_rows, [], message=f'invalid aggregate row: {outcome[0]}')
     env.assertEqual(rows, [['n', '2']], message=outcome[0])
     env.assertEqual(total, len(rows), message=outcome[0])
+
+
+@skip(cluster=True, redis_less_than='7.2')
+def test_safe_loader_preserves_lazy_expiration_row():
+    """A Redis 6/7 lazy-expiration load failure must keep the legacy null row."""
+    if not MT_BUILD:
+        raise SkipTest('MT_BUILD is not set')
+    env = Env(enableDebugCommand=True, moduleArgs='WORKERS 1')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'bar')
+    conn.execute_command('HSET', 'doc2', 't', 'arr')
+
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    try:
+        conn.execute_command('PEXPIRE', 'doc1', 1)
+        conn.execute_command('DEBUG', 'SLEEP', 0.01)
+        res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
+        env.assertEqual(res, [1, None, ['t', 'arr']])
+    finally:
+        conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
