@@ -91,13 +91,7 @@ static void Cursor_FreeInternal(Cursor *cur) {
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
-  if (cur->hybrid_ref.rm) {
-    // TRANSITIONAL(MOD-16691): the sub-AREQ is freed by the
-    // hybrid container; the cursor's hold rides the StrongRef until the
-    // container-handoff step.
-    StrongRef_Release(cur->hybrid_ref);
-    cur->query = NULL;
-  } else if (cur->query) {
+  if (cur->query) {
     QueryRequest_DecrRef(cur->query);
     cur->query = NULL;
   }
