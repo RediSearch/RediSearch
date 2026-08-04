@@ -59,6 +59,10 @@ impl ScoreSource for TimingOutSource {
     {
     }
 
+    fn yields_child_record(&self) -> bool {
+        true
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }
@@ -526,6 +530,10 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
         {
         }
 
+        fn yields_child_record(&self) -> bool {
+            true
+        }
+
         fn batch_strategy(&mut self, _heap_count: usize, _k: usize) -> BatchStrategy {
             BatchStrategy::Continue
         }
@@ -748,6 +756,9 @@ fn adhoc_timeout_propagated() {
         where
             Self: 'r,
         {
+        }
+        fn yields_child_record(&self) -> bool {
+            true
         }
         fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
             BatchStrategy::Continue

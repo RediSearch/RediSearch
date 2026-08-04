@@ -208,7 +208,8 @@ pub trait ScoreSource {
     /// [`AdhocBF`](crate::TopKMode::AdhocBF)) the iterator yields the **child's**
     /// `RSIndexResult` directly so its scoring inputs (frequency, field mask,
     /// term records) are preserved, and calls
-    /// [`attach_score_metric`](Self::attach_score_metric) instead.
+    /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
+    /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -231,6 +232,17 @@ pub trait ScoreSource {
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r;
+
+    /// Whether the filtered yield path should hand back the child's captured
+    /// `RSIndexResult` (with [`attach_score_metric`](Self::attach_score_metric)
+    /// applied) rather than a source-built one.
+    ///
+    /// `true` preserves the child's scoring inputs for relevance scoring — the
+    /// hybrid/vector case. A source whose score *is* the ordering key and needs
+    /// no child scoring inputs (e.g. a numeric `SORTBY`) returns `false`, so the
+    /// iterator yields [`build_result`](Self::build_result) even when a filter
+    /// child is present.
+    fn yields_child_record(&self) -> bool;
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.

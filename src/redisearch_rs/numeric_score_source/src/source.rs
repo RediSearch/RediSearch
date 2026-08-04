@@ -318,7 +318,17 @@ impl<'index> ScoreSource for NumericScoreSource<'index> {
     where
         Self: 'r,
     {
-        // TODO: MOD-14946
+        // Unused: the numeric field value is the ordering key and is carried by
+        // the source-built result ([`yields_child_record`] is `false`), so the
+        // iterator never takes the child-record yield path that would call this.
+        // TODO: Production metric-key wiring is tracked by MOD-14946.
+    }
+
+    fn yields_child_record(&self) -> bool {
+        // Numeric `SORTBY` orders purely by the field value the source supplies,
+        // with no relevance scoring, so yield the source-built numeric result
+        // rather than the child's record.
+        false
     }
 }
 
