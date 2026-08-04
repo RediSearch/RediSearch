@@ -94,7 +94,56 @@ static int testTypeConversion() {
   return 0;
 }
 
+// Integer conversion through the double fallback, at and beyond the
+// representable range.
+static int testNumericConversionLimits() {
+  const char *objs[] = {NULL};
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, objs, 1);
+
+  long long llArg;
+  // nan has no meaningful integer value under either flag
+  PREP_ARG("nan");
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
+
+  // Out-of-range doubles: coalescing saturates by sign...
+  PREP_ARG("1e30");
+  ASSERT(0 == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
+  ASSERT(LLONG_MAX == llArg);
+  PREP_ARG("-1e30");
+  ASSERT(0 == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
+  ASSERT(LLONG_MIN == llArg);
+
+  // ...and plain conversion rejects: the value cannot survive the integral
+  // round-trip
+  PREP_ARG("1e30");
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
+  PREP_ARG("-1e30");
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
+
+  // 2^63 is the exclusive bound: rejected plain, clamped when coalescing
+  PREP_ARG("9223372036854775808");
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
+  ASSERT(0 == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
+  ASSERT(LLONG_MAX == llArg);
+
+  // -2^63 is exactly representable: accepted, via the double fallback (the
+  // integer path treats the strtoll LLONG_MIN return value as overflow)
+  PREP_ARG("-9223372036854775808");
+  ASSERT(0 == AC_GetLongLong(&ac, &llArg, 0));
+  ASSERT(LLONG_MIN == llArg);
+
+  // Fractional input truncates only when coalescing
+  PREP_ARG("3.99");
+  ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
+  ASSERT(0 == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
+  ASSERT(3 == llArg);
+  return 0;
+}
+
 TEST_MAIN({
   TESTFUNC(testCArgs);
   TESTFUNC(testTypeConversion);
+  TESTFUNC(testNumericConversionLimits);
 })
