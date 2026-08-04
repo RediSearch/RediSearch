@@ -49,13 +49,27 @@
 
 // Record the sub-request's query argument: parseOffset locates the current
 // cursor token within the sub-request's OWN held argv (the container's holds
-// do not outlive the container; the sub-request may). Both hold the same
-// string references, so the token is located by pointer identity.
+// do not outlive the container; the sub-request may). Both hold references
+// taken from the same argv, so the token is normally the same object in both
+// arrays — but HoldString is allowed to return a copy (it does for
+// static-refcount sources), so fall back to byte equality. That suffices:
+// parseOffset's only consumer reads the token's bytes (AREQ_Query), for which
+// any equal-valued slot is interchangeable.
 static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
   RedisModuleString *tok = (RedisModuleString *)AC_CURRENT(ac);
   BlockedRequestCtx *brc = sub->brc;
   for (size_t i = 0; i < brc->nargvHolds; i++) {
     if (brc->argvHolds[i] == tok) {
+      brc->parseOffset = i;
+      return;
+    }
+  }
+  size_t tokLen;
+  const char *tokStr = RedisModule_StringPtrLen(tok, &tokLen);
+  for (size_t i = 0; i < brc->nargvHolds; i++) {
+    size_t len;
+    const char *s = RedisModule_StringPtrLen(brc->argvHolds[i], &len);
+    if (len == tokLen && memcmp(s, tokStr, len) == 0) {
       brc->parseOffset = i;
       return;
     }
