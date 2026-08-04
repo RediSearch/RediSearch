@@ -2241,16 +2241,12 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
 
 static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader, bool *initClock, QEFlags *reqFlags, QueryError *status) {
   AREQ *req = Cursor_AREQ(cursor);
-  QueryProcessingCtx *qctx = NULL;
-  if (req) {
-    qctx = AREQ_QueryProcessingCtx(req);
-    AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
-    *reqFlags = AREQ_RequestFlags(req);
-    *hasLoader = HasLoader(req);
-    *initClock = IsProfile(req) || !IsInternal(req);
-  } else {
-    RS_ABORT("cursor carries no request");
-  }
+  RS_ASSERT(req != NULL);
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  AREQ_RemoveRequestFlags(req, QEXEC_F_IS_AGGREGATE); // Second read was not triggered by FT.AGGREGATE
+  *reqFlags = AREQ_RequestFlags(req);
+  *hasLoader = HasLoader(req);
+  *initClock = IsProfile(req) || !IsInternal(req);
   qctx->err = status;
   return qctx;
 }

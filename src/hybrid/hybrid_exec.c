@@ -755,7 +755,6 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       } else {
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
-      Cursor_Pause(cursor);
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
@@ -875,11 +874,10 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
-    // The handoff (design §3.6): each cursor takes ownership of its sub-AREQ
-    // through the sub's wrapper — the container's sub reference transfers to
-    // the cursor, and the container no longer outlives the initial cycle: it
-    // is freed at OnFree, after the cursor IDs were replied, and the client
-    // cannot read a cursor before receiving those IDs.
+    // The handoff: each cursor takes ownership of its sub-AREQ through the
+    // sub's wrapper, and the container dies at the end of the initial cycle —
+    // after the cursor IDs were replied, so the client cannot read a cursor
+    // before receiving them.
     for (size_t i = 0; i < req->nrequests; i++) {
       cursors[i]->query = &req->requests[i]->base;
     }
@@ -899,9 +897,8 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     if (!QueryRequest_UsesReplyCallback(&req->base)) {
       // If we are not using reply callback, we should reply with the cursors here
       replyWithCursors(replyCtx, req->cursors, req, depletionTimedOut);
-      array_free(req->cursors);
-      req->cursors = NULL;
-    } // else the reply callback will reply with the cursors and free the array
+    } // else the reply callback replies
+    // The cursors stay published; the container parks them at its teardown.
 
     return REDISMODULE_OK;
 }
@@ -1129,8 +1126,12 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   HybridRequest_UnlockCursors(hreq);
 
   if (cursors) {
-    // If cursors were published - reply with them
+    // Reply, then park right away: the container's teardown waits on the
+    // worker's UnblockClient, and the client may READ the replied IDs first.
     replyWithCursors(ctx, cursors, hreq, true);
+    for (size_t i = 0; i < array_len(cursors); i++) {
+      Cursor_Pause(cursors[i]);
+    }
     array_free(cursors);
   } else {
     // Cursors were not published - reply with empty cursors reply
@@ -1165,9 +1166,8 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
   }
 
+  // Reply only; the container parks the cursors at its teardown.
   replyWithCursors(ctx, req->cursors, req, false);
-  array_free(req->cursors);
-  req->cursors = NULL;
   return REDISMODULE_OK;
 }
 
