@@ -15,7 +15,7 @@
 //! and encoding a rune slice back into the term's stored key are common to all
 //! of them.
 
-use std::{ops::ControlFlow, ptr::NonNull};
+use std::{marker::PhantomData, ops::ControlFlow, ptr::NonNull};
 
 use field::FieldMaskOrIndex;
 use query_term::RSQueryTerm;
@@ -51,6 +51,41 @@ fn open_expanded_term_reader_disk(
     let nn = NonNull::new(ptr).expect("disk term iterator must not be null");
     // SAFETY: `nn` is a valid, owning C `QueryIterator`.
     Some(unsafe { CRQEIterator::new(nn) })
+}
+
+/// An [`ffi::RSToken`] naming a borrowed byte slice, for the C lookups that read
+/// only a token's string and length.
+///
+/// The token holds a raw pointer into the slice it was built from, so the two
+/// must not be separated; the lifetime parameter ties them together. The slice
+/// need not be NUL-terminated: a consumer that reads the string through the
+/// token's length never looks for a terminator.
+struct BorrowedToken<'a> {
+    tok: ffi::RSToken,
+    _bytes: PhantomData<&'a [u8]>,
+}
+
+impl<'a> BorrowedToken<'a> {
+    /// Build a token naming `bytes`, carrying no flags.
+    const fn new(bytes: &'a [u8]) -> Self {
+        // SAFETY: `RSToken` is a plain-data struct whose all-zero bit pattern is
+        // valid — a null `str` pointer, zero `len`, and zeroed `flags`/`expanded`
+        // bitfields.
+        let mut tok: ffi::RSToken = unsafe { std::mem::zeroed() };
+        tok.str_ = bytes.as_ptr() as *mut std::ffi::c_char;
+        tok.len = bytes.len();
+
+        Self {
+            tok,
+            _bytes: PhantomData,
+        }
+    }
+
+    /// A pointer to the token, for handing to C. Valid for as long as `self` is,
+    /// and read-only: nothing here expects C to write through it.
+    const fn as_ptr(&self) -> *const ffi::RSToken {
+        std::ptr::from_ref(&self.tok)
+    }
 }
 
 /// Open a reader for a single expanded term produced by a prefix
@@ -103,13 +138,8 @@ fn open_expanded_term_reader(
     let token_id = ctx.next_token_id() as i32;
 
     // `Redis_OpenReaderIndex` reads only the token's string and length, so a
-    // zeroed token with those two fields set is sufficient.
-    // SAFETY: `RSToken` is a plain-data struct whose all-zero bit pattern is
-    // valid — a null `str` pointer, zero `len`, and zeroed `flags`/`expanded`
-    // bitfields.
-    let mut tok: ffi::RSToken = unsafe { std::mem::zeroed() };
-    tok.str_ = term_bytes.as_ptr() as *mut std::ffi::c_char;
-    tok.len = term_bytes.len();
+    // token borrowing the term's key is all the lookup needs.
+    let tok = BorrowedToken::new(term_bytes);
 
     debug_assert!(
         !ctx.sctx_ptr().is_null(),
@@ -118,8 +148,7 @@ fn open_expanded_term_reader(
     // SAFETY: `ctx.sctx_ptr()` is valid (`QueryEvalContext` invariant 2) and
     // `tok` is a valid, live `RSToken` for the call; `Redis_OpenReaderIndex`
     // only reads the token and does not retain it.
-    let idx =
-        unsafe { ffi::Redis_OpenReaderIndex(ctx.sctx_ptr(), std::ptr::from_ref(&tok), field_mask) };
+    let idx = unsafe { ffi::Redis_OpenReaderIndex(ctx.sctx_ptr(), tok.as_ptr(), field_mask) };
     let idx = NonNull::new(idx)?;
 
     // Expanded terms carry no token flags.
