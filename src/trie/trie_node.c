@@ -655,18 +655,12 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
   while (n && offset < len) {
     if (unlikely(stackPos == stackCap)) {
       size_t newStackCap = stackCap * 2;
-      TrieNode **newStack = NULL;
+      TrieNode **newStack;
       if (likely(stack == localStack)) {
         newStack = rm_malloc(newStackCap * sizeof(*newStack));
-        if (!newStack) {
-          goto end;
-        }
         memcpy(newStack, stack, stackPos * sizeof(*stack));
       } else {
         newStack = rm_realloc(stack, newStackCap * sizeof(*newStack));
-        if (!newStack) {
-          goto end;
-        }
       }
       stack = newStack;
       stackCap = newStackCap;
