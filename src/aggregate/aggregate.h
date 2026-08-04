@@ -359,26 +359,17 @@ struct BlockedRequestCtx {
   } query;
 
   /* Held references to the command argv strings the owned request's plan
-   * borrows from. Invariant: taken at the dispatch site, on the main thread
-   * (string refcounts are not thread safe), before any parsing begins —
-   * AREQ_Compile and HybridRequest_InitArgsCursor assert they are present.
-   * Released in BlockedRequestCtx_Free, after the owned request. May be a
-   * superset of the parsed slice. */
+   * borrows from; may be a superset of the parsed slice. Taken at
+   * construction, on the main thread (string refcounts are not thread safe);
+   * released in BlockedRequestCtx_Free, after the owned request. */
   RedisModuleString **argvHolds;
   size_t nargvHolds;
 
   /* Where the owned request's parse slice starts within argvHolds; the query
-   * string is argvHolds[parseOffset]. Set where the query is discovered:
-   * AREQ_Compile for plain requests, setSubQueryArg for hybrid sub-requests.
-   * SIZE_MAX (the constructor default) means no query argument — a hybrid
-   * VSIM sub-request without a FILTER, or a hybrid container (whose tail has
-   * no query of its own). Meaningless until parsing.
-   * Per flow: 2 for standalone commands and shard-side _FT.AGGREGATE (holds
-   * cover the full argv; the slice starts past command + index name);
-   * variable for shard-side profile commands (past the ParseProfile prefix);
-   * 1 for the hybrid SEARCH sub (stepped holds are ["SEARCH", <query>, ...]);
-   * data-dependent for the hybrid VSIM sub's optional FILTER — the one
-   * position no context hardcodes, which is why this is a stored field. */
+   * string is argvHolds[parseOffset]. Set where the query is discovered
+   * (AREQ_Compile; setSubQueryArg for hybrid subs). SIZE_MAX means no query
+   * argument (a VSIM sub without FILTER, or the container). A stored field
+   * because the VSIM sub's FILTER position is data-dependent. */
   size_t parseOffset;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
@@ -476,12 +467,10 @@ static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
   return RedisModule_StringPtrLen(req->brc->argvHolds[req->brc->parseOffset], len);
 }
 
-/* Allocate a heap BlockedRequestCtx that takes ownership of the request,
- * initializes the result-production coordination state (refcount=1), wires
- * the non-owning back-pointer (`brc`) on the owned request, and takes the
- * argv holds (see `argvHolds`). Main-thread only — construction is where the
- * string references are taken. `argv` may be NULL only for a request that is
- * never parsed (parsing asserts the holds are present). */
+/* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
+ * `brc` back-pointer, and take the argv holds (see `argvHolds`). Main-thread
+ * only. `argv` may be NULL only for a request that is never parsed (parsing
+ * asserts the holds are present). */
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
                                                RedisModuleString **argv, size_t argc);

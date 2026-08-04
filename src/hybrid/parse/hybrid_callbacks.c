@@ -494,8 +494,7 @@ void handleNumSString(ArgParser *parser, const void *value, void *user_data) {
 void handleIndexPrefixes(ArgParser *parser, const void *value, void *user_data) {
   HybridParseContext *ctx = (HybridParseContext*)user_data;
   ArgsCursor *paramsArgs = (ArgsCursor*)value;
-  // The slice is a window into the request's held argv, which outlives the
-  // parse — borrow it instead of copying.
+  // The slice is a window into the held argv, which outlives the parse — borrow it
   RS_ASSERT(paramsArgs->type == AC_TYPE_RSTRING);
   ctx->prefixes = (RedisModuleString **)paramsArgs->objs;
   ctx->nprefixes = paramsArgs->argc;

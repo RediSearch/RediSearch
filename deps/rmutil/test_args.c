@@ -115,8 +115,7 @@ static int testNumericConversionLimits() {
   ASSERT(0 == AC_GetLongLong(&ac, &llArg, AC_F_COALESCE));
   ASSERT(LLONG_MIN == llArg);
 
-  // ...and plain conversion rejects: the value cannot survive the integral
-  // round-trip
+  // ...and plain conversion rejects
   PREP_ARG("1e30");
   ASSERT(AC_ERR_PARSE == AC_GetLongLong(&ac, &llArg, 0));
   PREP_ARG("-1e30");

@@ -58,7 +58,7 @@ TEST_F(AggTest, testBasic) {
 
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
-  BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());  // construction takes the argv holds AREQ_Compile parses from
+  BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());
   rv = AREQ_Compile(rr, ctx, rr->brc->argvHolds, aggArgs.size(), false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
@@ -309,7 +309,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     AREQ *rr = AREQ_New();
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());  // construction takes the argv holds AREQ_Compile parses from
+    BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());
     int rv = AREQ_Compile(rr, ctx, rr->brc->argvHolds, aggArgs.size(), false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;

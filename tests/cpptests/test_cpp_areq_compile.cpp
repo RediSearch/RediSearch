@@ -131,7 +131,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());  // construction takes the argv holds AREQ_Compile parses from
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
     int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
@@ -222,7 +222,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
     argv.push_back(createBinaryString(binary_data));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());  // construction takes the argv holds AREQ_Compile parses from
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
     int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
@@ -258,7 +258,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
     argv.push_back(RedisModule_CreateString(ctx, SLOTS_STR, strlen(SLOTS_STR)));
 
     // Test AREQ_Compile - should fail due to insufficient arguments
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());  // construction takes the argv holds AREQ_Compile parses from
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
     int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
@@ -301,7 +301,7 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
     argv.push_back(RedisModule_CreateString(ctx, "@__score", 8));
 
     // Test AREQ_Compile
-    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());  // construction takes the argv holds AREQ_Compile parses from
+    BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
     int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";

@@ -24,11 +24,9 @@
 static double extractUnitFactor(GeoDistance unit);
 
 /* Legacy contract: an explicitly empty GEOFILTER value parses as 0 under
- * DIALECT 1; dialect >= 2 rejects it through `hasEmptyFilterValue` with a
- * dedicated error. The strict argv conversions no longer parse "" as a
- * number, so an empty token is recognized on conversion failure instead.
- * Returns true when the current token is empty, coercing `*target` to 0 and
- * raising the flag. */
+ * DIALECT 1; dialect >= 2 rejects it via `hasEmptyFilterValue`. The strict
+ * conversions no longer parse "" as a number, so the empty token is
+ * recognized on conversion failure: returns true, coercing `*target` to 0. */
 static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target,
                                      bool *hasEmptyFilterValue) {
   const char *val;

@@ -43,7 +43,7 @@ static void testAverage() {
                     "sortby", "2", "@avg_price", "DESC"                 // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -103,7 +103,7 @@ static void testCountDistinct() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
@@ -142,7 +142,7 @@ static void testSplit() {
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
   QueryError status{QueryErrorCode(0)};
-  BlockedRequestCtx_NewAREQ(r, vv, vv.size());  // construction takes the argv holds AREQ_Compile parses from
+  BlockedRequestCtx_NewAREQ(r, vv, vv.size());
   int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, vv.size(), false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));

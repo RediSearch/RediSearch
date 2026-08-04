@@ -1258,10 +1258,8 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
   // so this conditional avoids a double-decr while still handling error paths
   // where AREQ_Execute() is never called.
-  // Must precede UnblockClient: once the client is unblocked, the main thread
-  // may run OnFree and drop the cycle reference, and a release from here
-  // would then be the final one — freeing the wrapper, and the module
-  // strings it holds, off the main thread.
+  // Must precede UnblockClient: once unblocked, the main thread may drop the
+  // cycle reference, making this release the final one — off the main thread.
   if (BCRctx->req) {
     AREQ_DecrRef(BCRctx->req);
     BCRctx->req = NULL;
@@ -2083,9 +2081,6 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
 
   AREQ *r = AREQ_New();
-  // Construction takes the argv holds (here, on the main thread); parsing
-  // reads from them, and the plan's borrows outlive this handler (cursors,
-  // worker execution).
   BlockedRequestCtx_NewAREQ(r, argv, argc);
 
   if (prepareRequest(&r, ctx, r->brc->argvHolds, argc, type, profileOptions, &status) != REDISMODULE_OK) {
@@ -2740,8 +2735,7 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   debug_params = debug_req->debug_params;
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  // Parse the query, not including debug params (the holds, taken by
-  // AREQ_Debug_New, cover the full argv — a superset)
+  // Parse the query, not including the debug params (the holds cover the full argv)
 
   if (prepareRequest(&r, ctx, r->brc->argvHolds, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);

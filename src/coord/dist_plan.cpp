@@ -409,9 +409,8 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  // Source tokens are read through the type-aware accessor (the plan cursor
-  // may be RString-backed): each returned pointer is the token's own
-  // NUL-terminated buffer, owned by the request for its whole lifetime.
+  // Source tokens are read type-aware (the plan cursor may be RString-backed);
+  // each returned buffer is owned by the request for its whole lifetime.
 
   // Locate the LIMIT offset slot in the original argv.
   size_t limitValIdx = SIZE_MAX;  // index of the LIMIT offset token

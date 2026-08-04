@@ -77,9 +77,7 @@ class ParseHybridTest : public ::testing::Test {
       QueryError_ClearError(&qerr);
     }
     ASSERT_TRUE(spec);
-    // The request is constructed per test by recreateHybridRequest —
-    // construction takes the argv holds, so it needs the command args.
-    // parseCommandInternal constructs lazily when a test did not.
+    // Constructed lazily, per test: recreateHybridRequest or parseCommandInternal
     hybridRequest = NULL;
     hybridParams = {0};
     result = {};
@@ -123,8 +121,6 @@ class ParseHybridTest : public ::testing::Test {
   int parseCommandInternal(RMCK::ArgvList& args) {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
-    // Tests that mutate RSGlobalConfig construct explicitly (the request
-    // snapshots the config at construction); everyone else constructs here.
     if (!hybridRequest) {
       recreateHybridRequest(args);
     }
@@ -134,9 +130,8 @@ class ParseHybridTest : public ::testing::Test {
     return rc;
   }
 
-  // (Re)construct the request from the command args. Construction takes the
-  // argv holds and snapshots request-scoped config, so tests that mutate
-  // RSGlobalConfig call this after mutating to observe the change.
+  // (Re)construct the request from the command args. Construction snapshots
+  // request-scoped config, so tests that mutate RSGlobalConfig call this after.
   void recreateHybridRequest(RMCK::ArgvList& args) {
     if (hybridRequest) {
       HybridRequest_DecrRef(hybridRequest);

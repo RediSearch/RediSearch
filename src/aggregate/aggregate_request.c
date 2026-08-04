@@ -1187,11 +1187,9 @@ static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t ar
   brc->nargvHolds = argc;
   for (size_t ii = 0; ii < argc; ++ii) {
     brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
-    // A held client argv string may carry network-buffer slack, and Redis
-    // auto-trims (reallocates) retained argv right after the command callback
-    // returns — racing any thread already reading the string, and moving the
-    // buffer under any borrowed pointer. Trim here instead: on the main
-    // thread, before parsing borrows the buffers or a worker can see them.
+    // Redis auto-trims (reallocates) retained argv right after the command
+    // callback returns — racing any thread already reading the string. Trim
+    // here instead, before any borrow exists or a worker can see it.
     RedisModule_TrimStringAllocation(brc->argvHolds[ii]);
   }
 }
@@ -1238,8 +1236,7 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
     HybridRequest_Free(brc->query.hybrid);
   }
   if (brc->argvHolds) {
-    // After the request: its plan borrows from these strings. Runs on the
-    // main thread; argv string refcounts are not thread safe.
+    // After the request: its plan borrows from these strings
     for (size_t ii = 0; ii < brc->nargvHolds; ++ii) {
       RedisModule_FreeString(NULL, brc->argvHolds[ii]);
     }
@@ -1433,10 +1430,8 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
-  // The dispatch site held the argv on the main thread and passes a slice of
-  // the holds here; the plan's borrows stay valid for the request's lifetime.
-  // Holding lazily instead would touch string refcounts on whatever thread
-  // parses, and refcounts are main-thread-only.
+  // `argv` must be a slice of the holds taken at construction — holding here
+  // instead would touch string refcounts on whatever thread parses.
   RS_ASSERT(brc->argvHolds != NULL);
   RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
   brc->parseOffset = argv - brc->argvHolds;

@@ -833,8 +833,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // RETURN_STRICT FT.CURSOR READ cycles run the claim/done-latch handshake
-      // against the read AREQ's wrapper, at per-sub-AREQ granularity.
+      // FT.CURSOR READ cycles run against the read sub-AREQ's wrapper.
       // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
       // the container-handoff step.
       RS_ASSERT(areq->brc != NULL);
@@ -1343,8 +1342,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
   CurrentThread_SetIndexSpec(spec_ref);
 
-  // Construction takes the argv holds the plans will borrow from (this
-  // handler runs on the main thread).
   HybridRequest *hybridRequest = MakeDefaultHybridRequest(sctx, argv, argc);
   hybridRequest->profile = printHybridProfile;
   hybridRequest->tailPipeline->qctx.isProfile = profileOptions & EXEC_WITH_PROFILE;

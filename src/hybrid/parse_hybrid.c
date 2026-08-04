@@ -47,14 +47,11 @@
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
 
-// Record the sub-request's query argument: parseOffset locates the current
-// cursor token within the sub-request's OWN held argv (the container's holds
-// do not outlive the container; the sub-request may). Both hold references
-// taken from the same argv, so the token is normally the same object in both
-// arrays — but HoldString is allowed to return a copy (it does for
-// static-refcount sources), so fall back to byte equality. That suffices:
-// parseOffset's only consumer reads the token's bytes (AREQ_Query), for which
-// any equal-valued slot is interchangeable.
+// Record the sub-request's query argument: locate the current cursor token
+// within the sub-request's OWN held argv (the container's holds may die
+// first). The token is normally the same object in both hold arrays, but
+// HoldString may return a copy — fall back to byte equality; the only
+// consumer (AREQ_Query) just reads the token's bytes.
 static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
   RedisModuleString *tok = (RedisModuleString *)AC_CURRENT(ac);
   BlockedRequestCtx *brc = sub->brc;

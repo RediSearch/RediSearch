@@ -37,8 +37,6 @@ protected:
 
     sctx = NewSearchCtxC(ctx, index_name.c_str(), true);
     ASSERT_TRUE(sctx != NULL);
-    // The request is constructed by parseCommand — construction takes the
-    // argv holds, so it needs the command args.
     result = NULL;
     hybridParams = {0};
   }

@@ -64,17 +64,15 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
   if (AC_GetDouble(ac, &dTmp, flags | AC_F_NOADVANCE) != AC_OK) {
     return AC_ERR_PARSE;
   }
-  // Converting a double outside [LLONG_MIN, 2^63) to long long is undefined
-  // behavior, and the RString conversion accepts literal "inf" — the casts
-  // below must never see such a value. Note (double)LLONG_MAX rounds up to
-  // exactly 2^63, making it the correct exclusive bound; (double)LLONG_MIN
-  // is exact. NaN has no meaningful integer value under either flag.
+  // Casting a double outside [LLONG_MIN, 2^63) to long long is UB, and the
+  // RString conversion accepts literal "inf" — reject NaN and handle the
+  // range before any cast. (double)LLONG_MAX rounds up to exactly 2^63,
+  // making it the correct exclusive bound.
   if (isnan(dTmp)) {
     return AC_ERR_PARSE;
   }
   if (flags & AC_F_COALESCE) {
-    // Coalescing means "coerce whatever number was given": saturate
-    // out-of-range values (inf included) to the representable range.
+    // Coalescing coerces: saturate out-of-range values (inf included)
     if (dTmp >= (double)LLONG_MAX) {
       *ll = LLONG_MAX;
     } else if (dTmp < (double)LLONG_MIN) {
@@ -85,8 +83,7 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
     return AC_OK;
   }
 
-  // Non-coalescing accepts only values that survive the integral round-trip;
-  // out-of-range values cannot, so reject them before the undefined cast.
+  // Non-coalescing: out-of-range values cannot survive the integral round-trip
   if (!(dTmp >= (double)LLONG_MIN && dTmp < (double)LLONG_MAX)) {
     return AC_ERR_PARSE;
   }
@@ -108,11 +105,9 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
   // Try to parse the number as a normal integer first. If that fails, try
   // to parse it as a double. This will work if the number is in the format of
   // 3.00, OR if the number is in the format of 3.14 *AND* AC_F_COALESCE is set.
-  // Here and in AC_GetDouble: RSTRING-backed cursors carry user command argv
-  // and parse with the strict RedisModule conversions (canonical form, no
-  // whitespace, no empty tokens, overflow via errno). The char* branches keep
-  // C-library leniency and only ever see internally generated canonical
-  // tokens (e.g. serialized plan args).
+  // Here and in AC_GetDouble: RSTRING cursors carry user command argv and use
+  // the strict RedisModule conversions; the char* branches keep C-library
+  // leniency and only ever see internally generated canonical tokens.
   if (ac->type == AC_TYPE_RSTRING) {
     if (RedisModule_StringToLongLong(AC_CURRENT(ac), &tmpll) == REDISMODULE_ERR) {
       hasErr = 1;

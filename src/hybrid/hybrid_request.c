@@ -307,16 +307,10 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        // Each sub-AREQ gets its own wrapper at construction (on the main
-        // thread, like every request wrapper): cursor-backing sub-AREQs run
-        // RETURN_STRICT FT.CURSOR READ cycles against it. Freed with the
-        // sub-AREQ (AREQ_DecrRef -> BlockedRequestCtx_Free).
-        // Each sub holds the whole command, not just its own slice: the
-        // slice boundaries are only discovered while parsing (holds must
-        // come first), and sub pipelines borrow beyond their slice anyway —
-        // tail-plan steps (e.g. LOAD) are distributed into sub pipelines,
-        // and PARAMS live in the tail. The sub holds mirror the container's
-        // index for index.
+        // Each sub-AREQ gets its own wrapper, holding the whole command
+        // rather than its own slice: slice boundaries are only discovered
+        // while parsing, and sub pipelines borrow beyond their slice anyway
+        // (distributed tail steps like LOAD, PARAMS).
         BlockedRequestCtx_NewAREQ(requests[i], argv, argc);
         hybridReq->errors[i] = QueryError_Default();
         Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
@@ -333,9 +327,8 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 
 HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests,
                                  RedisModuleString **argv, int argc) {
-    // Skip the command and index tokens; the wrappers hold the rest. The
-    // sub-AREQ wrappers take their own holds: a sub's plan borrows must stay
-    // valid for the sub's own lifetime, which can exceed the container's.
+    // Skip the command and index tokens; the wrappers hold the rest. Each sub
+    // takes its own holds — a sub's borrows can outlive the container.
     if (argv) {
       const int step = argc > 2 ? 2 : argc;
       argv += step;
@@ -352,11 +345,8 @@ HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t n
 void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
-  // Construction held the argv on the main thread, before any parsing
-  // begins; string refcounts are main-thread-only.
   RS_ASSERT(req->brc->argvHolds != NULL);
-  // The caller's argc bounds the parse (the coordinator debug flow strips
-  // trailing debug params); the holds may cover a superset.
+  // argc bounds the parse; the holds may cover a superset (debug flows)
   RS_ASSERT((size_t)(argc - step) <= req->brc->nargvHolds);
   ArgsCursor_InitRString(ac, req->brc->argvHolds, argc - step);
 }
