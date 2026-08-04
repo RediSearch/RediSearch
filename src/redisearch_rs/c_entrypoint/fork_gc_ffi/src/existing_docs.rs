@@ -8,13 +8,13 @@
 */
 
 use fork_gc::{
-    ForkGC, HandleError, HandleOutcome,
-    existing_docs::{ExistingDocsDeleted, collect_existing_docs, handle_existing_docs},
+    ForkGC,
+    existing_docs::{collect_existing_docs, handle_existing_docs},
     io_result_ext::IoResultExt,
 };
 use index_spec::IndexSpecReadGuard;
 
-use crate::FGCError;
+use crate::{FGCError, util::into_fgc_error};
 
 /// Collect GC delta data for the spec's `existingDocs` inverted index and
 /// send it to the parent process over the pipe.
@@ -73,11 +73,5 @@ pub unsafe extern "C" fn FGC_parentHandleExistingDocs(gc: *mut ffi::ForkGC) -> F
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
-    match handle_existing_docs(fgc) {
-        Ok(HandleOutcome::Collected) => FGCError::Collected,
-        Ok(HandleOutcome::Done) => FGCError::Done,
-        Err(HandleError::Codec { .. }) => FGCError::ChildError,
-        Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
-        Err(HandleError::Custom(ExistingDocsDeleted)) => FGCError::ParentError,
-    }
+    into_fgc_error(handle_existing_docs(fgc), "existing docs")
 }
