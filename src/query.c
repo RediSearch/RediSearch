@@ -674,6 +674,15 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
                             q->config);
   }
 
+  // An empty pattern matches exactly the empty term (indexed under INDEXEMPTY), like the
+  // empty-string text query; the trie scans below never contain it, so skip them
+  if (nstr == 0) {
+    charIterCb("", 0, &ctx, NULL);
+    rm_free(str);
+    return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY,
+                            qn->verb.tok.str, q->config);
+  }
+
   bool fallbackBruteForce = false;
   // spec support using suffix trie
   if (spec->suffix) {
@@ -1026,6 +1035,16 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
+
+  // An empty pattern matches exactly the empty tag value (indexed under INDEXEMPTY),
+  // like the empty-string tag query; skip the suffix-trie and brute-force scans
+  if (tok->len == 0) {
+    QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, "", 0, 1, fieldIndex, q->status);
+    if (ret) {
+      its[itsSz++] = ret;
+    }
+    return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
+  }
 
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
