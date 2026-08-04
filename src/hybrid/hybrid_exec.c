@@ -756,7 +756,6 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
       } else {
         RS_ABORT_ALWAYS("Unknown subquery type");
       }
-      Cursor_Pause(cursor);
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
     if (timedOut) {
@@ -777,6 +776,14 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, arrayof(Cursor*) c
 
     RedisModule_Reply_MapEnd(reply);
     RedisModule_EndReply(reply);
+
+    // Pause only after the whole reply — IDs and warnings — was serialized:
+    // each cursor owns its sub-AREQ, and pausing a delete-marked cursor can
+    // free it (inline on main; via the sweep racing us when off-main), so no
+    // sub may be dereferenced past its cursor's pause.
+    for (size_t i = 0; i < array_len(cursors); i++) {
+      Cursor_Pause(cursors[i]);
+    }
 }
 
 int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {

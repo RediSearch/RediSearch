@@ -2252,7 +2252,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
     *hasLoader = HasLoader(req);
     *initClock = IsProfile(req) || !IsInternal(req);
   } else {
-    RS_ABORT("cursor carries no AREQ wrapper");
+    RS_ABORT_ALWAYS("cursor carries no AREQ wrapper");
   }
   qctx->err = status;
   return qctx;

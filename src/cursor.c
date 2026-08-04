@@ -160,6 +160,14 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  *
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
+  // Reaping is main-thread-only: freeing a cursor releases its request's
+  // wrapper, whose teardown is main-thread-only. Cursor APIs used from BG
+  // workers reach here through the op counter (and the Reserve limit path);
+  // hand the work to the sweep — always main — instead.
+  if (!MainThread_Is()) {
+    Cursors_RequestRescheduleSweep(cl);
+    return -1;
+  }
   uint64_t now = curTimeNs();
   if ((cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) ||
       (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
