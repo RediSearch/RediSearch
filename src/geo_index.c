@@ -23,13 +23,24 @@
 
 static double extractUnitFactor(GeoDistance unit);
 
-static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
+/* Legacy contract: an explicitly empty GEOFILTER value parses as 0 under
+ * DIALECT 1; dialect >= 2 rejects it through `hasEmptyFilterValue` with a
+ * dedicated error. The strict argv conversions no longer parse "" as a
+ * number, so an empty token is recognized on conversion failure instead.
+ * Returns true when the current token is empty, coercing `*target` to 0 and
+ * raising the flag. */
+static bool CoalesceEmptyFilterValue(ArgsCursor *ac, double *target,
+                                     bool *hasEmptyFilterValue) {
   const char *val;
+  size_t len;
 
-  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
-  if (rv == AC_OK && !(*val)) {
-    *hasEmptyFilterValue = true;
+  int rv = AC_GetString(ac, &val, &len, AC_F_NOADVANCE);
+  if (rv != AC_OK || len != 0) {
+    return false;
   }
+  *target = 0;
+  *hasEmptyFilterValue = true;
+  return true;
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
@@ -51,30 +62,24 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
+  rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.lon, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if (gf->base.lon == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
-  }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
+  rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.lat, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
-  if (gf->base.lat == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
-  }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
+  rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE);
+  if (rv != AC_OK && !CoalesceEmptyFilterValue(ac, &gf->base.radius, hasEmptyFilterValue)) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
-  }
-  if (gf->base.radius == 0) {
-    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
 
