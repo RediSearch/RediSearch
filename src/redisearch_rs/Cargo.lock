@@ -1160,7 +1160,6 @@ dependencies = [
  "inverted_index",
  "itertools 0.15.0",
  "query_term",
- "redis-module",
  "redis_mock",
  "rqe_core",
  "workspace_hack",
@@ -1524,7 +1523,6 @@ dependencies = [
  "inverted_index",
  "inverted_index_ffi",
  "numeric_range_tree",
- "redis-module",
  "redis_mock",
  "rmp-serde",
  "rqe_core",
@@ -3032,7 +3030,6 @@ dependencies = [
 name = "term_suffix_index_ffi"
 version = "0.0.1"
 dependencies = [
- "redis-module",
  "redis_mock",
  "redisearch_rs",
  "term_suffix_index",
@@ -3355,7 +3352,6 @@ dependencies = [
  "ffi",
  "field",
  "libc",
- "redis-module",
  "redis_mock",
  "rqe_core",
  "thin_vec",

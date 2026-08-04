@@ -30,14 +30,6 @@ workspace_hack.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
 
-[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
-workspace = true
-default-features = false
-features = ["min-redis-compatibility-version-7-2"]
-
-[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
-workspace = true
-
 [dev-dependencies]
 redis_mock.workspace = true
 
