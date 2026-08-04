@@ -65,19 +65,31 @@ static int tryReadAsDouble(ArgsCursor *ac, long long *ll, int flags) {
     return AC_ERR_PARSE;
   }
   // Converting a double outside [LLONG_MIN, 2^63) to long long is undefined
-  // behavior, and the RString conversion accepts literal "inf". A single
-  // range predicate rejects inf, nan (both comparisons are false for nan)
-  // and finite out-of-range values before either cast below. Note
-  // (double)LLONG_MAX rounds up to exactly 2^63, making it the correct
-  // exclusive bound; (double)LLONG_MIN is exact.
-  if (!(dTmp >= (double)LLONG_MIN && dTmp < (double)LLONG_MAX)) {
+  // behavior, and the RString conversion accepts literal "inf" — the casts
+  // below must never see such a value. Note (double)LLONG_MAX rounds up to
+  // exactly 2^63, making it the correct exclusive bound; (double)LLONG_MIN
+  // is exact. NaN has no meaningful integer value under either flag.
+  if (isnan(dTmp)) {
     return AC_ERR_PARSE;
   }
   if (flags & AC_F_COALESCE) {
-    *ll = dTmp;
+    // Coalescing means "coerce whatever number was given": saturate
+    // out-of-range values (inf included) to the representable range.
+    if (dTmp >= (double)LLONG_MAX) {
+      *ll = LLONG_MAX;
+    } else if (dTmp < (double)LLONG_MIN) {
+      *ll = LLONG_MIN;
+    } else {
+      *ll = dTmp;
+    }
     return AC_OK;
   }
 
+  // Non-coalescing accepts only values that survive the integral round-trip;
+  // out-of-range values cannot, so reject them before the undefined cast.
+  if (!(dTmp >= (double)LLONG_MIN && dTmp < (double)LLONG_MAX)) {
+    return AC_ERR_PARSE;
+  }
   if ((double)(long long)dTmp != dTmp) {
     return AC_ERR_PARSE;
   } else {
