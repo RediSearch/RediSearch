@@ -26,9 +26,11 @@ impl HiddenString {
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid, non-null pointer to a properly initialized
+    /// 1. `ptr` must be a [valid], non-null pointer to a properly initialized
     ///    `ffi::HiddenString`, including its subfields.
     /// 2. The pointee must not be mutated for the entire lifetime `'a`.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn from_raw<'a>(ptr: *const ffi::HiddenString) -> &'a Self {
         // SAFETY: Ensured by caller (1., 2.)
         unsafe {
