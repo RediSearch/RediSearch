@@ -669,3 +669,67 @@ fn not_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
     assert_current_contract_via_skip_to(&mut it, 6);
 }
+
+// ---------------------------------------------------------------------------
+// A skip_to that carries no result must not claim the probed id as its position
+// ---------------------------------------------------------------------------
+
+/// A timeout during `skip_to` returns no result, so the probe target must not
+/// become the iterator's position — a parent pairs `last_doc_id()` with
+/// `current()` and reads a match as a promise of a result there.
+///
+/// `Empty` as the child puts this on the branch that accepts `doc_id` outright,
+/// which is where the position used to be published before the timeout check.
+#[test]
+fn skip_to_timing_out_leaves_the_position_alone() {
+    use rqe_iterators::empty::Empty;
+
+    let mut it = Not::new(
+        Empty,
+        10,
+        1.0,
+        // Already elapsed, and checked on every call.
+        DeadlineTimeoutChecker::new(Duration::ZERO, 1),
+    );
+
+    let rc = it.skip_to(5);
+    assert!(
+        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        "expected a timeout, got {rc:?}",
+    );
+    assert_eq!(
+        it.last_doc_id(),
+        0,
+        "no result was produced, so the probe target must not become the position",
+    );
+}
+
+/// The same for the tail path, where the scan for the next valid document fails:
+/// the position is published so the scan can start from it, and has to go back.
+#[test]
+fn skip_to_whose_scan_fails_leaves_the_position_alone() {
+    // 4 is in the child, so skipping to it takes the tail path that scans for the
+    // next valid document, and that scan reads the child past its end.
+    let child = Mock::new([4u64]);
+    let mut child_data = child.data();
+    let mut it = Not::new(child, 10, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("1 is not in the child");
+    assert_eq!(doc.doc_id, 1);
+
+    child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+
+    let rc = it.skip_to(4);
+    assert!(
+        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        "expected the child's error to propagate, got {rc:?}",
+    );
+    assert_eq!(
+        it.last_doc_id(),
+        1,
+        "the failed scan produced no result, so the position stays where it was",
+    );
+}

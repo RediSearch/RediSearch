@@ -212,8 +212,11 @@ where
         if self.child.last_doc_id() > doc_id
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
-            self.result.doc_id = doc_id;
+            // Checked before the position is published, not after: a timeout
+            // carries no result, and `skip_to` may not leave the probe target
+            // behind as the position in that case.
             self.check_timeout()?;
+            self.result.doc_id = doc_id;
 
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -225,10 +228,10 @@ where
                     // Found value - do not return
                 }
                 None | Some(SkipToOutcome::NotFound(_)) => {
-                    // Not found or EOF - return
-                    self.result.doc_id = doc_id;
-
+                    // Not found or EOF - return. Timeout checked first, for the
+                    // reason given in Case 1.
                     self.check_timeout()?;
+                    self.result.doc_id = doc_id;
 
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
@@ -242,16 +245,20 @@ where
         //
         // The scan below has to start from `doc_id`, but the probe target only
         // becomes this iterator's position once a result is in hand: the scan can
-        // run off the end, and a `skip_to` returning `None` must leave
-        // `last_doc_id()` alone. Publishing it early is what let a parent read a
-        // position as a promise of a result at it.
+        // run off the end or fail, and a `skip_to` that carries no result must
+        // leave `last_doc_id()` alone. Publishing it early is what let a parent
+        // read a position as a promise of a result at it.
         let resume_from = self.result.doc_id;
         self.result.doc_id = doc_id;
-        match self.read()? {
-            Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
-            None => {
+        match self.read() {
+            Ok(Some(_)) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
+            Ok(None) => {
                 self.result.doc_id = resume_from;
                 Ok(None)
+            }
+            Err(e) => {
+                self.result.doc_id = resume_from;
+                Err(e)
             }
         }
     }

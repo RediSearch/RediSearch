@@ -199,7 +199,8 @@ pub trait RQEIterator<'index> {
     ///
     /// On a successful read, the iterator must set its [`last_doc_id`](Self::last_doc_id) property to the new current result id.
     ///
-    /// Conversely, a call returning `None` must not leave
+    /// Conversely, a call that carries no result — `None`, or an
+    /// [`RQEIteratorError`] — must not leave
     /// [`last_doc_id`](Self::last_doc_id) equal to `doc_id`: an iterator may not
     /// claim the probed document as its position without a result to back it.
     /// Parents pair the two, reading a position equal to the id they asked for as
