@@ -30,16 +30,20 @@ the codec a pure doc-id codec.)
 `IndexBlock` (`src/redisearch_rs/inverted_index/src/index/core.rs`) gains:
 
 ```rust
-pub(crate) expiration_bits: Option<Box<[u8]>>,
+pub(crate) expiration_bits: ExpirationBits, // newtype over ThinVec<u8, u16>
 ```
 
 - A bitset indexed by **entry ordinal** within the block: bit `i` is set iff a
   field the `i`-th entry belongs to has a field-level expiration for its document.
-- `Option<Box<[u8]>>` (one pointer, 8 bytes) rather than `Vec<u8>` (24 bytes) so
-  a block whose documents have no field expirations — the common case — costs
-  only the idle pointer (`None`) and no heap allocation. `ThinVec<u8>` would also
-  be 8 bytes but has no `serde` impl, and `IndexBlock` is serialized across the
-  fork-GC boundary via `rmp_serde`, so the bitset must serialize with it.
+- `ThinVec<u8, u16>` (one pointer, 8 bytes) rather than `Vec<u8>` (24 bytes) or
+  `Option<Box<[u8]>>` (a *fat* pointer, 16 bytes) so a block whose documents have
+  no field expirations — the common case — costs only the idle pointer and no
+  heap allocation. This matters because high-cardinality TEXT/TAG indexes create
+  a single-block index per rare value, so idle bytes are paid per unique term.
+  `thin_vec` has no `serde` impl and `IndexBlock` crosses the fork-GC boundary via
+  `rmp_serde`, so `ExpirationBits` hand-writes `Serialize`/`Deserialize` over a
+  plain byte sequence. `IndexBlock` is 56 bytes as a result (48 before this
+  change).
 - Grown lazily and only up to the highest set ordinal (`set_expiration_bit`);
   ordinals beyond the grown length read as `false` (`expiration_bit`).
 

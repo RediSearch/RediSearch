@@ -7,48 +7,47 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thin_vec::ThinVec;
 
 /// The entries of an [`IndexBlock`](super::IndexBlock) that belong to a field carrying a
-/// field-level expiration (HFE) for the entry's document, identified by the entry's 0-based
-/// ordinal within the block. For tag and numeric indexes that field is the single owning field;
-/// for term indexes it is any field in the posting's field mask.
+/// field-level expiration (HFE), keyed by the entry's 0-based ordinal within the block. For tag
+/// and numeric indexes that is the single owning field; for term indexes, any field in the
+/// posting's field mask.
 ///
 /// Readers look an entry up by ordinal to set
 /// [`RSIndexResult::has_field_expiration`](index_result::RSIndexResult::has_field_expiration),
 /// letting expiration-aware iterators skip the TTL-table lookup for documents that have no field
-/// TTL. This set lives outside the block's encoded buffer, leaving the document-id codec
-/// untouched, and is serialized along with the block so the bits survive the fork GC.
+/// TTL. Held outside the block's encoded buffer, leaving the document-id codec untouched, and
+/// serialized with the block so the bits survive the fork GC.
 ///
-/// The backing bitset reaches only as far as the highest ordinal inserted so far; an ordinal past
-/// its end is simply absent, which is what non-expiring entries need.
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub(crate) struct ExpirationBits(Box<[u8]>);
+/// [`ThinVec`] rather than `Box<[u8]>` keeps this one word wide, so a block with no expiring entry
+/// — the common case — costs 8 bytes and no allocation. The bitset reaches only as far as the
+/// highest ordinal inserted; ordinals past its end are absent.
+#[derive(Debug, Default, Eq, PartialEq)]
+pub(crate) struct ExpirationBits(ThinVec<u8, u16>);
 
 impl ExpirationBits {
-    /// The set holding `ordinal` alone.
-    pub(crate) fn new(ordinal: u16) -> Self {
-        let mut bits = Self(vec![0; Self::bytes_for(ordinal)].into_boxed_slice());
-        bits.insert(ordinal);
-        bits
+    /// The empty set. Does not allocate.
+    pub(crate) const fn new() -> Self {
+        Self(ThinVec::new())
     }
 
-    /// Add `ordinal` to the set, growing the bitset if it does not reach that far yet.
+    /// Add `ordinal`, growing the bitset if it does not reach that far yet.
     pub(crate) fn insert(&mut self, ordinal: u16) {
-        let needed = Self::bytes_for(ordinal);
-        if self.0.len() < needed {
-            let mut grown = vec![0; needed];
-            grown[..self.0.len()].copy_from_slice(&self.0);
-            self.0 = grown.into_boxed_slice();
+        let byte = Self::byte(ordinal);
+        if self.0.len() <= byte {
+            self.0.resize(byte + 1, 0);
         }
-        self.0[Self::byte(ordinal)] |= Self::mask(ordinal);
+        self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
     }
 
     /// Whether `ordinal` is in the set.
     pub(crate) fn contains(&self, ordinal: u16) -> bool {
-        let byte = Self::byte(ordinal);
-        byte < self.0.len() && self.0[byte] & Self::mask(ordinal) != 0
+        self.0
+            .as_slice()
+            .get(Self::byte(ordinal))
+            .is_some_and(|byte| byte & Self::mask(ordinal) != 0)
     }
 
     /// The number of heap bytes this set occupies.
@@ -61,13 +60,25 @@ impl ExpirationBits {
         ordinal as usize / 8
     }
 
-    /// Number of bytes a bitset needs in order to reach `ordinal`.
-    const fn bytes_for(ordinal: u16) -> usize {
-        Self::byte(ordinal) + 1
-    }
-
     /// Mask selecting `ordinal`'s bit within its byte.
     const fn mask(ordinal: u16) -> u8 {
         1 << (ordinal % 8)
+    }
+}
+
+// Hand-written because `thin_vec` has no `serde` impls, and `IndexBlock` crosses the fork-GC
+// boundary via `rmp_serde`. The wire form is a plain byte sequence, as for a `[u8]`.
+impl Serialize for ExpirationBits {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_slice().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ExpirationBits {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = Vec::<u8>::deserialize(deserializer)?;
+        let mut bits = ThinVec::with_capacity(bytes.len());
+        bits.extend_from_slice(&bytes);
+        Ok(Self(bits))
     }
 }

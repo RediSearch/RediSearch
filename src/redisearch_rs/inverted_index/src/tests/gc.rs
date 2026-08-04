@@ -531,9 +531,9 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // The first, second and fourth block were removed.
-            bytes_freed: 232,
+            bytes_freed: 208,
             // The third and fifth block were split into new blocks.
-            bytes_allocated: 216,
+            bytes_allocated: 192,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
@@ -632,7 +632,7 @@ fn ii_apply_gc_last_block_updated() {
         apply_info,
         GcApplyInfo {
             // Freed only the first block
-            bytes_freed: 72,
+            bytes_freed: 64,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -690,7 +690,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 72,
+            bytes_freed: 64,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -825,8 +825,8 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 81,
-            bytes_allocated: 72,
+            bytes_freed: 73,
+            bytes_allocated: 64,
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,

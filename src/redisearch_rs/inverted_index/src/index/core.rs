@@ -89,9 +89,8 @@ pub struct IndexBlock {
     pub(crate) buffer: Vec<u8>,
 
     /// The entries in this block that belong to a field with a field-level expiration, see
-    /// [`ExpirationBits`]. `None` — and so free of any heap allocation — while no entry in the
-    /// block does, which is the common case.
-    pub(crate) expiration_bits: Option<ExpirationBits>,
+    /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
+    pub(crate) expiration_bits: ExpirationBits,
 }
 
 impl IndexBlock {
@@ -105,15 +104,13 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
-            expiration_bits: None,
+            expiration_bits: ExpirationBits::new(),
         }
     }
 
     /// The number of bytes occupied by the field-expiration bitset, if any.
     fn expiration_bits_len(&self) -> usize {
-        self.expiration_bits
-            .as_ref()
-            .map_or(0, ExpirationBits::mem_usage)
+        self.expiration_bits.mem_usage()
     }
 
     /// Get the memory usage of this block, including the stack size, the capacity of the bytes
@@ -125,17 +122,12 @@ impl IndexBlock {
     /// Record that the entry at `ordinal` (its 0-based position within this block)
     /// belongs to a document with at least one field-level expiration.
     pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
-        match &mut self.expiration_bits {
-            Some(bits) => bits.insert(ordinal),
-            None => self.expiration_bits = Some(ExpirationBits::new(ordinal)),
-        }
+        self.expiration_bits.insert(ordinal);
     }
 
     /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
     pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
-        self.expiration_bits
-            .as_ref()
-            .is_some_and(|bits| bits.contains(ordinal))
+        self.expiration_bits.contains(ordinal)
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
