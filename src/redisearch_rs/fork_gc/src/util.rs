@@ -7,17 +7,44 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
 use std::{
     io::{self, Read},
     os::fd::AsRawFd,
     time::Duration,
 };
 
-use hidden_string::HiddenStringRef;
+use index_spec::IndexSpecWriteGuard;
 use nix::poll::{PollFd, PollFlags};
-use nul_terminated_bytes::NulTerminatedBytes;
 use redis_module::raw::RedisModule_ExitFromChild;
+
+use crate::fork_gc::ForkGCPipeReader;
+use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+
+/// Run the single-shot GC handler protocol shared by the per-index scanners
+/// that apply one message per call (existing-docs, missing-docs):
+///
+/// 1. `receive` one message from the pipe; a `None` means the child sent the
+///    terminator, so iteration is [`Done`](HandleOutcome::Done).
+/// 2. Promote and write-lock the spec (gone → [`HandleError::SpecDeleted`]).
+/// 3. `apply` the message, then flush the resulting [`GcApplyStats`] to both
+///    the spec and the fork GC via [`GcApplyStats::apply`].
+pub(crate) fn handle_one<M, C>(
+    fgc: &mut ForkGC,
+    receive: impl FnOnce(&mut ForkGCPipeReader<'_>) -> Result<Option<M>, HandleError<C>>,
+    apply: impl FnOnce(M, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, HandleError<C>>,
+) -> Result<HandleOutcome, HandleError<C>> {
+    let Some(message) = receive(&mut fgc.reader())? else {
+        return Ok(HandleOutcome::Done);
+    };
+
+    let mut spec_ref = fgc.index_spec().promote().ok_or(HandleError::SpecDeleted)?;
+    let mut guard = spec_ref.write();
+
+    let stats = apply(message, &mut guard)?;
+    stats.apply(fgc, &mut guard);
+
+    Ok(HandleOutcome::Collected)
+}
 
 /// Log a write error and terminate the current process.
 pub(crate) fn exit_on_write_error(err: io::Error) -> ! {
@@ -80,21 +107,4 @@ pub fn read_with_timeout<R: Read + AsRawFd>(
             }
         }
     }
-}
-
-/// Wrap `bytes` in a temporary, non-owning [`HiddenStringRef`], pass it to `f`, then free it.
-pub fn with_hidden_string_ref<R>(
-    bytes: &NulTerminatedBytes,
-    f: impl FnOnce(HiddenStringRef<'_>) -> R,
-) -> R {
-    // SAFETY: NewHiddenString wraps `bytes` into a heap-allocated HiddenString;
-    // we only need it for the duration of `f` and free it immediately after.
-    let hidden_string =
-        unsafe { ffi::NewHiddenString(bytes.as_ptr().cast::<c_char>(), bytes.len(), false) };
-    // SAFETY: `hidden_string` was just allocated above and is non-null.
-    let key = unsafe { HiddenStringRef::from_raw(hidden_string) };
-    let result = f(key);
-    // SAFETY: `hidden_string` was allocated by NewHiddenString and is no longer needed.
-    unsafe { ffi::HiddenString_Free(hidden_string, false) };
-    result
 }

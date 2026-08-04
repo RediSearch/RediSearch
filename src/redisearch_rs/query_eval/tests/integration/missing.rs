@@ -19,7 +19,7 @@
 #![cfg(not(miri))]
 
 use ffi::IndexFlags_Index_StoreFreqs;
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node, qast_iterate};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
@@ -41,7 +41,7 @@ fn eval_missing_returns_iterator_over_missing_docs() {
     mock_node.set_missing_field(context.field_spec());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("field has missing values, so should not be None")
         .into_boxed();
 
@@ -68,7 +68,7 @@ fn eval_missing_no_values_returns_none() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     assert!(
-        eval::eval_node(&mut ctx, node, Config::default()).is_none(),
+        eval_node(&mut ctx, node, Config::default()).is_none(),
         "no missing values for the field, so eval should return None"
     );
 }
@@ -87,7 +87,7 @@ fn qast_iterate_substitutes_empty_for_none() {
     mock_node.set_missing_field(context.field_spec());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::qast_iterate(&mut ctx, node, Config::default()).into_boxed();
+    let mut it = qast_iterate(&mut ctx, node, Config::default()).into_boxed();
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(it.at_eof());

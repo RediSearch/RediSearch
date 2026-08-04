@@ -45,7 +45,7 @@ fn index_block_repair_delete() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -77,7 +77,7 @@ fn index_block_repair_unchanged() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -104,7 +104,7 @@ fn index_block_repair_some_deletions() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<Dummy>::default(),
+            PhantomData::<Dummy>,
         )
         .unwrap();
 
@@ -216,7 +216,7 @@ fn index_block_repair_delta_too_big() {
             0,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
-            PhantomData::<SmallDeltaDummy>::default(),
+            PhantomData::<SmallDeltaDummy>,
         )
         .unwrap();
 
@@ -613,7 +613,7 @@ fn ii_apply_gc_last_block_updated() {
         ii.memory_usage(),
         24 // Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
-        + IndexBlock::STACK_SIZE * 1 // Size of the index blocks
+        + IndexBlock::STACK_SIZE // Size of the index blocks
         + 16 // Size of the buffer of the first index block
     );
 

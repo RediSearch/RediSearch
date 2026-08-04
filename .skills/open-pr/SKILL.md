@@ -61,6 +61,11 @@ RediSearch.
    `master`. It is `master` for ordinary work, a release branch when targeting one, and
    the parent change's branch for a deliberately stacked PR — getting this wrong pulls
    the parent's commits into the diff and reviews them again.
+
+   `gh pr create` prints the URL of the new PR. Show it to the user immediately, in full
+   (`https://github.com/<owner>/<repo>/pull/<number>`), as a clickable link — not just the
+   PR number, and not only at the end of the workflow. Steps 8–13 take a long time, and
+   the user should be able to open the PR while they run.
 8. Concurrently, using sub-agents:
    1. Verify the final PR body, title, base, and head.
    2. Load and follow the [/verify](../verify/SKILL.md) skill.
@@ -229,4 +234,10 @@ assuming the create or edit step worked.
 
 ## Output
 
-Report the PR URL.
+Report the full PR URL — `https://github.com/<owner>/<repo>/pull/<number>` — so the user
+can click straight through to it. A bare number, a `#123` reference, or a relative path is
+not enough. Restate it here even if you already showed it in step 7; by this point it has
+scrolled well out of view.
+
+If anything else is worth reporting (verification status, review findings, CI state), the
+URL still goes first.

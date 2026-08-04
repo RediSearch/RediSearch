@@ -9,7 +9,7 @@
 
 //! QN_WILDCARD → Wildcard
 
-use query_eval::{QueryEvalContext, QueryNodeMut, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 
@@ -25,7 +25,7 @@ fn eval_wildcard_returns_wildcard_iterator() {
     mock_node.opts_mut().weight = 1.0;
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -44,7 +44,7 @@ fn eval_wildcard_empty_index() {
     let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
 
@@ -62,7 +62,7 @@ fn eval_wildcard_respects_weight() {
     mock_node.opts_mut().weight = 2.5;
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, node, Config::default())
+    let mut it = eval_node(&mut ctx, node, Config::default())
         .expect("should not be None")
         .into_boxed();
     let result = it.read().unwrap().expect("should have a result");

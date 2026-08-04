@@ -107,6 +107,18 @@ impl RSQueryTerm {
         self.bm25_idf = value;
     }
 
+    /// Derive both IDF variants for a term indexed under `term_docs` of the
+    /// index's `total_docs` documents, and store them on the term.
+    ///
+    /// The two are always set together — a term reader cannot know which
+    /// scorer will read it — so deriving them here keeps every call site from
+    /// having to know that [`idf`](Self::idf) and
+    /// [`bm25_idf`](Self::bm25_idf) come from the same pair of counts.
+    pub fn set_idfs(&mut self, total_docs: usize, term_docs: usize) {
+        self.idf = idf::calculate_idf(total_docs, term_docs);
+        self.bm25_idf = idf::calculate_idf_bm25(total_docs, term_docs);
+    }
+
     /// Get the term ID.
     ///
     /// Each term in the query gets an incremental ID assigned during parsing.

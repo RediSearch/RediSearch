@@ -904,6 +904,8 @@ mod optional_iterator_non_sequential_reads {
 
     struct ReadStepIterator<'index, const N: usize> {
         read_steps: [DocId; N],
+        /// Index of the next step to serve, [`utils::past_end_cursor`] once a
+        /// `read`/`skip_to` ran past the last one.
         read_step: usize,
         result: index_result::RSIndexResult<'index>,
     }
@@ -920,6 +922,9 @@ mod optional_iterator_non_sequential_reads {
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
+            if self.read_step == utils::past_end_cursor(N) {
+                return None;
+            }
             Some(&mut self.result)
         }
 
@@ -928,6 +933,7 @@ mod optional_iterator_non_sequential_reads {
         ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
         {
             if self.at_eof() {
+                self.read_step = utils::past_end_cursor(N);
                 return Ok(None);
             }
 
@@ -946,7 +952,10 @@ mod optional_iterator_non_sequential_reads {
             }
 
             match self.result.doc_id.cmp(&doc_id) {
-                std::cmp::Ordering::Less => Ok(None),
+                std::cmp::Ordering::Less => {
+                    self.read_step = utils::past_end_cursor(N);
+                    Ok(None)
+                }
                 std::cmp::Ordering::Equal => Ok(Some(SkipToOutcome::Found(&mut self.result))),
                 std::cmp::Ordering::Greater => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
             }

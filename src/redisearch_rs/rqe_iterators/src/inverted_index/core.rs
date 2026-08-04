@@ -399,6 +399,12 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        // `at_eos` is set only by a read/skip that found no record, never while
+        // sitting on the last valid document, so honouring it here hides the stale
+        // leftover in `self.result` without hiding the final result.
+        if self.at_eos {
+            return None;
+        }
         Some(&mut self.result)
     }
 

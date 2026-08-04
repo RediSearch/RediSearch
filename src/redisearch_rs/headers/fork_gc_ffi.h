@@ -49,6 +49,10 @@ extern "C" {
  * with GC work, then a per-field terminator. A final terminator is sent once
  * all fields have been processed.
  *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
  * # Safety
  *
  * 1. `gc` must point to a valid [`ffi::ForkGC`].
@@ -66,12 +70,16 @@ void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
  * only the terminator is sent.  Otherwise an empty header followed by the
  * serialised GC delta is sent before the terminator.
  *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_write_fd` is an open,
- *    writable file descriptor.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`] whose `spec` field is
- *    a non-null `IndexSpec`.
+ * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  */
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
@@ -98,21 +106,6 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
- * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
- *
- * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
- * the child sent no data (index absent or nothing to collect),
- * [`FGCError::Collected`] after successfully applying a delta, or an
- * error variant on pipe or spec failure.
- *
- * # Safety
- *
- * 1. `gc` must point to a valid [`ffi::ForkGC`] whose `pipe_read_fd` is an
- *    open, readable file descriptor.
- */
-enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
-
-/**
  * Write exactly `len` bytes from `buff` to the FGC pipe.
  *
  * On error, logs the failure and terminates the child process via
@@ -126,6 +119,25 @@ enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
  * 3. `len` must be greater than zero.
  */
 void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
+
+/**
+ * Receive and apply the GC delta for the spec's `existingDocs` inverted index.
+ *
+ * Reads one protocol frame from the pipe. Returns [`FGCError::Done`] when
+ * the child sent no data (index absent or nothing to collect),
+ * [`FGCError::Collected`] after successfully applying a delta, or an
+ * error variant on pipe or spec failure.
+ *
+ * # Panic
+ *
+ * Panics if `pipe_write_fd` on `gc` is an invalid or closed writable file descriptor.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ */
+enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
 /**
  * Receive and apply the GC delta for one field in the spec's `missingFieldDict`.
@@ -143,7 +155,8 @@ void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`].
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
  */
 enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 

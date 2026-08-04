@@ -10,11 +10,11 @@
 use fork_gc::{
     ForkGC,
     io_result_ext::IoResultExt,
-    missing_docs::{HandleError, HandleOutcome, collect_missing_docs, handle_missing_docs},
+    missing_docs::{collect_missing_docs, handle_missing_docs},
 };
 use index_spec::IndexSpecReadGuard;
 
-use crate::FGCError;
+use crate::{FGCError, util::into_fgc_error};
 
 /// Collect GC delta data for every entry in the spec's `missingFieldDict` and
 /// send it to the parent process over the pipe.
@@ -69,19 +69,12 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::ForkGC`].
+/// 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+///    alive for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleMissingDocs(gc: *mut ffi::ForkGC) -> FGCError {
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
-    match handle_missing_docs(fgc) {
-        Ok(HandleOutcome::Collected) => FGCError::Collected,
-        Ok(HandleOutcome::Done) => FGCError::Done,
-        Err(HandleError::PipeReadError(_)) => FGCError::ChildError,
-        Err(HandleError::DeserializationFailed(_)) => FGCError::ChildError,
-        Err(HandleError::UnexpectedFrame) => FGCError::ChildError,
-        Err(HandleError::SpecDeleted) => FGCError::SpecDeleted,
-        Err(HandleError::FieldNotFound) => FGCError::ParentError,
-    }
+    into_fgc_error(handle_missing_docs(fgc), "missing docs")
 }

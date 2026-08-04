@@ -11,7 +11,7 @@
 
 use enumflags2::BitFlags;
 use enumflags2::bitflags;
-use hidden_string::HiddenStringRef;
+use hidden_string::HiddenString;
 use numeric_range_tree::NumericRangeTree;
 #[cfg(feature = "unittest")]
 use std::ffi::CStr;
@@ -75,16 +75,16 @@ impl FieldSpec {
         std::ptr::from_ref(&self.0)
     }
 
-    /// Get the underlying field name as a `HiddenStringRef`.
-    pub const fn field_name(&self) -> HiddenStringRef<'_> {
+    /// Get the underlying field name as a `&HiddenString`.
+    pub const fn field_name(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldName) }
+        unsafe { HiddenString::from_raw(self.0.fieldName) }
     }
 
-    /// Get the underlying field path as a `HiddenStringRef`.
-    pub const fn field_path(&self) -> HiddenStringRef<'_> {
+    /// Get the underlying field path as a `&HiddenString`.
+    pub const fn field_path(&self) -> &HiddenString {
         // Safety: (1.) due to creation with `FieldSpec::from_raw`
-        unsafe { HiddenStringRef::from_raw(self.0.fieldPath) }
+        unsafe { HiddenString::from_raw(self.0.fieldPath) }
     }
 
     /// Return the field types as a typed [`FieldSpecTypes`] bitmask.

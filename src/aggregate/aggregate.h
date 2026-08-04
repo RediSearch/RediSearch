@@ -176,6 +176,14 @@ typedef enum {
   REQUEST_KIND_HYBRID,
 } RequestKind;
 
+/* TRANSITIONAL(MOD-16691): values of BlockedRequestCtx.strictReadOwner (see
+ * the field's doc; deleted by the RETURN_STRICT flip). */
+typedef enum {
+  BRC_READ_OWNER_NONE = 0,
+  BRC_READ_OWNER_BG,
+  BRC_READ_OWNER_TIMEOUT,
+} BrcStrictReadOwner;
+
 /* Heap-allocated owning wrapper around a top-level request. Defined below the
  * AREQ struct (it references AREQ/HybridRequest only by pointer). */
 typedef struct BlockedRequestCtx BlockedRequestCtx;
@@ -413,6 +421,18 @@ struct BlockedRequestCtx {
    * triggering Free. ACQ_REL on decrement so the free path sees prior writes. */
   RS_Atomic(int) refcount;
 
+  /* TRANSITIONAL(MOD-16691): "has the BG worker dequeued this cursor read?"
+   * latch for coord RETURN_STRICT cursor reads; per-cycle, reset by
+   * BeginCycle. The BG handler CASes NONE→BG at its entry; the RETURN_STRICT
+   * timeout callback CASes NONE→TIMEOUT after flipping the timeout flag. A
+   * timer that wins replies with a depleted empty cursor and never waits (the
+   * BG job may be queued behind a paused/saturated pool); a BG that loses
+   * frees the taken cursor and stores nothing. A timer that loses may wait: a
+   * started RETURN_STRICT read always stores a reply and signals completion.
+   * Deleted by the RETURN_STRICT flip (a never-waiting timeout callback does
+   * not care whether BG started). */
+  RS_Atomic(int) strictReadOwner;
+
   /* TRANSITIONAL(MOD-16691): per-cycle registry bridge, until Step 3 links
    * the wrapper itself into BlockedQueries. The node created for this cycle,
    * unlinked and freed in EndCycle. Kind-tagged because query and cursor
@@ -444,10 +464,12 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc);
  * loudly in debug builds. */
 static inline AREQ *BlockedRequestCtx_GetAREQ(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_AREQ);
+  RS_ASSERT(brc->query.areq != NULL);
   return brc->query.areq;
 }
 static inline struct HybridRequest *BlockedRequestCtx_GetHybrid(BlockedRequestCtx *brc) {
   RS_ASSERT(brc->kind == REQUEST_KIND_HYBRID);
+  RS_ASSERT(brc->query.hybrid != NULL);
   return brc->query.hybrid;
 }
 
@@ -732,6 +754,11 @@ static inline bool AREQ_RequiresThreadsSyncResults(const AREQ *req) {
  * Signal: called by winner at completion. Wait: called by loser, blocks until Signal.
  * Exactly one of {BG thread, timeout callback} wins. */
 bool AREQ_TryClaimAggregateResults(AREQ *req);
+
+/* TRANSITIONAL(MOD-16691): CAS BlockedRequestCtx.strictReadOwner NONE ->
+ * `owner`. Returns true if this caller won the latch (see the field's doc for
+ * the protocol; deleted by the RETURN_STRICT flip). */
+bool BlockedRequestCtx_TryOwnStrictRead(BlockedRequestCtx *brc, BrcStrictReadOwner owner);
 void AREQ_SignalAggregateResultsComplete(AREQ *req);
 void AREQ_WaitForAggregateResultsComplete(AREQ *req);
 
