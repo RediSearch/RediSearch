@@ -33,6 +33,7 @@ fn index_block_repair_delete() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
+        ..Default::default()
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -64,6 +65,7 @@ fn index_block_repair_unchanged() {
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
+        ..Default::default()
     };
 
     fn cb(_doc_id: DocId) -> bool {
@@ -90,6 +92,7 @@ fn index_block_repair_some_deletions() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
+        ..Default::default()
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -113,6 +116,7 @@ fn index_block_repair_some_deletions() {
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: encode_ids!(Dummy, 11),
+                ..Default::default()
             }],
             n_unique_docs_removed: 2
         })
@@ -200,6 +204,7 @@ fn index_block_repair_delta_too_big() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
+        ..Default::default()
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -234,6 +239,7 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 10,
                     last_doc_id: 10,
+                    ..Default::default()
                 },
                 IndexBlock {
                     buffer: {
@@ -250,6 +256,7 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 42,
                     last_doc_id: 42,
+                    ..Default::default()
                 }
             ],
             n_unique_docs_removed: 1
@@ -270,24 +277,28 @@ fn ii_scan_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
+            ..Default::default()
         },
     ];
 
@@ -322,6 +333,7 @@ fn ii_scan_gc() {
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
+                            ..Default::default()
                         }],
                         n_unique_docs_removed: 1
                     },
@@ -340,12 +352,14 @@ fn ii_scan_gc_no_change() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            ..Default::default()
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -375,24 +389,28 @@ fn ii_apply_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
+            ..Default::default()
         },
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -423,6 +441,7 @@ fn ii_apply_gc() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
+                    ..Default::default()
                 }],
                 n_unique_docs_removed: 2,
             },
@@ -436,12 +455,14 @@ fn ii_apply_gc() {
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
+                        ..Default::default()
                     },
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
+                        ..Default::default()
                     },
                 ],
                 n_unique_docs_removed: 1,
@@ -481,34 +502,40 @@ fn ii_apply_gc() {
                 num_entries: 1,
                 first_doc_id: 21,
                 last_doc_id: 21,
+                ..Default::default()
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 30),
                 num_entries: 1,
                 first_doc_id: 30,
                 last_doc_id: 30,
+                ..Default::default()
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 40),
                 num_entries: 1,
                 first_doc_id: 40,
                 last_doc_id: 40,
+                ..Default::default()
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 72),
                 num_entries: 1,
                 first_doc_id: 72,
                 last_doc_id: 72,
+                ..Default::default()
             },
         ]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // The first, second and fourth block was removed totaling 184 bytes
-            bytes_freed: 184,
-            // The third and fifth block was split making 168 new bytes
-            bytes_allocated: 168,
+            // The first, second and fourth block was removed:
+            // Block 0: STACK_SIZE + 8, Block 1: STACK_SIZE + 16, Block 3: STACK_SIZE + 16
+            bytes_freed: IndexBlock::STACK_SIZE * 3 + 8 + 16 + 16,
+            // The third and fifth block was split making new blocks:
+            // Block 1 replacement: STACK_SIZE + 8, Block 3 replacements: 2 * (STACK_SIZE + 8)
+            bytes_allocated: IndexBlock::STACK_SIZE * 3 + 8 + 8 + 8,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
@@ -526,12 +553,14 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         },
     ];
 
@@ -561,6 +590,7 @@ fn ii_apply_gc_last_block_updated() {
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
+                    ..Default::default()
                 }],
                 n_unique_docs_removed: 2,
             },
@@ -597,13 +627,14 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            // Freed only the first block
-            bytes_freed: 56,
+            // Freed only the first block (STACK_SIZE + 8 bytes buffer capacity)
+            bytes_freed: IndexBlock::STACK_SIZE + 8,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -628,12 +659,14 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
+            ..Default::default()
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         },
     ];
 
@@ -659,7 +692,8 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 56,
+            // Freed only the first block (STACK_SIZE + 8 bytes buffer capacity)
+            bytes_freed: IndexBlock::STACK_SIZE + 8,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -677,6 +711,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
+            ..Default::default()
         }]
     );
 }
@@ -753,6 +788,7 @@ fn ii_apply_gc_entries_tracking_index() {
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
+                    ..Default::default()
                 }],
                 n_unique_docs_removed: 1,
             },
@@ -786,13 +822,16 @@ fn ii_apply_gc_entries_tracking_index() {
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
+            ..Default::default()
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 65,
-            bytes_allocated: 56,
+            // Original block: STACK_SIZE + 17 (buffer capacity for 4 entries)
+            bytes_freed: IndexBlock::STACK_SIZE + 17,
+            // New block: STACK_SIZE + 8 (buffer capacity for 2 entries)
+            bytes_allocated: IndexBlock::STACK_SIZE + 8,
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,
