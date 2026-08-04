@@ -1253,19 +1253,23 @@ static void blockedClientReqCtx_setRequest(blockedClientReqCtx *BCRctx, AREQ *re
 }
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
-  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
-
   // Release the owned AREQ reference if it has not already been released.
   // On the normal success path, AREQ_Execute() releases the reference and
   // the owner clears it via blockedClientReqCtx_setRequest(BCRctx, NULL),
   // so this conditional avoids a double-decr while still handling error paths
   // where AREQ_Execute() is never called.
+  // Must precede UnblockClient: once the client is unblocked, the main thread
+  // may run OnFree and drop the cycle reference, and a release from here
+  // would then be the final one — freeing the wrapper, and the module
+  // strings it holds, off the main thread.
   if (BCRctx->req) {
     AREQ_DecrRef(BCRctx->req);
     BCRctx->req = NULL;
   }
+
+  RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
 
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
