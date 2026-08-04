@@ -88,8 +88,7 @@ where
         let spec = unsafe { &*context_ref.spec };
         let total_docs = spec.stats.scoring.numDocuments;
         let term_docs = reader.unique_docs() as usize;
-        term.set_idf(idf::calculate_idf(total_docs, term_docs));
-        term.set_bm25_idf(idf::calculate_idf_bm25(total_docs, term_docs));
+        term.set_idfs(total_docs, term_docs);
 
         let result = RSIndexResult::build_term()
             .borrowed_record(Some(term), RSOffsetSlice::empty())
