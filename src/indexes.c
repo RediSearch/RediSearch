@@ -747,17 +747,19 @@ static bool fieldExpirationAdded(const struct FieldExpirationSlice before,
   return false;
 }
 
+// `openKey` is the caller's live handle, borrowed so we do not reopen an open key.
 static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *spec,
-                                                RedisModuleString *key, DocumentType type) {
+                                                RedisModuleString *key, DocumentType type,
+                                                RedisModuleKey *openKey) {
   // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
   // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
   // table in one pass. If the schema FILTER no longer accepts the doc, delete it
   // instead — otherwise the stale entry (with a clear inline bit) keeps being
   // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
-  if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
-    IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
+  if (SchemaRule_ShouldIndex(spec, key, type, openKey)) {
+    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey);
   } else {
-    IndexSpec_DeleteDoc(spec, ctx, key, NULL);
+    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
   }
 }
 
@@ -816,10 +818,10 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
+      if (SchemaRule_ShouldIndex(spec, key, type, k)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type, k);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key, NULL);
+        IndexSpec_DeleteDoc(spec, ctx, key, k);
       }
       continue;
     }
@@ -864,7 +866,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
         DMD_Return(cdmd);
         RedisSearchCtx_UnlockSpec(&sctx);
         FieldExpirations_Free(&sorted);
-        reindexDocAfterFieldExpirationAdded(ctx, spec, key, type);
+        reindexDocAfterFieldExpirationAdded(ctx, spec, key, type, k);
         continue;
       }
 
