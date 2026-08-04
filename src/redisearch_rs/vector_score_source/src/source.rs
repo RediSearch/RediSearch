@@ -476,6 +476,13 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         }
     }
 
+    fn yields_child_record(&self) -> bool {
+        // A hybrid query scores relevance from the child's term records, so the
+        // child's result is what must reach the scorer; the vector distance
+        // rides along as a metric entry.
+        true
+    }
+
     fn iterator_type(&self) -> rqe_iterators::IteratorType {
         // TODO: MOD-14206: Rename.
         rqe_iterators::IteratorType::Hybrid

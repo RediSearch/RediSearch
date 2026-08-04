@@ -77,6 +77,10 @@ impl ScoreSource for CallCountingScoreSource {
     {
     }
 
+    fn yields_child_record(&self) -> bool {
+        true
+    }
+
     fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
         BatchStrategy::Continue
     }

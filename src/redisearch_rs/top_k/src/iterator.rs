@@ -300,13 +300,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.collect_adhoc()?;
                     return Ok(());
                 }
-                BatchStrategy::SwitchToBatches => {
+                BatchStrategy::ExpandWindow => {
                     self.metrics.strategy_switches += 1;
-                    // Clear the heap: the source restarts with new parameters
-                    // (e.g. expanded numeric range) and will re-emit previously
-                    // collected docs. Keeping stale entries would cause duplicates.
-                    *self.heap = TopKHeap::new(self.k, self.compare);
-                    self.source.rewind();
+                    // The source already re-resolved itself to the next disjoint
+                    // window, so the heap stays valid and keeps accumulating.
+                    // Only the child is rewound for re-intersection.
                     if let Some(child) = &mut self.child {
                         child.rewind();
                     }
@@ -444,8 +442,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // Poll once per step, before yielding or skipping an entry.
             self.source.check_timeout()?;
 
-            // Filtered mode: yield the stored child record so BM25 inputs survive.
-            if self.child.is_some() {
+            // Filtered mode: yield the stored child record so BM25 inputs survive,
+            // unless the source builds its own result (e.g. numeric `SORTBY`).
+            if self.child.is_some() && self.source.yields_child_record() {
                 let Some(mut record) = record else {
                     // A filtered-mode entry must always carry its captured record;
                     // a missing one would indicate a collection-side bug. Treat as
@@ -462,7 +461,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 return Ok(self.current.as_mut());
             }
 
-            // Unfiltered fallback (no child): build a fresh result from the source.
+            // No child record to yield: build a fresh result from the source.
             let result = self.source.build_result(doc_id, score);
             if self.source.is_expired(&result) {
                 continue;
