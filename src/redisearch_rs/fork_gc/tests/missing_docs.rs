@@ -13,8 +13,8 @@ use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame,
-    missing_docs::{HandleError, apply_missing_docs, collect_missing_docs, receive_missing_docs},
+    Frame, HandleError,
+    missing_docs::{FieldNotFound, apply_missing_docs, collect_missing_docs, receive_missing_docs},
 };
 use hidden_string::OwnedHiddenString;
 use index_result::RSIndexResult;
@@ -166,11 +166,14 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_pipe_read_error() {
+fn receive_malformed_frame_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_missing_docs(&mut cursor),
-        Err(HandleError::PipeReadError(_))
+        Err(HandleError::Codec {
+            msg: "reading the missing-docs field-name frame",
+            ..
+        })
     ));
 }
 
@@ -196,7 +199,7 @@ fn apply_returns_err_when_field_not_found() {
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
         apply_missing_docs(c"nonexistent", delta, &mut *write_guard),
-        Err(HandleError::FieldNotFound)
+        Err(HandleError::Custom(FieldNotFound))
     ));
 }
 
@@ -208,9 +211,9 @@ fn apply_succeeds_and_keeps_entry_when_docs_remain() {
     let delta = GcScanDelta::empty_for_testing();
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let info = apply_missing_docs(c"age", delta, &mut *write_guard).unwrap();
+    let stats = apply_missing_docs(c"age", delta, &mut *write_guard).unwrap();
 
-    assert_eq!(info.entries_removed, 0);
+    assert_eq!(stats.records_removed, 0);
     let hidden = OwnedHiddenString::new(c"age");
     assert!(
         write_guard
@@ -240,7 +243,7 @@ fn roundtrip_all_docs_deleted_removes_entry() {
 
     // Parent side: apply.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let info = apply_missing_docs(&field_name, delta, &mut *write_guard).unwrap();
+    let stats = apply_missing_docs(&field_name, delta, &mut *write_guard).unwrap();
 
     let hidden = OwnedHiddenString::new(c"age");
     assert!(
@@ -249,6 +252,6 @@ fn roundtrip_all_docs_deleted_removes_entry() {
             .fetch_mut(&hidden)
             .is_none()
     );
-    assert!(info.bytes_freed > 0);
-    assert!(info.entries_removed > 0);
+    assert!(stats.bytes_collected > 0);
+    assert_eq!(stats.records_removed, 0);
 }

@@ -11,9 +11,9 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame,
+    Frame, HandleError,
     existing_docs::{
-        HandleError, apply_existing_docs, collect_existing_docs, receive_existing_docs,
+        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
     },
 };
 use index_result::RSIndexResult;
@@ -119,11 +119,14 @@ fn receive_terminator_returns_none() {
 }
 
 #[test]
-fn receive_malformed_frame_returns_child_error() {
+fn receive_malformed_frame_returns_codec_error() {
     let mut cursor = Cursor::new(b"garbage");
     assert!(matches!(
         receive_existing_docs(&mut cursor),
-        Err(HandleError::ChildError)
+        Err(HandleError::Codec {
+            msg: "reading the existing-docs header frame",
+            ..
+        })
     ));
 }
 
@@ -150,7 +153,7 @@ fn apply_returns_err_when_existing_docs_absent() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
         apply_existing_docs(delta, &mut *guard),
-        Err(HandleError::ExistingDocsDeleted)
+        Err(HandleError::Custom(ExistingDocsDeleted))
     ));
 }
 
@@ -176,8 +179,8 @@ fn roundtrip_all_docs_deleted_clears_index() {
     let delta = receive_existing_docs(&mut cursor).unwrap().unwrap();
 
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let info = apply_existing_docs(delta, &mut *write_guard).unwrap();
+    let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();
 
     assert!(write_guard.existing_docs_mut().is_none());
-    assert!(info.bytes_freed > 0);
+    assert!(stats.bytes_collected > 0);
 }
