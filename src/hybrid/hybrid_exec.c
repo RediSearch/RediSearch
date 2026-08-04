@@ -834,12 +834,9 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
       if (!cursor) {
         break;
       }
-      // FT.CURSOR READ cycles run against the read sub-AREQ.
-      // TRANSITIONAL(MOD-16691): the cursor's own hold rides hybrid_ref until
-      // the container-handoff step.
-      // The cursor lifetime will determine the hybrid request lifetime
-      cursor->query = &areq->base;
-      cursor->hybrid_ref = StrongRef_Clone(hybrid_ref);
+      // cursor->query stays NULL until the handoff at publish time: a cursor
+      // freed on the error paths below is a bare handle, and the sub-AREQ is
+      // still owned by the container.
       cursor->queryTimeoutMS = (size_t)areq->reqConfig.queryTimeoutMS;
       cursor->queryTimeoutPolicy = areq->reqConfig.timeoutPolicy;
       areq->base.cursorInfo.id = cursor->id;
@@ -856,14 +853,14 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
 
     int rc;
     if (backgroundDepletion) {
-      rc = RPSafeDepleter_DepleteAll(depleters, status);
+      // The caller holds the spec read lock on the request's sctx; DepleteAll
+      // releases it once every depleter has taken its own.
+      rc = RPSafeDepleter_DepleteAll(depleters, HREQ_SearchCtx(req), status);
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
       rc = RPDepleter_DepleteAll(depleters);
     }
-
-    array_free(depleters);
 
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
@@ -872,6 +869,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
         depletionTimedOut = true;
       } else {
         // Fatal error or FAIL policy — free everything
+        array_free(depleters);
         array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
@@ -888,10 +886,20 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     HybridRequest_LockCursors(req);
     if (HybridRequest_TimedOut(req)) {
       HybridRequest_UnlockCursors(req);
+      array_free(depleters);
       array_free_ex(cursors, Cursor_Free(*(Cursor**)ptr));
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
+    // The handoff (design §3.6): each cursor takes ownership of its sub-AREQ
+    // through the sub's wrapper — the container's sub reference transfers to
+    // the cursor, and the container no longer outlives the initial cycle: it
+    // is freed at OnFree, after the cursor IDs were replied, and the client
+    // cannot read a cursor before receiving those IDs.
+    for (size_t i = 0; i < req->nrequests; i++) {
+      cursors[i]->query = &req->requests[i]->base;
+    }
+    req->cursorsOwnSubqueries = true;
     req->cursors = cursors;
     cursors = NULL;
     // Cursors are published: the remaining work is handing off the mapping reply,
@@ -899,6 +907,7 @@ int HybridRequest_StartCursors(StrongRef hybrid_ref, RedisModuleCtx *replyCtx, Q
     // timeout already fired, via the SetExecutionStage freeze).
     HybridRequest_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
     HybridRequest_UnlockCursors(req);
+    array_free(depleters);
 
     // Pause after store cursors (hybrid cursors only)
     debugPauseHybridStoreCursors(req, false);
@@ -970,7 +979,10 @@ static int buildPipelineAndExecute(StrongRef hybrid_ref, HybridPipelineParams *h
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
     isCursor = true;
-    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground) != REDISMODULE_OK) {
+    // Cursor-flow depleters are built detached: nothing consumes them through
+    // Next before DepleteAll completes, and they only yield from their
+    // buffers afterwards — no thread ever reads a downstream ctx from them.
+    if (HybridRequest_BuildDepletionPipeline(hreq, hybridParams, depleteInBackground, NULL) != REDISMODULE_OK) {
       goto done;
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {

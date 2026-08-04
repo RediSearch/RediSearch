@@ -336,7 +336,7 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 * @param status Query error object to populate in case of error
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.

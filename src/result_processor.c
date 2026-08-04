@@ -2320,17 +2320,13 @@ void RPSafeDepleter_WaitForCompletion(ResultProcessor *base) {
   pthread_mutex_unlock(&sync->mutex);
 }
 
-static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync, RedisSearchCtx** outSearchCtx) {
+static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, DepleterSync** outSync) {
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   size_t count = array_len(safeDepleters);
   for (size_t i = 0; i < count; i++) {
     RPSafeDepleter *safeDepleter = (RPSafeDepleter*)safeDepleters[i];
     DepleterSync *depleterSync = (DepleterSync *)StrongRef_Get(safeDepleter->sync_ref);
     if (sync && sync != depleterSync) {
-      return false;
-    }
-    if (searchCtx && searchCtx != safeDepleter->nextThreadCtx) {
       return false;
     }
     // Bulk launch requires all depleters to be in the fresh unscheduled state —
@@ -2339,13 +2335,11 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
       return false;
     }
     sync = depleterSync;
-    searchCtx = safeDepleter->nextThreadCtx;
   }
   if (sync->num_depleters != count) {
     return false;
   }
   *outSync = sync;
-  *outSearchCtx = searchCtx;
   return true;
 }
 
@@ -2358,11 +2352,10 @@ static inline bool verifyInvariants(arrayof(ResultProcessor*) safeDepleters, Dep
 * 4. The function must return only after all the depletion threads finished running
 * 5. If any depleter fails to acquire the lock (RS_RESULT_ERROR), return RS_RESULT_ERROR to propagate the failure
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status) {
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
   DepleterSync *sync = NULL;
-  RedisSearchCtx *searchCtx = NULL;
   // Verify we are in a sane state before starting the depletion process
-  if (!verifyInvariants(safeDepleters, &sync, &searchCtx)) {
+  if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
@@ -2380,7 +2373,7 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
   }
 
   // Wait for depleting to start with configurable interval and timeout
-  while (RPSafeDepleter_WaitForDepletionToStart(sync, searchCtx) == RS_RESULT_DEPLETING) {
+  while (RPSafeDepleter_WaitForDepletionToStart(sync, lockedCtx) == RS_RESULT_DEPLETING) {
     usleep(1000);
   }
 

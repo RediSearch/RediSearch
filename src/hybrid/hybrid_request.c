@@ -34,7 +34,7 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground) {
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground, RedisSearchCtx *depleterDownstreamCtx) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
@@ -98,9 +98,8 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         if (depleteInBackground) {
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
-          RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, depleterPool);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterDownstreamCtx, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
@@ -226,7 +225,8 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
-    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
+    // The merger consumes the depleters on the tail thread, whose ctx is the params'.
+    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground, params->aggregationParams.common.sctx) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
         QueryError *subErr = &req->requests[i]->base.err;
         if (QueryError_HasError(subErr)) {
@@ -345,7 +345,9 @@ void HybridRequest_Free(HybridRequest *req) {
     // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
     RS_ASSERT(req->cursors == NULL);
 
-    // Free all individual AREQ requests and their pipelines.
+    // Free all individual AREQ requests and their pipelines — unless the
+    // handoff transferred them to their cursors (each sub is then freed by
+    // its cursor, like any parked request).
     //
     // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
     // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
@@ -353,7 +355,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // construction time. Freeing sctx first would dangle those borrows during
     // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
     // to tear down iterators, then free sctx + thctx ourselves.
-    for (size_t i = 0; i < req->nrequests; i++) {
+    for (size_t i = 0; !req->cursorsOwnSubqueries && i < req->nrequests; i++) {
       AREQ *areq = req->requests[i];
       RedisModuleCtx *thctx = NULL;
       RedisSearchCtx *sctx = NULL;
