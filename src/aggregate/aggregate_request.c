@@ -1152,7 +1152,7 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
-  brc->parseOffset = SIZE_MAX;  // "no query argument" until parsing finds one
+  brc->parseSlice = NULL;  // "no query argument" until parsing finds one
   brc->refcount = 1;
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
@@ -1434,7 +1434,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
   // instead would touch string refcounts on whatever thread parses.
   RS_ASSERT(brc->argvHolds != NULL);
   RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
-  brc->parseOffset = argv - brc->argvHolds;
+  brc->parseSlice = argv;
 
   // Parse the query and basic keywords first..
   ArgsCursor ac = {0};
@@ -1445,7 +1445,7 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_ERR;
   }
 
-  AC_Advance(&ac);  // The query string: argvHolds[parseOffset], read via AREQ_Query
+  AC_Advance(&ac);  // The query string: parseSlice[0], read via AREQ_Query
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1618,7 +1618,7 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  RedisModuleString **args = req->brc->argvHolds + req->brc->parseOffset;
+  RedisModuleString **args = req->brc->parseSlice;
   long long n_prefixes = 0;
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2

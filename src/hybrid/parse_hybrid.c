@@ -57,7 +57,7 @@ static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
   BlockedRequestCtx *brc = sub->brc;
   for (size_t i = 0; i < brc->nargvHolds; i++) {
     if (brc->argvHolds[i] == tok) {
-      brc->parseOffset = i;
+      brc->parseSlice = &brc->argvHolds[i];
       return;
     }
   }
@@ -67,7 +67,7 @@ static void setSubQueryArg(AREQ *sub, const ArgsCursor *ac) {
     size_t len;
     const char *s = RedisModule_StringPtrLen(brc->argvHolds[i], &len);
     if (len == tokLen && memcmp(s, tokStr, len) == 0) {
-      brc->parseOffset = i;
+      brc->parseSlice = &brc->argvHolds[i];
       return;
     }
   }
@@ -551,7 +551,7 @@ final:
   // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
   // so the vector node becomes the root directly (no PHRASE/intersection needed).
   // This preserves BY_SCORE ordering from the iterator.
-  if (vreq->brc->parseOffset == SIZE_MAX) {
+  if (vreq->brc->parseSlice == NULL) {
     // For RANGE without explicit filter, skip the filter integration
     // so the vector node is the root and returns results sorted by score.
     if (vq->type == VECSIM_QT_RANGE) {
