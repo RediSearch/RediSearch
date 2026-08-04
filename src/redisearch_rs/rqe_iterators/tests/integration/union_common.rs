@@ -904,6 +904,15 @@ macro_rules! union_common_tests {
             }
         }
 
+        /// A quick union whose children are all positioned reports a `Moved` normally:
+        /// the minimum lies ahead, so the stay-put clamp is not involved.
+        ///
+        /// The reading that makes this test interesting is that quick mode does *not*
+        /// leave a sibling behind here, even though its early return is what can. The
+        /// premise is asserted below rather than left to be inferred, because it is
+        /// easy to assume otherwise and conclude that this test contradicts the clamp.
+        /// [`revalidate_child_behind_union_position_is_kept`] is the case that does
+        /// strand a sibling, and it has to work for it: an exact match on the probe.
         #[test]
         #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
         fn revalidate_quick_triggers_quick_exit() {
@@ -924,16 +933,49 @@ macro_rules! union_common_tests {
             let result = quick_iter.read().expect("read failed").unwrap();
             assert_eq!(result.doc_id, 10);
 
+            // Both children are positioned, and neither is a lagging sibling. A quick
+            // union's read targets `last_doc_id() + 1`, so this one probed doc 1, and
+            // the early return fires only on an *exact* match with the probe — which
+            // neither child holds. So both were seeked, to 10 and 20 respectively.
+            assert_eq!(
+                quick_iter
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                10,
+                "child0 supplied the union's current document",
+            );
+            assert_eq!(
+                quick_iter
+                    .child_at(1)
+                    .expect("child1 is still there")
+                    .last_doc_id(),
+                20,
+                "child1 was seeked too: probing doc 1 matched neither child exactly, \
+                 so the quick path could not return before reaching it",
+            );
+
             data1.set_revalidate_result(MockRevalidateResult::Move);
             data2.set_revalidate_result(MockRevalidateResult::Ok);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             let status = quick_iter.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
-            assert!(matches!(
-                status,
-                RQEValidateStatus::Moved { current: Some(_) }
-            ));
+
+            // child0 moved 10 -> 30 and child1 stayed at 20, so the minimum is 20 —
+            // *ahead* of the union's 10. It is adopted, and the move is reported.
+            assert!(
+                matches!(status, RQEValidateStatus::Moved { current: Some(_) }),
+                "the minimum lies ahead, so it is adopted, got {status:?}",
+            );
             assert_eq!(quick_iter.last_doc_id(), 20);
+            assert!(
+                quick_iter.last_doc_id() > 10,
+                "a reported move must be forward",
+            );
+
+            // And the union carries on from there, without re-delivering doc 20.
+            let r = quick_iter.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 30, "child0's moved-to document comes next");
         }
 
         #[test]
@@ -1040,16 +1082,36 @@ macro_rules! union_common_tests {
             let r = union.read().expect("read failed").unwrap();
             assert_eq!(r.doc_id, 5);
 
-            // skip_to(100): in heap quick mode, advance_lagging_children finds
-            // child0 at the root (doc 5 < 100), skips child0 to 100 → Found.
-            // QUICK_EXIT returns immediately — child1 stays at doc 10.
+            // skip_to(100) probes a document child0 holds *exactly*, which is what
+            // strands a sibling: the quick path returns on that match and never reaches
+            // child1. Contrast [`revalidate_quick_triggers_quick_exit`], where the probe
+            // matches no child exactly and so every child gets seeked.
             let outcome = union.skip_to(100).expect("skip_to failed");
             assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
             assert_eq!(union.last_doc_id(), 100);
 
-            // State: union at 100.  child0 at 100.  child1 at 10 (never advanced).
-            // Trigger Move on child1: mock advances to doc_ids[next_index] = 50.
-            //   child1.last_doc_id() = 50  <  100 = union.last_doc_id()
+            // The premise, asserted rather than assumed: child0 supplied doc 100 while
+            // child1 was left where its last read put it, behind the union.
+            assert_eq!(
+                union
+                    .child_at(0)
+                    .expect("child0 is still there")
+                    .last_doc_id(),
+                100,
+                "child0 holds the probed document",
+            );
+            let lagging = union
+                .child_at(1)
+                .expect("child1 is still there")
+                .last_doc_id();
+            assert_eq!(lagging, 10, "the early return never advanced child1");
+            assert!(
+                lagging < union.last_doc_id(),
+                "child1 must be behind the union for this test to exercise anything",
+            );
+
+            // Trigger Move on child1: the mock advances it to doc_ids[next_index] = 50 —
+            // forward, as a child's `revalidate` must, and still behind the union's 100.
             data1.set_revalidate_result(MockRevalidateResult::Move);
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
