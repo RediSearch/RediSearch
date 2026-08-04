@@ -1241,6 +1241,12 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   if (!brc) {
     return;
   }
+  // A wrapper's final release belongs on the main thread. The argv release
+  // below self-heals when called off-main, but an off-main final release is
+  // an ownership bug — fail loudly in debug builds.
+  if (!MainThread_Is()) {
+    RS_ABORT("BlockedRequestCtx_Free called off the main thread");
+  }
   pthread_mutex_destroy(&brc->aggregateResultsLock);
   pthread_cond_destroy(&brc->aggregateResultsCond);
   // Idempotent after EndCycle; kept as a safety net for wrappers freed
