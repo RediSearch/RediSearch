@@ -140,9 +140,10 @@ mod ffi_comparison {
         assert_matches_c("foo");
     }
 
-    // No ffi_empty test: the C do-while loop in Wildcard_RemoveEscape
-    // always executes once, so it returns length 1 for len=0 input (a
-    // harmless off-by-one). The Rust version correctly returns empty.
+    #[test]
+    fn ffi_empty() {
+        assert_matches_c("");
+    }
 
     #[test]
     fn ffi_escape_at_beginning() {
