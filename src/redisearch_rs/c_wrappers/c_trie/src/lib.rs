@@ -118,6 +118,34 @@ where
     }
 }
 
+/// Whether every byte sequence in `bytes` ends within it, so decoding it to runes
+/// reads nothing past the end.
+///
+/// The decoder derives each sequence's length from its lead byte and never
+/// re-checks that length against the byte count it was given, so this has to walk
+/// from the start exactly as it does. A sequence that begins inside `bytes` and
+/// promises more bytes than remain is the only thing that makes it over-read —
+/// and it can do so without ever landing on the last byte, having swallowed it as
+/// a continuation.
+///
+/// Deliberately *not* a UTF-8 validity check. A term key is not always valid
+/// UTF-8: a lone surrogate — what truncating a non-BMP codepoint to a rune at
+/// index time produces — is encoded into the three-byte form UTF-8 forbids, and
+/// decodes straight back to the rune it came from.
+fn decodes_within(bytes: &[u8]) -> bool {
+    let mut i = 0usize;
+    while i < bytes.len() {
+        i += match bytes[i] {
+            0x00..=0x7F => 1,
+            0x80..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xFF => 4,
+        };
+    }
+    // The walk overshoots exactly when the last sequence runs off the end.
+    i == bytes.len()
+}
+
 /// Result of a decrement operation on the C Trie.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::FromRepr)]
 #[repr(u32)]
@@ -194,13 +222,35 @@ impl CTrieRef {
     /// Number of documents indexed under `term`, or `0` if the term is absent
     /// from the trie.
     ///
-    /// `term` is UTF-8 encoded; it is converted to runes internally and looked
-    /// up as an exact match. Used to compute a term's inverse document
-    /// frequency (IDF).
+    /// `term` is decoded back to runes internally and looked up as an exact
+    /// match. Used to compute a term's inverse document frequency (IDF).
     ///
-    /// Returns `0` for input that cannot correspond to a stored term — invalid
-    /// UTF-8, or a term longer than the trie can hold — since such a term can
-    /// never have been inserted.
+    /// The bytes are not validated as UTF-8, because a stored key is not always
+    /// valid UTF-8: a rune that is a lone surrogate — what truncating a non-BMP
+    /// codepoint to a rune at index time produces — is encoded into the
+    /// three-byte form UTF-8 forbids, and decodes straight back to the rune it
+    /// came from. Rejecting those would report no documents for exactly the terms
+    /// such a codepoint creates. Callers pass both stored keys (an expansion
+    /// looking up what it matched) and arbitrary query text (a token lookup), so
+    /// no shape can be assumed.
+    ///
+    /// Returns `0` for a term longer than the trie can hold, which can never have
+    /// been inserted.
+    ///
+    /// # A term this cannot find
+    ///
+    /// A key whose *last* multibyte sequence is cut short by its own end — say a
+    /// three-byte lead with only two bytes left — is stored under a rune decoded
+    /// partly from the byte that followed the term at index time, which is not
+    /// part of the term and is not recoverable from `term` alone. Insertion sees
+    /// a NUL there only when the tokenizer copied the token; otherwise it is the
+    /// separator that ended the token, or whatever the document buffer holds.
+    ///
+    /// This lookup decodes as though that byte were a NUL, so it finds such a
+    /// term when it was stored from a copied token and misses it otherwise. That
+    /// is a pre-existing property of the C indexing path — the stored rune
+    /// genuinely depends on a byte outside the term — not something this lookup
+    /// can repair.
     ///
     /// # Safety
     ///
@@ -214,23 +264,45 @@ impl CTrieRef {
             return 0;
         }
 
-        // The rune conversion decodes UTF-8 without bounds-checking multibyte
-        // sequences against the slice end, so a truncated or invalid sequence
-        // could read past `term`. Reject non-UTF-8 input up front; such a term
-        // cannot match a stored (rune-decoded) term anyway.
-        if std::str::from_utf8(term).is_err() {
-            return 0;
-        }
+        // The decode takes each sequence's length from its lead byte alone and
+        // never re-checks it against the byte count it was given, so a sequence
+        // the term's last byte cuts short is read up to three bytes past the end.
+        //
+        // A term whose sequences all end within it — every well-formed one,
+        // multibyte or not — never triggers that, so it can be decoded in place.
+        // Only a ragged tail needs a copy, and then the zero padding both bounds
+        // the over-read and stands in for the byte that followed the term at index
+        // time. See the doc comment for when that substitution is right and when
+        // it is not.
+        //
+        // Whether the tail is ragged has to be decided by walking from the *start*,
+        // the way the decode does: it takes each sequence's length from its lead
+        // byte, so it can consume the term's final bytes as continuations of a
+        // sequence that began earlier and run off the end without ever landing on
+        // the last byte. Judging by that byte alone would miss `E6 61`, whose lead
+        // promises three bytes from index 0 and so reads one past a two-byte term.
+        const OVERREAD_PAD: usize = 3;
+        let padded: Option<Vec<u8>> = if decodes_within(term) {
+            None
+        } else {
+            let mut p = Vec::with_capacity(term.len() + OVERREAD_PAD);
+            p.extend_from_slice(term);
+            p.resize(term.len() + OVERREAD_PAD, 0);
+            Some(p)
+        };
+        let src = padded.as_deref().unwrap_or(term);
 
-        // A UTF-8 string yields at most as many runes as bytes; the extra slot
+        // A byte string yields at most as many runes as bytes; the extra slot
         // leaves room for the conversion to write a trailing rune.
         let mut runes = vec![0 as ffi::rune; term.len() + 1];
-        // SAFETY: `term` is valid UTF-8 of `term.len()` bytes, so the decode
-        // stays within the slice, and `runes` has room for `term.len() + 1`
-        // runes, so the conversion writes within bounds.
+        // SAFETY: the decode is told to consume `term.len()` bytes and reads at
+        // most three past that. `src` either carries that much zero padding, or is
+        // `term` itself in the cases above where the decode stops on its last
+        // byte — so the read stays inside `src` either way. It emits at most one
+        // rune per byte consumed, so `runes` has room for every rune it writes.
         let rlen = unsafe {
             ffi::strToRunesN(
-                term.as_ptr() as *const c_char,
+                src.as_ptr() as *const c_char,
                 term.len(),
                 runes.as_mut_ptr(),
             )
@@ -401,5 +473,33 @@ impl CTrieRef {
     /// This is useful when you need to pass the pointer to other C functions.
     pub const fn as_ptr(&self) -> *mut ffi::Trie {
         self.ptr
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decodes_within;
+
+    #[test]
+    fn well_formed_sequences_decode_within_bounds() {
+        assert!(decodes_within(b""));
+        assert!(decodes_within(b"apple"));
+        assert!(decodes_within("héllo".as_bytes()));
+        assert!(decodes_within("日本".as_bytes()));
+        assert!(decodes_within("𝄞".as_bytes())); // four-byte sequence
+        // A lone surrogate is a complete three-byte sequence, however invalid.
+        assert!(decodes_within(b"a\xED\xA0\x80b"));
+    }
+
+    #[test]
+    fn a_sequence_running_off_the_end_does_not() {
+        // The lead is the last byte.
+        assert!(!decodes_within(b"\xC3"));
+        assert!(!decodes_within(b"apple\xE6"));
+        // The lead is *not* the last byte: it swallows the ASCII bytes after it as
+        // continuations and still overshoots. A check that looked only at the final
+        // byte would wrongly pass these.
+        assert!(!decodes_within(b"\xE6a"));
+        assert!(!decodes_within(b"x\xF0ab"));
     }
 }
