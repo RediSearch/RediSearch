@@ -1026,16 +1026,18 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (argc < 3 || argc > 4) {
     return RedisModule_WrongArity(ctx);
   }
-  long long timeout = 30000;
-
-  if (argc == 4) {
-    RedisModule_StringToLongLong(argv[3], &timeout);
-  }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
+  // indexes get a higher default timeout.
+  long long timeout = sp->diskSpec ? 60000 : 30000;
+  if (argc == 4) {
+    RedisModule_StringToLongLong(argv[3], &timeout);
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
