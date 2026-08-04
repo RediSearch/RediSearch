@@ -92,8 +92,18 @@ TrieNode *__newTrieNode(const rune *str, t_len offset, t_len len, const char *pa
 
 /* Get a pointer to the children array of a node. This is not an actual member
  * of the node for memory saving reasons */
+static inline size_t __trieNode_AlignUp(size_t value, size_t alignment) {
+  size_t remainder = value % alignment;
+  return remainder ? value + alignment - remainder : value;
+}
+
+static inline size_t __trieNode_ChildrenOffset(t_len numChildren, t_len slen) {
+  size_t childKeysEnd = sizeof(TrieNode) + ((size_t)slen + 1 + numChildren) * sizeof(rune);
+  return __trieNode_AlignUp(childKeysEnd, __alignof__(TrieNode *));
+}
+
 #define __trieNode_children(n) \
-  ((TrieNode **)((void *)n + sizeof(TrieNode) + ((n->len + 1) + (n->numChildren)) * sizeof(rune)))
+  ((TrieNode **)((char *)(n) + __trieNode_ChildrenOffset((n)->numChildren, (n)->len)))
 
 #define __trieNode_isTerminal(n) (n->flags & TRIENODE_TERMINAL)
 

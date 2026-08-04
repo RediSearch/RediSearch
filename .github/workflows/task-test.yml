@@ -35,6 +35,14 @@ on:
       unit-tests:
         type: boolean
         default: true
+      rust-unit-tests:
+        description: "Run Rust unit tests. Disabled by C/C++-only sanitizer lanes."
+        type: boolean
+        default: true
+      unit-test-filter:
+        description: 'Optional C/C++ unit-test filter forwarded as TEST.'
+        type: string
+        default: ''
       rejson:
         type: boolean
         default: true
@@ -317,13 +325,13 @@ jobs:
         with:
           command: .install/test_deps/install_python_deps.sh ${{ needs.get-config.outputs.install_mode }}
       - name: Install LLVM for sanitizer
-        if: inputs.san == 'address' && needs.build-image.outputs.succeeded != 'true'
+        if: inputs.san != '' && needs.build-image.outputs.succeeded != 'true'
         uses: ./.github/actions/retry-command
         with:
           command: ./install_llvm.sh ${{ needs.get-config.outputs.install_mode }}
           working_directory: .install
       - name: Configure LLVM for sanitizer
-        if: inputs.san == 'address'
+        if: inputs.san != ''
         run: |
           CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
           if [[ -z "$CLANG_BIN" ]]; then
@@ -337,6 +345,7 @@ jobs:
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
           echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
       - name: Build Redis (cached)
+        if: ${{ inputs.standalone || inputs.coordinator }}
         uses: ./.github/actions/build-redis
         with:
           ref: ${{ inputs.redis-ref }}
@@ -383,6 +392,7 @@ jobs:
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
+          TEST: ${{ inputs.unit-test-filter }}
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
@@ -390,7 +400,7 @@ jobs:
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
-        if: ${{ inputs.unit-tests }}
+        if: ${{ inputs.unit-tests && inputs.rust-unit-tests }}
         continue-on-error: ${{ !inputs.fail-fast }}
         env:
           SAN: ${{ inputs.san }}
