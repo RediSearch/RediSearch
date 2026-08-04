@@ -2150,7 +2150,6 @@ int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, Quer
   // Cache timeout config on the Cursor so subsequent FT.CURSOR READs use the
   // values from the originating FT.AGGREGATE, regardless of any later
   // `search-on-timeout` config change. Written before the first Cursor_Pause.
-  RS_ASSERT(cursor->hybrid_ref.rm == NULL); // assuming hybrid cursors don't reach here
   cursor->queryTimeoutMS = (size_t)r->reqConfig.queryTimeoutMS;
   cursor->queryTimeoutPolicy = r->reqConfig.timeoutPolicy;
   r->cursor_id = cursor->id;
@@ -2253,17 +2252,7 @@ static QueryProcessingCtx *prepareForCursorRead(Cursor *cursor, bool *hasLoader,
     *hasLoader = HasLoader(req);
     *initClock = IsProfile(req) || !IsInternal(req);
   } else {
-    // Single-cursor hybrid fallback: only reachable via
-    // HybridRequest_StartSingleCursor (no cursor-carried wrapper, hybrid_ref
-    // set), i.e. user-facing FT.HYBRID WITHCURSOR — currently not supported.
-    // _FT.HYBRID WITHCURSOR sub-cursors always carry their sub-AREQ's wrapper
-    // and take the if branch above.
-    HybridRequest *hreq = StrongRef_Get(cursor->hybrid_ref);
-    *reqFlags = hreq->reqflags;
-    qctx = &hreq->tailPipeline->qctx;
-    // If we don't have an AREQ then this is a coordinator cursor going directly to the client
-    // We can't have a loader in the coordinator
-    *hasLoader = false;
+    RS_ABORT("cursor carries no AREQ wrapper");
   }
   qctx->err = status;
   return qctx;

@@ -140,8 +140,10 @@ void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req);
 
 // Blocked client context for HybridRequest background execution
 typedef struct blockedClientHybridCtx {
-  // We keep a strong ref mainly for the sake of cursors amd life time management
-  // On the caller side it needs to know when he can free the hybrid request - especially when an error occurred.
+  // The BG job's hold on the container, released in destroy (before
+  // UnblockClient; the cycle's wrapper reference carries the container to
+  // OnFree). TRANSITIONAL(MOD-16691): becomes a borrow once the wrapper is
+  // single-owner.
   StrongRef hybrid_ref;
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
