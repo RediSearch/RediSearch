@@ -122,9 +122,44 @@ fn skip_to_beyond_range() {
     assert!(outcome.is_none());
     assert!(it.at_eof());
 
+    // The skip carried no result, so it left no position behind: nothing was
+    // ever yielded, and `last_doc_id` still says so.
+    assert_eq!(it.last_doc_id(), 0);
+    assert!(it.current().is_none());
+
     // Subsequent reads should return None
     let result = it.read().unwrap();
     assert!(result.is_none());
+}
+
+#[test]
+fn skip_to_beyond_range_keeps_the_last_yielded_position() {
+    let mut it = Wildcard::new(10, 1.);
+
+    for expected_id in 1..=3 {
+        assert_eq!(it.read().unwrap().unwrap().doc_id, expected_id);
+    }
+
+    // Overshooting reports EOF without adopting a position the iterator never
+    // handed out — `top_id` least of all, which a parent would read as "doc 10
+    // is this iterator's current result".
+    assert!(matches!(it.skip_to(11), Ok(None)));
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 3);
+    assert!(it.current().is_none());
+
+    // Exhaustion is recorded on its own, so it holds even though the position
+    // (3) is still below `top_id` and a forward probe is still well-formed.
+    assert!(matches!(it.skip_to(4), Ok(None)));
+    assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 3);
+
+    // Only a rewind revives it.
+    it.rewind();
+    assert!(!it.at_eof());
+    assert_eq!(it.last_doc_id(), 0);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
 }
 
 #[test]
@@ -192,11 +227,14 @@ fn skip_to_after_eof() {
     assert!(result.is_ok());
     assert!(it.at_eof());
 
-    // Try to skip to a valid target while at EOF
+    // Try to skip to a valid target while at EOF. The overshoot above left the
+    // position at 0, so this is a well-formed forward probe — it just finds
+    // nothing, because exhaustion holds until a rewind.
     let result = it.skip_to(5);
     let outcome = result.unwrap();
     assert!(outcome.is_none());
     assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 0);
 }
 
 #[test]
