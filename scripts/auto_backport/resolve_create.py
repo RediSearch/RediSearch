@@ -7,6 +7,11 @@ for PR data, derives the list of target release branches to back-port to,
 and writes a context JSON file in $RUNNER_TEMP that the Codex agent
 consumes via the `BACKPORT_CONTEXT_FILE` env var.
 
+Targets come from `backport-<branch>-agent` labels or from an explicit
+`/backport-agent <list>` comment. A `>= <version>` arg in that comment expands
+to every active release branch at or above that version, read from
+.github/release-branches.json (the repo's registry of live release lines).
+
 Exits 0 in one of two ways:
 - `skip=true` output -> the workflow's later steps short-circuit (the
   `if:` on the Codex step gates on this).
@@ -25,6 +30,7 @@ Env contract (set by the workflow):
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -56,6 +62,76 @@ TARGET_RE = re.compile(r"^\d+\.\d+(?:-[A-Za-z0-9._-]+)?$")
 # no-dash typos that still slip through `startsWith`.)
 COMMENT_COMMAND_RE = re.compile(r"^/backport-agent(\s|$)")
 
+# A `>=<version>` token in the comment args: backport to that release line and
+# every newer one. `>= 2.10` is normalized to `>=2.10` before splitting (see
+# parse_comment_args), so only the no-space form needs matching here.
+FLOOR_RE = re.compile(r"^>=(\d+\.\d+(?:-[A-Za-z0-9._-]+)?)$")
+
+# The registry of currently-active release branches that `>=` expands over.
+RELEASE_BRANCHES_FILE = (
+    Path(__file__).resolve().parents[2] / ".github" / "release-branches.json"
+)
+
+
+def version_key(branch: str) -> tuple[int, int]:
+    """`"8.10"` / `"8.10-rse"` -> `(8, 10)`, for numeric release-line ordering.
+
+    A variant suffix sorts with its base line, so `8.6-rse` and `8.6` compare
+    equal. Comparing numerically matters: lexically `"8.10" < "8.2"`, which
+    would make `>= 8.9` silently skip 8.10.
+    """
+    major, _, rest = branch.partition(".")
+    minor = re.match(r"\d+", rest)
+    return (int(major), int(minor.group()) if minor else 0)
+
+
+def load_release_branches() -> list[str]:
+    """Read `.github/release-branches.json` -> the active release-branch list.
+
+    Returns [] (after logging) when the file is missing or malformed. A `>=`
+    token then resolves to nothing rather than aborting the run, so any
+    explicitly-listed targets in the same comment still get backported --
+    same philosophy as the malformed-target handling in resolve_targets.
+    """
+    try:
+        with open(RELEASE_BRANCHES_FILE) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        common.log(f"Could not read {RELEASE_BRANCHES_FILE}: {e}")
+        return []
+    branches = data.get("release_branches")
+    if not isinstance(branches, list) or not all(isinstance(b, str) for b in branches):
+        common.log(f"{RELEASE_BRANCHES_FILE}: 'release_branches' must be a list of strings")
+        return []
+    return branches
+
+
+def expand_floor(floor: str) -> list[str]:
+    """`">=8.6"` -> every registered release branch at or above 8.6.
+
+    Order follows the registry (oldest first); the agent sorts targets
+    newest-to-oldest itself. Returns [] for an unparseable floor or an empty
+    registry, and logs why.
+    """
+    m = FLOOR_RE.match(floor)
+    if not m:
+        common.log(f"Ignoring malformed version floor: {floor}")
+        return []
+    base = m.group(1)
+    if not TARGET_RE.match(base):
+        common.log(f"Ignoring malformed version floor: {floor}")
+        return []
+    branches = load_release_branches()
+    expanded = [b for b in branches if TARGET_RE.match(b) and version_key(b) >= version_key(base)]
+    if not expanded:
+        common.log(
+            f"Version floor {floor} matched no active release branch "
+            f"(registry: {', '.join(branches) if branches else 'unavailable'})"
+        )
+    else:
+        common.log(f"Version floor {floor} expanded to: {', '.join(expanded)}")
+    return expanded
+
 
 def resolve_pr_number(event_name: str) -> str | None:
     if event_name == "pull_request_target":
@@ -74,6 +150,11 @@ def parse_comment_args(comment_body: str) -> list[str]:
     (e.g. a typo like `/backport-agentcontext`), when there are no args
     (plain `/backport-agent`), or for separator-only args
     (`/backport-agent ,`). An empty result falls back to the PR's labels.
+
+    A `>=<version>` token survives as a single arg -- `/backport-agent >= 2.10`
+    yields [">=2.10"] -- which resolve_targets expands over the active release
+    branches. The whitespace after `>=` is folded first so the natural
+    `>= 2.10` spelling doesn't split into two args.
     """
     if not comment_body:
         return []
@@ -83,6 +164,7 @@ def parse_comment_args(comment_body: str) -> list[str]:
     stripped = re.sub(r"^/backport-agent\s*", "", first_line)
     if not stripped.strip():
         return []
+    stripped = re.sub(r">=\s+", ">=", stripped)
     return [t for t in re.split(r"[\s,]+", stripped) if t]
 
 
@@ -96,10 +178,27 @@ def resolve_targets(event_name: str, event_action: str,
     #    run. A *plain* `/backport-agent` (no args) returns [] here and falls
     #    through to the label scan below — the documented "backport to whatever
     #    labels are on the PR" behavior.
+    #
+    #    `>=<version>` args are expanded here, in place, into the registered
+    #    release branches at or above that version — `>= 2.10` is the usual
+    #    "this line and everything newer" backport. Expansion happens before the
+    #    dedup/validate pass below, so mixing forms (`>= 8.8 2.10`) just unions.
+    #    A `>=` that expands to nothing does NOT fall back to labels: the
+    #    comment stated an explicit intent, and quietly backporting somewhere
+    #    else would be worse than doing nothing.
+    comment_args: list[str] = []
     if event_name == "issue_comment":
-        targets = parse_comment_args(comment_body)
+        comment_args = parse_comment_args(comment_body)
+        targets = [
+            expanded
+            for arg in comment_args
+            for expanded in (expand_floor(arg) if arg.startswith(">=") else [arg])
+        ]
 
-    if not targets:
+    # Note the guard is on `comment_args`, not `targets`: a comment that DID
+    # carry args but whose `>=` floor expanded to nothing must stay empty rather
+    # than silently inheriting the PR's labels.
+    if not comment_args and not targets:
         # 2) On a `labeled` event, seed the just-fired label
         #    (`github.event.label.name`) first, as a guard against the
         #    `gh pr view` label snapshot lagging the webhook event.

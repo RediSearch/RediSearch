@@ -108,6 +108,105 @@ class ResolveTargetsTests(unittest.TestCase):
         self.assertEqual(targets, ["8.6-rse", "8.10"])
 
 
+class VersionFloorTests(unittest.TestCase):
+    """`/backport-agent >= <version>` expansion over the release-branch registry.
+
+    The registry is stubbed so these assertions stay stable as release lines come
+    and go; RegistryFileTests covers the real file.
+    """
+
+    REGISTRY = ["2.10", "8.2", "8.4", "8.6", "8.6-rse", "8.8", "8.8-rse", "8.10"]
+
+    def setUp(self):
+        self._real_loader = resolve_create.load_release_branches
+        resolve_create.load_release_branches = lambda: list(self.REGISTRY)
+        self.addCleanup(setattr, resolve_create, "load_release_branches", self._real_loader)
+
+    def _targets(self, comment: str, *labels: str) -> list[str]:
+        return resolve_create.resolve_targets(
+            "issue_comment", "created", "", comment, _labels(*labels),
+        )
+
+    def test_floor_expands_to_every_newer_line(self):
+        self.assertEqual(self._targets("/backport-agent >= 2.10"), self.REGISTRY)
+
+    def test_floor_without_space_is_equivalent(self):
+        self.assertEqual(self._targets("/backport-agent >=2.10"), self.REGISTRY)
+
+    def test_floor_excludes_older_lines_and_keeps_variants(self):
+        # 8.4 and below drop out; `-rse` variants of included lines come along.
+        self.assertEqual(
+            self._targets("/backport-agent >= 8.6"),
+            ["8.6", "8.6-rse", "8.8", "8.8-rse", "8.10"],
+        )
+
+    def test_floor_compares_numerically_not_lexically(self):
+        # Lexically "8.10" < "8.9", which would wrongly exclude 8.10 here.
+        self.assertEqual(self._targets("/backport-agent >= 8.9"), ["8.10"])
+
+    def test_floor_matches_variant_of_the_floor_line(self):
+        self.assertEqual(
+            self._targets("/backport-agent >= 8.8-rse"), ["8.8", "8.8-rse", "8.10"],
+        )
+
+    def test_floor_unions_with_explicit_targets_and_dedups(self):
+        self.assertEqual(
+            self._targets("/backport-agent >= 8.8, 2.10, 8.8"),
+            ["8.8", "8.8-rse", "8.10", "2.10"],
+        )
+
+    def test_floor_above_every_line_resolves_nothing_and_ignores_labels(self):
+        # An explicit floor that matches nothing must NOT quietly fall back to
+        # the PR's labels — main() then skips the run.
+        self.assertEqual(self._targets("/backport-agent >= 99.0", "backport-8.6-agent"), [])
+
+    def test_malformed_floor_is_dropped_without_label_fallback(self):
+        for comment in ("/backport-agent >=", "/backport-agent >= foo",
+                        "/backport-agent >= 8", "/backport-agent >=8.6x"):
+            with self.subTest(comment=comment):
+                self.assertEqual(self._targets(comment, "backport-8.4-agent"), [])
+
+    def test_malformed_floor_does_not_drop_valid_siblings(self):
+        self.assertEqual(self._targets("/backport-agent >= foo 8.4"), ["8.4"])
+
+    def test_unavailable_registry_drops_the_floor_only(self):
+        resolve_create.load_release_branches = lambda: []
+        self.assertEqual(self._targets("/backport-agent >= 2.10 8.4"), ["8.4"])
+
+    def test_registry_entries_are_validated(self):
+        # A typo'd registry entry is dropped like any other malformed target.
+        resolve_create.load_release_branches = lambda: ["8.6", "8.7x", "8.10"]
+        self.assertEqual(self._targets("/backport-agent >= 8.6"), ["8.6", "8.10"])
+
+    def test_floor_only_applies_to_comment_args(self):
+        # A label can never carry a floor (`backport->=2.10-agent` is not a valid
+        # label shape), so label-derived targets are untouched by expansion.
+        targets = resolve_create.resolve_targets(
+            "pull_request_target", "closed", "", "", _labels("backport-8.6-agent"),
+        )
+        self.assertEqual(targets, ["8.6"])
+
+
+class RegistryFileTests(unittest.TestCase):
+    """Guards the real `.github/release-branches.json` against a bad edit."""
+
+    def test_file_parses_and_lists_well_formed_branches(self):
+        branches = resolve_create.load_release_branches()
+        self.assertTrue(branches, "release-branches.json produced no branches")
+        for b in branches:
+            with self.subTest(branch=b):
+                self.assertRegex(b, resolve_create.TARGET_RE)
+
+    def test_file_is_ordered_oldest_first(self):
+        branches = resolve_create.load_release_branches()
+        keys = [resolve_create.version_key(b) for b in branches]
+        self.assertEqual(keys, sorted(keys), f"not oldest-first: {branches}")
+
+    def test_file_has_no_duplicates(self):
+        branches = resolve_create.load_release_branches()
+        self.assertEqual(len(branches), len(set(branches)))
+
+
 class ReviewThreadTests(unittest.TestCase):
     def setUp(self):
         os.environ["GITHUB_REPOSITORY"] = "RediSearch/RediSearch"

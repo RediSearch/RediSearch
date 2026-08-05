@@ -15,6 +15,10 @@ name: Backport merged pull request (Codex agent)
 #     them even though each label fires its own (concurrency-serialized) run.
 #   - A repo collaborator/member/owner comments `/backport-agent` on a merged PR.
 #       Optional args: `/backport-agent 8.6 8.2` overrides the labels for this run.
+#       `/backport-agent >= 2.10` is the "this line and everything newer" form —
+#       it expands to every active release branch at or above 2.10, read from
+#       .github/release-branches.json (so a new release line only has to be added
+#       there once). Forms can be mixed: `/backport-agent >= 8.8 2.10`.
 #       Only a target-branch list is accepted here (no free-form context): the
 #       create step is mechanical, and keeping the trigger payload constrained
 #       minimizes what a comment can feed the agent. The command intentionally
@@ -166,9 +170,10 @@ jobs:
       # The script in scripts/auto_backport/resolve_create.py is the source
       # of truth for the resolve logic — it derives the target-branch list
       # from the event (closed-merged labels, single labeled event, or
-      # `/backport-agent <list>` comment args), confirms the PR is merged
-      # with a valid mergeCommit.oid, and writes the context JSON for the
-      # agent. Bash plumbing is intentionally minimal here so the logic
+      # `/backport-agent <list>` comment args, including expanding a
+      # `>= <version>` floor over .github/release-branches.json), confirms the
+      # PR is merged with a valid mergeCommit.oid, and writes the context JSON
+      # for the agent. Bash plumbing is intentionally minimal here so the logic
       # stays testable and shared with the fix workflow.
       - name: Resolve PR context and target branches
         id: ctx
