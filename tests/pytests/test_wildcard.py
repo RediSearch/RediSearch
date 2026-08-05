@@ -423,6 +423,10 @@ def testWildcardOnFieldWithoutSuffixTrie():
     env.expect('FT.SEARCH', 'idx', "@t2:w'hel*o'").error() \
         .contains('WITHSUFFIXTRIE')
 
+    # The error does not depend on the pattern: an empty pattern errors too
+    env.expect('FT.SEARCH', 'idx', "@t2:w'$p'", 'PARAMS', 2, 'p', '').error() \
+        .contains('WITHSUFFIXTRIE')
+
 _MAX_EXPANSIONS_WARNING = 'Max prefix expansions limit was reached'
 
 # A cap above 1, so a truncated expansion is distinguishable from an empty one,
@@ -542,3 +546,48 @@ def testWildcardSuffixTrieMaxPrefixExpansions():
         _assertMaxExpansionsWarning(env, res)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', previous).ok()
+
+def testEmptyWildcardPattern():
+    """An empty wildcard pattern matches exactly the empty value, on both the
+    suffix-trie and the brute-force paths: nothing on TEXT fields and on TAG fields
+    without INDEXEMPTY, and the empty tag on TAG fields with INDEXEMPTY — consistent
+    with the empty-string tag query. The pattern is supplied through PARAMS because
+    a literal w'' does not parse as a wildcard. Runs in cluster deliberately: the
+    empty parameter value must survive the coordinator fan-out, and the documents
+    need no co-location because FT.SEARCH aggregates across shards."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA',
+               't', 'TEXT', 'WITHSUFFIXTRIE',
+               'tag', 'TAG', 'WITHSUFFIXTRIE').ok()
+    env.expect('FT.CREATE', 'idx_bf', 'SCHEMA', 't', 'TEXT', 'tag', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_ie_suffix', 'SCHEMA',
+               't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE',
+               'tag', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
+    env.expect('FT.CREATE', 'idx_ie_bf', 'SCHEMA',
+               't', 'TEXT', 'INDEXEMPTY',
+               'tag', 'TAG', 'INDEXEMPTY').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'tag', 'world')
+    conn.execute_command('HSET', 'doc2', 't', '', 'tag', '')
+
+    # without INDEXEMPTY the empty tag is not indexed, so nothing can match
+    for idx in ['idx_suffix', 'idx_bf']:
+        res = env.cmd('FT.SEARCH', idx, "w'$p'", 'PARAMS', 2, 'p', '', 'NOCONTENT')
+        env.assertEqual(res, [0], message=idx)
+        res = env.cmd('FT.SEARCH', idx, "@tag:{w'$p'}", 'PARAMS', 2, 'p', '', 'NOCONTENT')
+        env.assertEqual(res, [0], message=idx)
+
+    # with INDEXEMPTY the empty wildcard pattern matches the empty value,
+    # same as the empty-string queries
+    for idx in ['idx_ie_suffix', 'idx_ie_bf']:
+        res = env.cmd('FT.SEARCH', idx, "w'$p'", 'PARAMS', 2, 'p', '', 'NOCONTENT')
+        env.assertEqual(res, [1, 'doc2'], message=idx)
+        res = env.cmd('FT.SEARCH', idx, "@t:(w'$p')", 'PARAMS', 2, 'p', '', 'NOCONTENT')
+        env.assertEqual(res, [1, 'doc2'], message=idx)
+        res = env.cmd('FT.SEARCH', idx, '@t:("")', 'NOCONTENT')
+        env.assertEqual(res, [1, 'doc2'], message=idx)
+        res = env.cmd('FT.SEARCH', idx, "@tag:{w'$p'}", 'PARAMS', 2, 'p', '', 'NOCONTENT')
+        env.assertEqual(res, [1, 'doc2'], message=idx)
+        res = env.cmd('FT.SEARCH', idx, '@tag:{""}', 'NOCONTENT')
+        env.assertEqual(res, [1, 'doc2'], message=idx)
