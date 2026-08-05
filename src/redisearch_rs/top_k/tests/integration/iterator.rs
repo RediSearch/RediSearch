@@ -140,6 +140,32 @@ fn eof_set_after_results_exhausted() {
     assert!(it.at_eof());
 }
 
+/// Both yield paths must report exhaustion the same way: `current()` is the
+/// negation of `at_eof()`, so the read that finds nothing has to drop the record
+/// it was holding rather than leave a consumed document visible.
+#[test]
+fn filtered_path_clears_current_once_exhausted() {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    let mut it = TopKIterator::new(
+        source,
+        make_child(vec![1, 2]),
+        NonZeroUsize::new(10).unwrap(),
+        asc,
+    );
+
+    assert!(it.read().unwrap().is_some());
+    assert!(it.read().unwrap().is_some());
+    assert!(it.read().unwrap().is_none(), "two documents, then EOF");
+
+    assert!(it.at_eof());
+    assert!(
+        it.current().is_none(),
+        "the filtered path must not leave the last yielded record current",
+    );
+}
+
 #[test]
 fn last_doc_id_starts_at_zero_tracks_reads_and_resets_on_rewind() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
