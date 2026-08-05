@@ -202,6 +202,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "ffi",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "strum",
@@ -1081,6 +1082,7 @@ dependencies = [
 name = "index_spec"
 version = "0.0.1"
 dependencies = [
+ "c_trie",
  "dict",
  "document",
  "ffi",

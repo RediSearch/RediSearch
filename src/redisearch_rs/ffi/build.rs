@@ -390,6 +390,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Suffix_IterateContains",
             "Suffix_IterateWildcard",
             "addSuffixTrie",
+            "deleteSuffixTrie",
             "suffixTrie_freeCallback",
         ],
         types: &["SuffixCtx", "SuffixType"],
@@ -412,8 +413,10 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "NewTrie",
             "Trie_DecrementNumDocs",
+            "Trie_Delete",
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
+            "Trie_IterateAll",
             "Trie_IterateContains",
             "Trie_IterateWildcard",
             "TrieType_Free",
@@ -423,8 +426,8 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
-        fns: &["TrieNode_NumDocs"],
-        types: &["TrieRangeCallback", "TrieSuffixCallback"],
+        fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
+        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
         vars: &[],
     },
     HeaderAllowlist {

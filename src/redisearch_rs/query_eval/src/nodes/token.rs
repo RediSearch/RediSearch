@@ -11,7 +11,7 @@
 
 use std::ptr::NonNull;
 
-use c_trie::CTrieRef;
+use c_trie::TermsTrie;
 use field::FieldMaskOrIndex;
 use query_term::RSQueryTerm;
 use query_types::QueryNodeOptions;
@@ -139,9 +139,9 @@ fn eval_disk<'index>(
     // below relies on it.
     debug_assert!(term_bytes.is_some(), "token string should not be null");
 
-    // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
+    // SAFETY: `spec.terms` is a valid terms `Trie` (checked non-null above) that
     // outlives this lookup.
-    let terms = unsafe { CTrieRef::from_raw(spec.terms) };
+    let terms = unsafe { TermsTrie::from_raw(spec.terms) };
     // The lookup refuses a term that is not valid UTF-8. These bytes are query
     // text rather than a stored key, and a disk index only stages terms whose
     // bytes are valid UTF-8, so zero is the true count for such a term rather
