@@ -671,16 +671,13 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     // all modifier fields are supported
     if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
        (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // TEXT terms are stored lowercased, so recheck against the lowercased
-      // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
-      size_t lcstrlen;
-      char *lcstr = runesToStr(str, nstr, &lcstrlen);
+      // TEXT terms are stored lowercased and `str` holds the lowercased
+      // pattern runes, so the candidate recheck in Suffix_CB_Wildcard stays
+      // case-insensitive.
       SuffixCtx sufCtx = {
         .trie = spec->suffix,
         .rune = str,
         .runelen = nstr,
-        .cstr = lcstr,
-        .cstrlen = lcstrlen,
         .type = SUFFIX_TYPE_WILDCARD,
         .callback = charIterCb, // the difference is weather the function receives char or rune
         .cbCtx = &ctx,
@@ -691,7 +688,6 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         // if suffix trie cannot be used, use brute force
         fallbackBruteForce = true;
       }
-      rm_free(lcstr);
     } else {
       QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }

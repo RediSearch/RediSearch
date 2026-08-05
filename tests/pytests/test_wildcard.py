@@ -542,3 +542,34 @@ def testWildcardSuffixTrieMaxPrefixExpansions():
         _assertMaxExpansionsWarning(env, res)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', previous).ok()
+
+@skip(cluster=True)
+def testWildcardQuestionMarkMultibyteWithoutSuffixTrie():
+    """Without WITHSUFFIXTRIE, a wildcard query is evaluated by brute force over
+    the rune terms trie (Wildcard_MatchRune), where `?` consumes one codepoint —
+    so w'entr?' matches 'entré' ('é' is two UTF-8 bytes but one codepoint)."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'entré')
+    conn.execute_command('HSET', 'doc2', 't', 'entrx')
+
+    res = env.cmd('FT.SEARCH', 'idx', "w'entr?'", 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
+
+@skip(cluster=True)
+def testWildcardQuestionMarkMultibyteWithSuffixTrie():
+    """With WITHSUFFIXTRIE, the candidate terms found via the suffix trie are
+    re-filtered rune-wise (Suffix_CB_Wildcard -> Wildcard_MatchRune), where `?`
+    consumes one codepoint — so w'entr?' matches 'entré', the same result the
+    brute-force path produces without the suffix trie."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'entré')
+    conn.execute_command('HSET', 'doc2', 't', 'entrx')
+
+    res = env.cmd('FT.SEARCH', 'idx', "w'entr?'", 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
