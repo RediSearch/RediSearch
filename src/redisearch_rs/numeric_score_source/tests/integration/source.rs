@@ -10,17 +10,59 @@
 //! Tests for [`NumericScoreSource`], driven by real [`NumericRangeTree`]
 //! fixtures.
 
+use std::collections::HashSet;
 use std::{iter, num::NonZeroUsize};
 
+use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_score_source::{
-    NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+    DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
 use rqe_core::DocId;
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::{ExpirationChecker, IdList, RQEIterator};
 use top_k::{ScoreBatch, ScoreSource};
+
+/// A validity oracle backed by an explicit set of deleted doc ids, standing in
+/// for a doc table with entries flagged deleted but not yet reclaimed by GC.
+struct DeletedDocs(HashSet<DocId>);
+
+impl DocValidity for DeletedDocs {
+    fn is_valid(&self, doc_id: DocId) -> bool {
+        !self.0.contains(&doc_id)
+    }
+
+    fn may_filter(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+
+impl FromIterator<DocId> for DeletedDocs {
+    fn from_iter<I: IntoIterator<Item = DocId>>(ids: I) -> Self {
+        Self(ids.into_iter().collect())
+    }
+}
+
+/// A field-TTL checker backed by an explicit set of doc ids, standing in for a
+/// TTL table whose entries have lapsed but not yet been reclaimed by GC.
+struct ExpiredDocs(HashSet<DocId>);
+
+impl ExpirationChecker for ExpiredDocs {
+    fn has_expiration(&self) -> bool {
+        !self.0.is_empty()
+    }
+
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.0.contains(&result.doc_id)
+    }
+}
+
+impl FromIterator<DocId> for ExpiredDocs {
+    fn from_iter<I: IntoIterator<Item = DocId>>(ids: I) -> Self {
+        Self(ids.into_iter().collect())
+    }
+}
 
 /// Build a numeric tree from `(doc_id, value)` pairs (added in the given order).
 ///
@@ -308,4 +350,79 @@ fn filtered_rewind_after_expansion_repeats_results() {
 
     assert_eq!(first, second);
     assert_eq!(first, vec![(20, 20.0), (1, 1.0)]);
+}
+
+#[test]
+fn unfiltered_excludes_deleted_docs() {
+    // Doc 1 holds the top value but has been deleted; its numeric-index entry
+    // survives until GC. Top-k must skip it and return the next-best live docs.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    let deleted = DeletedDocs::from_iter([1]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false).with_validity(deleted);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(3, 4.0), (5, 3.0), (4, 2.0)]);
+}
+
+#[test]
+fn filtered_excludes_deleted_docs() {
+    // The child passes docs 2 and 4, and doc 4 has the higher value — but it is
+    // deleted, so only the live match survives the liveness filter.
+    let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)]);
+    let deleted = DeletedDocs::from_iter([4]);
+    let child_ids = vec![2u64, 4u64];
+    let source = NumericScoreSource::filtered(&tree, full_range(), false, 1, 5, child_ids.len())
+        .with_validity(deleted);
+    let mut it = new_numeric_top_k_filtered(
+        source,
+        IdList::<true>::new(child_ids),
+        NonZeroUsize::new(2).unwrap(),
+    );
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(2, 2.0)]);
+}
+
+#[test]
+fn unfiltered_excludes_field_expired_docs() {
+    // Doc 1 holds the top value but its sort field has expired; the numeric-index
+    // entry survives until GC. Pre-heap filtering must drop it so the heap still
+    // fills k live results, best-first — the same fill-to-k the optimizer's field
+    // predicate gives.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    let expired = ExpiredDocs::from_iter([1]);
+    let source =
+        NumericScoreSource::unfiltered(&tree, full_range(), false).with_expiration(expired);
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(3, 4.0), (5, 3.0), (4, 2.0)]);
+}
+
+#[test]
+fn validity_and_expiration_compose() {
+    // Deletion and field-TTL are independent oracles applied together: doc 1 is
+    // deleted and doc 3 is field-expired, so both drop and the heap fills from
+    // the remaining live docs.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+        .with_validity(DeletedDocs::from_iter([1]))
+        .with_expiration(ExpiredDocs::from_iter([3]));
+    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    let mut got = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        got.push((result.doc_id, result.as_numeric().expect("numeric result")));
+    }
+    assert_eq!(got, vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
 }
