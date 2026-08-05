@@ -72,11 +72,15 @@ pub struct RawOptional<'query, Rf: Ref, I> {
 
     /// Whether the iterator has run *past* its last result, i.e. a
     /// `read`/`skip_to` found nothing beyond `max_doc_id` — the state behind
-    /// [`current`](RQEIterator::current) and [`at_eof`](RQEIterator::at_eof).
+    /// [`current`](RQEIterator::current) and [`at_eof`](RQEIterator::at_eof),
+    /// and the *only* record of it: both entry points check it before anything
+    /// else, so an exhausted iterator stays exhausted until
+    /// [`rewind`](RQEIterator::rewind) whatever the position says.
     ///
     /// It cannot be folded into `result.doc_id`: that field *is*
-    /// [`last_doc_id`](RQEIterator::last_doc_id), so pushing it past
-    /// `max_doc_id` would misreport the position.
+    /// [`last_doc_id`](RQEIterator::last_doc_id), so moving it to record
+    /// exhaustion — past `max_doc_id`, or onto it when a skip overshoots —
+    /// would report a position never yielded.
     past_end: bool,
 }
 
@@ -195,6 +199,24 @@ where
     const fn has_next(&self) -> bool {
         self.result.doc_id < self.max_doc_id
     }
+
+    /// Whether this iterator owes no further result, recording it if the
+    /// position has just reached `max_doc_id`.
+    ///
+    /// The single gate on both entry points: once
+    /// [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it. Checking it before
+    /// [`Self::has_next`] is what lets an overshooting
+    /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
+    /// then sits below `max_doc_id` while the iterator owes nothing.
+    #[inline(always)]
+    const fn exhausted(&mut self) -> bool {
+        if self.past_end || !self.has_next() {
+            self.past_end = true;
+            return true;
+        }
+        false
+    }
 }
 
 impl<'index, I> RQEIterator<'index> for Optional<'index, I>
@@ -217,8 +239,7 @@ where
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if !self.has_next() {
-            self.past_end = true;
+        if self.exhausted() {
             return Ok(None);
         }
 
@@ -259,10 +280,19 @@ where
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        // Checked before the precondition below, so a probe arriving after this
+        // iterator ran out is answered rather than asserted on: the position it
+        // holds is the last result it yielded, which such a probe legitimately
+        // sits above.
+        if self.exhausted() {
+            return Ok(None);
+        }
+
         debug_assert!(doc_id > self.result.doc_id);
 
-        if doc_id > self.max_doc_id || !self.has_next() {
-            self.result.doc_id = self.max_doc_id;
+        if doc_id > self.max_doc_id {
+            // Beyond the last document: this skip carries no result, so it may
+            // not move the position. `past_end` is what records the step.
             self.past_end = true;
             return Ok(None);
         }
