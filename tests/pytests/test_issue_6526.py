@@ -65,7 +65,7 @@ def test_aggregate_drops_doc_reindexed_during_load():
     env.assertEqual(total, len(rows), message=outcome[0])
 
 
-@skip(cluster=True, redis_less_than='7.2')
+@skip(cluster=True)
 def test_safe_loader_preserves_lazy_expiration_row():
     """A Redis 6/7 lazy-expiration load failure must keep the legacy row and total."""
     if not MT_BUILD:
@@ -79,8 +79,9 @@ def test_safe_loader_preserves_lazy_expiration_row():
 
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     try:
-        conn.execute_command('PEXPIRE', 'doc1', 1)
-        conn.execute_command('DEBUG', 'SLEEP', 0.01)
+        # A longer TTL avoids the pre-7.2 PEXPIRE time-sampling race.
+        conn.execute_command('PEXPIRE', 'doc1', 1000)
+        conn.execute_command('DEBUG', 'SLEEP', 1.1)
         res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
         env.assertEqual(res, [2, None, ['t', 'arr']])
     finally:
