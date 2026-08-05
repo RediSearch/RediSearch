@@ -338,13 +338,14 @@ int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *paylo
   for (int i = 0; i < array_len(array); ++i) {
     // Match rune-wise so `?` consumes one codepoint, keeping results
     // identical to the brute-force scan over the terms trie.
+    size_t termLen = strlen(array[i]);
     runeBuf buf;
     size_t termRuneLen;
-    rune *termRunes = runeBufFill(array[i], strlen(array[i]), &buf, &termRuneLen);
+    rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);
     match_t match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
     runeBufFree(&buf);
     if (match == FULL_MATCH) {
-      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+      if (sufCtx->callback(array[i], termLen, sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
     }
