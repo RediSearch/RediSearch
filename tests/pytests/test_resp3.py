@@ -584,6 +584,12 @@ def test_info():
           'background indexing status': 'OK',
           }
       }
+    # A single-shard cluster answers FT.INFO from the standalone reply builder, so the
+    # shard coverage counters appear only from two shards up.
+    if env.shardsCount > 1:
+      exp['num_shards'] = env.shardsCount
+      exp['num_shards_reporting'] = env.shardsCount
+
     res = env.cmd('FT.info', 'idx1')
     res.pop('total_indexing_time', None)
     env.assertEqual(order_dict(res), order_dict(exp))
@@ -1538,6 +1544,8 @@ def test_ft_info():
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
+        'num_shards': env.shardsCount,
+        'num_shards_reporting': env.shardsCount,
         'num_terms': 0,
         'number_of_uses': 1,
         'offset_bits_per_record_avg': nan,

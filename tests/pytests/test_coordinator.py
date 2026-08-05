@@ -227,6 +227,28 @@ def test_index_missing_on_one_shard(env):
     env.expect('FT.MGET', index_name, 'doc1').error().contains(error_msg)
     env.expect('FT.DROP', index_name).error().contains(error_msg)
 
+@skip(cluster=False, min_shards=2)
+def test_info_shard_coverage(env):
+    """FT.INFO reports how many shards backed the reply, so a caller can tell a
+    fully-covered aggregation from one built on a subset of the shards."""
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    # All shards hold the index: coverage is complete.
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_shards']), env.shardsCount)
+    env.assertEqual(int(info['num_shards_reporting']), env.shardsCount)
+
+    # Drop the index on one shard only. The reply still aggregates the remaining
+    # shards, but reports one shard short of full coverage.
+    first_conn = env.getConnection(0)
+    first_conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+    first_conn.execute_command('_FT.DROPINDEX', 'idx')
+
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_shards']), env.shardsCount)
+    env.assertEqual(int(info['num_shards_reporting']), env.shardsCount - 1)
+
 @skip(cluster=False)
 def test_timeout():
     """Tests that timeouts are handled properly by the coordinator.
