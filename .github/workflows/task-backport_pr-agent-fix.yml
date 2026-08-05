@@ -110,7 +110,7 @@ jobs:
       # The actual branch switch happens later via explicit git commands
       # against validated inputs.
       - name: Checkout master
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ steps.generate-app-token.outputs.token }}
           ref: master
@@ -196,7 +196,7 @@ jobs:
         # Pinned to a commit SHA per Sonar's S7670; see task-backport_pr-agent.yml
         # for the rationale and the upgrade procedure. Keep this in sync with
         # the create workflow's pin so both flows run the same Codex version.
-        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
         env:
           GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
           # The prompt reads this env var to find its context JSON. The file
