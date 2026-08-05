@@ -907,6 +907,50 @@ mod revalidate {
         assert!(it.at_eof());
     }
 
+    /// Catching the child up to the wildcard's new position is what makes the
+    /// membership test that follows it mean anything. A failure there leaves
+    /// membership *undecided* — and since the contract keeps a failed skip from
+    /// parking the child on the probed id, the test would read it as "absent"
+    /// and publish a document the NOT exists to exclude. So the error goes to
+    /// the caller instead.
+    #[test]
+    fn revalidate_child_skip_error_propagates() {
+        // A sparse wildcard, so GC-ing its first document makes it jump far
+        // enough forward to leave the child behind — the only shape in which the
+        // catch-up skip runs at all.
+        let (_guard, context) = (
+            GlobalGuard::default(),
+            TestContext::wildcard([1, 50].iter().copied()),
+        );
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        // The child holds 50 — the id the wildcard lands on below — so the
+        // membership that cannot be decided is one where the answer is "present",
+        // and guessing is wrong rather than merely unlucky.
+        let child = Mock::<2>::new([3, 50]);
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it =
+            ContractChecker::new(NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker));
+
+        // Doc 1. Catching the child up to it stops on 3, behind the wildcard's
+        // remaining document.
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+
+        // From here the child cannot be caught up.
+        child_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+
+        // GC doc 1, so the wildcard moves onto 50, past the child at 3.
+        gc_document(&context, 1);
+        let error = it
+            .revalidate(&*context.spec_read())
+            .expect_err("a child that cannot be caught up must reach the caller");
+        assert!(
+            matches!(error, RQEIteratorError::TimedOut),
+            "the child's error must be propagated as it stands, got {error:?}",
+        );
+    }
+
     /// A revalidation whose scan fails has no position to report, and neither
     /// status it could return would be true — so the error goes to the caller,
     /// which aborts the iterator. Reporting `Moved { current: None }` instead

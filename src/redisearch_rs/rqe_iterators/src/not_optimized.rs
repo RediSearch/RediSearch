@@ -373,12 +373,17 @@ where
             if have_valid_pos {
                 self.result.doc_id = self.wcii.last_doc_id();
 
-                // If child is behind, skip it forward.
-                // Errors are intentionally ignored: a timeout here should
-                // not abort the iterator, since we are already committed
-                // to returning Moved.
+                // If child is behind, skip it forward — the only thing that makes
+                // the membership test below mean anything.
+                //
+                // A failure here must not be swallowed. The contract forbids a
+                // skip that carries no result from leaving the child's position
+                // *on* the target, exactly so a parent cannot mistake it for a
+                // hit — so the test below would read the failure as "not in the
+                // child" and publish a document this iterator exists to exclude.
+                // Undecided is not the same as absent.
                 if self.child.last_doc_id() < self.result.doc_id {
-                    let _ = self.child.skip_to(self.result.doc_id);
+                    let _ = self.child.skip_to(self.result.doc_id)?;
                 }
 
                 // If child landed on the same position, the current
