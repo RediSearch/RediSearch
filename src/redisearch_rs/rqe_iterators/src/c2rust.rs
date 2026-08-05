@@ -12,7 +12,7 @@
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
     IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
-    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_core::DocId;
 
@@ -306,6 +306,9 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         let status = unsafe { callback(self.header.as_ptr(), spec.as_mut_ptr()) };
         #[expect(non_upper_case_globals)]
         let status = match status {
+            // A timed-out child is reported the same way as one that timed out during a read or a
+            // skip: as an error, which a Rust parent propagates to the root of the tree.
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
                 current: self.current(),

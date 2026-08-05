@@ -250,9 +250,19 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   }
 }
 
+typedef enum {
+  REVALIDATE_CONTINUE,         // Proceed with a normal read
+  REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
+  REVALIDATE_TIMEDOUT,         // The deadline expired mid-revalidation: report a timeout
+} RevalidateOutcome;
+
 /**
  * Handle initial spec lock and iterator revalidation.
- * Returns true if we should goto validate_current (VALIDATE_MOVED case).
+ *
+ * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
+ * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
+ * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
+ * results are partial and must be returned as `RS_RESULT_TIMEDOUT`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -261,33 +271,36 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  *    consistency for disk reads without needing to hold the lock.
  * 3. This avoids blocking the main thread during disk IO operations.
  */
-static bool handleSpecLockAndRevalidate(RPQueryIterator *self) {
+static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
   RedisSearchCtx *sctx = self->sctx;
 
   // For disk indexes, return immediately, since we don't need to acquire the
   // lock, nor to revalidate the iterators.
   if (sctx->spec->diskSpec) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   QueryIterator *it = self->iterator;
 
   if (sctx->lock_state != SPEC_LOCK_UNSET) {
-    return false;
+    return REVALIDATE_CONTINUE;
   }
 
   RedisSearchCtx_LockSpecRead(sctx);
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
-  if (rc == VALIDATE_ABORTED) {
+  if (rc == VALIDATE_ABORTED || rc == VALIDATE_TIMEOUT) {
     self->iterator->Free(self->iterator);
     self->iterator = NewEmptyIterator();
+    if (rc == VALIDATE_TIMEOUT) {
+      return REVALIDATE_TIMEDOUT;
+    }
   } else if (rc == VALIDATE_MOVED && !it->atEOF) {
-    return true;  // Caller should validate current
+    return REVALIDATE_VALIDATE_CURRENT;
   }
 
-  return false;
+  return REVALIDATE_CONTINUE;
 }
 
 /* Next implementation for sync disk and regular (in-memory) flow */
@@ -298,7 +311,11 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
   IndexSpec* spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
-  bool needToValidateCurrent = handleSpecLockAndRevalidate(self);
+  RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
+  if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
+  bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;
@@ -357,9 +374,14 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
 
-  // Handle spec lock and revalidation
-  // no need store the return value since validate current result is not needed for async disk path
-  handleSpecLockAndRevalidate(self);
+  // Handle spec lock and revalidation.
+  // Neither outcome is reachable today: this processor is only installed for disk specs, and those
+  // return before revalidating at all. A moved iterator would need no special handling here anyway,
+  // but the timeout is answered defensively, so that a disk spec which one day does revalidate
+  // reports the timeout instead of reading past it as end-of-results.
+  if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+  }
 
   // Always update it after revalidation as iterator may have been replaced
   it = self->iterator;

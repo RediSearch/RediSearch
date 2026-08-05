@@ -160,6 +160,15 @@ QueryIterator *NewEmptyIterator(void);
 QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
 
 /**
+ * Make every subsequent iterator revalidation report `VALIDATE_TIMEOUT`, as if the query had run
+ * out of time while re-seeking the index, until this is called again with `false`.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT enable|disable`. The switch is process-wide, like the
+ * `VECSIM_MOCK_TIMEOUT` one it mirrors, so a test that enables it must disable it again.
+ */
+void RQEIterators_SetMockRevalidateTimeout(bool enabled);
+
+/**
  *
  * # Safety
  *
@@ -195,6 +204,16 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
  * 2. `iter` must not be aliased.
  */
 QueryIterator *IntoProfiled(QueryIterator *iter);
+
+/**
+ * Report whether [`RQEIterators_SetMockRevalidateTimeout`] is currently on.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT status`. A server left with the switch on reports a
+ * timeout on every cursor resume, which is worth being able to see directly: a test that dies
+ * between `enable` and its teardown would otherwise turn every later query in the file into a
+ * confusing failure.
+ */
+bool RQEIterators_GetMockRevalidateTimeout(void);
 
 /**
  * Creates a new metric iterator sorted by ID.
