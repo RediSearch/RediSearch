@@ -62,3 +62,15 @@ fn fields_and_indices() {
         ffi::array_free(schema_rule.filter_fields_index.cast());
     }
 }
+
+/// A filter expression that references no schema fields (e.g. `FILTER '1 == 1'`)
+/// keeps both arrays null; the accessors must expose that as empty.
+#[test]
+fn null_fields_and_indices_are_empty() {
+    let schema_rule = unsafe { mem::zeroed::<ffi::SchemaRule>() };
+
+    let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
+
+    assert_eq!(sut.filter_fields().len(), 0);
+    assert_eq!(sut.filter_fields_index(), []);
+}

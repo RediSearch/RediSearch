@@ -71,31 +71,42 @@ impl SchemaRule {
         unsafe { maybe_cstr_from_ptr(self.0.payload_field) }
     }
 
-    /// Expose the underlying `filter_fields` as a [`Vec`] of &[`CStr`].
+    /// Expose the underlying `filter_fields` as an iterator of &[`CStr`].
+    ///
+    /// A rule whose filter expression references no schema fields keeps the
+    /// underlying array null; that is exposed as an empty iterator.
     pub fn filter_fields(&self) -> impl ExactSizeIterator<Item = &CStr> {
-        debug_assert!(
-            !self.0.filter_fields.is_null(),
-            "filter_fields must not be null"
-        );
+        let fields = if self.0.filter_fields.is_null() {
+            &[]
+        } else {
+            // Safety: (1.) due to creation with `SchemaRule::from_raw`
+            let len = unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
+                .try_into()
+                .expect("array_len must not exceed usize");
 
-        // Safety: (1.) due to creation with `SchemaRule::from_raw`
-        let len = unsafe { ffi::array_len_func(self.0.filter_fields as ffi::array_t) }
-            .try_into()
-            .expect("array_len must not exceed usize");
+            // Safety: (1.) due to creation with `SchemaRule::from_raw`
+            unsafe { slice::from_raw_parts(self.0.filter_fields, len) }
+        };
 
-        // Safety: (1.) due to creation with `SchemaRule::from_raw`
-        unsafe { slice::from_raw_parts(self.0.filter_fields, len) }
+        fields
             .iter()
+            // Safety: (1.) due to creation with `SchemaRule::from_raw`
             .map(|ptr| unsafe { CStr::from_ptr(*ptr) })
     }
 
     /// Expose the underlying `filter_fields_index` as a slice of ints.
+    ///
+    /// Null (a filter expression referencing no schema fields) is exposed as
+    /// an empty slice.
     pub fn filter_fields_index(&self) -> &[i32] {
         // These two arrays are assumed to be of the same length.
         let len = self.filter_fields().len();
+        if len == 0 {
+            return &[];
+        }
         debug_assert!(
             !self.0.filter_fields_index.is_null(),
-            "filter_fields_index must not be null"
+            "filter_fields_index must not be null when filter_fields is non-empty"
         );
         // Safety: (1.) due to creation with `SchemaRule::from_raw`
         unsafe { slice::from_raw_parts(self.0.filter_fields_index, len) }
