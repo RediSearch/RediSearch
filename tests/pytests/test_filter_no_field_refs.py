@@ -6,7 +6,6 @@
 
 from includes import *
 from common import *
-from RLTest import Env
 
 
 def testFilterConstantBoolean(env):
@@ -14,10 +13,10 @@ def testFilterConstantBoolean(env):
     Redis on a matching key write."""
     conn = getConnectionByEnv(env)
 
-    env.cmd('FT.CREATE', 'idx_const', 'ON', 'HASH',
-            'PREFIX', '1', 'doc:',
-            'FILTER', '1 == 1',
-            'SCHEMA', 'name', 'TEXT')
+    env.expect('FT.CREATE', 'idx_const', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '1 == 1',
+               'SCHEMA', 'name', 'TEXT').ok()
 
     conn.execute_command('HSET', 'doc:1', 'name', 'hello')
 
@@ -29,13 +28,13 @@ def testFilterConstantBoolean(env):
 
 def testFilterLiteralOnlyFunction(env):
     """FILTER over a function call whose arguments are all literals also has
-    zero property references and hits the same NULL filter_fields path."""
+    zero property references and hits the same empty filter-fields path."""
     conn = getConnectionByEnv(env)
 
-    env.cmd('FT.CREATE', 'idx_litfn', 'ON', 'HASH',
-            'PREFIX', '1', 'doc:',
-            'FILTER', 'startswith("foo", "fo")',
-            'SCHEMA', 'name', 'TEXT')
+    env.expect('FT.CREATE', 'idx_litfn', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', 'startswith("bar", "b")',
+               'SCHEMA', 'name', 'TEXT').ok()
 
     conn.execute_command('HSET', 'doc:2', 'name', 'world')
 
@@ -46,14 +45,14 @@ def testFilterLiteralOnlyFunction(env):
 
 
 def testFilterAlwaysFalseConstant(env):
-    """A constant FILTER that evaluates to false should reject the doc without
-    crashing -- exercises the same NULL slice construction on the reject path."""
+    """A constant FILTER that evaluates to false must reject the document
+    without crashing -- same empty filter-fields load, reject branch after."""
     conn = getConnectionByEnv(env)
 
-    env.cmd('FT.CREATE', 'idx_false', 'ON', 'HASH',
-            'PREFIX', '1', 'doc:',
-            'FILTER', '1 == 2',
-            'SCHEMA', 'name', 'TEXT')
+    env.expect('FT.CREATE', 'idx_false', 'ON', 'HASH',
+               'PREFIX', '1', 'doc:',
+               'FILTER', '1 == 2',
+               'SCHEMA', 'name', 'TEXT').ok()
 
     conn.execute_command('HSET', 'doc:3', 'name', 'ignored')
 
