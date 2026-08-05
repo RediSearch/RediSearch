@@ -11,9 +11,11 @@ use ffi::{
     IteratorStatus, IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND,
     IteratorStatus_ITERATOR_OK, IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus,
     ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK,
+    ValidateStatus_VALIDATE_TIMEOUT,
 };
 use index_result::RSIndexResult;
 use rqe_core::DocId;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::{
     RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, profile_print::ProfilePrint,
@@ -282,6 +284,26 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
     }
 }
 
+/// Debug switch behind `FT.DEBUG MOCK_REVALIDATE_TIMEOUT`: when set, every revalidation reports a
+/// timeout without touching the iterator underneath.
+///
+/// A revalidation timeout is otherwise hard to stage from a test. It needs a deadline that expires
+/// between two cursor reads *and* an index change that makes a composite re-seek its children, and
+/// the blocked-client deadline that tests can fire on demand is the same flag the result processor
+/// checks right after revalidating - so it hides the very case under test. This switch stands in
+/// for the deadline so the flow tests can exercise what C does with the status.
+static MOCK_REVALIDATE_TIMEOUT: AtomicBool = AtomicBool::new(false);
+
+/// Set the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn set_mock_revalidate_timeout(enabled: bool) {
+    MOCK_REVALIDATE_TIMEOUT.store(enabled, Ordering::Relaxed);
+}
+
+/// Read the [`MOCK_REVALIDATE_TIMEOUT`] debug switch.
+pub fn mock_revalidate_timeout() -> bool {
+    MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
+}
+
 extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     base: *mut QueryIterator,
     spec: *mut ffi::IndexSpec,
@@ -289,6 +311,12 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     debug_assert!(!base.is_null());
     debug_assert!(base.is_aligned());
     debug_assert!(!spec.is_null());
+
+    // Revalidation runs once per query resume, never in the read loop, so the load costs nothing
+    // worth measuring.
+    if MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed) {
+        return ValidateStatus_VALIDATE_TIMEOUT;
+    }
 
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<I>::mut_ref_from_header_ptr(base) };
@@ -314,7 +342,12 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
             ValidateStatus_VALIDATE_MOVED
         }
         Ok(RQEValidateStatus::Aborted) => ValidateStatus_VALIDATE_ABORTED,
-        Err(_) => ValidateStatus_VALIDATE_ABORTED,
+        // Both errors leave the iterator in an indeterminate state, so C frees it either way. They
+        // are reported apart because they say different things about the result set: a timeout
+        // makes it partial and has to reach the client, an I/O error kills this subtree in a query
+        // that still has time left.
+        Err(RQEIteratorError::TimedOut) => ValidateStatus_VALIDATE_TIMEOUT,
+        Err(RQEIteratorError::IoError(_)) => ValidateStatus_VALIDATE_ABORTED,
     }
 }
 

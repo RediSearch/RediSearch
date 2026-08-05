@@ -312,6 +312,26 @@ pub enum MockRevalidateResult {
     Ok,
     Abort,
     Move,
+    /// Revalidation ran out of time, e.g. while re-seeking the index after a GC cycle.
+    TimedOut,
+    /// Revalidation failed to read from the index.
+    IoError,
+}
+
+impl MockRevalidateResult {
+    /// The error this outcome stands for, or `None` if it is one of the successful ones.
+    ///
+    /// Both revalidation and resume report a failure the same way — as an `Err` that leaves the
+    /// iterator unusable — so both paths funnel their failing outcomes through here.
+    fn as_error(self) -> Option<rqe_iterators::RQEIteratorError> {
+        match self {
+            Self::TimedOut => Some(rqe_iterators::RQEIteratorError::TimedOut),
+            Self::IoError => Some(rqe_iterators::RQEIteratorError::IoError(
+                std::io::Error::other("mock revalidation failure"),
+            )),
+            Self::Ok | Self::Abort | Self::Move => None,
+        }
+    }
 }
 
 impl<'index, const N: usize> Mock<'index, N> {
@@ -499,6 +519,12 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
             (data.revalidate_result, data.revalidate_reseeks_to)
         };
 
+        // A failing outcome ends the call before any of the repositioning below: it leaves the
+        // iterator indeterminate, which is exactly what the caller is told by the `Err`.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+
         // Rewind-and-re-seek takes precedence: it describes the whole outcome,
         // including where the mock ends up. See
         // [`MockData::set_revalidate_reseeks_to`].
@@ -537,6 +563,9 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
                     self.next_index = past_end_cursor(N);
                     rqe_iterators::RQEValidateStatus::Moved { current: None }
                 }
+            }
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
             }
         })
     }
@@ -665,6 +694,11 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         if let Some(err) = resume_error {
             return Err(err.into_rqe_iterator_error());
         }
+        // A failing revalidation outcome means the same thing on this path: consume the suspended
+        // mock and report the error, materializing no active iterator.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
         if reseeks_past_end {
             // Reproduce `RawInvIndIterator::resume_in_place` on a GC-invalidated
             // offset whose re-seek finds nothing: rewind, then end up at EOF with
@@ -714,6 +748,9 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
             }
             // Unrecoverable: drop the suspended mock, materialize no active iterator.
             MockRevalidateResult::Abort => return Ok(rqe_iterators::ResumeOutcome::Aborted),
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
+            }
         };
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical (see [`Mock::suspend`]).
@@ -886,6 +923,12 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
             data.revalidate_result
         };
 
+        // See `Mock::revalidate`: a failing outcome ends the call, leaving the iterator
+        // indeterminate.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
+
         let n = self.doc_ids.len();
         Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
@@ -902,6 +945,9 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
                     self.next_index = past_end_cursor(n);
                     rqe_iterators::RQEValidateStatus::Moved { current: None }
                 }
+            }
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
             }
         })
     }
@@ -1008,6 +1054,11 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
         if let Some(err) = resume_error {
             return Err(err.into_rqe_iterator_error());
         }
+        // A failing revalidation outcome means the same thing on this path: consume the suspended
+        // mock and report the error, materializing no active iterator.
+        if let Some(err) = revalidate_result.as_error() {
+            return Err(err);
+        }
         let moved = match revalidate_result {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
@@ -1026,6 +1077,9 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
             }
             // Unrecoverable: drop the suspended mock, materialize no active iterator.
             MockRevalidateResult::Abort => return Ok(rqe_iterators::ResumeOutcome::Aborted),
+            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
+                unreachable!("failing outcomes returned above")
+            }
         };
         let raw = Box::into_raw(self);
         // SAFETY: layout-identical (see [`MockVec::suspend`]).

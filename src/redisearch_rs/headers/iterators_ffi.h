@@ -690,6 +690,25 @@ void Profile_AddIters(QueryIterator * *root);
 void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
 /**
+ * Report whether [`RQEIterators_SetMockRevalidateTimeout`] is currently on.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT status`. A server left with the switch on reports a
+ * timeout on every cursor resume, which is worth being able to see directly: a test that dies
+ * between `enable` and its teardown would otherwise turn every later query in the file into a
+ * confusing failure.
+ */
+bool RQEIterators_GetMockRevalidateTimeout(void);
+
+/**
+ * Make every subsequent iterator revalidation report `VALIDATE_TIMEOUT`, as if the query had run
+ * out of time while re-seeking the index, until this is called again with `false`.
+ *
+ * Backs `FT.DEBUG MOCK_REVALIDATE_TIMEOUT enable|disable`. The switch is process-wide, like the
+ * `VECSIM_MOCK_TIMEOUT` one it mirrors, so a test that enables it must disable it again.
+ */
+void RQEIterators_SetMockRevalidateTimeout(bool enabled);
+
+/**
  * Sets the [`RLookupKeyHandle`] for this metric iterator.
  *
  * # Safety
