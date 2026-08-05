@@ -236,10 +236,6 @@ where
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        // Assigned rather than only set, because `revalidate` can leave the flag
-        // raised on an iterator it also allowed to recover: a scan that failed
-        // there has no position to report, yet clears `forced_eof` so a later
-        // read can try again. Landing on a result here is that retry succeeding.
         let found = self.read_inner()?;
         self.past_end = !found;
 
@@ -389,16 +385,17 @@ where
                 // result is in the child and invalid for NOT. Advance to
                 // the next valid position.
                 if self.child.last_doc_id() == self.result.doc_id {
-                    match self.read_inner() {
-                        Ok(found) => have_valid_pos = found,
-                        Err(_) => {
-                            // A timeout during revalidation should not
-                            // permanently terminate the iterator, but we
-                            // have no valid position to return.
-                            self.forced_eof = false;
-                            have_valid_pos = false;
-                        }
-                    }
+                    // A failing scan leaves nothing to report, and neither answer
+                    // available here would be true: `Moved { current: None }` says
+                    // exhausted, which every composite acts on — `Intersection`
+                    // ends, `OptionalOptimized` latches `past_end`, both unions drop
+                    // the child — so a later `read` finding a document would be
+                    // resurrecting past a parent that has already written this
+                    // iterator off. The error goes to the caller instead, which
+                    // aborts the iterator rather than trusting a position that does
+                    // not exist. Same trade `UnionFlat` makes when catching up a
+                    // lagging child fails.
+                    have_valid_pos = self.read_inner()?;
                 }
             }
 
