@@ -15,6 +15,7 @@
 #include "redismodule.h"
 #include "util/dllist.h"
 #include "util/references.h"
+#include "util/rs_atomic.h"
 #include <time.h>
 
 #ifdef __cplusplus
@@ -22,6 +23,11 @@ extern "C" {
 #endif
 
 #define GC_THREAD_POOL_SIZE 1
+
+// Bits of GCContext.schedFlags.
+typedef enum {
+  GC_SCHED_RUN_PENDING = 0x01,  // a run is queued on the GC pool, or executing
+} GCSchedFlags;
 
 typedef struct InfoGCStats {
   // Total bytes collected by the GCs
@@ -48,7 +54,12 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID;  // Guarded by the GIL
+  RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
+  bool enabled;                // periodic collection wanted. Guarded by the GIL
+  // Shared with the GC thread, though every access today is also under the GIL -- correctness
+  // rests on that, not on the atomic. A bit set so a bit added later can be tested against
+  // RUN_PENDING in one read-modify-write; separate relaxed accesses would not be ordered.
+  RS_Atomic(unsigned) schedFlags;
   GCCallbacks callbacks;
 } GCContext;
 
@@ -67,6 +78,10 @@ void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
 void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
+// Stop periodic collection and disarm the timer. A run in flight completes without re-arming.
+// Requires the GIL, as does GCContext_IsEnabled: both touch GIL-guarded scheduling state.
+void GCContext_StopFutureRuns(GCContext* gc);
+bool GCContext_IsEnabled(const GCContext* gc);
 
 static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalCollectedBytes += src->totalCollectedBytes;
