@@ -92,9 +92,17 @@ enum Fault {
     /// Behave correctly, except that `revalidate` answers `Moved` in place —
     /// benign, used to exercise the checker's `Moved` agreement checks.
     MovedOnRevalidate,
+    /// Every fallible operation reports a timeout — benign, and the checker
+    /// must hand the error back untouched rather than read it as a violation.
+    TimesOut,
     /// `current()` keeps handing out the stale result after running past the
     /// end.
     StaleCurrentPastEnd,
+    /// `current()` is `None` while the iterator is positioned on a result.
+    NoCurrentWhilePositioned,
+    /// `current()` hands back the result once after each yield and answers
+    /// `None` from then on.
+    ForgetfulCurrent,
     /// `at_eof()` never turns true.
     NeverAtEof,
     /// `last_doc_id()` lags behind the result `read` just yielded.
@@ -110,6 +118,8 @@ enum Fault {
     YieldsAfterExhaustion,
     /// A `skip_to` that found nothing records the probed id as its position.
     ClaimsProbedId,
+    /// A `skip_to` that failed records the probed id as its position.
+    ClaimsProbedIdOnTimeout,
     /// `skip_to` answers `NotFound` even on an exact match.
     NotFoundOnExactMatch,
     /// `rewind` leaves the exhausted state latched.
@@ -126,6 +136,12 @@ enum Fault {
     /// `revalidate` drops the iterator to EOF while reporting `Ok`, which
     /// promises the position did not change.
     LosesPositionOnOkRevalidate,
+    /// `revalidate` rewinds the iterator back to its first id while reporting
+    /// `Ok`, undoing the exhaustion the caller already observed.
+    RewindsOnOkRevalidate,
+    /// `revalidate` republishes through `current()` the result the iterator
+    /// yielded before it ran dry, while reporting `Ok`.
+    StaleCurrentAfterOkRevalidate,
     /// `revalidate` reports `Moved` onto a document *behind* the position the
     /// iterator held.
     MovesBackwardsOnRevalidate,
@@ -142,9 +158,13 @@ struct Misbehaving<'index> {
     result: RSIndexResult<'index>,
     /// A second result object, handed out by [`Fault::ForeignCurrent`].
     spare: RSIndexResult<'index>,
-    /// Set by every yield, cleared by the next `last_doc_id()` query — the
-    /// window in which [`Fault::ForgetfulLastDocId`] still tells the truth.
+    /// Set by every yield, cleared by the next query that consumes it — the
+    /// window in which [`Fault::ForgetfulLastDocId`] and
+    /// [`Fault::ForgetfulCurrent`] still tell the truth.
     just_yielded: Cell<bool>,
+    /// Set by the `revalidate` of [`Fault::StaleCurrentAfterOkRevalidate`],
+    /// from which point `current()` republishes the stale result.
+    resurrected: bool,
     fault: Fault,
 }
 
@@ -156,6 +176,7 @@ impl Misbehaving<'_> {
             result: RSIndexResult::build_virt().build(),
             spare: RSIndexResult::build_virt().build(),
             just_yielded: Cell::new(false),
+            resurrected: false,
             fault,
         }
     }
@@ -168,16 +189,25 @@ impl Misbehaving<'_> {
 impl<'index> RQEIterator<'index> for Misbehaving<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
-            return (self.fault == Fault::StaleCurrentPastEnd).then_some(&mut self.result);
+            let stale = self.fault == Fault::StaleCurrentPastEnd
+                || (self.fault == Fault::StaleCurrentAfterOkRevalidate && self.resurrected);
+            return stale.then_some(&mut self.result);
         }
-        if self.fault == Fault::ForeignCurrent {
-            self.spare.doc_id = self.result.doc_id;
-            return Some(&mut self.spare);
+        match self.fault {
+            Fault::NoCurrentWhilePositioned => None,
+            Fault::ForgetfulCurrent if !self.just_yielded.replace(false) => None,
+            Fault::ForeignCurrent => {
+                self.spare.doc_id = self.result.doc_id;
+                Some(&mut self.spare)
+            }
+            _ => Some(&mut self.result),
         }
-        Some(&mut self.result)
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        if self.fault == Fault::TimesOut {
+            return Err(RQEIteratorError::TimedOut);
+        }
         if self.past_end() {
             if self.fault == Fault::YieldsAfterExhaustion {
                 self.result.doc_id = self.ids[0];
@@ -199,6 +229,13 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        if self.fault == Fault::TimesOut {
+            return Err(RQEIteratorError::TimedOut);
+        }
+        if self.fault == Fault::ClaimsProbedIdOnTimeout {
+            self.result.doc_id = doc_id;
+            return Err(RQEIteratorError::TimedOut);
+        }
         while let Some(&id) = self.ids.get(self.offset) {
             self.offset += 1;
             if id >= doc_id {
@@ -223,6 +260,9 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         &mut self,
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        if self.fault == Fault::TimesOut {
+            return Err(RQEIteratorError::TimedOut);
+        }
         Ok(match self.fault {
             Fault::AbortsOnRevalidate => RQEValidateStatus::Aborted,
             Fault::MovedOnRevalidate => RQEValidateStatus::Moved {
@@ -230,6 +270,16 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
             },
             Fault::LosesPositionOnOkRevalidate => {
                 self.offset = self.ids.len() + 1;
+                RQEValidateStatus::Ok
+            }
+            Fault::RewindsOnOkRevalidate => {
+                // `result` is left alone, so `last_doc_id()` keeps answering as
+                // it did — only the rest of the position gives the rewind away.
+                self.offset = 0;
+                RQEValidateStatus::Ok
+            }
+            Fault::StaleCurrentAfterOkRevalidate => {
+                self.resurrected = true;
                 RQEValidateStatus::Ok
             }
             Fault::MovesBackwardsOnRevalidate => {
@@ -324,6 +374,38 @@ fn revalidate_moved_agreement_is_verified() {
 }
 
 #[test]
+fn revalidate_moved_is_not_direction_checked_when_unordered() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it =
+        ContractChecker::new_unordered(Misbehaving::new(vec![1, 2], Fault::MovedOnRevalidate));
+
+    // An iterator whose ids need not ascend gives the checker nothing to
+    // compare a `Moved` position against, so only the accessor agreement is
+    // verified.
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
+    assert!(matches!(
+        status,
+        RQEValidateStatus::Moved { current: Some(_) }
+    ));
+}
+
+#[test]
+fn errors_are_handed_back_untouched() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::TimesOut));
+
+    // A failed operation is not a contract violation: the checker forwards the
+    // error and leaves its record of the position alone.
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.skip_to(5), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(
+        it.revalidate(&*mock_ctx.spec_read()),
+        Err(RQEIteratorError::TimedOut)
+    ));
+}
+
+#[test]
 #[should_panic(expected = "current() must be None")]
 fn catches_stale_current_past_end() {
     drain(Fault::StaleCurrentPastEnd);
@@ -391,9 +473,37 @@ fn catches_skip_from_an_iterator_that_reports_eof_while_unread() {
 }
 
 #[test]
+#[should_panic(expected = "current: must be None on an iterator that reports at_eof()")]
+fn catches_current_on_an_iterator_that_reports_eof_while_unread() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::EofWhileUnread));
+    // Nothing has been read yet, so the only result the iterator could be
+    // holding is one it promised it does not have.
+    let _ = it.current();
+}
+
+#[test]
+#[should_panic(expected = "revalidate (ok): current() must be None on an iterator")]
+fn catches_revalidate_ok_keeping_a_current_while_eof_and_unread() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::EofWhileUnread));
+    // `Ok` re-runs the checks for the unread position, so the phantom result is
+    // caught even though no read or skip has happened.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
 #[should_panic(expected = "must not claim the probed id")]
 fn catches_skip_claiming_probed_id() {
     let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ClaimsProbedId));
+    let _ = it.skip_to(5);
+}
+
+#[test]
+#[should_panic(expected = "must not claim the probed id")]
+fn catches_failed_skip_claiming_probed_id() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ClaimsProbedIdOnTimeout));
+    // A skip that fails carries no result either, so it is under the same
+    // obligation not to leave the probed id behind as its position.
     let _ = it.skip_to(5);
 }
 
@@ -416,6 +526,26 @@ fn catches_latched_rewind() {
 fn catches_foreign_current() {
     let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ForeignCurrent));
     let _ = it.read();
+}
+
+#[test]
+#[should_panic(expected = "read: current() must be Some")]
+fn catches_missing_current_on_a_yield() {
+    let mut it = ContractChecker::new(Misbehaving::new(
+        vec![1, 2],
+        Fault::NoCurrentWhilePositioned,
+    ));
+    let _ = it.read();
+}
+
+#[test]
+#[should_panic(expected = "current: must be Some")]
+fn catches_current_dropped_after_a_yield() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ForgetfulCurrent));
+    // The result was there when `read` handed it out, so it takes a second
+    // query to catch the iterator letting go of it.
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let _ = it.current();
 }
 
 #[test]
@@ -447,6 +577,37 @@ fn catches_revalidate_ok_losing_the_position() {
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     // `last_doc_id()` still answers 1, so only re-checking the rest of the
     // position surfaces the drop to EOF.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
+#[should_panic(expected = "revalidate (ok): current() must be Some")]
+fn catches_revalidate_ok_dropping_the_current_result() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ForgetfulCurrent));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    // Both `last_doc_id()` and `at_eof()` still describe doc 1; the position
+    // `Ok` promised to have kept is only half there.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
+#[should_panic(expected = "revalidate (ok): at_eof() must be true")]
+fn catches_revalidate_ok_rewinding_the_iterator() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = drain(Fault::RewindsOnOkRevalidate);
+    // The caller has already been told the iterator ran dry, so quietly
+    // undoing that is a move, not an `Ok`.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
+#[should_panic(expected = "revalidate (ok): current() must be None once")]
+fn catches_revalidate_ok_resurrecting_the_stale_current() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = drain(Fault::StaleCurrentAfterOkRevalidate);
+    // `at_eof()` and `last_doc_id()` both still say the iterator is past its
+    // end; only `current()` hands the exhausted position a result again.
     let _ = it.revalidate(&*mock_ctx.spec_read());
 }
 
