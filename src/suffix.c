@@ -325,7 +325,8 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
+int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *payload,
+                       size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
   if (!pl) {
@@ -335,8 +336,14 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
   suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
-            == FULL_MATCH) {
+    // Match rune-wise so `?` consumes one codepoint, keeping results
+    // identical to the brute-force scan over the terms trie.
+    runeBuf buf;
+    size_t termRuneLen;
+    rune *termRunes = runeBufFill(array[i], strlen(array[i]), &buf, &termRuneLen);
+    match_t match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
+    runeBufFree(&buf);
+    if (match == FULL_MATCH) {
       if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
@@ -347,11 +354,11 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   // An empty pattern has no token to anchor on, and the arrays below require a positive length
-  if (sufCtx->cstrlen == 0) {
+  if (sufCtx->runelen == 0) {
     return 0;
   }
-  size_t idx[sufCtx->cstrlen];
-  size_t lens[sufCtx->cstrlen];
+  size_t idx[sufCtx->runelen];
+  size_t lens[sufCtx->runelen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == REDISEARCH_UNINITIALIZED) {

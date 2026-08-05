@@ -493,8 +493,6 @@ impl CTrieRef {
             trie: self.ptr,
             rune: pattern.as_ptr().cast_mut(),
             runelen: pattern.len(),
-            cstr: std::ptr::null(),
-            cstrlen: 0,
             type_: mode.into(),
             callback: Some(suffix_trampoline::<F>),
             cbCtx: std::ptr::from_mut(&mut callback).cast(),
