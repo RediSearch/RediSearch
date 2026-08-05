@@ -4378,6 +4378,82 @@ class TestCoordinatorTimeout:
                               'LIMIT', '0', str(self.n_docs)],
             assert_reply=assert_reply)
 
+    def test_timeout_before_hybrid_cursor_mapping_init(self):
+        """A timed-out RPNet may be freed before its UV initializer runs."""
+        env = self.env
+        skipIfNoEnableAssert(env)
+
+        prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict')
+
+        sync_point = 'BeforeCursorMappingPromote'
+        failed_sync_point = 'AfterCursorMappingPromoteFailed'
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', failed_sync_point)
+
+        query_result = []
+        query_args = [
+            'FT.HYBRID', 'hybrid_idx',
+            'SEARCH', '*',
+            'VSIM', '@embedding', '$BLOB',
+            'KNN', '2', 'K', '10',
+            'COMBINE', 'RRF', '2', 'WINDOW', '10',
+            'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
+        ]
+        t_query = threading.Thread(
+            target=call_and_store,
+            args=(env.cmd, query_args, query_result),
+            daemon=True
+        )
+        t_query.start()
+
+        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
+        try:
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
+                                 'IS_WAITING', sync_point) == 1, {}),
+                f'Timeout waiting for UV callback to park at {sync_point}'
+            )
+
+            env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
+            wait_for_client_unblocked(env, blocked_client_id)
+
+            t_query.join(timeout=10)
+            env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            env.assertEqual(len(query_result), 1, message="Expected one timeout reply")
+
+            # Request teardown has released the mappings. The UV callback must
+            # now discard its provisional counters instead of treating them as
+            # one real pending cursor with an uninitialized target shard.
+            pending = env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')
+            env.assertGreaterEqual(pending, 1)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
+                                 'IS_WAITING', failed_sync_point) == 1, {}),
+                f'Timeout waiting for failed promotion at {failed_sync_point}',
+                timeout=10
+            )
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', failed_sync_point)
+
+            def request_completed():
+                pending = env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')
+                return pending == 0, {'pending': pending}
+
+            wait_for_condition(
+                request_completed,
+                'Timeout waiting for cancelled cursor-mapping request completion',
+                timeout=10
+            )
+            env.expect('PING').equal(True)
+        finally:
+            try:
+                env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            except Exception:
+                pass
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
+
     # ----- RETURN_STRICT FT.CURSOR READ timeout tests -----
 
     def _assert_warn_metric_bumped(self, before_info, base_warn_coord, context):

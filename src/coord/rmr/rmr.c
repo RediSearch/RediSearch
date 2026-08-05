@@ -842,14 +842,23 @@ void iterCursorMappingCb(void *p) {
   IteratorData *data = (IteratorData *)p;
   MRIterator *it = data->it;
 
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE);
+#endif
+
   StrongRef mappingsRef = WeakRef_Promote(data->privateDataRef);
   WeakRef_Release(data->privateDataRef);
   CursorMappings *vsimOrSearch = StrongRef_Get(mappingsRef);
   if (!vsimOrSearch) {
-    // Cursor mappings have been freed - cannot proceed with command dispatch.
-    // Release the iterator to decrement its reference count and trigger cleanup.
-    // This handles the case where we abort before sending commands to any shards.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED);
+#endif
+    // No shard commands were dispatched, so clear the provisional pending/in-process counts.
+    it->ctx.pending = 0;
+    it->ctx.inProcess = 0;
+    IORuntimeCtx *ioRuntime = it->ctx.ioRuntime;  // Save before potential free
     MRIterator_Release(it);
+    IORuntimeCtx_RequestCompleted(ioRuntime);
     rm_free(data);
     return;
   }
@@ -1093,6 +1102,16 @@ void MR_Debug_ClearPendingTopo() {
     IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->io_runtimes_pool[i]);
   }
 }
+
+#ifdef ENABLE_ASSERT
+long long MR_Debug_GetPendingRequests() {
+  long long pending = 0;
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+    pending += RQ_Debug_GetPending(cluster_g->io_runtimes_pool[i]->queue);
+  }
+  return pending;
+}
+#endif
 
 void MR_FreeCluster() {
   if (!cluster_g) return;
