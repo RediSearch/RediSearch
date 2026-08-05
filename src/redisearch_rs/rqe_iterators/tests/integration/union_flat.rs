@@ -21,6 +21,7 @@ mod common {
 
 use crate::utils::{Mock, MockRevalidateResult, create_mock_2, create_mock_3};
 use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
+use rqe_iterators_test_utils::ContractChecker;
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -30,7 +31,7 @@ use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
-    let mut union = UnionQuickFlat::new(children);
+    let mut union = ContractChecker::new(UnionQuickFlat::new(children));
 
     let result = union
         .read()
@@ -141,7 +142,7 @@ fn union_full_flat_upholds_current_contract() {
         Box::new(crate::utils::Mock::new([1u64, 3])),
         Box::new(crate::utils::Mock::new([2u64, 4])),
     ];
-    let mut it = UnionFullFlat::new(children);
+    let mut it = ContractChecker::new(UnionFullFlat::new(children));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
     assert_current_contract_via_skip_to(&mut it, 5);
 }
@@ -162,7 +163,7 @@ fn revalidate_with_an_unread_sibling_does_not_move_the_union_backwards() {
 
     let children: Vec<Box<dyn RQEIterator<'static>>> =
         vec![Box::new(matching), Box::new(untouched)];
-    let mut it = UnionQuickFlat::new(children);
+    let mut it = ContractChecker::new(UnionQuickFlat::new(children));
 
     let outcome = it
         .skip_to(10)
