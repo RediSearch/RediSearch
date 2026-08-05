@@ -6,7 +6,6 @@ license-file.workspace = true
 publish.workspace = true
 
 [lib]
-# Compiling a no-op bench/test binary can cause linking issues with C.
 test = false
 bench = false
 
