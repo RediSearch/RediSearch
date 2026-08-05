@@ -141,6 +141,7 @@ impl MockData {
             delays: Vec::new(),
             force_read_none: false,
             resume_reseeks_past_end: false,
+            revalidate_reseeks_to: None,
         })))
     }
 
@@ -163,6 +164,25 @@ impl MockData {
     /// reports `Moved` with the iterator rewound and past its end.
     pub fn set_resume_reseeks_past_end(&mut self, reseeks_past_end: bool) -> &mut Self {
         self.0.borrow_mut().resume_reseeks_past_end = reseeks_past_end;
+        self
+    }
+
+    /// Make `revalidate` reproduce an inverted-index re-seek after a GC cycle.
+    ///
+    /// A plain [`MockRevalidateResult::Move`] models a revalidation that steps to
+    /// the next document. The inverted-index iterators do something else: when the
+    /// cached block offset may have been invalidated, `revalidate` *rewinds* and
+    /// then seeks back to the position it held. `rewind` clears the past-the-end
+    /// state, so this resurrects an *exhausted* iterator — it comes back live on
+    /// whatever the seek lands on. That landing is at or after the child's own old
+    /// position, but says nothing about where the parent composite moved to
+    /// meanwhile, which is what makes the state impossible to express with `Move`.
+    ///
+    /// `doc_id` is the document the seek lands on and must be one the mock holds.
+    /// Landing back on the pre-revalidation position reports `Ok` (the seek found
+    /// it); any other landing reports `Moved`.
+    pub fn set_revalidate_reseeks_to(&mut self, doc_id: Option<DocId>) -> &mut Self {
+        self.0.borrow_mut().revalidate_reseeks_to = doc_id;
         self
     }
 
@@ -262,6 +282,9 @@ struct MockDataInternal {
     /// If true, `resume` rewinds and reports `Moved` past the end — see
     /// [`MockData::set_resume_reseeks_past_end`].
     resume_reseeks_past_end: bool,
+    /// Document `revalidate` rewinds and re-seeks onto — see
+    /// [`MockData::set_revalidate_reseeks_to`].
+    revalidate_reseeks_to: Option<DocId>,
 }
 
 impl MockDataInternal {
@@ -470,11 +493,33 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         &mut self,
         _spec: &index_spec::IndexSpecReadGuard,
     ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let revalidate_result = {
+        let (revalidate_result, reseeks_to) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
-            data.revalidate_result
+            (data.revalidate_result, data.revalidate_reseeks_to)
         };
+
+        // Rewind-and-re-seek takes precedence: it describes the whole outcome,
+        // including where the mock ends up. See
+        // [`MockData::set_revalidate_reseeks_to`].
+        if let Some(target) = reseeks_to {
+            let index = self
+                .doc_ids
+                .iter()
+                .position(|&id| id == target)
+                .expect("the re-seek target must be one of the mock's documents");
+            let was_at = self.last_doc_id();
+            self.set_result(index);
+            self.next_index = index + 1;
+
+            return Ok(if target == was_at {
+                rqe_iterators::RQEValidateStatus::Ok
+            } else {
+                rqe_iterators::RQEValidateStatus::Moved {
+                    current: Some(&mut self.result),
+                }
+            });
+        }
 
         Ok(match revalidate_result {
             MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,

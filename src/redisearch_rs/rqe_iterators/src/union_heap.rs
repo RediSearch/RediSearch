@@ -221,8 +221,10 @@ where
     ///
     /// Only [`Self::read_full`] calls this, so `QUICK_EXIT` is always `false` here and
     /// the root can never be *behind* `current_id`: a full union advances every child in
-    /// the heap on every `read`/`skip_to`, and a child's own `revalidate` may only move
-    /// it forward. A root that were behind would have to be seeked rather than read —
+    /// the heap on every `read`/`skip_to`, and its own `revalidate` re-seeks any child
+    /// that came back from a child revalidation behind the union — an exhausted leaf
+    /// can resurrect there — before it returns.
+    /// A root that were behind would have to be seeked rather than read —
     /// one read need not clear `current_id` — and would otherwise stay the minimum and
     /// hand back a document already delivered. That case is asserted away rather than
     /// handled, so it cannot be introduced silently.
@@ -561,46 +563,47 @@ where
         self.rebuild_heap();
         self.num_active = self.heap.len();
 
-        let Some(min) = self.heap.peek() else {
+        let Some(mut min) = self.heap.peek() else {
             self.is_eof = true;
             return Ok(RQEValidateStatus::Moved { current: None });
         };
 
-        // Without `QUICK_EXIT` no child can fall behind the union: every child in the
-        // heap is advanced on every `read`/`skip_to`, and a child's own `revalidate` may
-        // only move it forward — one that has run past its end reports no `current` and
-        // is left out by `rebuild_heap`. So the minimum is at worst *equal* to the
-        // current position, which is simply a child still sitting on the document it
-        // supplied.
-        debug_assert!(
-            QUICK_EXIT || min.doc_id >= original_last_doc_id,
-            "a full union's child cannot fall behind it: {} < {original_last_doc_id}",
-            min.doc_id,
-        );
-
-        // With `QUICK_EXIT` it can: `rebuild_heap` keys on `last_doc_id()`, which answers
-        // 0 for a child that has never been read and an earlier round's id for one that
-        // `advance_lagging_children` left in the heap when it returned on an exact match.
-        // Such a minimum is not a position to move to — adopting it would replay
-        // documents, because `VALIDATE_MOVED` has the caller emit `current` in place of a
-        // read and the read after that resumes from there. `iterator_api.h` says
-        // `VALIDATE_MOVED` means the position moved *forward*, and `Not::revalidate`
-        // asserts that of its child — which is where a `QUICK_EXIT` union usually sits.
+        // A minimum *behind* the union is not a position to move to — adopting it
+        // would replay documents, because `VALIDATE_MOVED` has the caller emit
+        // `current` in place of a read and the read after that resumes from there.
+        // `iterator_api.h` says `VALIDATE_MOVED` means the position moved *forward*,
+        // and `Not::revalidate` asserts that of its child — which is where a
+        // `QUICK_EXIT` union usually sits.
         //
-        // The result has to be republished either way, because it holds raw pointers into
-        // the children's own results — one that moved leaves it describing another
-        // document, and one that aborted was dropped above and leaves it dangling. What
-        // it can be republished *from* decides the outcome. From a single child, as
-        // everywhere else in this mode: `min.child_idx` cannot serve, being the lagging
-        // child just rejected, so the one still on the current position is looked up.
-        //
-        // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
-        // rather than paying for a comparison that its invariant already rules out.
-        if QUICK_EXIT && min.doc_id < original_last_doc_id {
-            if let Some(idx) = self
-                .children
-                .iter()
-                .position(|c| !c.at_eof() && c.last_doc_id() == original_last_doc_id)
+        // Both modes can see one. With `QUICK_EXIT` it is the mode's own early
+        // return: `rebuild_heap` keys on `last_doc_id()`, which answers 0 for a child
+        // that has never been read and an earlier round's id for one that
+        // `advance_lagging_children` left in the heap when it returned on an exact
+        // match. Without it there is exactly one way: a child that ran out and was
+        // dropped can *resurrect* during the revalidation above — an inverted-index
+        // leaf rewinds and re-seeks the position it held, and rewinding clears the
+        // past-the-end state — so `rebuild_heap` re-admits it far behind a union that
+        // carried on without it.
+        if min.doc_id < original_last_doc_id {
+            // The result has to be republished either way, because it holds raw
+            // pointers into the children's own results — one that moved leaves it
+            // describing another document, and one that aborted was dropped above and
+            // leaves it dangling. What it can be republished *from* decides the
+            // outcome.
+            //
+            // A child still sitting on the union's document backs the position as it
+            // stands: republish from that *single* child — the full aggregate is what
+            // `QUICK_EXIT` exists to avoid — and report `Ok`, with no reads spent.
+            // `min.child_idx` cannot serve: that is the lagging child just rejected.
+            // Only quick mode takes this exit, leaving its laggers behind as ordinary
+            // state for the next `read`/`skip_to` to seek past; a full union must
+            // catch them up below either way, because `advance_matching_children` and
+            // `build_aggregate_result` rely on the root not sitting behind the union.
+            if QUICK_EXIT
+                && let Some(idx) = self
+                    .children
+                    .iter()
+                    .position(|c| !c.at_eof() && c.last_doc_id() == original_last_doc_id)
             {
                 // Still backed, so the union has not moved and its current stands.
                 self.quick_set_from_child(idx);
@@ -614,27 +617,53 @@ where
                 return Ok(RQEValidateStatus::Ok);
             }
 
-            // Nothing is left on the union's document: the child that supplied it has
-            // moved on too. Reporting `Ok` would promise a `current` that no child backs.
+            // Nothing already sits on the union's document, but a lagging child may
+            // still *hold* it: the early return that stranded it never consumed its
+            // position. The union may not step over the document before asking —
+            // under a `NOT`, its position is not a delivered result but the next id
+            // the `NOT` has yet to exclude, and stepping over it would let that
+            // document into the result set. So the laggers are seeked to the
+            // abandoned position itself, not past it — which is exactly
+            // `advance_lagging_children`, down to quick mode's early return on the
+            // child that lands there.
             //
-            // So the union advances instead, which is what it would have done on the next
-            // read anyway — `read_quick` targets `last_doc_id() + 1` and seeks every
-            // lagging child past it, including the one whose position was rejected here.
-            // Skipping over the abandoned document costs nothing: it has already been
-            // delivered, and a quick union never promised to aggregate every child that
-            // holds it, so no contribution is dropped by leaving it behind.
-            //
-            // This is the one place a `QUICK_EXIT` revalidation reads. An `Err` here
-            // reaches the caller as `VALIDATE_ABORTED`, which frees the iterator and
-            // substitutes an empty one — the failure is reported, if bluntly, which beats
-            // publishing a result that describes nothing.
-            return match self.read_quick()? {
-                Some(result) => Ok(RQEValidateStatus::Moved {
-                    current: Some(result),
-                }),
-                // Seeking past the abandoned position ran the union out of documents.
-                None => Ok(RQEValidateStatus::Moved { current: None }),
+            // These are the reads a revalidation cannot avoid. An `Err` here reaches
+            // the caller as `VALIDATE_ABORTED`, which frees the iterator and
+            // substitutes an empty one — the failure is reported, if bluntly, which
+            // beats handing out a position no child backs.
+            let early_match = self.advance_lagging_children(original_last_doc_id)?;
+            if QUICK_EXIT && early_match != usize::MAX {
+                // The document is still matched after all: the union stays on it,
+                // backed by the child that just landed there. Remaining laggers are
+                // left for the next call, as everywhere else in this mode.
+                self.quick_set_from_child(early_match);
+
+                debug_assert_eq!(
+                    self.last_doc_id(),
+                    original_last_doc_id,
+                    "staying put must leave the position untouched",
+                );
+
+                return Ok(RQEValidateStatus::Ok);
+            }
+
+            min = match self.heap.peek() {
+                Some(min) => min,
+                // Seeking the laggers forward ran the union out of documents.
+                None => {
+                    self.is_eof = true;
+                    return Ok(RQEValidateStatus::Moved { current: None });
+                }
             };
+
+            // Every child left in the heap now sits at or past the abandoned
+            // position, so the root is a position again: equal to it when children
+            // still match the document (full mode only — quick mode returned above),
+            // later otherwise.
+            debug_assert!(
+                min.doc_id >= original_last_doc_id,
+                "every lagging child was just seeked to the union's position",
+            );
         }
 
         if QUICK_EXIT {

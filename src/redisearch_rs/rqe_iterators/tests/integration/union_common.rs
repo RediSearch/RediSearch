@@ -1224,6 +1224,127 @@ macro_rules! union_common_tests {
             assert!(union.at_eof());
         }
 
+        /// Advancing past the abandoned position is only free if nothing else
+        /// matches it. A `QUICK_EXIT` union is where a `NOT` puts its child, and a
+        /// `NOT` does not consume its child's position — it treats it as a lookahead
+        /// boundary it has not reached yet. So a document the union walks past is one
+        /// the `NOT` has still to exclude.
+        ///
+        /// Here doc 20 is held by both children. The union delivers it from child0
+        /// while child1 is left behind on 15, then child0 moves off 20. Nothing backs
+        /// 20 any more, but child1 still matches it, so the union may not step over it
+        /// without first asking child1.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_advance_keeps_a_document_a_lagging_child_still_matches() {
+            use rqe_iterators::{not::Not, utils::NoTimeoutChecker};
+
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            // Unlike [`revalidate_advances_when_nothing_backs_the_current_position`],
+            // the lagging sibling holds the abandoned document itself.
+            let child1: Mock<'static, 3> = Mock::new([15, 20, 25]);
+
+            let mut data0 = child0.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionQuick::new(children);
+
+            // Positions both children: child0 on 10, child1 on 15.
+            let r = union.read().expect("read failed").unwrap();
+            assert_eq!(r.doc_id, 10);
+
+            // Probing a document child0 holds exactly strands child1 behind the union,
+            // still holding 20 itself.
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(union.last_doc_id(), 20);
+            assert_eq!(
+                union.child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "the early return left child1 behind the union, short of its own 20",
+            );
+
+            // The union is where a NOT keeps its child: ahead of the NOT's own
+            // position, marking the next id the NOT must exclude.
+            let mut not = Not::new(union, 50, 1.0, NoTimeoutChecker);
+            let outcome = not.skip_to(12).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(not.last_doc_id(), 12);
+            assert_eq!(
+                not.child().expect("the union is still there").last_doc_id(),
+                20,
+                "the NOT has not reached its child's position, so doc 20 is still owed",
+            );
+
+            // GC drops doc 20 from child0's postings: it moves on to 40, and nothing
+            // is left on the union's position — except child1, which has not been
+            // asked yet.
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = not.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+            assert!(matches!(status, RQEValidateStatus::Ok));
+
+            let remaining = drain_doc_ids(&mut not);
+            assert!(
+                !remaining.contains(&20),
+                "doc 20 is still matched by child1, so the NOT must exclude it. Got: {remaining:?}",
+            );
+        }
+
+        /// A full union may not adopt a minimum behind its own position, and the
+        /// child that can put one there is an *exhausted* one coming back to life.
+        ///
+        /// A leaf's revalidation rewinds before re-seeking to the position it held,
+        /// and rewinding clears the past-the-end state. So a child dropped from the
+        /// active set at doc 30, while the union carried on to 100 without it, is
+        /// re-admitted at 30 — forward of nothing it owns, but far behind the union.
+        #[test]
+        #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+        fn revalidate_resurrected_child_does_not_drag_a_full_union_backwards() {
+            let child0: Mock<'static, 2> = Mock::new([10, 30]);
+            let child1: Mock<'static, 3> = Mock::new([20, 100, 200]);
+
+            let mut data0 = child0.data();
+            let mut data1 = child1.data();
+
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = $UnionFull::new(children);
+
+            for expected in [10, 20, 30, 100] {
+                let r = union.read().expect("read failed").unwrap();
+                assert_eq!(r.doc_id, expected);
+            }
+
+            // Reading past 30 exhausted child0, so the union dropped it and reached
+            // 100 on child1 alone.
+            let exhausted = union.child_at(0).expect("child0 is still there");
+            assert!(exhausted.at_eof(), "child0 ran past its last document");
+            assert_eq!(exhausted.last_doc_id(), 30);
+
+            // GC forces a revalidation. child0 rewinds, re-seeks to 30 and finds it
+            // still there — so it comes back live on 30, well behind the union's 100.
+            data0.set_revalidate_reseeks_to(Some(30));
+            // Some other child has to move, or revalidation returns before ever
+            // looking at the resurrected one.
+            data1.set_revalidate_result(MockRevalidateResult::Move);
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let status = format!(
+                "{:?}",
+                union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed"),
+            );
+
+            assert!(
+                union.last_doc_id() >= 100,
+                "the union must not fall back onto a document it already delivered, \
+                 got {} (status {status})",
+                union.last_doc_id(),
+            );
+        }
+
         // =============================================================================
         // skip_to edge cases (behavioral only, no read_count assertions)
         // =============================================================================

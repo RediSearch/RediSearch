@@ -213,7 +213,9 @@ where
     ///
     /// Only [`Self::read_full`] calls this, so `QUICK_EXIT` is always `false` here and
     /// no child can be *behind* `current_id`: a full union advances every child on
-    /// every `read`/`skip_to`, and a child's own `revalidate` may only move it forward.
+    /// every `read`/`skip_to`, and its own `revalidate` re-seeks any child that came
+    /// back from a child revalidation behind the union — an exhausted leaf can
+    /// resurrect there — before it returns.
     /// A child that were behind would have to be seeked rather than read — one read
     /// need not clear `current_id` — and would otherwise become the minimum and hand
     /// back a document already delivered. That case is asserted away rather than
@@ -675,42 +677,40 @@ where
             return Ok(RQEValidateStatus::Moved { current: None });
         }
 
-        // Without `QUICK_EXIT` no child can fall behind the union: every active child
-        // is advanced on every `read`/`skip_to`, and a child's own `revalidate` may only
-        // move it forward — one that has run past its end reports no `current` and was
-        // dropped by the scan above. So the minimum is at worst *equal* to the current
-        // position, which is simply a child still sitting on the document it supplied.
-        debug_assert!(
-            QUICK_EXIT || min_doc_id >= original_last_doc_id,
-            "a full union's child cannot fall behind it: {min_doc_id} < {original_last_doc_id}",
-        );
-
-        // With `QUICK_EXIT` it can: `skip_to_quick` returns on the first exact match, so
-        // a later sibling keeps an earlier round's id, or answers 0 having never been
-        // read at all. Such a minimum is not a position to move to — adopting it would
-        // replay documents, because `VALIDATE_MOVED` has the caller emit `current` in
-        // place of a read and the read after that resumes from there. `iterator_api.h`
-        // says `VALIDATE_MOVED` means the position moved *forward*, and
-        // `Not::revalidate` asserts that of its child — which is where a `QUICK_EXIT`
-        // union usually sits.
+        // A minimum *behind* the union is not a position to move to — adopting it
+        // would replay documents, because `VALIDATE_MOVED` has the caller emit
+        // `current` in place of a read and the read after that resumes from there.
+        // `iterator_api.h` says `VALIDATE_MOVED` means the position moved *forward*,
+        // and `Not::revalidate` asserts that of its child — which is where a
+        // `QUICK_EXIT` union usually sits.
         //
-        // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
-        // rather than paying for a comparison that its invariant already rules out.
-        if QUICK_EXIT && min_doc_id < original_last_doc_id {
-            // The result has to be republished either way, because it holds raw pointers
-            // into the children's own results: one that moved leaves it describing
-            // another document, and one that aborted was dropped above and leaves it
-            // dangling. What it can be republished *from* decides the outcome.
+        // Both modes can see one. With `QUICK_EXIT` it is the mode's own early
+        // return: `skip_to_quick` stops on the first exact match, so a later sibling
+        // keeps an earlier round's id, or answers 0 having never been read at all.
+        // Without it there is exactly one way: a child that ran out and was dropped
+        // can *resurrect* during the revalidation above — an inverted-index leaf
+        // rewinds and re-seeks the position it held, and rewinding clears the
+        // past-the-end state — so it re-enters the active set far behind a union
+        // that carried on without it.
+        if min_doc_id < original_last_doc_id {
+            // The result has to be republished either way, because it holds raw
+            // pointers into the children's own results: one that moved leaves it
+            // describing another document, and one that aborted was dropped above and
+            // leaves it dangling. What it can be republished *from* decides the
+            // outcome.
             //
-            // From a *single* child, as everywhere else in this mode — the full aggregate
-            // is what `QUICK_EXIT` exists to avoid. `min_child_idx` cannot serve: that is
-            // the lagging child just rejected, sitting at `min_doc_id`. So the child
-            // still on the current position is looked up instead. Every child in the
-            // active region has a `current` (the scan above dropped the rest), so finding
-            // one by position is enough.
-            if let Some(idx) = self.children[..self.num_active]
-                .iter()
-                .position(|c| c.last_doc_id() == original_last_doc_id)
+            // A child still sitting on the union's document backs the position as it
+            // stands: republish from that *single* child — the full aggregate is what
+            // `QUICK_EXIT` exists to avoid — and report `Ok`, with no reads spent.
+            // `min_child_idx` cannot serve: that is the lagging child just rejected.
+            // Only quick mode takes this exit, leaving its laggers behind as ordinary
+            // state for the next `read`/`skip_to` to seek past; a full union must
+            // catch them up below either way, because `advance_and_find_min` relies
+            // on no active child sitting behind the union.
+            if QUICK_EXIT
+                && let Some(idx) = self.children[..self.num_active]
+                    .iter()
+                    .position(|c| c.last_doc_id() == original_last_doc_id)
             {
                 // Still backed, so the union has not moved and its current stands.
                 self.quick_set_from_child(idx);
@@ -724,27 +724,76 @@ where
                 return Ok(RQEValidateStatus::Ok);
             }
 
-            // Nothing is left on the union's document: the child that supplied it has
-            // moved on too. Reporting `Ok` would promise a `current` that no child backs.
+            // Nothing already sits on the union's document, but a lagging child may
+            // still *hold* it: `skip_to_quick`'s early return strands a sibling
+            // without consuming its position. The union may not step over the
+            // document before asking — under a `NOT`, its position is not a
+            // delivered result but the next id the `NOT` has yet to exclude, and
+            // stepping over it would let that document into the result set. So every
+            // lagger is seeked to the abandoned position itself, not past it.
             //
-            // So the union advances instead, which is what it would have done on the next
-            // read anyway — `read_quick` targets `last_doc_id() + 1` and seeks every
-            // lagging child past it, including the one whose position was rejected here.
-            // Skipping over the abandoned document costs nothing: it has already been
-            // delivered, and a quick union never promised to aggregate every child that
-            // holds it, so no contribution is dropped by leaving it behind.
-            //
-            // This is the one place a `QUICK_EXIT` revalidation reads. An `Err` here
-            // reaches the caller as `VALIDATE_ABORTED`, which frees the iterator and
-            // substitutes an empty one — the failure is reported, if bluntly, which beats
-            // publishing a result that describes nothing.
-            return match self.read_quick()? {
-                Some(result) => Ok(RQEValidateStatus::Moved {
-                    current: Some(result),
-                }),
-                // Seeking past the abandoned position ran the union out of documents.
-                None => Ok(RQEValidateStatus::Moved { current: None }),
-            };
+            // These are the reads a revalidation cannot avoid. An `Err` here reaches
+            // the caller as `VALIDATE_ABORTED`, which frees the iterator and
+            // substitutes an empty one — the failure is reported, if bluntly, which
+            // beats handing out a position no child backs.
+            let mut i = 0;
+            while i < self.num_active {
+                if self.children[i].last_doc_id() >= original_last_doc_id {
+                    i += 1;
+                    continue;
+                }
+                match self.children[i].skip_to(original_last_doc_id)? {
+                    Some(SkipToOutcome::Found(_)) => {
+                        if QUICK_EXIT {
+                            // The document is still matched after all: the union
+                            // stays on it, backed by the child that just landed
+                            // there. Remaining laggers are left for the next call,
+                            // as everywhere else in this mode.
+                            self.quick_set_from_child(i);
+
+                            debug_assert_eq!(
+                                self.last_doc_id(),
+                                original_last_doc_id,
+                                "staying put must leave the position untouched",
+                            );
+
+                            return Ok(RQEValidateStatus::Ok);
+                        }
+                        i += 1;
+                    }
+                    Some(SkipToOutcome::NotFound(_)) => {
+                        i += 1;
+                    }
+                    None => {
+                        // The seek exhausted the child. Don't increment i — the
+                        // swapped-in element needs to be checked.
+                        self.swap_remove_child(i);
+                    }
+                }
+            }
+
+            // Seeking the laggers forward can run the union out of documents.
+            if self.num_active == 0 {
+                self.is_eof = true;
+                return Ok(RQEValidateStatus::Moved { current: None });
+            }
+
+            // Every active child now sits at or past the abandoned position, so the
+            // minimum is a position again: equal to it when children still match the
+            // document (full mode only — quick mode returned above), later otherwise.
+            min_doc_id = DocId::MAX;
+            for (i, child) in self.children[..self.num_active].iter().enumerate() {
+                let child_doc_id = child.last_doc_id();
+                if child_doc_id < min_doc_id {
+                    min_doc_id = child_doc_id;
+                    min_child_idx = i;
+                }
+            }
+
+            debug_assert!(
+                min_doc_id >= original_last_doc_id,
+                "every lagging child was just seeked to the union's position",
+            );
         }
 
         // Rebuild result at the new minimum doc_id
