@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    QueryIterator, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
-    VecSimIndex, VecSimQueryParams, timespec,
+    QueryIterator, RLookupKeyHandle, RS_VecSimCheckTimeout, TimeoutCtx, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams, timespec,
 };
 use index_result::RSIndexResult;
 use rlookup::RLookupKey;
@@ -91,17 +91,14 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// and reads the `timeoutCtx` referent, the `timeout_ctx` field, dropped no
     /// earlier than this iterator.
     batch_iter: Option<BatchIterator<'index, 'index>>,
-    /// Number of batches consumed so far. Reset on rewind.
+    /// Total number of batches fetched so far. Reset on rewind. (Batches mode only.)
     pub num_iterations: usize,
-    /// Largest batch size used so far. Reset on rewind. Read by the
-    /// profile printer.
+    /// Maximum batch size used across all batches. Reset on rewind. (Batches mode only.)
     pub max_batch_size: usize,
     /// Zero-based iteration index at which the current
     /// [`max_batch_size`](Self::max_batch_size) was reached. Reset on rewind.
     /// Read by the profile printer.
     pub max_batch_iteration: usize,
-    /// Raw child iterator handle exposed to the C profile printer.
-    pub child_raw: *mut QueryIterator,
     /// Rolling estimate of how many child docs pass the filter; seeded from
     /// [`initial_child_num_estimated`](Self::initial_child_num_estimated) and
     /// refined each batch. Reset on rewind.
@@ -119,14 +116,37 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
 
-    /// Score key for this iterator's metric output; set by the metrics loader.
-    own_key: *mut RLookupKey<'index>,
+    /// Score key for this iterator's metric output. The C metrics loader writes
+    /// through the address returned by the own-key accessor. Boxed so that
+    /// address stays stable across iterator moves (e.g. the rebox performed
+    /// during `FT.PROFILE`), keeping the C-side key handle valid. Holds a null
+    /// pointer until the loader sets it.
+    pub own_key: Box<*mut RLookupKey<'index>>,
+    /// Back-reference to the handle that points to [`own_key`](Self::own_key).
+    /// Set by the C side alongside `own_key`; null until then.
+    pub key_handle: *mut RLookupKeyHandle,
+    /// Raw owning pointer to the C child iterator; stored for
+    /// `VectorTopK_GetChild`. Set by the C side via an accessor; null
+    /// until then.
+    pub child_raw: *mut QueryIterator,
+}
+
+impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
+    fn drop(&mut self) {
+        if !self.key_handle.is_null() {
+            // SAFETY: key_handle is non-null only when VectorTopK_SetKeyHandle
+            // stored a valid, live RLookupKeyHandle pointer here.
+            unsafe {
+                (*self.key_handle).is_valid = false;
+            }
+        }
+    }
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index` pointer is non-owning; everything else is owned and
-// managed by the struct itself (timeout_ctx, batch_iter). It is the caller's
-// responsibility to ensure the index outlives the iterator.
+// thread). `index`, `own_key`, `key_handle`, and `child_raw` are non-owning raw
+// pointers; the caller ensures they outlive the iterator. `batch_iter` is managed
+// by the struct itself. All other fields are owned Rust values.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -188,13 +208,14 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             num_iterations: 0,
             max_batch_size: 0,
             max_batch_iteration: 0,
-            child_raw: ptr::null_mut(),
             child_num_estimated,
             initial_child_num_estimated: child_num_estimated,
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
-            own_key: ptr::null_mut(),
+            own_key: Box::new(ptr::null_mut()),
+            key_handle: ptr::null_mut(),
+            child_raw: ptr::null_mut(),
         }
     }
 
@@ -313,6 +334,11 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         }
 
         let batch_size = self.compute_next_batch_size();
+        // Track max batch size and which iteration it occurred on (zero-based).
+        if batch_size.get() > self.max_batch_size {
+            self.max_batch_size = batch_size.get();
+            self.max_batch_iteration = self.num_iterations; // zero-based before increment
+        }
         self.num_iterations += 1;
 
         // Track the largest dynamically-computed batch and the (zero-based)
@@ -443,11 +469,11 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         Self: 'r,
     {
         let mut result = RSIndexResult::build_metric(score).doc_id(doc_id).build();
-        if !self.own_key.is_null() {
+        if !(*self.own_key).is_null() {
             // SAFETY: when non-null, `own_key` points to a live `RLookupKey` that the query
             // set up before reading any results and keeps alive for at least `'r`. The cast
             // is valid because `RLookupKey<'idx>` starts with a `#[repr(C)]` `ffi::RLookupKey`.
-            let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+            let key: &'r ffi::RLookupKey = unsafe { &*(*self.own_key as *const ffi::RLookupKey) };
             result.metrics.push_with_key(key, score);
         }
         result
@@ -457,13 +483,13 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     where
         Self: 'r,
     {
-        if self.own_key.is_null() {
+        if (*self.own_key).is_null() {
             return;
         }
         // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
         // before any reads occur, and the key lives in the query's RLookup structure for
         // at least `'index` (the query lifetime).
-        let key: &'r ffi::RLookupKey = unsafe { &*(self.own_key as *const ffi::RLookupKey) };
+        let key: &'r ffi::RLookupKey = unsafe { &*(*self.own_key as *const ffi::RLookupKey) };
 
         // The child reuses one storage slot across yields, so an entry from a
         // previous yield may already exist for our key. Update in place when
