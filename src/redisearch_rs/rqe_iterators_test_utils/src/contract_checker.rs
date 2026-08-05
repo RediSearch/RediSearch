@@ -197,6 +197,18 @@ impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
         self.inner
     }
 
+    /// Borrow the wrapped iterator, for a test that asserts on API beyond
+    /// [`RQEIterator`] while driving it — e.g. a
+    /// [`Profile`](rqe_iterators::profile::Profile)'s counters.
+    ///
+    /// Read-only on purpose: there is no `inner_mut`, because a mutation the
+    /// checker cannot observe would leave its [`Position`] record describing an
+    /// iterator that has since moved, and the panic would land on the next
+    /// innocent operation.
+    pub const fn inner(&self) -> &I {
+        &self.inner
+    }
+
     /// Panic if the iterator was aborted by a
     /// [`revalidate`](RQEIterator::revalidate): the contract demands it be
     /// dropped, not used.
