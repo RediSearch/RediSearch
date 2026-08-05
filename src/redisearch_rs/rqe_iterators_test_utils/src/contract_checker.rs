@@ -41,6 +41,22 @@ enum Position {
     PastEnd,
 }
 
+/// How the doc ids a wrapped iterator yields between rewinds may progress.
+///
+/// The strict case is what composites rely on; the looser ones exist for the
+/// leaves whose data source cannot promise it, and are opted into at
+/// construction so the divergence is visible at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ordering {
+    /// Strictly ascending, the normal case.
+    Strict,
+    /// Ascending, but the same doc id may come out more than once: the index
+    /// behind the iterator does not guarantee unique matches.
+    NonDecreasing,
+    /// Any order at all.
+    Unordered,
+}
+
 /// [`RQEValidateStatus`] with the borrowed result reduced to its doc id and
 /// address, so the checker can release the borrow, interrogate the iterator,
 /// and only then rebuild the status to hand out.
@@ -92,7 +108,9 @@ enum RevalidateSummary<'index> {
 ///   not change; `Moved` lands on a position the accessors agree on, never
 ///   behind the previous one and never resurrecting an exhausted iterator; and
 ///   any use after `Aborted` panics — an aborted iterator must be dropped.
-/// - Doc ids strictly ascend between rewinds, unless constructed with
+/// - Doc ids strictly ascend between rewinds — weakened to "never backwards"
+///   by [`new_with_duplicates`](Self::new_with_duplicates), for a leaf whose
+///   index does not promise unique matches, and dropped entirely by
 ///   [`new_unordered`](Self::new_unordered).
 /// - The number of results yielded between rewinds never exceeds
 ///   [`num_estimated`](RQEIterator::num_estimated), which is documented as an
@@ -128,8 +146,8 @@ pub struct ContractChecker<I> {
     /// [`rewind`](RQEIterator::rewind), to check against
     /// [`num_estimated`](RQEIterator::num_estimated).
     yielded: usize,
-    /// Whether yielded doc ids must strictly ascend between rewinds.
-    ordered: bool,
+    /// How yielded doc ids may progress between rewinds.
+    ordering: Ordering,
     /// Set once [`revalidate`](RQEIterator::revalidate) returns
     /// [`Aborted`](RQEValidateStatus::Aborted); every operation afterwards is
     /// a contract violation.
@@ -140,25 +158,36 @@ impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
     /// Wrap a freshly-constructed iterator whose doc ids ascend strictly
     /// between rewinds — the normal case, relied upon by every composite.
     pub fn new(inner: I) -> Self {
-        Self::with_ordering(inner, true)
+        Self::with_ordering(inner, Ordering::Strict)
+    }
+
+    /// Wrap a freshly-constructed iterator that walks its doc ids in ascending
+    /// order but may yield the same one more than once, because the index
+    /// behind it does not guarantee unique matches (e.g.
+    /// [`GeoShape`](rqe_iterators::geo_shape::GeoShape) over the R-tree).
+    ///
+    /// The ordering check weakens to "never backwards"; everything else is
+    /// checked as for [`new`](Self::new).
+    pub fn new_with_duplicates(inner: I) -> Self {
+        Self::with_ordering(inner, Ordering::NonDecreasing)
     }
 
     /// Wrap a freshly-constructed iterator that legitimately yields doc ids
     /// out of order (e.g.
     /// [`IdListUnsorted`](rqe_iterators::id_list::IdListUnsorted)), skipping
-    /// the ascending-ids check.
+    /// the ordering check entirely.
     pub fn new_unordered(inner: I) -> Self {
-        Self::with_ordering(inner, false)
+        Self::with_ordering(inner, Ordering::Unordered)
     }
 
-    fn with_ordering(inner: I, ordered: bool) -> Self {
+    fn with_ordering(inner: I, ordering: Ordering) -> Self {
         let at_eof_when_unread = inner.at_eof();
         Self {
             inner,
             position: Position::Unread,
             at_eof_when_unread,
             yielded: 0,
-            ordered,
+            ordering,
             aborted: false,
         }
     }
@@ -411,15 +440,22 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
                      {id}",
                 );
                 self.assert_may_yield_while_unread("read", previous, id);
-                if self.ordered
-                    && let Position::On(previous_id) = previous
-                {
-                    assert!(
-                        id > previous_id,
-                        "read: doc ids must strictly ascend between rewinds, but {id} follows \
-                         {previous_id} — wrap deliberately unordered iterators with \
-                         `ContractChecker::new_unordered`",
-                    );
+                if let Position::On(previous_id) = previous {
+                    match self.ordering {
+                        Ordering::Strict => assert!(
+                            id > previous_id,
+                            "read: doc ids must strictly ascend between rewinds, but {id} follows \
+                             {previous_id} — wrap an iterator that repeats a doc id with \
+                             `ContractChecker::new_with_duplicates`, or a deliberately unordered \
+                             one with `new_unordered`",
+                        ),
+                        Ordering::NonDecreasing => assert!(
+                            id >= previous_id,
+                            "read: doc ids must not descend between rewinds, but {id} follows \
+                             {previous_id}",
+                        ),
+                        Ordering::Unordered => {}
+                    }
                 }
                 Ok(Some(self.after_yield("read", id, yielded)))
             }
@@ -565,7 +601,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
                         "revalidate: an iterator that had run past its last result cannot move \
                          back onto a document without a rewind, but Moved reported doc {id}",
                     ),
-                    Position::On(previous_id) if self.ordered => assert!(
+                    Position::On(previous_id) if self.ordering != Ordering::Unordered => assert!(
                         id >= previous_id,
                         "revalidate: Moved must not move the position backwards, but doc {id} \
                          comes before doc {previous_id}",
