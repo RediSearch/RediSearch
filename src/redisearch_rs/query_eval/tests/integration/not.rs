@@ -12,6 +12,7 @@
 use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -31,9 +32,11 @@ fn eval_not_empty_child_falls_back_to_wildcard() {
     not.set_children(&[null_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Wildcard);
     for expected in [1, 2, 3] {
@@ -59,9 +62,11 @@ fn eval_not_wildcard_child_reduces_to_empty() {
     not.set_children(&[wc_child.as_ptr()]);
     let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::Empty);
     assert!(matches!(it.read(), Ok(None)));
@@ -116,9 +121,11 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Not);
         // Every id except the one matched by the child (doc 2).
@@ -165,9 +172,11 @@ mod not {
         not.set_children(&[missing_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("a not node always yields an iterator")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a not node always yields an iterator")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::Wildcard);
         for expected in [1, 2] {
@@ -212,9 +221,11 @@ mod not {
         not.set_children(&[ids_child.as_ptr()]);
         let node = unsafe { QueryNodeMut::new(not.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::NotOptimized);
         // `existingDocs` is null in the term context, so the backing wildcard is
