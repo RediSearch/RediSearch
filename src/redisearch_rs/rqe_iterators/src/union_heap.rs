@@ -126,6 +126,11 @@ where
     }
     /// Rebuilds the heap from scratch based on current child positions.
     /// Used after revalidation when children may have moved arbitrarily.
+    ///
+    /// Every child that still owes a result is pushed, and only those that have
+    /// run past their last one are left out (see [`RQEIterator::at_eof`]). Leaving
+    /// out a child that has merely returned its final document would lose it — and
+    /// report EOF for the union outright, if it was the only one left.
     fn rebuild_heap(&mut self) {
         self.heap.clear();
         for (idx, child) in self.children.iter().enumerate() {

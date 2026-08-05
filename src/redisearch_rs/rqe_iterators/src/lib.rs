@@ -169,18 +169,21 @@ pub trait RQEIterator<'index> {
     /// last result. Never a stale result once exhausted — that is what lets
     /// resume-path callers detect a move that landed at EOF.
     ///
-    /// [`at_eof`](Self::at_eof) does not answer the same question: it is a
-    /// *look-ahead* ("the next [`read`](Self::read) returns `None`") which, for
-    /// some iterators, is already `true` while they still sit on their last
-    /// result. An iterator that clamps on its last result rather than advancing
-    /// past it therefore keeps returning `Some(last)` from here while reporting
-    /// [`at_eof`](Self::at_eof).
+    /// [`at_eof`](Self::at_eof) reports the same state inverted, so both are
+    /// driven by one piece of information: whether the iterator has run past its
+    /// last result. An iterator positioned on its final result has not, and still
+    /// owes that result to its caller. The unread state is the one exception —
+    /// see `# Usage` below.
     ///
     /// # Usage
     ///
-    /// Calling this method before the first [`read`](Self::read) or [`skip_to`](Self::skip_to),
-    /// or directly after [`rewind`](Self::rewind) will return a default result
-    /// without meaningful data.
+    /// Before the first [`read`](Self::read) or [`skip_to`](Self::skip_to), and
+    /// directly after a [`rewind`](Self::rewind), the iterator is positioned
+    /// nowhere. Implementations that own a reusable result hand that back,
+    /// carrying no meaningful data; ones that materialise a result only on a read
+    /// — [`Empty`], or `TopKIterator` — answer `None`. Neither form says anything
+    /// about whether there are results to come, and
+    /// [`at_eof`](Self::at_eof) is `false` for both.
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>>;
 
     /// Read the next entry from the iterator.
@@ -195,6 +198,14 @@ pub trait RQEIterator<'index> {
     /// It is assumed that when [`skip_to`](Self::skip_to) is called, `self.last_doc_id() < doc_id`.
     ///
     /// On a successful read, the iterator must set its [`last_doc_id`](Self::last_doc_id) property to the new current result id.
+    ///
+    /// Conversely, a call that carries no result — `None`, or an
+    /// [`RQEIteratorError`] — must not leave
+    /// [`last_doc_id`](Self::last_doc_id) equal to `doc_id`: an iterator may not
+    /// claim the probed document as its position without a result to back it.
+    /// Parents pair the two, reading a position equal to the id they asked for as
+    /// "the child holds this document, so [`current`](Self::current) has it" —
+    /// which a bare position turns into a lie.
     ///
     /// Return `Ok(`[`SkipToOutcome::Found`]`)` if the iterator has found a record with the `docId` and `Ok(`[`SkipToOutcome::NotFound`]`)`
     /// if the iterator found a result greater than `docId`. `None` will be returned if the iterator has reached the end of the index.
@@ -228,9 +239,25 @@ pub trait RQEIterator<'index> {
     /// Returns the last doc id that was read or skipped to.
     fn last_doc_id(&self) -> DocId;
 
-    /// Returns `false` if the iterator can yield more results.
-    /// The iterator implementation must ensure that [`at_eof`](Self::at_eof) returns `true`
-    /// when [`read`](Self::read) would return `Ok(None)`.
+    /// Returns `true` once the iterator has run *past* its last result.
+    ///
+    /// The negation of [`current`](Self::current), whose contract defines the
+    /// state both report. Callers that select the live members of a set rely on
+    /// that boundary: a composite rebuilding its active children after a resume
+    /// keeps every child that still owes a result, and drops only those with
+    /// nothing left.
+    ///
+    /// Before the first [`read`](Self::read) or [`skip_to`](Self::skip_to), and
+    /// directly after a [`rewind`](Self::rewind), an iterator has run past
+    /// nothing, so this is `false` — including when its data turns out to be empty
+    /// and the first read will find nothing. Only an iterator that cannot yield
+    /// anything *by construction*, whatever the data, is at EOF from the start:
+    /// [`Empty`] is one, an [`IdList`] over an empty list is not.
+    ///
+    /// That unread state is also the one place where the two answers stop being
+    /// strict negations, for an implementation that materialises its result only
+    /// on a read: [`current`](Self::current) already answers `None` there while
+    /// this is still `false`, as its `# Usage` describes.
     fn at_eof(&self) -> bool;
 
     /// Returns the [`IteratorType`] of this iterator.

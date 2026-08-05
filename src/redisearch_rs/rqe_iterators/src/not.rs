@@ -47,6 +47,13 @@ pub struct RawNot<'query, Rf: Ref, I, TC> {
     forced_eof: bool,
     /// A reusable result object to avoid allocations on each [`read`](RQEIterator::read) call.
     result: RawIndexResult<'query, Rf>,
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof). It cannot be folded into `result.doc_id`:
+    /// that field *is* [`last_doc_id`](RQEIterator::last_doc_id).
+    past_end: bool,
     /// Tracks the execution deadline for this iterator. Pass
     /// [`NoTimeoutChecker`](timeout::NoTimeoutChecker) to opt out of timeout checks
     /// entirely; monomorphization collapses the no-op context to dead code.
@@ -75,6 +82,7 @@ where
             child: MaybeEmpty::new(child),
             max_doc_id,
             forced_eof: false,
+            past_end: false,
             result: RSIndexResult::build_virt()
                 .weight(weight)
                 .field_mask(RS_FIELDMASK_ALL)
@@ -108,6 +116,16 @@ where
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
     }
+
+    /// Whether there is another result to yield: the complement has not been
+    /// walked up to `max_doc_id`, and no timeout has forced the iterator to stop.
+    ///
+    /// Goes `false` one step before [`Self::past_end`] is set, while the final
+    /// result is still current.
+    #[inline(always)]
+    const fn has_next(&self) -> bool {
+        !self.forced_eof && self.result.doc_id < self.max_doc_id
+    }
 }
 
 impl<'index, I, TC> RQEIterator<'index> for Not<'index, I, TC>
@@ -117,13 +135,24 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         Some(&mut self.result)
     }
 
     #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // The finished state is this flag, not something derived from the
+        // position: `skip_to` puts the position back when it finds nothing, so
+        // `has_next()` on its own would let a finished iterator resume below a
+        // target its caller has already moved past.
+        if self.past_end {
+            return Ok(None);
+        }
+
         // skip all child docs, while not EOF and in sync with child
-        while !self.at_eof() {
+        while self.has_next() {
             self.result.doc_id += 1;
 
             // Sync child if we've moved past its last known position
@@ -148,7 +177,8 @@ where
             // Otherwise: doc_id == child.last_doc_id(), so we skip and loop again.
         }
 
-        debug_assert!(self.at_eof());
+        debug_assert!(!self.has_next());
+        self.past_end = true;
         Ok(None)
     }
 
@@ -159,23 +189,34 @@ where
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         debug_assert!(self.last_doc_id() < doc_id);
 
-        if self.at_eof() {
+        if self.past_end || !self.has_next() {
+            self.past_end = true;
             return Ok(None);
         }
 
-        // Do not skip beyond max_doc_id
+        // Do not skip beyond max_doc_id. The position is left where it was:
+        // returning `None` here means no result was produced, and
+        // [`skip_to`](RQEIterator::skip_to) owes its caller an untouched
+        // `last_doc_id()` in that case.
         if doc_id > self.max_doc_id {
-            self.result.doc_id = self.max_doc_id;
+            self.past_end = true;
             return Ok(None);
         }
 
         // Case 1: Child is ahead or at EOF - docId is not in child
         // When child is at EOF, only accept doc_id if it's past the child's last document
+        //
+        // `at_eof()` is the trailing state, so a child still sitting on its last
+        // result falls through to Case 2's probe, which returns the same
+        // `Found(doc_id)` after one extra call.
         if self.child.last_doc_id() > doc_id
             || (self.child.at_eof() && doc_id > self.child.last_doc_id())
         {
-            self.result.doc_id = doc_id;
+            // Checked before the position is published, not after: a timeout
+            // carries no result, and `skip_to` may not leave the probe target
+            // behind as the position in that case.
             self.check_timeout()?;
+            self.result.doc_id = doc_id;
 
             return Ok(Some(SkipToOutcome::Found(&mut self.result)));
         }
@@ -187,10 +228,10 @@ where
                     // Found value - do not return
                 }
                 None | Some(SkipToOutcome::NotFound(_)) => {
-                    // Not found or EOF - return
-                    self.result.doc_id = doc_id;
-
+                    // Not found or EOF - return. Timeout checked first, for the
+                    // reason given in Case 1.
                     self.check_timeout()?;
+                    self.result.doc_id = doc_id;
 
                     return Ok(Some(SkipToOutcome::Found(&mut self.result)));
                 }
@@ -201,16 +242,31 @@ where
 
         // If we are here, Child has DocID (either already lastDocID == docId or the SkipTo returned OK)
         // We need to return NOTFOUND and set the current result to the next valid docId
+        //
+        // The scan below has to start from `doc_id`, but the probe target only
+        // becomes this iterator's position once a result is in hand: the scan can
+        // run off the end or fail, and a `skip_to` that carries no result must
+        // leave `last_doc_id()` alone. Publishing it early is what let a parent
+        // read a position as a promise of a result at it.
+        let resume_from = self.result.doc_id;
         self.result.doc_id = doc_id;
-        match self.read()? {
-            Some(_) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
-            None => Ok(None),
+        match self.read() {
+            Ok(Some(_)) => Ok(Some(SkipToOutcome::NotFound(&mut self.result))),
+            Ok(None) => {
+                self.result.doc_id = resume_from;
+                Ok(None)
+            }
+            Err(e) => {
+                self.result.doc_id = resume_from;
+                Err(e)
+            }
         }
     }
 
     #[inline(always)]
     fn rewind(&mut self) {
         self.forced_eof = false;
+        self.past_end = false;
         self.result.doc_id = 0;
         self.child.rewind();
     }
@@ -227,7 +283,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.forced_eof || self.result.doc_id >= self.max_doc_id
+        self.past_end
     }
 
     #[inline(always)]
@@ -280,6 +336,7 @@ where
             max_doc_id: self.max_doc_id,
             forced_eof: self.forced_eof,
             result: self.result,
+            past_end: self.past_end,
             timeout_ctx: self.timeout_ctx,
         }
     }

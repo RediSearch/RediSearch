@@ -52,10 +52,10 @@ fn read_test(wc_ids: Vec<DocId>, child_ids: Vec<DocId>, max_doc_id: DocId) {
         let doc_id = doc.doc_id;
         actual.push(doc_id);
         assert_eq!(it.last_doc_id(), doc_id);
-        // at_eof() is computed as `result.doc_id >= max_doc_id`, so it
-        // becomes true immediately after yielding a doc at max_doc_id even
-        // though the read itself succeeded.
-        assert!(doc_id == max_doc_id || !it.at_eof());
+        // Including when `doc_id` is `max_doc_id`: the iterator still owes that
+        // result to its caller, so the read that runs off the end is the one
+        // that reports EOF.
+        assert!(!it.at_eof());
     }
     assert!(it.at_eof());
     // Reading after EOF should return None.
@@ -136,6 +136,45 @@ fn read_wc_at_max_doc_id() {
     // Wildcard contains a document at exactly max_doc_id.
     // max_doc_id is inclusive, so this document should be yielded.
     read_test(vec![1, 5, 10], vec![5], 10);
+}
+
+/// A wildcard document beyond `max_doc_id` is out of this iterator's range, so
+/// reaching one ends the iteration — the answer `skip_to` already gives for a
+/// target past the bound.
+///
+/// The bound is only ever tested against the *current* position, so without this
+/// the wildcard jumping over it in one step would yield an out-of-range document.
+#[test]
+fn read_stops_when_wc_jumps_past_max_doc_id() {
+    read_test(vec![5, 150], vec![7], 100);
+}
+
+/// The same, checking what the iterator reports once it stops: the out-of-range
+/// id must not be left behind as the position, since it was never yielded.
+#[test]
+fn read_past_max_doc_id_leaves_the_last_yielded_position() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    let child = MockVec::new(vec![7]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("doc 5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    assert!(
+        it.read().expect("read must not fail").is_none(),
+        "150 is past max_doc_id, so nothing the wildcard has left is in range",
+    );
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+    assert_eq!(
+        it.last_doc_id(),
+        5,
+        "the out-of-range id was never yielded, so it must not become the position",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,21 +375,33 @@ fn initial_state() {
     assert_eq!(it.num_estimated(), 5);
 }
 
+/// `current()` is a has-current oracle: it tracks reads and reports `None` once
+/// the iterator has run past its last result.
+///
+/// This test previously asserted the opposite — that `current()` is always
+/// `Some` — which is what let a resuming parent mistake "moved off the end" for
+/// "moved to a new document".
 #[test]
-fn current_always_returns_some() {
+fn current_is_a_has_current_oracle() {
     let wc_helper = WildcardHelper::new(&[1, 2, 3]);
     let wcii = wc_helper.create_wildcard();
     let child = MockVec::new(vec![2]);
     let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
 
-    // Before any read.
+    // Before any read: the reset sentinel, not yet meaningful but present.
     assert!(it.current().is_some());
-    // After a read.
+    // Positioned on a result.
     it.read().unwrap();
     assert!(it.current().is_some());
-    // After EOF.
+    // Run past the last result.
     while it.read().unwrap().is_some() {}
     assert!(it.at_eof());
+    assert!(
+        it.current().is_none(),
+        "no current result once the iterator has run past the end",
+    );
+    // Rewind clears it.
+    it.rewind();
     assert!(it.current().is_some());
 }
 
@@ -768,6 +819,46 @@ mod revalidate {
         it.read().unwrap().unwrap();
     }
 
+    /// A wildcard that revalidates onto a document past `max_doc_id` is out of this
+    /// iterator's range, so there is no valid position to report — the same answer
+    /// the read loop and `skip_to` give when the wildcard steps over the bound.
+    ///
+    /// Without the check the branch reports `Moved { current: Some(_) }` carrying
+    /// that out-of-range id, which a native parent would take as a live result.
+    #[test]
+    fn revalidate_wc_moved_past_max_doc_id_reports_no_position() {
+        // The wildcard holds 1 and 50; `max_doc_id` is 10, so 50 is out of range.
+        let (_guard, context) = (
+            GlobalGuard::default(),
+            TestContext::wildcard([1, 50].iter().copied()),
+        );
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        let child = Mock::<1>::new([100]); // never matches
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it = NotOptimized::new(wcii, child, 10, 1.0, NoTimeoutChecker);
+
+        let doc = it
+            .read()
+            .expect("read must not fail")
+            .expect("1 is in range");
+        assert_eq!(doc.doc_id, 1);
+
+        // GC doc 1, so the wildcard's only remaining document is the out-of-range 50.
+        gc_document(&context, 1);
+
+        let status = it
+            .revalidate(&*context.spec_read())
+            .expect("revalidate must not fail");
+        assert!(
+            matches!(status, RQEValidateStatus::Moved { current: None }),
+            "50 is past max_doc_id, so there is no position to report, got {status:?}",
+        );
+        assert!(it.at_eof());
+        assert!(it.current().is_none());
+    }
+
     /// Wildcard moves to EOF after GC removes all remaining documents.
     #[test]
     fn revalidate_wc_moved_to_eof() {
@@ -797,4 +888,133 @@ mod revalidate {
         );
         assert!(it.at_eof());
     }
+
+    /// A revalidation whose scan fails has no position to report, but it also
+    /// clears `forced_eof` so a later read can retry. The EOF it reports in the
+    /// meantime must not outlive that retry succeeding.
+    #[test]
+    fn revalidate_scan_error_does_not_latch_eof() {
+        let (_guard, context) = make_revalidate_context();
+        let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
+        let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
+        // A single child document, at the id the wildcard moves onto below — so
+        // the scan that move triggers reads the child past its end, which is
+        // where the failure is injected.
+        let child = Mock::<1>::new([10]);
+        let mut child_data = child.data();
+        child_data.set_revalidate_result(MockRevalidateResult::Ok);
+        let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+        it.read().unwrap().unwrap(); // doc 1
+        it.read().unwrap().unwrap(); // doc 5, pulling the child forward to 10
+        assert_eq!(it.last_doc_id(), 5);
+
+        child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+
+        // GC doc 5, so the wildcard moves onto 10 — which the child holds, so
+        // the iterator scans for the next valid result and the scan fails.
+        gc_document(&context, 5);
+        let status = it.revalidate(&*context.spec_read()).unwrap();
+        assert!(
+            matches!(status, RQEValidateStatus::Moved { current: None }),
+            "expected Moved {{ current: None }}, got {status:?}"
+        );
+        assert!(it.at_eof(), "nothing to report yet, so at EOF for now");
+
+        // The failure was transient, and the wildcard still holds documents past
+        // 10, so the retry finds one.
+        child_data.set_error_at_done(None);
+        let doc_id = it
+            .read()
+            .expect("read must be able to retry after a failed revalidation scan")
+            .expect("the wildcard has documents beyond 10")
+            .doc_id;
+
+        assert!(
+            !it.at_eof(),
+            "at_eof() must be false while positioned on doc {doc_id}",
+        );
+        assert!(
+            it.current().is_some(),
+            "current() must return the result read() just yielded (doc {doc_id})",
+        );
+    }
+}
+
+/// `skip_to` bounds its *target* against `max_doc_id`, but the wildcard can land
+/// on a document well past it — an in-range target over a sparse stretch. That
+/// landing is out of this iterator's range, so it ends the iteration, exactly as
+/// the read path does.
+#[test]
+fn skip_to_landing_past_max_doc_id_returns_eof() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    let child = MockVec::new(vec![7]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    // 10 is a legal target (<= max_doc_id), but the wildcard's next document is
+    // 150, which is not.
+    let rc = it.skip_to(10).expect("skip_to must not fail");
+    assert!(
+        rc.is_none(),
+        "the wildcard landed past max_doc_id, so nothing in range is left: {rc:?}",
+    );
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+    assert_eq!(
+        it.last_doc_id(),
+        5,
+        "the out-of-range landing was never yielded, so it is not the position",
+    );
+}
+
+/// The same landing, but with the child sitting on the out-of-range document, so
+/// control reaches the scan for the next valid result rather than the direct
+/// assignment.
+///
+/// This route was already bounded, because the scan applies the check itself; the
+/// test is here so the two routes are pinned to the same answer rather than one
+/// of them relying on the other's guard.
+#[test]
+fn skip_to_landing_past_max_doc_id_with_child_there_returns_eof() {
+    let wc_helper = WildcardHelper::new(&[5, 150]);
+    let wcii = wc_helper.create_wildcard();
+    // The child holds 150 too, so `skip_to` would take the "document is in the
+    // child, scan onwards" path.
+    let child = MockVec::new(vec![150]);
+    let mut it = NotOptimized::new(wcii, child, 100, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("5 is in range");
+    assert_eq!(doc.doc_id, 5);
+
+    let rc = it.skip_to(10).expect("skip_to must not fail");
+    assert!(
+        rc.is_none(),
+        "the wildcard landed past max_doc_id, so nothing in range is left: {rc:?}",
+    );
+    assert!(it.at_eof());
+    assert_eq!(it.last_doc_id(), 5);
+}
+
+#[test]
+fn not_optimized_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = rqe_iterators::not_optimized::NotOptimized::new(
+        crate::utils::Mock::new([1u64, 2, 3, 4, 5]),
+        crate::utils::Mock::new([2u64, 4]),
+        5,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

@@ -1526,3 +1526,12 @@ mod reducer {
         ));
     }
 }
+
+#[test]
+fn intersection_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let children = vec![Mock::new([1u64, 2, 3]), Mock::new([2u64, 3, 9])];
+    let mut it = Intersection::new(children, 1.0, false);
+    assert_eq!(assert_current_contract(&mut it), [2, 3]);
+    assert_current_contract_via_skip_to(&mut it, 10);
+}

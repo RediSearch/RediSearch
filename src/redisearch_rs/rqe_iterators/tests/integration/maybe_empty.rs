@@ -483,3 +483,11 @@ mod via_resume {
         assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
     }
 }
+
+#[test]
+fn maybe_empty_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = MaybeEmpty::new(crate::utils::Mock::new([10u64, 20, 30, 50, 80]));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
+}

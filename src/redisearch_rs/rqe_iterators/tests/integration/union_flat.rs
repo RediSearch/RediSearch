@@ -133,3 +133,15 @@ fn into_trimmed_quick_flat_trims_asc() {
     // Active window [0..2), reads in reverse: child[1] then child[0].
     assert_eq!(docs, [3, 4, 1, 2]);
 }
+
+#[test]
+fn union_full_flat_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(crate::utils::Mock::new([1u64, 3])),
+        Box::new(crate::utils::Mock::new([2u64, 4])),
+    ];
+    let mut it = UnionFullFlat::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+    assert_current_contract_via_skip_to(&mut it, 5);
+}
