@@ -21,6 +21,7 @@ mod common {
 
 use crate::utils::{Mock, MockRevalidateResult, create_mock_2, create_mock_3};
 use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
+use rqe_iterators_test_utils::ContractChecker;
 
 // =============================================================================
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
@@ -40,7 +41,7 @@ fn revalidate_before_first_read_leaves_no_stale_heap_entries() {
     let mut sibling_data = sibling.data();
 
     let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(empty), Box::new(sibling)];
-    let mut it = UnionFullHeap::new(children);
+    let mut it = ContractChecker::new(UnionFullHeap::new(children));
 
     // A sibling aborting is what triggers the rebuild, and leaves the empty child
     // as the only one standing.
@@ -60,7 +61,7 @@ fn revalidate_before_first_read_leaves_no_stale_heap_entries() {
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
     let (children, data) = create_mock_2([3], [2]);
-    let mut union = UnionQuickHeap::new(children);
+    let mut union = ContractChecker::new(UnionQuickHeap::new(children));
 
     let result = union
         .read()
@@ -187,7 +188,7 @@ fn revalidate_before_first_read_keeps_every_document_of_non_empty_children() {
     let untouched: Mock<'static, 2> = Mock::new([6, 8]);
 
     let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(moved), Box::new(untouched)];
-    let mut it = UnionFullHeap::new(children);
+    let mut it = ContractChecker::new(UnionFullHeap::new(children));
 
     // `Moved` triggers the rebuild and leaves this child on doc 5, while the
     // sibling stays at `last_doc_id() == 0` — the entry that would go stale.
@@ -233,8 +234,8 @@ fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
     let other: Mock<'static, 2> = Mock::new([6, 8]);
 
     let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(moved), Box::new(other)];
-    let mut it = UnionFullHeap::new(children);
-    assert_eq!(it.num_children_active(), 2);
+    let mut it = ContractChecker::new(UnionFullHeap::new(children));
+    assert_eq!(it.inner().num_children_active(), 2);
 
     moved_data.set_revalidate_result(MockRevalidateResult::Move);
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -255,7 +256,7 @@ fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
 
     assert_eq!(doc_ids, vec![5, 6, 8], "every document, once, in order");
     assert_eq!(
-        it.num_children_active(),
+        it.inner().num_children_active(),
         0,
         "both children are exhausted, and the count reached zero by counting them \
          rather than by wrapping past it",
@@ -269,7 +270,7 @@ fn union_full_heap_upholds_current_contract() {
         Box::new(Mock::new([1u64, 3])),
         Box::new(Mock::new([2u64, 4])),
     ];
-    let mut it = UnionFullHeap::new(children);
+    let mut it = ContractChecker::new(UnionFullHeap::new(children));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
     assert_current_contract_via_skip_to(&mut it, 5);
 }
