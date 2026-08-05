@@ -472,6 +472,35 @@ mod optional_iterator_with_empty_child_test {
         Optional::new(MAX_DOC_ID, WEIGHT, child)
     }
 
+    /// A skip past `max_doc_id` carries no result, so it must not adopt one as
+    /// the position — `max_doc_id` least of all, which a parent would read as
+    /// "this iterator is sitting on the last document".
+    #[test]
+    fn skip_to_beyond_max_doc_id_keeps_the_last_yielded_position() {
+        let mut it = setup_optional_iterator_with_empty_child();
+
+        for expected_id in 1..=3 {
+            assert_eq!(it.read().unwrap().unwrap().doc_id, expected_id);
+        }
+
+        assert!(matches!(it.skip_to(MAX_DOC_ID + 1), Ok(None)));
+        assert!(it.at_eof());
+        assert_eq!(it.last_doc_id(), 3);
+        assert!(it.current().is_none());
+
+        // Exhaustion is recorded on its own, so it holds even though the position
+        // (3) is far below `max_doc_id` and a forward probe is well-formed.
+        assert!(matches!(it.skip_to(4), Ok(None)));
+        assert!(matches!(it.read(), Ok(None)));
+        assert!(it.at_eof());
+        assert_eq!(it.last_doc_id(), 3);
+
+        // Only a rewind revives it.
+        it.rewind();
+        assert!(!it.at_eof());
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    }
+
     #[test]
     fn test_read_all_virtual_results() {
         let mut it = setup_optional_iterator_with_empty_child();
