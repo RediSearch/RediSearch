@@ -325,6 +325,17 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
+// True if the UTF-8 string contains a supplementary-plane codepoint
+// (> U+FFFF, i.e. a 4-byte sequence, lead byte 0xF0..0xF4).
+static bool containsSupplementaryCodepoint(const char *str, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    if ((unsigned char)str[i] >= 0xF0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *payload,
                        size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
@@ -336,9 +347,16 @@ int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *paylo
   suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
+    size_t termLen = strlen(array[i]);
+    // The brute-force scan over the terms trie can never return terms with
+    // supplementary-plane codepoints: the 16-bit rune representation
+    // truncates them, so the inverted-index key it derives no longer exists.
+    // Skip such candidates to keep both paths result-identical.
+    if (containsSupplementaryCodepoint(array[i], termLen)) {
+      continue;
+    }
     // Match rune-wise so `?` consumes one codepoint, keeping results
     // identical to the brute-force scan over the terms trie.
-    size_t termLen = strlen(array[i]);
     runeBuf buf;
     size_t termRuneLen;
     rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);

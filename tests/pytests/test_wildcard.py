@@ -592,3 +592,27 @@ def testWildcardStarredNonFinalAnchorWithSuffixTrie():
 
     res = env.cmd('FT.SEARCH', 'idx', "w'verylongtoken*a'", 'NOCONTENT')
     env.assertEqual(res, [1, 'doc1'])
+
+@skip(cluster=True)
+def testWildcardSupplementaryPlaneParity():
+    """Terms containing supplementary-plane codepoints (4-byte UTF-8, above
+    U+FFFF, e.g. emoji) are never returned by the brute-force wildcard path:
+    the 16-bit rune representation truncates the codepoint, so the
+    inverted-index key derived from it no longer exists. The suffix-trie path
+    keeps the original term bytes and would find them, so it must skip such
+    candidates — WITHSUFFIXTRIE is an optimization and may never change the
+    result set."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_plain', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello💩')
+    conn.execute_command('HSET', 'doc2', 't', '💩')
+
+    for query in ["w'hello?'", "w'hello*'", "w'?'", "w'*💩'"]:
+        res_plain = env.cmd('FT.SEARCH', 'idx_plain', query, 'NOCONTENT')
+        res_suffix = env.cmd('FT.SEARCH', 'idx_suffix', query, 'NOCONTENT')
+        env.assertEqual(res_plain, [0], message=query)
+        env.assertEqual(res_suffix, res_plain, message=query)
