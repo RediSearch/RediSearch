@@ -10,11 +10,15 @@
 //! Heap variant of the union iterator with O(log n) min-finding.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
+use crate::union::SettleOutcome;
 use crate::utils::DocIdMinHeap;
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Yields documents appearing in ANY child iterator using a binary heap.
@@ -139,6 +143,124 @@ where
             if !child.at_eof() {
                 self.heap.push(child.last_doc_id(), idx);
             }
+        }
+    }
+
+    /// Settles the union's position after its children have moved, and reports where
+    /// that leaves it.
+    ///
+    /// The single place that decides a union's post-change position, shared by
+    /// [`RQEIterator::revalidate`] and
+    /// [`RQESuspendedIterator::resume`](crate::RQESuspendedIterator::resume) so the two
+    /// cannot drift apart — the legacy and the `Box<Self>` path must make the same
+    /// re-seek and moved-versus-unchanged decisions, and a divergence between them is a
+    /// bug. Each caller rebuilds the heap and sets `num_active` first.
+    ///
+    /// `original_last_doc_id` is the position the union held before the children moved.
+    fn settle_after_children_changed(
+        &mut self,
+        original_last_doc_id: DocId,
+    ) -> Result<SettleOutcome, RQEIteratorError> {
+        let Some(min) = self.heap.peek() else {
+            self.is_eof = true;
+            return Ok(SettleOutcome::Eof);
+        };
+
+        // Without `QUICK_EXIT` no child can fall behind the union: every child in the
+        // heap is advanced on every `read`/`skip_to`, and a child's own `revalidate` may
+        // only move it forward — one that has run past its end reports no `current` and
+        // is left out by `rebuild_heap`. So the minimum is at worst *equal* to the
+        // current position, which is simply a child still sitting on the document it
+        // supplied.
+        debug_assert!(
+            QUICK_EXIT || min.doc_id >= original_last_doc_id,
+            "a full union's child cannot fall behind it: {} < {original_last_doc_id}",
+            min.doc_id,
+        );
+
+        // With `QUICK_EXIT` it can: `rebuild_heap` keys on `last_doc_id()`, which answers
+        // 0 for a child that has never been read and an earlier round's id for one that
+        // `advance_lagging_children` left in the heap when it returned on an exact match.
+        // Such a minimum is not a position to move to — adopting it would replay
+        // documents, because a reported move has the caller emit `current` in place of a
+        // read and the read after that resumes from there.
+        //
+        // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
+        // rather than paying for a comparison that its invariant already rules out.
+        if QUICK_EXIT && min.doc_id < original_last_doc_id {
+            // The result has to be republished either way, because it holds raw pointers
+            // into the children's own results: one that moved leaves it describing
+            // another document, and one that aborted was dropped above and leaves it
+            // dangling. What it can be republished *from* decides the outcome.
+            if self.republish_at(original_last_doc_id) {
+                debug_assert_eq!(
+                    self.last_doc_id(),
+                    original_last_doc_id,
+                    "staying put must leave the position untouched",
+                );
+
+                return Ok(SettleOutcome::Unchanged);
+            }
+
+            // Nothing is left on the union's document: the child that supplied it has
+            // moved on too. Reporting no change would promise a `current` that no child
+            // backs, so the union advances instead — which is what the following read
+            // would have done anyway. Skipping over the abandoned document costs
+            // nothing: it has already been delivered, and a quick union never promised
+            // to aggregate every child that holds it.
+            return Ok(if self.read_quick()?.is_some() {
+                SettleOutcome::Moved
+            } else {
+                SettleOutcome::Eof
+            });
+        }
+
+        let min_doc_id = min.doc_id;
+        let min_child_idx = min.child_idx;
+        if QUICK_EXIT {
+            self.quick_set_from_child(min_child_idx);
+        } else {
+            self.build_aggregate_result(min_doc_id);
+        }
+
+        if self.last_doc_id() == original_last_doc_id {
+            return Ok(SettleOutcome::Unchanged);
+        }
+
+        debug_assert!(
+            self.last_doc_id() > original_last_doc_id,
+            "a reported move must be forward",
+        );
+
+        Ok(SettleOutcome::Moved)
+    }
+
+    /// Republishes the result at `doc_id`, returning whether any child backs it.
+    ///
+    /// From a *single* child in `QUICK_EXIT` mode — the full aggregate is what that mode
+    /// exists to avoid — and by descending the heap otherwise.
+    ///
+    /// Full mode always answers `true`: its children never fall behind, so the only
+    /// position it is ever asked to republish is the heap's own minimum.
+    fn republish_at(&mut self, doc_id: DocId) -> bool {
+        if QUICK_EXIT {
+            // The minimum's index cannot serve here: that is the lagging child whose
+            // position was rejected. A child the heap left out holds nothing to
+            // contribute, so `at_eof` filters it.
+            match self
+                .children
+                .iter()
+                .position(|c| !c.at_eof() && c.last_doc_id() == doc_id)
+            {
+                Some(idx) => {
+                    self.quick_set_from_child(idx);
+                    true
+                }
+                None => false,
+            }
+        } else {
+            self.build_aggregate_result(doc_id);
+            true
         }
     }
 
@@ -561,101 +683,15 @@ where
         self.rebuild_heap();
         self.num_active = self.heap.len();
 
-        let Some(min) = self.heap.peek() else {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        };
-
-        // Without `QUICK_EXIT` no child can fall behind the union: every child in the
-        // heap is advanced on every `read`/`skip_to`, and a child's own `revalidate` may
-        // only move it forward — one that has run past its end reports no `current` and
-        // is left out by `rebuild_heap`. So the minimum is at worst *equal* to the
-        // current position, which is simply a child still sitting on the document it
-        // supplied.
-        debug_assert!(
-            QUICK_EXIT || min.doc_id >= original_last_doc_id,
-            "a full union's child cannot fall behind it: {} < {original_last_doc_id}",
-            min.doc_id,
-        );
-
-        // With `QUICK_EXIT` it can: `rebuild_heap` keys on `last_doc_id()`, which answers
-        // 0 for a child that has never been read and an earlier round's id for one that
-        // `advance_lagging_children` left in the heap when it returned on an exact match.
-        // Such a minimum is not a position to move to — adopting it would replay
-        // documents, because `VALIDATE_MOVED` has the caller emit `current` in place of a
-        // read and the read after that resumes from there. `iterator_api.h` says
-        // `VALIDATE_MOVED` means the position moved *forward*, and `Not::revalidate`
-        // asserts that of its child — which is where a `QUICK_EXIT` union usually sits.
-        //
-        // The result has to be republished either way, because it holds raw pointers into
-        // the children's own results — one that moved leaves it describing another
-        // document, and one that aborted was dropped above and leaves it dangling. What
-        // it can be republished *from* decides the outcome. From a single child, as
-        // everywhere else in this mode: `min.child_idx` cannot serve, being the lagging
-        // child just rejected, so the one still on the current position is looked up.
-        //
-        // `QUICK_EXIT` is a const generic, so a full union compiles this away entirely
-        // rather than paying for a comparison that its invariant already rules out.
-        if QUICK_EXIT && min.doc_id < original_last_doc_id {
-            if let Some(idx) = self
-                .children
-                .iter()
-                .position(|c| !c.at_eof() && c.last_doc_id() == original_last_doc_id)
-            {
-                // Still backed, so the union has not moved and its current stands.
-                self.quick_set_from_child(idx);
-
-                debug_assert_eq!(
-                    self.last_doc_id(),
-                    original_last_doc_id,
-                    "staying put must leave the position untouched",
-                );
-
-                return Ok(RQEValidateStatus::Ok);
-            }
-
-            // Nothing is left on the union's document: the child that supplied it has
-            // moved on too. Reporting `Ok` would promise a `current` that no child backs.
-            //
-            // So the union advances instead, which is what it would have done on the next
-            // read anyway — `read_quick` targets `last_doc_id() + 1` and seeks every
-            // lagging child past it, including the one whose position was rejected here.
-            // Skipping over the abandoned document costs nothing: it has already been
-            // delivered, and a quick union never promised to aggregate every child that
-            // holds it, so no contribution is dropped by leaving it behind.
-            //
-            // This is the one place a `QUICK_EXIT` revalidation reads. An `Err` here
-            // reaches the caller as `VALIDATE_ABORTED`, which frees the iterator and
-            // substitutes an empty one — the failure is reported, if bluntly, which beats
-            // publishing a result that describes nothing.
-            return match self.read_quick()? {
-                Some(result) => Ok(RQEValidateStatus::Moved {
-                    current: Some(result),
-                }),
-                // Seeking past the abandoned position ran the union out of documents.
-                None => Ok(RQEValidateStatus::Moved { current: None }),
-            };
-        }
-
-        if QUICK_EXIT {
-            self.quick_set_from_child(min.child_idx);
-        } else {
-            self.build_aggregate_result(min.doc_id);
-        }
-
-        // Return MOVED only if lastDocId changed
-        if self.last_doc_id() == original_last_doc_id {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        debug_assert!(
-            self.last_doc_id() > original_last_doc_id,
-            "a reported move must be forward",
-        );
-
-        Ok(RQEValidateStatus::Moved {
-            current: Some(&mut self.result),
-        })
+        Ok(
+            match self.settle_after_children_changed(original_last_doc_id)? {
+                SettleOutcome::Unchanged => RQEValidateStatus::Ok,
+                SettleOutcome::Moved => RQEValidateStatus::Moved {
+                    current: Some(&mut self.result),
+                },
+                SettleOutcome::Eof => RQEValidateStatus::Moved { current: None },
+            },
+        )
     }
 
     #[inline(always)]
@@ -669,6 +705,152 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
+    for UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children: dispatch each child's `suspend` through the trait
+        // so dyn-erased `I` correctly transitions its vtable. See
+        // [`crate::boxed::suspend_child_slot_in_place`] for the rationale.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` and is exclusively owned
+        // for the rest of this function, so the children Vec is reachable
+        // and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionHeap` is `#[repr(C)]` over `Vec<I>` (now byte-
+        // rewritten as `Vec<I::Suspended>` contents), `result:
+        // RawIndexResult<Rf>` (layout-compatible via `SharedPtr`), and
+        // a heap of plain doc-ids/indices (no `Rf` in its types).
+        unsafe {
+            Box::from_raw(raw as *mut RawUnionHeap<'index, Suspended, I::Suspended, QUICK_EXIT>)
+        }
+    }
+}
+
+impl<'query, S, const QUICK_EXIT: bool> RQESuspendedIterator<'query>
+    for RawUnionHeap<'query, Suspended, S, QUICK_EXIT>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        let RawUnionHeap {
+            children,
+            num_estimated,
+            num_active,
+            is_eof,
+            result,
+            heap: _,
+        } = *self;
+
+        let saved_weight = result.weight;
+        let saved_last_doc_id = result.doc_id;
+        drop(result);
+
+        // `swap_remove_child` keeps EOF children in the Vec at indices
+        // `[num_active..]` so [`rewind`](RQEIterator::rewind) can restore
+        // them to active. Resume must preserve that split: tail children
+        // stay in their resumed-active form so a future rewind picks them
+        // up, but they don't count toward `num_active` (their last_doc_id
+        // would otherwise be re-inserted into the heap and yielded again
+        // after the live children exhaust).
+        // No need to track whether any child moved: settling below re-finds the minimum
+        // unconditionally, and reports `Unchanged` when it turns out to be where the
+        // union already was.
+        let mut live: Vec<S::Resumed<'a>> = Vec::with_capacity(num_active);
+        let mut dead: Vec<S::Resumed<'a>> =
+            Vec::with_capacity(children.len().saturating_sub(num_active));
+        for (i, inner) in children.into_iter().enumerate() {
+            let active_inner = match Box::new(inner).resume(guard)? {
+                ResumeOutcome::Aborted => continue,
+                ResumeOutcome::Moved(active_inner) | ResumeOutcome::Ok(active_inner) => {
+                    *active_inner
+                }
+            };
+            if i < num_active {
+                live.push(active_inner);
+            } else {
+                dead.push(active_inner);
+            }
+        }
+        let num_children = live.len();
+        let mut active_children = live;
+        active_children.extend(dead);
+        let result = RSIndexResult::build_union(num_children)
+            .weight(saved_weight)
+            .build();
+
+        let mut active: Box<UnionHeap<'a, S::Resumed<'a>, QUICK_EXIT>> = Box::new(UnionHeap {
+            children: active_children,
+            num_estimated,
+            num_active: num_children,
+            is_eof,
+            result,
+            heap: DocIdMinHeap::with_capacity(num_children),
+        });
+
+        if active.is_eof || saved_last_doc_id == 0 {
+            return Ok(ResumeOutcome::Ok(active));
+        }
+
+        if num_children == 0 {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        // The heap was emptied with the suspended form, so it has to be rebuilt whether
+        // or not a child moved — which is why this settles unconditionally rather than
+        // short-circuiting on `any_change` the way `revalidate` can. With nothing moved
+        // the recomputed minimum *is* `saved_last_doc_id`, so settling reports
+        // `Unchanged`, and the special case would only be a second copy of logic that
+        // has to agree with the shared one.
+        let mut num_active = 0usize;
+        for (idx, child) in active.children.iter().enumerate() {
+            if !child.at_eof() {
+                active.heap.push(child.last_doc_id(), idx);
+                num_active += 1;
+            }
+        }
+        active.num_active = num_active;
+
+        Ok(
+            match active.settle_after_children_changed(saved_last_doc_id)? {
+                SettleOutcome::Unchanged => ResumeOutcome::Ok(active),
+                // Both leave the union somewhere other than where it was; `Eof` has
+                // already set `is_eof`, so the caller sees no current either way.
+                SettleOutcome::Moved | SettleOutcome::Eof => ResumeOutcome::Moved(active),
+            },
+        )
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }
 

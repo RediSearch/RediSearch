@@ -46,10 +46,13 @@
 //! accessible even though they are inactive.
 
 use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
-use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
+use crate::{
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+};
 use index_spec::IndexSpecReadGuard;
 
 /// Union iterator that drains children sequentially in reverse order.
@@ -332,5 +335,65 @@ where
         } else {
             1.0
         }
+    }
+}
+
+impl<'index, I> RQEIteratorBoxed<'index> for UnionTrimmed<'index, I>
+where
+    I: RQEIteratorBoxed<'index>,
+{
+    type Suspended = RawUnionTrimmed<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk children — see [`crate::boxed::suspend_child_slot_in_place`].
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the children Vec is reachable and unaliased.
+        let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+        for child in children.iter_mut() {
+            // SAFETY: `child` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(child) };
+        }
+        // SAFETY: `RawUnionTrimmed` is `#[repr(C)]` over `Vec<I>` (now
+        // byte-rewritten as `Vec<I::Suspended>` contents) and
+        // `result: RawIndexResult<Rf>` (layout-compatible via `SharedPtr`).
+        unsafe { Box::from_raw(raw as *mut RawUnionTrimmed<'index, Suspended, I::Suspended>) }
+    }
+}
+
+impl<'query, S> RQESuspendedIterator<'query> for RawUnionTrimmed<'query, Suspended, S>
+where
+    S: RQESuspendedIterator<'query>,
+{
+    type Resumed<'a>
+        = UnionTrimmed<'a, S::Resumed<'a>>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Trimmed unions are not subject to GC — they're only constructed
+        // for `Q_OPT_PARTIAL_RANGE` (numeric SORTBY), whose result-processor
+        // pipeline drains every upstream result inside a single locked
+        // `sendChunk` call, so the FFI `Revalidate` path never reaches a
+        // trimmed union. See the parallel `unreachable!` in
+        // `RQEIterator::revalidate` for the full justification.
+        unreachable!(
+            "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
+        );
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.num_estimated
     }
 }
