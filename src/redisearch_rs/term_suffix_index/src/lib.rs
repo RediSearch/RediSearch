@@ -195,7 +195,7 @@ impl TermSuffixIndex {
     /// any run of codepoints and `?` exactly one codepoint. Matching is
     /// [case-insensitive](crate#case-insensitivity). Returns `None` when no
     /// token in the pattern can seed the search (every token is empty or
-    /// contains `?`).
+    /// contains `?` or `\`).
     /// A term may be yielded more than once (once per matching suffix entry).
     ///
     /// `?` matches a whole character even in multibyte terms — `entr?`
