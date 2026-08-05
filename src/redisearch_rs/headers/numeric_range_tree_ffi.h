@@ -379,7 +379,7 @@ size_t NumericRangeTree_GetInvertedIndexesSize(const struct NumericRangeTree *t)
  * - `t` must point to a valid [`NumericRangeTree`] obtained from
  *   [`NewNumericRangeTree`] and cannot be NULL.
  */
-struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, int isMulti, size_t maxDepthRange);
+struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 
 /**
  * Get the root node of the tree.

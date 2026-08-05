@@ -129,17 +129,17 @@ fn test_seek_freqs_only() {
 
     // Seek to 30 (skips first two records)
     let found = FreqsOnly::seek(&mut cursor, 10, 30, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 30);
     assert_eq!(result.freq, 3);
 
     // Seek to 40 from base 30 (should land on 55)
     let found = FreqsOnly::seek(&mut cursor, 30, 40, &mut result).expect("seek");
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(result.doc_id, 55);
     assert_eq!(result.freq, 5);
 
     // Seek past end
     let found = FreqsOnly::seek(&mut cursor, 55, 70, &mut result).expect("seek");
-    assert!(!found);
+    assert!(found.is_none());
 }

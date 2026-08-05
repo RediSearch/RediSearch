@@ -98,10 +98,15 @@ impl NumericIndex {
         &mut self,
         doc_id: DocId,
         prepared: PreparedValue,
+        has_field_expiration: bool,
     ) -> inverted_index::AddRecordOutcome {
         let result = match self {
-            NumericIndex::Uncompressed(idx) => idx.add_prepared_record(doc_id, prepared),
-            NumericIndex::Compressed(idx) => idx.add_prepared_record(doc_id, prepared),
+            NumericIndex::Uncompressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
+            NumericIndex::Compressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
         };
         result.expect("in-memory inverted index write cannot fail")
     }

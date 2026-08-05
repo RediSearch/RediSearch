@@ -726,6 +726,43 @@ static bool specHasIndexMissing(const IndexSpec *spec) {
   return false;
 }
 
+// Returns true if `after` contains a field index that is not present in
+// `before` — i.e. some field was given a field-level expiration. Both arrays are
+// sorted ascending by field index; either may be NULL (treated as empty). Used
+// to decide whether an HEXPIRE/HPERSIST must reindex the document so the inline
+// per-field expiration bit on that field's postings flips from 0 to 1.
+static bool fieldExpirationAdded(const struct FieldExpirationSlice before,
+                                 const FieldExpirations *after) {
+  const struct FieldExpirationSlice afterSlice = FieldExpirations_AsSlice(after);
+  size_t bi = 0;
+  for (size_t ai = 0; ai < afterSlice.len; ++ai) {
+    const t_fieldIndex idx = afterSlice.ptr[ai].index;
+    while (bi < before.len && before.ptr[bi].index < idx) {
+      ++bi;
+    }
+    if (bi >= before.len || before.ptr[bi].index != idx) {
+      return true;  // `idx` is in `after` but not in `before`
+    }
+  }
+  return false;
+}
+
+// `openKey` is the caller's live handle, borrowed so we do not reopen an open key.
+static void reindexDocAfterFieldExpirationAdded(RedisModuleCtx *ctx, IndexSpec *spec,
+                                                RedisModuleString *key, DocumentType type,
+                                                RedisModuleKey *openKey) {
+  // IndexSpec_UpdateDoc manages its own locking and re-reads the hash's field
+  // TTLs, so it rewrites the postings (with the bit set) and refreshes the TTL
+  // table in one pass. If the schema FILTER no longer accepts the doc, delete it
+  // instead — otherwise the stale entry (with a clear inline bit) keeps being
+  // returned. Mirrors the INDEXMISSING path and the slow path's SpecOp_Del.
+  if (SchemaRule_ShouldIndex(spec, key, type, openKey)) {
+    IndexSpec_UpdateDoc(spec, ctx, key, type, openKey);
+  } else {
+    IndexSpec_DeleteDoc(spec, ctx, key, openKey);
+  }
+}
+
 void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleString *key,
                                                DocumentType type) {
 
@@ -781,10 +818,10 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
     // index. Matches the SpecOp_Add / SpecOp_Del split the slow path
     // produces in Indexes_UpdateMatchingWithSchemaRules.
     if (specHasIndexMissing(spec)) {
-      if (SchemaRule_ShouldIndex(spec, key, type, NULL)) {
-        IndexSpec_UpdateDoc(spec, ctx, key, type, NULL);
+      if (SchemaRule_ShouldIndex(spec, key, type, k)) {
+        IndexSpec_UpdateDoc(spec, ctx, key, type, k);
       } else {
-        IndexSpec_DeleteDoc(spec, ctx, key, NULL);
+        IndexSpec_DeleteDoc(spec, ctx, key, k);
       }
       continue;
     }
@@ -812,6 +849,28 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
 
     const RSDocumentMetadata *cdmd = DocTable_BorrowByKeyR(&spec->docs, key);
     if (cdmd) {
+      // Each inverted-index posting carries a per-field "this field has a TTL"
+      // bit, baked at index time, that expiration-aware iterators use to skip
+      // the TTL-table lookup when it is clear. A field that gains its *first*
+      // field-level expiration (presence 0->1 for that field) therefore needs a
+      // reindex: that field's postings still hold bit=0, so iterators would skip
+      // the check and wrongly return the now-expiring field. The reverse 1->0
+      // transition and value-only 1->1 changes stay correct under the cheap
+      // metadata-only refresh below — a stale set bit only costs a harmless extra
+      // TTL lookup that resolves to "not expired" — so only a field gaining its
+      // first expiration falls back to a full reindex.
+      const struct FieldExpirationSlice before =
+          DocTable_GetFieldExpirations(&spec->docs, cdmd->id);
+
+      if (fieldExpirationAdded(before, &sorted)) {
+        DMD_Return(cdmd);
+        RedisSearchCtx_UnlockSpec(&sctx);
+        FieldExpirations_Free(&sorted);
+        reindexDocAfterFieldExpirationAdded(ctx, spec, key, type, k);
+        continue;
+      }
+
+      // Hands ownership of `sorted` to the doc table (or frees it if empty).
       DocTable_UpdateFieldExpiration(&spec->docs, (RSDocumentMetadata *)cdmd,
                                      DocTable_TakeFieldExpirations(&sorted));
       DMD_Return(cdmd);

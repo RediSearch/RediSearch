@@ -121,7 +121,7 @@ fn test_seek_offsets_only() {
 
     let record_expected = TestTermRecord::new(30, 0, 1, &[5u8, 6, 7, 8]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -132,7 +132,7 @@ fn test_seek_offsets_only() {
 
     let record_expected = TestTermRecord::new(55, 0, 1, &[20u8, 21]);
 
-    assert!(found);
+    assert!(found.is_some());
     assert_eq!(
         TermRecordCompare(&record_decoded),
         TermRecordCompare(&record_expected.record)
@@ -141,5 +141,5 @@ fn test_seek_offsets_only() {
     let found = OffsetsOnly::seek(&mut buf, 55, 70, &mut record_decoded)
         .expect("to decode fields offsets record");
 
-    assert!(!found);
+    assert!(found.is_none());
 }
