@@ -384,6 +384,8 @@ impl CTrieRef {
             // The suffix walk ignores these; keep them zeroed.
             timeout: std::ptr::null_mut(),
             skipTimeoutChecks: false,
+            cstr: std::ptr::null_mut(),
+            cstrlen: 0,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
         // value — `self.ptr` is a valid suffix `Trie` (caller contract), the

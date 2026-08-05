@@ -35,6 +35,11 @@ typedef struct SuffixCtx {
     void *cbCtx;
     struct timespec *timeout;
     bool skipTimeoutChecks;  // flag to skip timeout checks in trie iteration
+    // Byte form of the pattern, owned by Suffix_IterateWildcard. Set only
+    // when the pattern contains no `?`, enabling Suffix_CB_Wildcard to match
+    // candidates byte-wise without a per-term rune conversion; NULL otherwise.
+    char *cstr;
+    size_t cstrlen;
 } SuffixCtx;
 
 typedef struct suffixData {
