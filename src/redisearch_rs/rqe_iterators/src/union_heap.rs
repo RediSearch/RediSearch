@@ -211,7 +211,7 @@ where
 // read path reads together. Each guards its mode at entry rather than being typed on
 // `UnionHeap<'index, I, false>`: the caller is the generic `RQEIterator` impl, which
 // cannot reach a method that exists for only one value of a const generic (E0599),
-// and splitting that impl in two would strand its `ProfileChildren` dependant.
+// and splitting that impl in two would strand its `ProfileChildren` dependent.
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
