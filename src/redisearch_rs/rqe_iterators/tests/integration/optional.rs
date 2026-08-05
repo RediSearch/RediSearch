@@ -13,14 +13,20 @@ use rqe_iterators::{
     wildcard::Wildcard,
 };
 
+use rqe_iterators_test_utils::ContractChecker;
+
 use crate::utils;
 
 #[test]
 fn type_() {
-    let it = Optional::new(10, 1.0, Empty::default());
+    let it = ContractChecker::new(Optional::new(10, 1.0, Empty::default()));
     assert_eq!(it.type_(), IteratorType::Optional);
 }
 
+/// Driven bare, deliberately: these probe an id at or below the position the
+/// iterator holds, to pin *Optional's own* `debug_assert` that a skip goes
+/// forward. `ContractChecker` enforces that precondition for the driver one step
+/// earlier, so wrapping them would pin its panic instead.
 mod optional_iterator_skip_backward_panics {
     use super::*;
 
@@ -68,11 +74,11 @@ mod optional_iterator_tests {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
+    -> ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>> {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
     }
 
     #[test]
@@ -349,14 +355,14 @@ mod optional_iterator_timeout_tests {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30];
 
     fn setup_optional_iterator_with_mock_child<'index>()
-    -> Optional<'index, utils::Mock<'index, NUM_DOCS>> {
+    -> ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>> {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
         child
             .data()
             .set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
     }
 
     #[test]
@@ -465,11 +471,12 @@ mod optional_iterator_with_empty_child_test {
     const MAX_DOC_ID: DocId = 50;
     const WEIGHT: f64 = 3.;
 
-    fn setup_optional_iterator_with_empty_child<'index>() -> Optional<'index, Empty> {
+    fn setup_optional_iterator_with_empty_child<'index>() -> ContractChecker<Optional<'index, Empty>>
+    {
         // Create empty child iterator
         let child = Empty::default();
 
-        Optional::new(MAX_DOC_ID, WEIGHT, child)
+        ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child))
     }
 
     #[test]
@@ -653,14 +660,14 @@ mod optional_iterator_revalidate_test {
     const CHILD_DOCS: [DocId; NUM_DOCS] = [10, 20, 30, 50, 80];
 
     fn setup_optional_iterator_with_mock_child_and_data<'index>() -> (
-        Optional<'index, utils::Mock<'index, NUM_DOCS>>,
+        ContractChecker<Optional<'index, utils::Mock<'index, NUM_DOCS>>>,
         utils::MockData,
     ) {
         // Create child iterator with specific docIds
         let child = utils::Mock::new(CHILD_DOCS);
         let data = child.data();
 
-        let it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         (it, data)
     }
@@ -816,7 +823,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Position on a virtual result (doc 1)
         let doc = it.read().unwrap().unwrap();
@@ -844,7 +851,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Position on a virtual result
         let doc = it.read().unwrap().unwrap();
@@ -875,7 +882,7 @@ mod optional_iterator_revalidate_after_abort {
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let child = utils::Mock::new([5, 10, 15]);
         let mut data = child.data();
-        let mut it = Optional::new(MAX_DOC_ID, WEIGHT, child);
+        let mut it = ContractChecker::new(Optional::new(MAX_DOC_ID, WEIGHT, child));
 
         // Read several docs
         for _ in 0..5 {
@@ -1046,7 +1053,8 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_reads() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8]));
+        let mut it =
+            ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8])));
 
         // do twice, rewinding at end...
         for _ in 1..=2 {
@@ -1080,7 +1088,8 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_reads_mixed_with_skip_to() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8]));
+        let mut it =
+            ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 2, 4, 8])));
 
         // real read
         // + skip just after real
@@ -1122,7 +1131,7 @@ mod optional_iterator_non_sequential_reads {
 
     #[test]
     fn test_non_sequential_skip_to_pre_read_child_result() {
-        let mut it = Optional::new(9, 1., ReadStepIterator::new([1, 4]));
+        let mut it = ContractChecker::new(Optional::new(9, 1., ReadStepIterator::new([1, 4])));
 
         assert_numeric_read(&mut it, 1, 1.);
         assert_virtual_read(&mut it, 2);
@@ -1154,7 +1163,7 @@ mod optional_iterator_non_sequential_reads {
     #[test]
     #[should_panic]
     fn test_reads_backwards_panic() {
-        let mut it = Optional::new(5, 1., ReadStepIterator::new([1, 2, 1]));
+        let mut it = ContractChecker::new(Optional::new(5, 1., ReadStepIterator::new([1, 2, 1])));
 
         for _ in 1..=2 {
             let _ = it.read();
@@ -1540,7 +1549,7 @@ mod via_resume {
 fn optional_upholds_current_contract() {
     use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
     // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
-    let mut it = Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
+    let mut it = ContractChecker::new(Optional::new(5, 2.0, utils::Mock::new([2u64, 4])));
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
     assert_current_contract_via_skip_to(&mut it, 6);
 }
