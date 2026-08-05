@@ -18,12 +18,10 @@ use thin_vec::ThinVec;
 /// Readers look an entry up by ordinal to set
 /// [`RSIndexResult::has_field_expiration`](index_result::RSIndexResult::has_field_expiration),
 /// letting expiration-aware iterators skip the TTL-table lookup for documents that have no field
-/// TTL. Held outside the block's encoded buffer, leaving the document-id codec untouched, and
-/// serialized with the block so the bits survive the fork GC.
+/// TTL. Serialized with the block, so the bits survive the fork GC.
 ///
-/// [`ThinVec`] rather than `Box<[u8]>` keeps this one word wide, so a block with no expiring entry
-/// — the common case — costs 8 bytes and no allocation. The bitset reaches only as far as the
-/// highest ordinal inserted; ordinals past its end are absent.
+/// The set reaches only as far as the highest ordinal inserted; ordinals past its end are absent.
+/// An empty set does not allocate.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub(crate) struct ExpirationBits(ThinVec<u8, u16>);
 
@@ -50,8 +48,8 @@ impl ExpirationBits {
             .is_some_and(|byte| byte & Self::mask(ordinal) != 0)
     }
 
-    /// The number of heap bytes this set occupies, including the `ThinVec` header and any
-    /// reserved capacity. Zero while empty, since nothing is allocated then.
+    /// Heap bytes occupied, including the allocation header and reserved capacity. Zero while
+    /// empty.
     pub(crate) fn mem_usage(&self) -> usize {
         self.0.mem_usage()
     }
@@ -67,8 +65,7 @@ impl ExpirationBits {
     }
 }
 
-// Hand-written because `thin_vec` has no `serde` impls, and `IndexBlock` crosses the fork-GC
-// boundary via `rmp_serde`. The wire form is a plain byte sequence, as for a `[u8]`.
+// `thin_vec` has no `serde` impls. The wire form is a plain byte sequence, matching `[u8]`.
 impl Serialize for ExpirationBits {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_slice().serialize(serializer)
