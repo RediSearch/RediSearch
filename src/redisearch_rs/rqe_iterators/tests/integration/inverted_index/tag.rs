@@ -15,7 +15,7 @@ use inverted_index::doc_ids_only::DocIdsOnly;
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Tag};
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
 use crate::inverted_index::utils::BaseTest;
 
@@ -70,21 +70,21 @@ impl TagBaseTest {
 #[test]
 fn tag_type() {
     let test = TagBaseTest::new(10);
-    let it = test.create_iterator();
+    let it = ContractChecker::new(test.create_iterator());
     assert_eq!(it.type_(), IteratorType::InvIdxTag);
 }
 
 #[test]
 fn tag_read() {
     let test = TagBaseTest::new(100);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
 fn tag_skip_to() {
     let test = TagBaseTest::new(10);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.skip_to(&mut it);
 }
 
@@ -97,7 +97,7 @@ fn tag_empty_index() {
     let term = RSQueryTerm::new("test_tag", 0, 0);
     // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
     // that outlives the iterator.
-    let mut it = unsafe {
+    let mut it = ContractChecker::new(unsafe {
         Tag::new(
             reader,
             mock_ctx.sctx(),
@@ -106,7 +106,7 @@ fn tag_empty_index() {
             0.0,
             NoOpChecker,
         )
-    };
+    });
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
@@ -166,21 +166,21 @@ mod not_miri {
     #[test]
     fn tag_revalidate_basic() {
         let test = TagRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
     fn tag_revalidate_at_eof() {
         let test = TagRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_at_eof(&mut it);
     }
 
     #[test]
     fn tag_revalidate_after_index_disappears() {
         let test = TagRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
 
         // Verify the iterator works normally and read at least one document
         let status = it
@@ -234,7 +234,7 @@ mod not_miri {
     #[test]
     fn tag_revalidate_after_document_deleted() {
         let test = TagRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index());
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
@@ -246,7 +246,7 @@ mod not_miri {
     #[test]
     fn tag_revalidate_after_triemap_entry_removed() {
         let test = TagRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
