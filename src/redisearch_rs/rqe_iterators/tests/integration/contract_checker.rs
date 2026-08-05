@@ -14,6 +14,8 @@
 //! The violations are staged through [`Misbehaving`], a minimal sorted-id-list
 //! iterator that misbehaves in exactly one configurable way per instance.
 
+use std::cell::Cell;
+
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
@@ -97,6 +99,13 @@ enum Fault {
     NeverAtEof,
     /// `last_doc_id()` lags behind the result `read` just yielded.
     LaggingLastDocId,
+    /// `last_doc_id()` answers truthfully once after each yield and reports 0
+    /// from then on — a stale self-report that must not be able to license a
+    /// backward `skip_to`.
+    ForgetfulLastDocId,
+    /// `at_eof()` is true while unread, which claims the iterator can yield
+    /// nothing whatever the data, yet it yields all the same.
+    EofWhileUnread,
     /// An exhausted iterator starts yielding results again.
     YieldsAfterExhaustion,
     /// A `skip_to` that found nothing records the probed id as its position.
@@ -109,8 +118,17 @@ enum Fault {
     ForeignCurrent,
     /// `num_estimated()` under-reports the number of results.
     UnderEstimates,
+    /// `num_estimated()` collapses to 0 once the iterator has run dry, below
+    /// the number of results it already handed out.
+    ShrinkingEstimate,
     /// `revalidate` aborts the iterator.
     AbortsOnRevalidate,
+    /// `revalidate` drops the iterator to EOF while reporting `Ok`, which
+    /// promises the position did not change.
+    LosesPositionOnOkRevalidate,
+    /// `revalidate` reports `Moved` onto a document *behind* the position the
+    /// iterator held.
+    MovesBackwardsOnRevalidate,
 }
 
 /// A minimal sorted-id-list iterator committing exactly one [`Fault`].
@@ -124,6 +142,9 @@ struct Misbehaving<'index> {
     result: RSIndexResult<'index>,
     /// A second result object, handed out by [`Fault::ForeignCurrent`].
     spare: RSIndexResult<'index>,
+    /// Set by every yield, cleared by the next `last_doc_id()` query — the
+    /// window in which [`Fault::ForgetfulLastDocId`] still tells the truth.
+    just_yielded: Cell<bool>,
     fault: Fault,
 }
 
@@ -134,6 +155,7 @@ impl Misbehaving<'_> {
             offset: 0,
             result: RSIndexResult::build_virt().build(),
             spare: RSIndexResult::build_virt().build(),
+            just_yielded: Cell::new(false),
             fault,
         }
     }
@@ -169,6 +191,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
         };
         self.offset += 1;
         self.result.doc_id = id;
+        self.just_yielded.set(true);
         Ok(Some(&mut self.result))
     }
 
@@ -180,6 +203,7 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
             self.offset += 1;
             if id >= doc_id {
                 self.result.doc_id = id;
+                self.just_yielded.set(true);
                 let found = id == doc_id && self.fault != Fault::NotFoundOnExactMatch;
                 return Ok(Some(if found {
                     SkipToOutcome::Found(&mut self.result)
@@ -204,6 +228,17 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
             Fault::MovedOnRevalidate => RQEValidateStatus::Moved {
                 current: self.current(),
             },
+            Fault::LosesPositionOnOkRevalidate => {
+                self.offset = self.ids.len() + 1;
+                RQEValidateStatus::Ok
+            }
+            Fault::MovesBackwardsOnRevalidate => {
+                self.offset = 1;
+                self.result.doc_id = self.ids[0];
+                RQEValidateStatus::Moved {
+                    current: Some(&mut self.result),
+                }
+            }
             _ => RQEValidateStatus::Ok,
         })
     }
@@ -217,23 +252,27 @@ impl<'index> RQEIterator<'index> for Misbehaving<'index> {
     }
 
     fn num_estimated(&self) -> usize {
-        if self.fault == Fault::UnderEstimates {
-            self.ids.len() - 1
-        } else {
-            self.ids.len()
+        match self.fault {
+            Fault::UnderEstimates => self.ids.len() - 1,
+            Fault::ShrinkingEstimate if self.past_end() => 0,
+            _ => self.ids.len(),
         }
     }
 
     fn last_doc_id(&self) -> DocId {
-        if self.fault == Fault::LaggingLastDocId && self.offset > 0 {
-            self.result.doc_id.saturating_sub(1)
-        } else {
-            self.result.doc_id
+        match self.fault {
+            Fault::LaggingLastDocId if self.offset > 0 => self.result.doc_id.saturating_sub(1),
+            Fault::ForgetfulLastDocId if !self.just_yielded.replace(false) => 0,
+            _ => self.result.doc_id,
         }
     }
 
     fn at_eof(&self) -> bool {
-        self.fault != Fault::NeverAtEof && self.past_end()
+        match self.fault {
+            Fault::NeverAtEof => false,
+            Fault::EofWhileUnread => self.offset == 0 || self.past_end(),
+            _ => self.past_end(),
+        }
     }
 
     fn type_(&self) -> IteratorType {
@@ -311,6 +350,47 @@ fn catches_yield_after_exhaustion() {
 }
 
 #[test]
+#[should_panic(expected = "broke the precondition")]
+fn catches_backward_skip_licensed_by_a_stale_last_doc_id() {
+    let mut it = ContractChecker::new(Misbehaving::new(
+        vec![10, 20, 30],
+        Fault::ForgetfulLastDocId,
+    ));
+    assert!(matches!(it.skip_to(30), Ok(Some(SkipToOutcome::Found(_)))));
+    // The iterator now under-reports `last_doc_id()` as 0, which would license
+    // this backward probe if the checker took its word for where it stands. It
+    // tracks doc 30 itself, so the probe is rejected regardless.
+    let _ = it.skip_to(20);
+}
+
+#[test]
+#[should_panic(expected = "last_doc_id() must still report")]
+fn catches_stale_last_doc_id_before_a_forward_skip() {
+    let mut it = ContractChecker::new(Misbehaving::new(
+        vec![10, 20, 30],
+        Fault::ForgetfulLastDocId,
+    ));
+    assert!(matches!(it.skip_to(30), Ok(Some(SkipToOutcome::Found(_)))));
+    // The probe itself is well-formed; the iterator having forgotten its
+    // position is the violation.
+    let _ = it.skip_to(40);
+}
+
+#[test]
+#[should_panic(expected = "cannot yield anything by construction")]
+fn catches_read_from_an_iterator_that_reports_eof_while_unread() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::EofWhileUnread));
+    let _ = it.read();
+}
+
+#[test]
+#[should_panic(expected = "cannot yield anything by construction")]
+fn catches_skip_from_an_iterator_that_reports_eof_while_unread() {
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::EofWhileUnread));
+    let _ = it.skip_to(2);
+}
+
+#[test]
 #[should_panic(expected = "must not claim the probed id")]
 fn catches_skip_claiming_probed_id() {
     let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::ClaimsProbedId));
@@ -348,6 +428,52 @@ fn catches_underestimating_num_estimated() {
 }
 
 #[test]
+#[should_panic(expected = "must be an upper bound")]
+fn catches_estimate_shrinking_below_the_results_already_yielded() {
+    // The estimate is a valid upper bound at every yield and only collapses
+    // afterwards, so it takes reading it to catch this.
+    let it = drain(Fault::ShrinkingEstimate);
+    let _ = it.num_estimated();
+}
+
+#[test]
+#[should_panic(expected = "revalidate (ok): at_eof() must be false")]
+fn catches_revalidate_ok_losing_the_position() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(
+        vec![1, 2],
+        Fault::LosesPositionOnOkRevalidate,
+    ));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    // `last_doc_id()` still answers 1, so only re-checking the rest of the
+    // position surfaces the drop to EOF.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
+#[should_panic(expected = "must not move the position backwards")]
+fn catches_revalidate_moving_backwards() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(
+        vec![10, 20, 30],
+        Fault::MovesBackwardsOnRevalidate,
+    ));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 10);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 20);
+    // The reported position is self-consistent — every accessor agrees on doc
+    // 10 — but adopting it would replay documents the caller already saw.
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
+#[should_panic(expected = "cannot move back onto a document without a rewind")]
+fn catches_revalidate_resurrecting_an_exhausted_iterator() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = drain(Fault::MovesBackwardsOnRevalidate);
+    let _ = it.revalidate(&*mock_ctx.spec_read());
+}
+
+#[test]
 #[should_panic(expected = "must be dropped, not used")]
 fn catches_use_after_abort() {
     let mock_ctx = MockContext::new(0, 0);
@@ -355,4 +481,15 @@ fn catches_use_after_abort() {
     let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert!(matches!(status, RQEValidateStatus::Aborted));
     let _ = it.read();
+}
+
+#[test]
+#[should_panic(expected = "must be dropped, not used")]
+fn catches_num_estimated_after_abort() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut it = ContractChecker::new(Misbehaving::new(vec![1, 2], Fault::AbortsOnRevalidate));
+    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
+    assert!(matches!(status, RQEValidateStatus::Aborted));
+    // A planning-time accessor is no exception: the iterator is gone.
+    let _ = it.num_estimated();
 }

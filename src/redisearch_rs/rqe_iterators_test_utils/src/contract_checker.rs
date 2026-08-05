@@ -74,23 +74,31 @@ enum RevalidateSummary<'index> {
 ///   [`current`](RQEIterator::current) is `None` (not the stale last result),
 ///   and the exhausted state holds until [`rewind`](RQEIterator::rewind) — an
 ///   exhausted iterator must keep returning `None`.
+/// - An iterator that reports [`at_eof`](RQEIterator::at_eof) while unread
+///   cannot yield anything *by construction*, so it must never produce a
+///   result before a [`rewind`](RQEIterator::rewind) — or after one.
 /// - [`skip_to`](RQEIterator::skip_to): `Found` carries the requested id,
 ///   `NotFound` carries a strictly greater one, and a skip that found nothing
 ///   must not claim the probed id as its position. The *caller* precondition
 ///   `last_doc_id() < doc_id` is asserted too, so a misbehaving driver (e.g. a
-///   parent iterator skipping backwards) is caught as well.
+///   parent iterator skipping backwards) is caught as well — against the
+///   checker's own [`Position`] record, so an iterator that under-reports
+///   [`last_doc_id`](RQEIterator::last_doc_id) cannot license a backward probe.
 /// - [`rewind`](RQEIterator::rewind) restores the
 ///   [`at_eof`](RQEIterator::at_eof) answer observed at construction: the
 ///   exhausted state must not latch.
-/// - [`revalidate`](RQEIterator::revalidate): `Ok` keeps
-///   [`last_doc_id`](RQEIterator::last_doc_id) unchanged, `Moved` lands on a
-///   position the accessors agree on, and any use after `Aborted` panics —
-///   an aborted iterator must be dropped.
+/// - [`revalidate`](RQEIterator::revalidate): `Ok` leaves every accessor
+///   answering exactly as it did before the call — it promises the position did
+///   not change; `Moved` lands on a position the accessors agree on, never
+///   behind the previous one and never resurrecting an exhausted iterator; and
+///   any use after `Aborted` panics — an aborted iterator must be dropped.
 /// - Doc ids strictly ascend between rewinds, unless constructed with
 ///   [`new_unordered`](Self::new_unordered).
 /// - The number of results yielded between rewinds never exceeds
 ///   [`num_estimated`](RQEIterator::num_estimated), which is documented as an
-///   upper bound.
+///   upper bound — checked both as results come out and whenever a caller reads
+///   the estimate, since an estimate that shrinks below the count already
+///   handed out breaks the bound just as much.
 ///
 /// # Assumptions
 ///
@@ -221,6 +229,18 @@ impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
         yielded: *const RSIndexResult<'index>,
     ) -> &mut RSIndexResult<'index> {
         self.yielded += 1;
+        self.assert_estimate_bounds_yields(op);
+        self.assert_positioned_on(op, id, yielded)
+    }
+
+    /// The yield-count bound: results handed out since the last
+    /// [`rewind`](RQEIterator::rewind) may never exceed
+    /// [`num_estimated`](RQEIterator::num_estimated), documented as an upper
+    /// bound. Checked as each result comes out *and* whenever a caller reads
+    /// the estimate — an estimate that shrinks below the count already handed
+    /// out breaks the bound wherever it is observed.
+    #[track_caller]
+    fn assert_estimate_bounds_yields(&self, op: &str) -> usize {
         let estimated = self.inner.num_estimated();
         assert!(
             self.yielded <= estimated,
@@ -228,7 +248,76 @@ impl<'index, I: RQEIterator<'index>> ContractChecker<I> {
              {estimated}, which must be an upper bound",
             self.yielded,
         );
-        self.assert_positioned_on(op, id, yielded)
+        estimated
+    }
+
+    /// Panic if an iterator that reported [`at_eof`](RQEIterator::at_eof) while
+    /// unread produced a result anyway. That answer is reserved for iterators
+    /// that cannot yield anything *by construction*, whatever the data, so it
+    /// is a promise about every position — not a state a read can talk its way
+    /// out of.
+    #[track_caller]
+    fn assert_may_yield_while_unread(&self, op: &str, previous: Position, id: DocId) {
+        if previous == Position::Unread {
+            assert!(
+                !self.at_eof_when_unread,
+                "{op}: an iterator that reports at_eof() while unread cannot yield anything by \
+                 construction, but it produced doc {id}",
+            );
+        }
+    }
+
+    /// Re-check that every accessor still answers as the tracked
+    /// [`Position`] says, for an operation that promised not to move the
+    /// iterator.
+    #[track_caller]
+    fn assert_position_unchanged(&mut self, op: &str) {
+        match self.position {
+            Position::Unread => {
+                let at_eof = self.inner.at_eof();
+                assert_eq!(
+                    at_eof, self.at_eof_when_unread,
+                    "{op}: at_eof() changed from {} to {at_eof}, but the iterator has not moved",
+                    self.at_eof_when_unread,
+                );
+                if at_eof {
+                    assert!(
+                        self.inner.current().is_none(),
+                        "{op}: current() must be None on an iterator that reports at_eof() while \
+                         unread",
+                    );
+                }
+            }
+            Position::On(id) => {
+                assert_eq!(
+                    self.inner.last_doc_id(),
+                    id,
+                    "{op}: last_doc_id() must still report the result last yielded (doc {id})",
+                );
+                assert!(
+                    !self.inner.at_eof(),
+                    "{op}: at_eof() must be false while positioned on doc {id}",
+                );
+                let current = self.inner.current().unwrap_or_else(|| {
+                    panic!("{op}: current() must be Some while positioned on doc {id}")
+                });
+                assert_eq!(
+                    current.doc_id, id,
+                    "{op}: current() must still return the result last yielded (doc {id})",
+                );
+            }
+            Position::PastEnd => {
+                assert!(
+                    self.inner.at_eof(),
+                    "{op}: at_eof() must be true once the iterator has run past its last result",
+                );
+                assert!(
+                    self.inner.current().is_none(),
+                    "{op}: current() must be None once the iterator has run past its last result \
+                     — not the stale last result",
+                );
+            }
+        }
     }
 
     /// Checks shared by every operation that ran the iterator past its last
@@ -321,6 +410,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
                     "read: an exhausted iterator must keep returning None, but it yielded doc \
                      {id}",
                 );
+                self.assert_may_yield_while_unread("read", previous, id);
                 if self.ordered
                     && let Position::On(previous_id) = previous
                 {
@@ -342,13 +432,29 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
         self.assert_usable("skip_to");
-        let last = self.inner.last_doc_id();
+        let previous = self.position;
+        // The precondition is checked against the checker's own record of where
+        // the iterator stands, not the iterator's self-report: an implementation
+        // that under-reports `last_doc_id()` must not be able to license a probe
+        // that walks the position backwards, which would then let a lower
+        // document through every downstream check.
+        let last = match previous {
+            Position::On(id) => id,
+            Position::Unread | Position::PastEnd => self.inner.last_doc_id(),
+        };
         assert!(
             last < doc_id,
             "skip_to({doc_id}): the caller broke the precondition last_doc_id() < doc_id — \
              last_doc_id() is {last}",
         );
-        let previous = self.position;
+        if let Position::On(id) = previous {
+            assert_eq!(
+                self.inner.last_doc_id(),
+                id,
+                "skip_to({doc_id}): last_doc_id() must still report the result last yielded (doc \
+                 {id})",
+            );
+        }
         let outcome = match self.inner.skip_to(doc_id) {
             Ok(outcome) => outcome,
             Err(error) => {
@@ -387,6 +493,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
                     "skip_to({doc_id}): an iterator that had run past its last result must keep \
                      finding nothing, but it produced doc {id}",
                 );
+                self.assert_may_yield_while_unread("skip_to", previous, id);
                 if found {
                     assert_eq!(
                         id, doc_id,
@@ -416,6 +523,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         self.assert_usable("revalidate");
+        let previous = self.position;
         let previous_last = self.inner.last_doc_id();
         let summary = match self.inner.revalidate(spec)? {
             RQEValidateStatus::Ok => RevalidateSummary::Ok,
@@ -431,12 +539,39 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
                     previous_last,
                     "revalidate: Ok promises the same position, but last_doc_id() changed",
                 );
+                // `Ok` is a promise about the whole position, not just the id:
+                // an iterator that quietly dropped to EOF (or swapped its
+                // current result) while leaving `last_doc_id()` alone reports
+                // `Moved`, or it lies here.
+                self.assert_position_unchanged("revalidate (ok)");
                 Ok(RQEValidateStatus::Ok)
             }
             RevalidateSummary::Moved(Some((id, yielded))) => {
                 // Moved onto a concrete document: the same agreement rules as
                 // any other yield apply, but it is a reposition rather than a
                 // new result, so it does not count against `num_estimated`.
+                //
+                // `Moved` also promises the position did not move *back*
+                // (`iterator_api.h` documents it as moving forward), and a
+                // caller emits `current` in place of a read before resuming
+                // from there — so a move backwards replays documents, and one
+                // out of the exhausted state resurrects an iterator that owes
+                // nothing until a `rewind`. Landing on the same document is
+                // accepted: an iterator may report `Moved` purely to hand back
+                // a republished result object for the position it kept.
+                self.assert_may_yield_while_unread("revalidate (moved)", previous, id);
+                match previous {
+                    Position::PastEnd => panic!(
+                        "revalidate: an iterator that had run past its last result cannot move \
+                         back onto a document without a rewind, but Moved reported doc {id}",
+                    ),
+                    Position::On(previous_id) if self.ordered => assert!(
+                        id >= previous_id,
+                        "revalidate: Moved must not move the position backwards, but doc {id} \
+                         comes before doc {previous_id}",
+                    ),
+                    Position::Unread | Position::On(_) => {}
+                }
                 let current = self.assert_positioned_on("revalidate (moved)", id, yielded);
                 Ok(RQEValidateStatus::Moved {
                     current: Some(current),
@@ -468,8 +603,10 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         );
     }
 
+    #[track_caller]
     fn num_estimated(&self) -> usize {
-        self.inner.num_estimated()
+        self.assert_usable("num_estimated");
+        self.assert_estimate_bounds_yields("num_estimated")
     }
 
     #[track_caller]
