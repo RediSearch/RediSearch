@@ -779,6 +779,13 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 "rlookup::load_document::load_all_keys failed with {err:?}"
             );
 
+            // The message is user-visible: the loader turns a non-stale failure into a
+            // query error rather than silently dropping the row.
+            status.set_code_and_message(
+                err.to_query_error_code(),
+                CString::new(err.to_string()).ok(),
+            );
+
             ffi::REDISMODULE_ERR as i32
         }
     }

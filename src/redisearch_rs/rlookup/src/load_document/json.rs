@@ -126,7 +126,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         } else {
             rlookup
                 .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
-                .unwrap()
+                .ok_or(LoadAllError::TooManyKeys)?
         };
 
         dst_row.write_key(rlk, value);

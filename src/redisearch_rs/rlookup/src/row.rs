@@ -255,12 +255,14 @@ impl<'a> RLookupRow<'a> {
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
     /// refer to a read-only (SVSRC) key.
     pub fn write_key(&mut self, key: &RLookupKey, val: SharedValue) -> Option<SharedValue> {
-        let idx = key.dstidx;
-        if self.dyn_values.len() <= idx as usize {
-            self.set_dyn_capacity((idx + 1) as usize);
+        // Widen before the `+ 1`: `dstidx` may be `u16::MAX`, and the slot count that
+        // holds it does not fit in a `u16`.
+        let idx = key.dstidx as usize;
+        if self.dyn_values.len() <= idx {
+            self.set_dyn_capacity(idx + 1);
         }
 
-        let prev = self.dyn_values[idx as usize].replace(val);
+        let prev = self.dyn_values[idx].replace(val);
 
         if prev.is_none() {
             self.num_dyn_values += 1;
@@ -272,21 +274,33 @@ impl<'a> RLookupRow<'a> {
     /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
     /// for which it is not necessary to use the boilerplate of getting an explicit
     /// key.
+    /// Returns `false`, discarding `val`, when `name` is not yet known and `rlookup` is
+    /// [full][RLookup::is_full] — there is no row slot left to address the new key by.
     pub fn write_key_by_name(
         &mut self,
         rlookup: &mut RLookup<'a>,
         name: impl Into<Cow<'a, CStr>>,
         val: SharedValue,
-    ) {
+    ) -> bool {
         let name = name.into();
         let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
-            rlookup
-                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())
-                .expect("`RLookup::get_key_write` must never return None for non-existent keys. This is a bug!")
+            let key = rlookup.get_key_write(name.into_owned(), RLookupKeyFlags::empty());
+
+            let Some(key) = key else {
+                debug_assert!(
+                    rlookup.is_full(),
+                    "`get_key_write` only returns `None` for an existing key or a full lookup"
+                );
+                return false;
+            };
+
+            key
         };
         self.write_key(key, val);
+
+        true
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
@@ -636,5 +650,21 @@ mod tests {
 
         assert_eq!(len, 3);
         assert_eq!(flags, vec![true, true, false, false, true, false]);
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+    )]
+    fn write_key_at_the_highest_addressable_slot() {
+        let mut key = RLookupKey::new(c"last", RLookupKeyFlags::empty());
+        key.dstidx = u16::MAX;
+        let mut row = RLookupRow::new();
+
+        row.write_key(&key, SharedValue::new_num(42.));
+
+        assert_eq!(row.len(), u16::MAX as usize + 1);
+        assert_eq!(row.get(&key).and_then(|v| v.as_num()), Some(42.));
     }
 }

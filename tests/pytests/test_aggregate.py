@@ -1089,6 +1089,32 @@ def testLoadAll(env):
         env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # can be enabled in the future - should pass even if notExists doesn't exist
         env.expect('FT.AGGREGATE', 'idx', '*', 'SORTBY', 1, '@notExists').error().contains('not loaded nor in schema') # without LOAD it's an error (unless we enable implicit LOAD of any field for SORTBY)
 
+# One past the number of row slots an `RLookupKey` can address: `dstidx` is a `uint16_t`,
+# so slots 0..=65535 are the whole addressable space.
+UNADDRESSABLE_FIELD_COUNT = 65536 + 1
+
+@skip(cluster=True)
+def testLoadAllMoreFieldsThanARowCanAddress(env):
+    """`LOAD *` on a hash with more distinct fields than a row has addressable slots
+    must fail the query rather than the server, and must leave the document loadable
+    by queries that stay within the limit."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc:', 'SCHEMA', 'f0', 'TEXT').ok()
+
+    # Field names are unique per HSET pair, so the loader creates one key per field.
+    batch = 8192
+    for start in range(0, UNADDRESSABLE_FIELD_COUNT, batch):
+        pairs = []
+        for i in range(start, min(start + batch, UNADDRESSABLE_FIELD_COUNT)):
+            pairs += [f'f{i}', 'v']
+        conn.execute_command('HSET', 'doc:bomb', *pairs)
+
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*').error() \
+        .contains('cannot load more than 65536 fields in a single query')
+
+    # The document is not at fault and must stay visible to queries that load fewer fields.
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f0').equal([1, ['f0', 'v']])
+
 def testLimitIssue(env):
     #ticket 66895
     conn = getConnectionByEnv(env)

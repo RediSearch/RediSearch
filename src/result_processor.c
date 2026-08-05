@@ -971,11 +971,14 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
-static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+// Load `r`'s document into its row. Returns false if the failure is one the query cannot
+// recover from, in which case the query error has been moved to the pipeline and the
+// caller must abort; a false return leaves `r` untouched for the caller to release.
+static bool rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
   if (!isDocumentStillValid(self, r)) {
-    return;
+    return true;
   }
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
@@ -1004,15 +1007,29 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
       ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
+  if (ret == REDISMODULE_OK) {
+    return true;
+  }
+
+  // A document holding more distinct fields than a row has addressable slots is a
+  // property of the query (LOAD *), not of the document: the document is alive and
+  // will fail the same way for every reader. Marking it "failed to open" would hide
+  // it from all later queries, so fail this query instead and leave the metadata be.
+  if (QueryError_GetCode(&self->status) == QUERY_ERROR_CODE_LIMIT) {
+    QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_LIMIT,
+                        QueryError_GetDisplayableError(&self->status, false));
+    QueryError_ClearError(&self->status);
+    return false;
+  }
+
   // if loading the document has failed, we keep the row as it was.
   // Error code and message are ignored.
-  if (ret != REDISMODULE_OK) {
-    // mark the document as "failed to open" for later loaders or other threads (optimization)
-    ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
-    // The result contains an expired document.
-    SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
-    QueryError_ClearError(&self->status);
-  }
+  // mark the document as "failed to open" for later loaders or other threads (optimization)
+  ((RSDocumentMetadata *)(SearchResult_GetDocumentMetadata(r)))->flags |= Document_FailedToOpen;
+  // The result contains an expired document.
+  SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
+  QueryError_ClearError(&self->status);
+  return true;
 }
 
 // Whether a loaded result can be serialized to the client. A result flagged
@@ -1046,7 +1063,14 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
   int rc;
   while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
-    rpLoader_loadDocument(lc, r);
+    if (!rpLoader_loadDocument(lc, r)) {
+      // Unrecoverable load failure. Release the partially loaded row - the caller gets
+      // an empty result alongside the error - and stop pulling from upstream. This is
+      // not a skipped result: the query does not complete.
+      SearchResult_Destroy(r);
+      *r = SearchResult_New();
+      return RS_RESULT_ERROR;
+    }
     if (loaderResultIsEmittable(r)) {
       return RS_RESULT_OK;
     }
@@ -1242,7 +1266,21 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
-    rpLoader_loadDocument(&self->base_loader, curr_res);
+    if (!rpLoader_loadDocument(&self->base_loader, curr_res)) {
+      // Unrecoverable load failure. Rows buffered before this one are already loaded, so
+      // yield them and report the error afterwards, the way a buffered timeout is
+      // reported. Everything from here on stays unloaded and must not be emitted:
+      // tombstone this row and the rest of the buffer.
+      self->last_buffered_rc = RS_RESULT_ERROR;
+      do {
+        // Not skipped results - the query is failing, so they are not counted against
+        // the reported total. Tombstoning the slot (null metadata) makes the yield
+        // phase skip it and lets rpSafeLoaderFree destroy it safely.
+        SearchResult_Destroy(curr_res);
+        *curr_res = SearchResult_New();
+      } while ((curr_res = GetNextResult(self)));
+      break;
+    }
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
       // released the read lock to take the GIL). Drop it: loaderDropResult counts it as

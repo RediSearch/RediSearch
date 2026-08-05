@@ -208,7 +208,7 @@ impl<'a> RLookup<'a> {
         // the schema as SORTABLE, and create only if so.
         let name = match self.gen_key_from_spec(name, flags) {
             Ok(key) => {
-                let key = self.keys.push(key);
+                let key = self.keys.push(key)?;
 
                 // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
                 return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
@@ -221,7 +221,7 @@ impl<'a> RLookup<'a> {
             let mut key = RLookupKey::new(name, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
 
-            let key = self.keys.push(key);
+            let key = self.keys.push(key)?;
 
             // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
             return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
@@ -294,7 +294,7 @@ impl<'a> RLookup<'a> {
             // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags.
             self.keys
-                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))?
         };
 
         Some(key.into_ref().get_ref())
@@ -359,7 +359,7 @@ impl<'a> RLookup<'a> {
             let key = self.keys.push(RLookupKey::new(
                 name.clone(),
                 flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ));
+            ))?;
             // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
             unsafe { Pin::into_inner_unchecked(key) }
         };
@@ -404,6 +404,20 @@ impl<'a> RLookup<'a> {
         self.keys.rowlen
     }
 
+    /// The largest number of keys a single lookup can hold.
+    ///
+    /// See [`KeyList::MAX_KEYS`].
+    pub const MAX_KEYS: u32 = KeyList::MAX_KEYS;
+
+    /// Whether this lookup holds as many keys as a row can address.
+    ///
+    /// Once full, every `get_key_*` method returns `None` for names that are not
+    /// already present, since a new key would have no row slot to call its own.
+    /// Overriding an existing key still works: it reuses the old key's slot.
+    pub const fn is_full(&self) -> bool {
+        self.keys.is_full()
+    }
+
     /// Returns the schema-source keys eligible for individual document loading.
     ///
     /// Mirrors the C `loadIndividualKeys` selection for the "load every loadable
@@ -434,8 +448,8 @@ impl<'a> RLookup<'a> {
         // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
         // for every key.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
-            .map(|k| self.keys.push(k))
-            .collect();
+            .map(|k| self.keys.push(k).ok_or(LoadFieldError::TooManyKeys))
+            .collect::<Result<_, _>>()?;
 
         let key_name =
             RedisString::create_from_slice(search_ctx.redisCtx.cast(), key_name.to_bytes());

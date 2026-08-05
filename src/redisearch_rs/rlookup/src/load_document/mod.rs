@@ -71,6 +71,10 @@ pub enum LoadFieldError {
 
     #[error("attempted to load JSON document, but JSON extension was not loaded.")]
     JsonUnsupported,
+
+    /// The lookup already addresses every row slot a key can name.
+    #[error("cannot load more than {} fields in a single query", RLookup::MAX_KEYS)]
+    TooManyKeys,
 }
 
 // TODO remove once upstream redis_module::RedisError implements std::error::Error
@@ -89,6 +93,7 @@ impl LoadFieldError {
             Self::JsonSerialization(_) => QueryErrorCode::Generic,
             Self::Redis(_) => QueryErrorCode::Generic,
             Self::JsonUnsupported => QueryErrorCode::UnsuppType,
+            Self::TooManyKeys => QueryErrorCode::Limit,
         }
     }
 
@@ -112,9 +117,22 @@ pub enum LoadAllError {
     /// Failed to serialize JSON value to string.
     #[error(transparent)]
     JsonSerialization(#[from] redis_json_api::SerializeError),
+
+    /// The document holds more distinct fields than a row can address.
+    #[error("cannot load more than {} fields in a single query", RLookup::MAX_KEYS)]
+    TooManyKeys,
 }
 
 impl LoadAllError {
+    pub const fn to_query_error_code(&self) -> QueryErrorCode {
+        match self {
+            Self::OpenKeyFailed => QueryErrorCode::NoDoc,
+            Self::JsonRootMissing => QueryErrorCode::NoDoc,
+            Self::JsonSerialization(_) => QueryErrorCode::Generic,
+            Self::TooManyKeys => QueryErrorCode::Limit,
+        }
+    }
+
     /// Whether this error is the expected outcome of a document being deleted,
     /// expiring, or changing type between the iterator and the loader.
     pub const fn is_stale_document(&self) -> bool {

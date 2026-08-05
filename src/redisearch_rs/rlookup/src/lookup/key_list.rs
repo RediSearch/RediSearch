@@ -60,6 +60,13 @@ pub struct IterMut<'list, 'a> {
 // ===== impl KeyList =====
 
 impl<'a> KeyList<'a> {
+    /// The largest number of keys a `KeyList` can hold.
+    ///
+    /// Every key addresses its slot in an [`RLookupRow`][crate::RLookupRow] through its
+    /// `dstidx` field, which is a `u16`, so slots `0..=u16::MAX` are the only addressable
+    /// ones.
+    pub(crate) const MAX_KEYS: u32 = u16::MAX as u32 + 1;
+
     /// Construct a new, empty `KeyList`.
     pub const fn new() -> Self {
         Self {
@@ -69,19 +76,37 @@ impl<'a> KeyList<'a> {
         }
     }
 
+    /// Whether this `KeyList` holds [`MAX_KEYS`][Self::MAX_KEYS] keys and can take no more.
+    pub(crate) const fn is_full(&self) -> bool {
+        self.rowlen >= Self::MAX_KEYS
+    }
+
     /// Insert a `RLookupKey` into this `KeyList` and return a mutable reference to it.
     ///
     /// The key will be owned by the list and freed when dropping the list.
+    ///
+    /// Returns `None` — dropping `key` — if the list is already
+    /// [full][Self::is_full]. Callers must surface that to the client rather than
+    /// carrying on with a key that has no row slot of its own.
     //
     // TODO remove the 'a and 'b lifetimes borrow-checker hack when we refactor this code. refer to Jira ticket MOD-13907.
-    pub(crate) fn push<'b>(&mut self, mut key: RLookupKey<'a>) -> Pin<&'b mut RLookupKey<'a>>
+    pub(crate) fn push<'b>(
+        &mut self,
+        mut key: RLookupKey<'a>,
+    ) -> Option<Pin<&'b mut RLookupKey<'a>>>
     where
         'a: 'b,
     {
+        // Checked before `assert_valid` so that a rejected push touches nothing at all.
+        if self.is_full() {
+            return None;
+        }
+
         #[cfg(debug_assertions)]
         self.assert_valid("KeyList::push (before)");
 
-        key.dstidx = u16::try_from(self.rowlen).expect("conversion from u32 RLookup::rowlen to u16 RLookupKey::dstidx overflowed. This is a bug!");
+        // Cannot truncate: `is_full` above bounds `rowlen` to `u16::MAX`.
+        key.dstidx = self.rowlen as u16;
 
         // Safety: RLookup never hands out mutable references to the key (except `Pin<&mut T>` which is fine)
         // and never copies, or memmoves the memory internally.
@@ -118,7 +143,7 @@ impl<'a> KeyList<'a> {
         let key = unsafe { ptr.as_mut() };
         // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust)
         // publicly.
-        unsafe { Pin::new_unchecked(key) }
+        Some(unsafe { Pin::new_unchecked(key) })
     }
 
     /// Return a cursor over an [`crate::RLookup`]'s key list.
@@ -480,10 +505,14 @@ mod tests {
     fn keylist_push_consistency() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_push_consistency after insertions");
@@ -496,6 +525,32 @@ mod tests {
         unsafe {
             assert!(!bar.as_ref().has_next());
         }
+    }
+
+    // A key past the last addressable row slot must be refused outright. Letting it
+    // through would either alias it onto an occupied slot or overflow `dstidx`.
+    #[test]
+    fn keylist_push_refuses_keys_beyond_the_addressable_row() {
+        let mut keylist = KeyList::new();
+        keylist
+            .push(RLookupKey::new(c"first", RLookupKeyFlags::empty()))
+            .expect("an empty list has room");
+
+        // Filling the list key by key is quadratic, since `push` revalidates the whole
+        // list on every insert under `debug_assertions`. Jump the counter instead:
+        // `push` consults it before it touches the list at all.
+        keylist.rowlen = KeyList::MAX_KEYS;
+        assert!(keylist.is_full());
+
+        assert!(
+            keylist
+                .push(RLookupKey::new(c"overflow", RLookupKeyFlags::empty()))
+                .is_none()
+        );
+
+        // Put the real length back, so the list is consistent again when dropped.
+        keylist.rowlen = 1;
+        keylist.assert_valid("tests::keylist_push_refuses_keys_beyond_the_addressable_row");
     }
 
     // Assert the Cursor::move_next method DOES NOT skip keys marked hidden
@@ -554,10 +609,14 @@ mod tests {
     fn keylist_find() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find after insertions");
@@ -575,10 +634,14 @@ mod tests {
     fn keylist_find_mut() {
         let mut keylist = KeyList::new();
 
-        let foo = keylist.push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()));
+        let foo = keylist
+            .push(RLookupKey::new(c"foo", RLookupKeyFlags::empty()))
+            .unwrap();
         let foo = unsafe { NonNull::from(Pin::into_inner_unchecked(foo)) };
 
-        let bar = keylist.push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()));
+        let bar = keylist
+            .push(RLookupKey::new(c"bar", RLookupKeyFlags::empty()))
+            .unwrap();
         let bar = unsafe { NonNull::from(Pin::into_inner_unchecked(bar)) };
 
         keylist.assert_valid("tests::keylist_find_mut after insertions");
@@ -809,7 +872,7 @@ mod tests {
             c"bar",
             make_bitflags!(RLookupKeyFlag::Unresolved),
         ));
-        let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond)) };
+        let second = unsafe { NonNull::from(Pin::into_inner_unchecked(secoond.unwrap())) };
 
         // store first override key
         let override1 = keylist

@@ -139,6 +139,10 @@ impl DocumentFormat for HashDocumentFormat {
 
         let scan_cursor = ScanKeyCursor::new(key);
 
+        // A document may hold more distinct fields than a row has addressable slots.
+        // `ScanKeyCursor::for_each` cannot short-circuit, so record it and fail after.
+        let mut too_many_keys = false;
+
         scan_cursor.for_each(|_key, field, value| {
             let (field_ptr, field_len) = field.as_cstr_ptr_and_len();
 
@@ -167,13 +171,22 @@ impl DocumentFormat for HashDocumentFormat {
                 }
             } else {
                 // First returned document, create the key.
-                rlookup
-                    .get_key_load(
-                        field_cstr.to_owned(),
-                        field_cstr,
-                        RLookupKeyFlag::ForceLoad.into(),
-                    )
-                    .unwrap()
+                let key = rlookup.get_key_load(
+                    field_cstr.to_owned(),
+                    field_cstr,
+                    RLookupKeyFlag::ForceLoad.into(),
+                );
+
+                let Some(key) = key else {
+                    debug_assert!(
+                        rlookup.is_full(),
+                        "`ForceLoad` suppresses every other `None` from `get_key_load`"
+                    );
+                    too_many_keys = true;
+                    return;
+                };
+
+                key
             };
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {
@@ -185,6 +198,10 @@ impl DocumentFormat for HashDocumentFormat {
 
             dst_row.write_key(key, value);
         });
+
+        if too_many_keys {
+            return Err(LoadAllError::TooManyKeys);
+        }
 
         Ok(())
     }
