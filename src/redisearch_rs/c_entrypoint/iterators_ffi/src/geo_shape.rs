@@ -98,8 +98,6 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
     allocated: *mut usize,
 ) -> *mut QueryIterator {
     let sctx_nn = NonNull::new(sctx as *mut RedisSearchCtx).expect("sctx must be non-null");
-    // SAFETY: precondition 1.
-    let sctx_ref = unsafe { sctx_nn.as_ref() };
 
     let filter_ctx_nn =
         NonNull::new(filter_ctx as *mut FieldFilterContext).expect("filter_ctx must be non-null");
@@ -115,7 +113,10 @@ pub unsafe extern "C" fn NewGeometryQueryIterator(
     // SAFETY: precondition 1 guarantees `sctx` and `sctx.spec` are valid and outlive the returned iterator.
     let expiration_checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter, 0) };
 
-    let timeout_ctx = AnyTimeoutContext::from_sctx(sctx_ref, TIMEOUT_CHECK_GRANULARITY);
+    // SAFETY: precondition 1 guarantees `sctx` is valid and outlives the returned iterator, which
+    // is what `from_sctx` requires in order to read the deadline back on each probe. Writes to the
+    // deadline never overlap a probe (see `TimeoutContextDeadline::new`).
+    let timeout_ctx = unsafe { AnyTimeoutContext::from_sctx(sctx_nn, TIMEOUT_CHECK_GRANULARITY) };
 
     let ids_list = if !ids.is_null() {
         // SAFETY: precondition 3.
