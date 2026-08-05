@@ -355,13 +355,20 @@ int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *paylo
     if (containsSupplementaryCodepoint(array[i], termLen)) {
       continue;
     }
-    // Match rune-wise so `?` consumes one codepoint, keeping results
-    // identical to the brute-force scan over the terms trie.
-    runeBuf buf;
-    size_t termRuneLen;
-    rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);
-    match_t match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
-    runeBufFree(&buf);
+    match_t match;
+    if (sufCtx->cstr) {
+      // The pattern has no `?`, the only construct whose byte-wise and
+      // rune-wise readings differ, so match the stored bytes directly.
+      match = Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], termLen);
+    } else {
+      // Match rune-wise so `?` consumes one codepoint, keeping results
+      // identical to the brute-force scan over the terms trie.
+      runeBuf buf;
+      size_t termRuneLen;
+      rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);
+      match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
+      runeBufFree(&buf);
+    }
     if (match == FULL_MATCH) {
       if (sufCtx->callback(array[i], termLen, sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
@@ -391,8 +398,26 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   memcpy(token, sufCtx->rune + idx[useIdx], toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
+  // A pattern without `?` matches identically byte-wise and rune-wise, so
+  // materialize its byte form once and let Suffix_CB_Wildcard match the
+  // stored terms directly instead of rune-converting each candidate.
+  sufCtx->cstr = NULL;
+  sufCtx->cstrlen = 0;
+  bool hasQuestionMark = false;
+  for (size_t i = 0; i < sufCtx->runelen; ++i) {
+    if (sufCtx->rune[i] == (rune)'?') {
+      hasQuestionMark = true;
+      break;
+    }
+  }
+  if (!hasQuestionMark) {
+    sufCtx->cstr = runesToStr(sufCtx->rune, sufCtx->runelen, &sufCtx->cstrlen);
+  }
+
   Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
                        sufCtx->skipTimeoutChecks);
+  rm_free(sufCtx->cstr);
+  sufCtx->cstr = NULL;
   return 1;
 }
 
