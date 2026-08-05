@@ -9,12 +9,13 @@
 
 //! Supporting types for [`NotOptimized`].
 
-use index_result::{RSIndexResult, RawIndexResult};
-use ref_mode::{Active, Ref};
+use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
+use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    WildcardIterator,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    RQEValidateStatus, ResumeOutcome, SkipToOutcome, WildcardIterator,
+    boxed::suspend_child_slot_in_place,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::TimeoutContext,
@@ -76,6 +77,31 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
 /// with an [`RQEIterator`] impl today.
 pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<'index, Active<'index>, W, I, TC>;
 
+// Compile-time proof of invariant 1 on `RawNotOptimized`: for representative
+// concrete `wcii`/`child` types, the `Active` and `Suspended` instantiations are
+// layout-identical. The child slots' own compatibility is their invariant 1
+// (enforced generically by `suspend_child_slot_in_place`); `result` is
+// layout-compatible across `Rf` (proven in `index_result`); the remaining fields
+// are `Rf`-free.
+const _: () = {
+    use crate::Wildcard;
+    use crate::utils::NoTimeoutChecker;
+    use std::mem::{align_of, offset_of, size_of};
+    type AChild = Wildcard<'static>;
+    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type A = RawNotOptimized<'static, Active<'static>, AChild, AChild, NoTimeoutChecker>;
+    type S = RawNotOptimized<'static, Suspended, SChild, SChild, NoTimeoutChecker>;
+    assert!(offset_of!(A, wcii) == offset_of!(S, wcii));
+    assert!(offset_of!(A, child) == offset_of!(S, child));
+    assert!(offset_of!(A, max_doc_id) == offset_of!(S, max_doc_id));
+    assert!(offset_of!(A, forced_eof) == offset_of!(S, forced_eof));
+    assert!(offset_of!(A, result) == offset_of!(S, result));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
+    assert!(offset_of!(A, timeout_ctx) == offset_of!(S, timeout_ctx));
+    assert!(size_of::<A>() == size_of::<S>());
+    assert!(align_of::<A>() == align_of::<S>());
+};
+
 impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
 where
     W: WildcardIterator<'index>,
@@ -105,7 +131,16 @@ where
             timeout_ctx,
         }
     }
+}
 
+impl<'index, W, I, TC> NotOptimized<'index, W, I, TC>
+where
+    // Helpers below only call generic `RQEIterator` methods on the wildcard
+    // base, so they don't need the `WildcardIterator` marker (enforced in `new`).
+    W: RQEIterator<'index>,
+    I: RQEIterator<'index>,
+    TC: TimeoutContext,
+{
     /// Wrapper around [`TimeoutContext::check_timeout`].
     #[inline(always)]
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
@@ -222,7 +257,8 @@ where
 
 impl<'index, W, I, TC> RQEIterator<'index> for NotOptimized<'index, W, I, TC>
 where
-    W: WildcardIterator<'index>,
+    // Marker enforced at construction (`new`); only generic methods used here.
+    W: RQEIterator<'index>,
     I: RQEIterator<'index>,
     TC: TimeoutContext,
 {
@@ -428,6 +464,227 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index, W, I, TC> RQEIteratorBoxed<'index> for NotOptimized<'index, W, I, TC>
+where
+    // Marker enforced at construction (`new`), not on the suspend/resume path.
+    W: RQEIteratorBoxed<'index>,
+    I: RQEIteratorBoxed<'index>,
+    TC: TimeoutContext + 'index + 'static,
+{
+    type Suspended = RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Dispatch each sub-iterator's own `suspend` in place. A whole-box cast
+        // alone is *not* enough: for a type-erased `wcii`/`child` the active and
+        // suspended forms carry different `dyn` vtables, so the transition must
+        // be dispatched through the child's own `suspend` (a no-op cast for
+        // concrete children, a vtable swap for erased ones). `child` is a
+        // `MaybeEmpty<I>`, itself an `RQEIteratorBoxed` that walks its own
+        // `Some(I)` arm.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw mut` forms a field pointer to `wcii`.
+        let wcii = unsafe { &raw mut (*raw).wcii };
+        // SAFETY: `wcii` points at a valid, owned `W`; the helper dispatches its
+        // `suspend` and reinitialises the slot as a valid `W::Suspended`.
+        unsafe { suspend_child_slot_in_place(wcii) };
+        // SAFETY: `&raw mut` forms a field pointer to `child`.
+        let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
+        // dispatches its `suspend` and reinitialises the slot as a valid
+        // `MaybeEmpty<I::Suspended>`.
+        unsafe { suspend_child_slot_in_place(child) };
+        // SAFETY: both sub-iterators now hold their `Suspended` forms;
+        // `result: RawIndexResult<Rf>` is layout-compatible across `Rf`, and the
+        // remaining fields are `Rf`-free — so the allocation is a valid suspended
+        // `RawNotOptimized`, layout-identical to the active form by invariant 1
+        // (const proof above). `Box::from_raw` reuses the same heap allocation.
+        unsafe {
+            Box::from_raw(
+                raw as *mut RawNotOptimized<'index, Suspended, W::Suspended, I::Suspended, TC>,
+            )
+        }
+    }
+}
+
+/// RAII guard used by [`RawNotOptimized`]'s `resume` while its two child slots
+/// are moved out into owned locals. It owns the leftover shell: on drop (an
+/// early return or a panic) it drops the still-suspended `result` and frees the
+/// allocation — it never touches the moved-out `wcii`/`child` slots, so its
+/// behaviour is independent of how far the resume got. It is disarmed with
+/// [`std::mem::forget`] once the resumed children are written back.
+struct FreeSuspendedShell<'q, WS, IS, TC> {
+    raw: *mut RawNotOptimized<'q, Suspended, WS, IS, TC>,
+}
+
+impl<'q, WS, IS, TC> Drop for FreeSuspendedShell<'q, WS, IS, TC> {
+    fn drop(&mut self) {
+        // SAFETY: `raw` is a valid, exclusively-owned allocation; `&raw mut`
+        // forms a field pointer to the still-suspended `result`.
+        let result = unsafe { &raw mut (*self.raw).result };
+        // SAFETY: `result` is a valid, owned suspended result; drop it in place.
+        unsafe { std::ptr::drop_in_place(result) };
+        // SAFETY: `raw` was allocated by `Box` with exactly this layout; the
+        // `wcii`/`child` slots are moved-from and must not be dropped. Free it.
+        unsafe {
+            std::alloc::dealloc(
+                self.raw.cast::<u8>(),
+                std::alloc::Layout::new::<RawNotOptimized<'q, Suspended, WS, IS, TC>>(),
+            )
+        };
+    }
+}
+
+impl<'query, WS, IS, TC> RQESuspendedIterator<'query>
+    for RawNotOptimized<'query, Suspended, WS, IS, TC>
+where
+    WS: RQESuspendedIterator<'query>,
+    IS: RQESuspendedIterator<'query>,
+    TC: TimeoutContext + 'static,
+{
+    type Resumed<'a>
+        = NotOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>, TC>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // `result` must still be a virtual sentinel. It is handed out mutably via
+        // `current()`/`read()`/`skip_to`, and on resume its `Suspended → Active`
+        // reinterpretation would assert index borrows this iterator cannot
+        // re-validate. `kind() == Virtual` is the whole condition (`data` is the
+        // only `Rf`-parametrized field). Checked safely via `&self`, before
+        // `Box::into_raw`, so a violation just drops `self`; recoverable, hence
+        // `Aborted` rather than `Err`.
+        if self.result.kind() != RSResultKind::Virtual {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
+        let raw = Box::into_raw(self);
+
+        // Move both children out into owned locals; their slots become
+        // uninitialised. `result` stays in place (it must keep its address — it
+        // is handed out via `current()`/`read()`/`skip_to`), as do the `Rf`-free
+        // scalar fields.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
+        // exclusively owned); `&raw const` forms a field pointer to `wcii`.
+        let wcii_ptr = unsafe { &raw const (*raw).wcii };
+        // SAFETY: move the owned suspended `wcii` out exactly once.
+        let wcii = unsafe { std::ptr::read(wcii_ptr) };
+        // SAFETY: field pointer to `child`.
+        let child_ptr = unsafe { &raw const (*raw).child };
+        // SAFETY: move the owned suspended `child` out exactly once.
+        let child = unsafe { std::ptr::read(child_ptr) };
+
+        // From here until success, `raw` is a shell whose child slots are
+        // moved-out. This guard frees it — dropping the still-suspended `result`
+        // and the allocation, but never the moved-out slots — on any early return
+        // or panic. The `wcii`/`child` locals clean themselves up via ownership.
+        let shell = FreeSuspendedShell { raw };
+
+        // Resume both children up front, mirroring the legacy path.
+        let wcii_outcome = Box::new(wcii).resume(guard);
+        let child_outcome = Box::new(child).resume(guard);
+
+        // If `wcii` aborted we cannot rebuild — there is no base to enumerate
+        // the complement over — so the whole iterator aborts. The `wcii` is
+        // genuinely a wildcard; its concrete resumed type `WS::Resumed<'a>` is
+        // statically a `WildcardIterator`.
+        let (wcii, wcii_moved) = match wcii_outcome? {
+            ResumeOutcome::Aborted => return Ok(ResumeOutcome::Aborted),
+            ResumeOutcome::Ok(w) => (w, false),
+            ResumeOutcome::Moved(w) => (w, true),
+        };
+        // An aborted query child collapses to `Empty` (mirroring the legacy
+        // behaviour); a moved child doesn't shift NOT's cursor.
+        let child: Box<MaybeEmpty<IS::Resumed<'a>>> = match child_outcome? {
+            ResumeOutcome::Aborted => Box::new(MaybeEmpty::new_empty()),
+            ResumeOutcome::Ok(c) | ResumeOutcome::Moved(c) => c,
+        };
+
+        // Success: disarm the guard and write the resumed children back into
+        // their original slots (preserving their addresses — and `result`'s,
+        // which never moved), then reinterpret the reused allocation as the
+        // active form. Everything between this `forget` and the two writes below
+        // is moves, pointer arithmetic and `const` assertions — none of it can
+        // unwind, so no unwind can observe the uninitialised slots.
+        std::mem::forget(shell);
+        // Statically enforce the size/alignment invariant the in-place writes
+        // below rely on, mirroring the guard inside the shared slot helpers.
+        const { crate::boxed::assert_layout_compatible::<WS, WS::Resumed<'a>>() };
+        const { crate::boxed::assert_layout_compatible::<MaybeEmpty<IS>, MaybeEmpty<IS::Resumed<'a>>>() };
+        // SAFETY: the `wcii` slot is uninitialised; `&raw mut` forms a field
+        // pointer to it.
+        let wcii_slot = unsafe { &raw mut (*raw).wcii };
+        // SAFETY: write the resumed `wcii` back at the same offset, as its
+        // resumed type.
+        unsafe { std::ptr::write(wcii_slot.cast::<WS::Resumed<'a>>(), *wcii) };
+        // SAFETY: `&raw mut` forms a field pointer to the uninitialised `child`
+        // slot.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: write the resumed `child` back at the same offset.
+        unsafe { std::ptr::write(child_slot.cast::<MaybeEmpty<IS::Resumed<'a>>>(), *child) };
+
+        // SAFETY: both slots now hold their resumed forms and `result` is a valid
+        // (pointerless) virtual sentinel (checked above), so the allocation is a
+        // valid `NotOptimized<'a, …>` — layout-identical to the suspended form by
+        // invariant 1 on `RawNotOptimized` (const proof above), with `result`
+        // re-typing `Suspended → Active` soundly. `Box::from_raw` reuses the same
+        // allocation, so the FFI's cached `header.current` and any parent's
+        // pointer into `result` stay valid across the cycle.
+        let mut active = unsafe {
+            Box::from_raw(raw.cast::<NotOptimized<'a, WS::Resumed<'a>, IS::Resumed<'a>, TC>>())
+        };
+
+        if wcii_moved {
+            active.forced_eof = active.wcii.at_eof();
+            // Bounded, as in `revalidate`: a wildcard that came back on a document
+            // beyond `max_doc_id` is out of this iterator's range, so there is no
+            // valid position to publish.
+            let mut have_valid_pos =
+                !active.forced_eof && active.wcii.last_doc_id() <= active.max_doc_id;
+            if have_valid_pos {
+                active.result.doc_id = active.wcii.last_doc_id();
+                if active.child.last_doc_id() < active.result.doc_id {
+                    let _ = active.child.skip_to(active.result.doc_id);
+                }
+                if active.child.last_doc_id() == active.result.doc_id {
+                    if let Ok(found) = active.read_inner() {
+                        have_valid_pos = found;
+                    } else {
+                        active.forced_eof = false;
+                        have_valid_pos = false;
+                    }
+                }
+            }
+            // Mirrors `revalidate`: no valid position means the iterator has run past
+            // its end, and a recovered one clears the flag. Discarding this (as this
+            // path used to) left `current()`/`at_eof()` disagreeing with the outcome
+            // just reported.
+            active.past_end = !have_valid_pos;
+            return Ok(ResumeOutcome::Moved(active));
+        }
+
+        Ok(ResumeOutcome::Ok(active))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.result.doc_id
+    }
+
+    fn num_estimated(&self) -> usize {
+        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
+        self.wcii.num_estimated()
     }
 }
 
