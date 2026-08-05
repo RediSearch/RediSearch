@@ -247,4 +247,8 @@ impl ScoreSource for MockScoreSource {
         Self: 'r,
     {
     }
+
+    fn yields_child_record(&self) -> bool {
+        true
+    }
 }

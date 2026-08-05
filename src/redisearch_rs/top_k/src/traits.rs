@@ -49,11 +49,14 @@ pub enum BatchStrategy {
     /// The iterator will rewind the child and start calling
     /// [`ScoreSource::lookup_score`] for each document the child yields.
     SwitchToAdhoc,
-    /// Restart batch collection (e.g. after the source has expanded its range).
+    /// Advance to the next, disjoint window of the source.
     ///
-    /// The iterator rewinds both the source and the child, then re-enters
-    /// Batches mode from the beginning.
-    SwitchToBatches,
+    /// The source has already re-resolved itself to a new window whose
+    /// documents do not overlap any previously emitted window, so the running
+    /// heap stays valid and keeps accumulating the global top `k`. The iterator
+    /// rewinds **only the child** and keeps collecting; it does **not** clear
+    /// the heap or rewind the source.
+    ExpandWindow,
     /// Collection is complete — stop and yield whatever is in the heap.
     Stop,
 }
@@ -205,7 +208,8 @@ pub trait ScoreSource {
     /// [`AdhocBF`](crate::TopKMode::AdhocBF)) the iterator yields the **child's**
     /// `RSIndexResult` directly so its scoring inputs (frequency, field mask,
     /// term records) are preserved, and calls
-    /// [`attach_score_metric`](Self::attach_score_metric) instead.
+    /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
+    /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn build_result<'r>(&self, doc_id: DocId, score: f64) -> RSIndexResult<'r>
@@ -228,6 +232,17 @@ pub trait ScoreSource {
     fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r;
+
+    /// Whether the filtered yield path should hand back the child's captured
+    /// `RSIndexResult` (with [`attach_score_metric`](Self::attach_score_metric)
+    /// applied) rather than a source-built one.
+    ///
+    /// `true` preserves the child's scoring inputs for relevance scoring — the
+    /// hybrid/vector case. A source whose score *is* the ordering key and needs
+    /// no child scoring inputs (e.g. a numeric `SORTBY`) returns `false`, so the
+    /// iterator yields [`build_result`](Self::build_result) even when a filter
+    /// child is present.
+    fn yields_child_record(&self) -> bool;
 
     /// Called after each batch (Batches mode only) to decide how collection
     /// should proceed.

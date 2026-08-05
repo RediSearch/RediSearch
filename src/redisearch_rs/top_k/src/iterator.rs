@@ -300,13 +300,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                     self.collect_adhoc()?;
                     return Ok(());
                 }
-                BatchStrategy::SwitchToBatches => {
+                BatchStrategy::ExpandWindow => {
                     self.metrics.strategy_switches += 1;
-                    // Clear the heap: the source restarts with new parameters
-                    // (e.g. expanded numeric range) and will re-emit previously
-                    // collected docs. Keeping stale entries would cause duplicates.
-                    *self.heap = TopKHeap::new(self.k, self.compare);
-                    self.source.rewind();
+                    // The source already re-resolved itself to the next disjoint
+                    // window, so the heap stays valid and keeps accumulating.
+                    // Only the child is rewound for re-intersection.
                     if let Some(child) = &mut self.child {
                         child.rewind();
                     }
@@ -344,10 +342,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // VecSim distance lookup.
             scope.0.check_timeout()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
-                // Capture the child's record now, before the next `child.read()`
-                // reuses its storage, so the yield phase needn't re-walk the child.
-                let record = capture_child_record(result);
-                self.heap.push_with_record(doc_id, score, Some(record));
+                // Capture the child's record only if the heap retains this entry,
+                // before the next `child.read()` reuses its storage, so the yield
+                // phase needn't re-walk the child. A discarded candidate skips the
+                // copy entirely.
+                self.heap
+                    .push_with_record_lazy(doc_id, score, || Some(capture_child_record(result)));
             }
         }
 
@@ -444,8 +444,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
             // Poll once per step, before yielding or skipping an entry.
             self.source.check_timeout()?;
 
-            // Filtered mode: yield the stored child record so BM25 inputs survive.
-            if self.child.is_some() {
+            // Filtered mode: yield the stored child record so BM25 inputs survive,
+            // unless the source builds its own result (e.g. numeric `SORTBY`).
+            if self.child.is_some() && self.source.yields_child_record() {
                 let Some(mut record) = record else {
                     // A filtered-mode entry must always carry its captured record;
                     // a missing one would indicate a collection-side bug. Treat as
@@ -462,7 +463,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index> TopKItera
                 return Ok(self.current.as_mut());
             }
 
-            // Unfiltered fallback (no child): build a fresh result from the source.
+            // No child record to yield: build a fresh result from the source.
             let result = self.source.build_result(doc_id, score);
             if self.source.is_expired(&result) {
                 continue;
@@ -626,10 +627,12 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>>(
         metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
-                // Capture the matching child record before advancing past it,
-                // so the yield phase can return it without re-reading the child.
-                let record = child.current().map(|r| capture_child_record(r));
-                heap.push_with_record(batch_doc, batch_score, record);
+                // Capture the matching child record only if the heap retains it,
+                // before advancing past it, so the yield phase can return it
+                // without re-reading the child. A discarded match skips the copy.
+                heap.push_with_record_lazy(batch_doc, batch_score, || {
+                    child.current().map(|r| capture_child_record(r))
+                });
                 // Advance the batch first; only read the child when another
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could
