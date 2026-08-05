@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "gc.h"
 #include "fork_gc.h"
@@ -23,6 +25,9 @@
 #include "debug_commands.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
+// Guarded by the GIL. Only used to pause GC contexts created while a window is already open;
+// live ones are paused/resumed by walking IndexSpec->gc.
+static bool gcSchedulingPauseActiveForConsistency_g = false;
 
 typedef struct GCDebugTask {
   GCContext* gc;
@@ -38,6 +43,9 @@ static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* b
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
   GCContext* ret = rm_calloc(1, sizeof(GCContext));
+  if (gcSchedulingPauseActiveForConsistency_g) {
+    RS_AtomicUintFetchOrRelaxed(&ret->schedFlags, GC_SCHED_PAUSED);
+  }
   switch (gcPolicy) {
     case GCPolicy_Fork:
       ret->gcCtx = FGC_Create(spec_ref, &ret->callbacks);
@@ -57,6 +65,10 @@ static void taskCallback(void* data);
 
 static bool GCContext_RunPending(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_RUN_PENDING) != 0;
+}
+
+static bool GCContext_PausedForConsistency(GCContext* gc) {
+  return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
 static long long getNextPeriod(struct timespec interval) {
@@ -79,7 +91,8 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval
 // the no-timer-while-a-run-is-pending invariant comes from QueueRun declining and timerCallback
 // zeroing timerID, not from the RunPending check here.
 static bool GCContext_ArmTimerIn(GCContext* gc, struct timespec interval) {
-  if (!gc->enabled || gc->timerID || GCContext_RunPending(gc)) {
+  if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
+      GCContext_PausedForConsistency(gc)) {
     return false;
   }
   gc->timerID = scheduleNextIn(gc, interval);
@@ -174,8 +187,8 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
   GCContext* gc = data;
   gc->timerID = 0;  // the timer that just fired is gone
 
-  if (!gc->enabled) {
-    return;
+  if (!gc->enabled || GCContext_PausedForConsistency(gc)) {
+    return;  // the resume path re-arms
   }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allowed it means that there is a state machine running
@@ -191,6 +204,9 @@ void GCContext_StartNow(GCContext* gc) {
   RS_LOG_ASSERT_FMT(!gc->enabled && gc->timerID == 0,
                     "GC %p: StartNow called while GC is already running", gc);
   gc->enabled = true;
+  if (GCContext_PausedForConsistency(gc)) {
+    return;  // the resume path arms a timer instead
+  }
   GCContext_QueueRun(gc);
 }
 
@@ -209,6 +225,9 @@ bool GCContext_BeginDrop(GCContext* gc) {
   // the timer eventually discovering the drop and nothing ever doing so. A no-op when already
   // enabled, which is why it cannot disturb the ordinary path below.
   gc->enabled = true;
+  // Same for a consistency-window pause, and for the same reason -- the window's resume
+  // re-derives its set by walking specDict_g, which this spec is about to leave.
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_PAUSED);
   // An armed timer, or a run in flight (which now re-arms), will discover the drop on its own --
   // the mechanism `IndexSpec_Free` already relies on. Leave those alone: a run in flight also
   // frees this context itself, on the GC thread and without the GIL, as soon as the unlink makes
@@ -235,6 +254,28 @@ void GCContext_StopFutureRuns(GCContext* gc) {
 
 bool GCContext_IsEnabled(const GCContext* gc) {
   return gc->enabled;
+}
+
+void GCContext_PauseSchedulingForConsistency(GCContext* gc) {
+  if (!gc) {
+    return;
+  }
+  RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_PAUSED);
+  GCContext_DisarmTimer(gc);
+}
+
+void GCContext_ResumeSchedulingAfterConsistency(GCContext* gc) {
+  if (!gc || !GCContext_PausedForConsistency(gc)) {
+    return;
+  }
+  // Clearing PAUSED and reading RUN_PENDING is one read-modify-write, so this cannot see a
+  // half-updated word. A run that outlived the window re-arms from its own one-shot; arming
+  // here as well would leave two live timers for one GC, the first of them orphaned.
+  const unsigned prev =
+      RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_PAUSED);
+  if (!(prev & GC_SCHED_RUN_PENDING)) {
+    GCContext_ArmTimer(gc);
+  }
 }
 
 void GCContext_StopMock(GCContext* gc) {
@@ -303,9 +344,48 @@ void GC_ThreadPoolStart() {
 
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
+    if (redisearch_thpool_paused(gcThreadpool_g)) {
+      gcSchedulingPauseActiveForConsistency_g = false;
+      redisearch_thpool_resume_threads(gcThreadpool_g);
+    }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(gcThreadpool_g);
     gcThreadpool_g = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
+  }
+}
+
+void GC_ThreadPoolPauseForConsistency(void) {
+  gcSchedulingPauseActiveForConsistency_g = true;
+  if (gcThreadpool_g) {
+    redisearch_thpool_pause_threads_no_wait(gcThreadpool_g);
+  }
+}
+
+bool GC_ThreadPoolWaitForPause(long timeoutMs) {
+  if (!gcThreadpool_g) {
+    return true;
+  }
+  // The queue is already flagged paused, so no new job can start; wait only for the running
+  // ones to return. Bounded because this runs on the main thread with the GIL held -- an
+  // unbounded spin here stalls the whole shard.
+  struct timespec start;
+  clock_gettime(CLOCK_MONOTONIC, &start);
+  while (redisearch_thpool_num_jobs_in_progress(gcThreadpool_g)) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long elapsedMs = (now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1000000;
+    if (elapsedMs >= timeoutMs) {
+      return false;
+    }
+    usleep(100);
+  }
+  return true;
+}
+
+void GC_ThreadPoolResumeAfterConsistency(void) {
+  gcSchedulingPauseActiveForConsistency_g = false;
+  if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {
+    redisearch_thpool_resume_threads(gcThreadpool_g);
   }
 }

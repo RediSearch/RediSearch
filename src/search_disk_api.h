@@ -599,45 +599,40 @@ typedef struct IndexDiskAPI {
   void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
 
   /**
-   * @brief Master-side SST replication PRE_CHECKPOINT hook.
+   * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.
    *
-   * Called once per index before the replication checkpoint is taken.
-   * Caller holds the IndexSpec read lock for the duration of this call.
+   * Replaces the former preCheckpoint/preFork pair. Called at every window-open point
+   * (SST PRE_CHECKPOINT, SST PRE_FORK, foreground hot-restart save), so it must be
+   * idempotent within a cycle.
+   *
+   * Must disable and cancel manual compactions, and close the numeric consistency gate.
+   * Must NOT flush: the caller flushes separately via `flush`, after taking the vector
+   * consistency lock, so vector-job writes are excluded from the snapshot too. Cancelling
+   * compactions here is what lets the caller's disk-GC drain finish promptly. Both effects
+   * last until closeConsistencyWindow.
    *
    * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
    * @param index Pointer to the disk index spec
    */
-  void (*preCheckpoint)(RedisSearchDiskIndexSpec *index);
+  void (*openConsistencyWindow)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Master-side SST replication PRE_FORK hook.
+   * @brief Close the consistency window on one index.
    *
-   * Called once per index before the replication snapshot fork.
+   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called at
+   * POST_FORK, at ABORT from anywhere in the cycle, and at the end of a foreground save,
+   * so it must tolerate a window that was never opened.
    *
-   * @param index Pointer to the disk index spec
-   */
-  void (*preFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication POST_FORK hook.
-   *
-   * Called once per index after the snapshot fork.
+   * Always re-enables compactions. Reopens the numeric consistency gate only when
+   * `reopenNumericGate` is true - a successful hot restart passes false, because the
+   * process exits shortly and reopening would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
    *
    * @param index Pointer to the disk index spec
+   * @param reopenNumericGate Whether to reopen the numeric consistency gate
    */
-  void (*postFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication ABORT hook.
-   *
-   * Called once per index when the replication cycle is aborted at any point
-   * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+  void (*closeConsistencyWindow)(RedisSearchDiskIndexSpec *index, bool reopenNumericGate);
 
   /**
    * @brief Debug: dump a numeric field's in-memory bucket routing map.
@@ -653,18 +648,6 @@ typedef struct IndexDiskAPI {
    */
   char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
 
-  /**
-   * @brief Hot-restart save-ended hook.
-   *
-   * Called once per index after a successful foreground hot-restart save.
-   * Re-enables compactions (the on-disk DBs are kept and the process exits
-   * shortly) but deliberately leaves the numeric consistency gate closed:
-   * reopening it would let a deferred split finalize after the RDB
-   * serialized its pre-finalize state.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*hotRestartSaveEnded)(RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

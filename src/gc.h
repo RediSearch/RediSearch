@@ -27,6 +27,7 @@ extern "C" {
 // Bits of GCContext.schedFlags.
 typedef enum {
   GC_SCHED_RUN_PENDING = 0x01,  // a run is queued on the GC pool, or executing
+  GC_SCHED_PAUSED = 0x02,       // a disk consistency window is open
 } GCSchedFlags;
 
 typedef struct InfoGCStats {
@@ -69,7 +70,8 @@ typedef struct GCContext {
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);
 // Start the GC periodic. Next run will be added to the job-queue after the interval
 void GCContext_Start(GCContext* gc);
-// Start the GC periodic. Next run will be added to the job-queue immediately
+// Start the GC periodic. Next run is queued immediately -- unless a run already owns the
+// re-arm, or a consistency window is open, in which case it comes after the interval instead.
 void GCContext_StartNow(GCContext* gc);
 void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
@@ -92,6 +94,10 @@ bool GCContext_BeginDrop(GCContext* gc);
 // that discovers the drop and frees the context.
 void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
+// Suspend/resume scheduling for a disk consistency window, leaving `enabled` untouched so a
+// GC stopped by a debug command stays stopped across one. Both require the GIL.
+void GCContext_PauseSchedulingForConsistency(GCContext* gc);
+void GCContext_ResumeSchedulingAfterConsistency(GCContext* gc);
 
 static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
   dst->totalCollectedBytes += src->totalCollectedBytes;
@@ -101,6 +107,13 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
+// Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
+// to wait out the ones already running.
+void GC_ThreadPoolPauseForConsistency(void);
+// Wait, up to `timeoutMs`, for the running GC jobs to return. Returns false on timeout. Must
+// follow GC_ThreadPoolPauseForConsistency, or a new job can start the moment this returns.
+bool GC_ThreadPoolWaitForPause(long timeoutMs);
+void GC_ThreadPoolResumeAfterConsistency(void);
 
 #ifdef __cplusplus
 }

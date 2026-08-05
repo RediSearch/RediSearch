@@ -729,3 +729,55 @@ TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
   cur_cardinality -= 2;
   EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rootRange));
 }
+
+/**
+ * Disk consistency windows pause GC scheduling. These cover the state machine directly --
+ * the flow tests cannot reach it, since nothing in OSS opens a window.
+ */
+
+static unsigned gcSchedFlags(GCContext *gc) {
+  return RS_AtomicUintLoadRelaxed(&gc->schedFlags);
+}
+
+TEST_F(FGCTest, testConsistencyWindowPauseDisarmsAndResumeClears) {
+  GCContext *gc = get_spec(ism)->gc;
+
+  GCContext_PauseSchedulingForConsistency(gc);
+  ASSERT_TRUE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
+  ASSERT_EQ(gc->timerID, 0);  // the window must not leave a timer behind
+  ASSERT_TRUE(GCContext_IsEnabled(gc));  // pausing is not stopping
+
+  GCContext_ResumeSchedulingAfterConsistency(gc);
+  ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_PAUSED);
+}
+
+TEST_F(FGCTest, testPauseSurvivesResumeOnAStoppedGC) {
+  GCContext *gc = get_spec(ism)->gc;
+
+  // A GC stopped by a debug command must stay stopped across a window.
+  GCContext_StopFutureRuns(gc);
+  GCContext_PauseSchedulingForConsistency(gc);
+  GCContext_ResumeSchedulingAfterConsistency(gc);
+
+  ASSERT_FALSE(GCContext_IsEnabled(gc));
+  ASSERT_EQ(gc->timerID, 0);
+}
+
+TEST_F(FGCTest, testStartNowDoesNotQueueWhilePaused) {
+  GCContext *gc = get_spec(ism)->gc;
+  GCContext_StopFutureRuns(gc);  // StartNow requires a stopped GC
+  GCContext_PauseSchedulingForConsistency(gc);
+
+  GCContext_StartNow(gc);
+  // Enabled, but nothing queued onto the paused pool: the resume path arms instead.
+  ASSERT_TRUE(GCContext_IsEnabled(gc));
+  ASSERT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
+
+  GCContext_ResumeSchedulingAfterConsistency(gc);
+}
+
+TEST_F(FGCTest, testWaitForPauseReturnsWhenNothingIsRunning) {
+  GC_ThreadPoolPauseForConsistency();
+  ASSERT_TRUE(GC_ThreadPoolWaitForPause(10));
+  GC_ThreadPoolResumeAfterConsistency();
+}

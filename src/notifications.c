@@ -30,6 +30,7 @@
 #include "cursor.h"
 #include "search_disk.h"
 #include "disk_gc.h"
+#include "gc.h"
 #include "doc_id_meta.h"
 #include "module_init_ffi.h"
 #include "document_rs.h"
@@ -724,7 +725,7 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
   } else {
     // Hot restart preserves the on-disk DBs, but SearchDisk_Close still closes the
     // shared DiskContext; wait out any in-flight disk GC run first so no compaction
-    // races that close. The checkpoint (index_spec_pre_checkpoint) already
+    // races that close. The checkpoint (index_spec_open_consistency_window) already
     // disable_compactions()d during the save, so this wait is prompt. Nothing clears
     // sp->diskSpec here, so release the lock immediately — the wait is all we need.
     DiskGC_LockRunsAndDisable();
@@ -822,24 +823,87 @@ static void ForEachIndex(void (*fn)(IndexSpec *)) {
   dictReleaseIterator(iter);
 }
 
+static void PauseIndexGCSchedulingForConsistency(IndexSpec *sp) {
+  if (sp->gc) {
+    GCContext_PauseSchedulingForConsistency(sp->gc);
+  }
+}
+
+static void ResumeIndexGCSchedulingAfterConsistency(IndexSpec *sp) {
+  if (sp->gc) {
+    GCContext_ResumeSchedulingAfterConsistency(sp->gc);
+  }
+}
+
+static void FlushIndexForConsistency(IndexSpec *sp) {
+  if (sp->diskSpec) {
+    SearchDisk_Flush(sp->diskSpec);
+  }
+}
+
+// ForEachIndex takes a one-argument hook, so the gate flag rides in these two.
+static void CloseWindowReopeningGate(IndexSpec *sp) {
+  SearchDisk_CloseConsistencyWindow(sp, true);
+}
+
+static void CloseWindowKeepingGateClosed(IndexSpec *sp) {
+  SearchDisk_CloseConsistencyWindow(sp, false);
+}
+
+static bool InForkChild(void) {
+  return (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_IS_CHILD) != 0;
+}
+
+// Backstop only; the begin hook cancels compactions first, so the expected wait is that
+// cycle's cancellation tail. Bounded because it runs on the main thread under the GIL.
+#define DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS 5000
+
 //Keeps track to know if SST replication holds the lock avoiding background vector index building jobs from running
 static bool vecsimdisk_sst_consistency_lock_held = false;
+// Spans PRE_CHECKPOINT..POST_FORK as one hold, unlike the VecSim lock.
+static bool disk_gc_paused_for_consistency = false;
 
-// Begin a consistent on-disk save window.
-// Shared by the SST replication checkpoint (flush = SearchDisk_PreCheckpoint),
-// the SST replication fork (flush = SearchDisk_PreFork) and the foreground
-// hot-restart save (flush = SearchDisk_PreCheckpoint), so the callers cannot
-// drift apart on the lock/flag protocol. Pairs with DiskConsistencyWindow_End
-// or DiskConsistencyWindow_Close.
-static void DiskConsistencyWindow_Begin(void (*flush)(IndexSpec *)) {
+// Begin a consistent on-disk save window. Shared by the SST replication checkpoint and
+// fork and the foreground hot-restart save, so the callers cannot drift apart on the
+// lock/flag protocol. Pairs with DiskConsistencyWindow_End or _Close.
+//
+// The step order is load-bearing. Cancelling compactions first is what lets the drain
+// finish promptly; the drain is what keeps a GC thread from being mid-mutation of a
+// numeric BucketMap when the fork lands (MOD-17197); and flushing last, under the vector
+// consistency lock, is what keeps both writer classes out of the snapshot.
+static void DiskConsistencyWindow_Begin(void) {
+  if (!disk_gc_paused_for_consistency) {
+    GC_ThreadPoolPauseForConsistency();               // no queued job starts
+    ForEachIndex(PauseIndexGCSchedulingForConsistency);  // no timer queues one
+    disk_gc_paused_for_consistency = true;
+  }
+
+  ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
+
+  if (!GC_ThreadPoolWaitForPause(DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS)) {
+    // Cannot decline the snapshot from here - the subevent handler returns void.
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk consistency window: disk GC did not drain within %d ms; "
+                    "proceeding without the fork-safety guarantee",
+                    DISK_GC_CONSISTENCY_DRAIN_TIMEOUT_MS);
+  }
+
+  // After the drain, never before: a GC run needing this lock would deadlock against us.
   VecSimDisk_AcquireConsistencyLock();
   vecsimdisk_sst_consistency_lock_held = true;
-  ForEachIndex(flush);
+
+  // Flush last, under the lock. Both classes of background writer are now excluded: the
+  // disk GC by the drain, vector jobs by the lock. Flushing inside the hook above would
+  // leave the whole drain as a gap in which vector jobs could dirty on-disk state.
+  ForEachIndex(FlushIndexForConsistency);
 }
 
 // Release the consistency lock opened by DiskConsistencyWindow_Begin without
 // running any per-index finalize work. Used where there is no matching disk
 // hook (e.g. SST POST_CHECKPOINT, which OSS handles on its own).
+//
+// This deliberately leaves disk GC paused: SST keeps it paused through POST_FORK/ABORT,
+// and a successful hot restart keeps it paused through process exit.
 //
 // The caller must check vecsimdisk_sst_consistency_lock_held before calling
 // this on a path where the window may never have been opened.
@@ -848,15 +912,46 @@ static void DiskConsistencyWindow_Close(void) {
   vecsimdisk_sst_consistency_lock_held = false;
 }
 
-// End the consistent on-disk save window opened by DiskConsistencyWindow_Begin,
-// running `finalize` against every disk-backed index before releasing the lock.
-//
-// The caller must check vecsimdisk_sst_consistency_lock_held before calling
-// this on a path where the window may never have been opened (e.g. SST ABORT).
-static void DiskConsistencyWindow_End(void (*finalize)(IndexSpec *)) {
-  ForEachIndex(finalize);
-  DiskConsistencyWindow_Close();
+// How to end the window. The finalize hook and the disk-GC disposition are correlated, so
+// they travel as one parameter rather than two that could disagree.
+typedef enum {
+  // POST_FORK, SST ABORT, or a failed foreground save: the process keeps running.
+  DISK_WINDOW_END_RESUME,
+  // Successful hot restart: the process exits shortly and the kept on-disk DBs must stay
+  // frozen at what restart.rdb serialized, so disk GC stays paused and the numeric
+  // consistency gate stays closed.
+  DISK_WINDOW_END_HOT_RESTART,
+} DiskWindowEnd;
+
+// End the window opened by DiskConsistencyWindow_Begin. Safe on a path where the window
+// was never opened, or was only partly opened (e.g. SST ABORT): each half is unwound only
+// if held. The halves have different lifetimes - POST_CHECKPOINT releases the VecSim lock
+// but keeps disk GC paused - so an abort between POST_CHECKPOINT and PRE_FORK sees the
+// pause held and the lock not.
+static void DiskConsistencyWindow_End(DiskWindowEnd how) {
+  if (InForkChild()) {
+    // COW-inherited flags, not a window this process opened. The child owns no GC threads
+    // and must not run the finalize hooks - they re-enable compactions against DB files
+    // the parent owns.
+    vecsimdisk_sst_consistency_lock_held = false;
+    disk_gc_paused_for_consistency = false;
+    return;
+  }
+
+  ForEachIndex(how == DISK_WINDOW_END_HOT_RESTART ? CloseWindowKeepingGateClosed
+                                                  : CloseWindowReopeningGate);
+
+  if (how == DISK_WINDOW_END_RESUME && disk_gc_paused_for_consistency) {
+    ForEachIndex(ResumeIndexGCSchedulingAfterConsistency);
+    GC_ThreadPoolResumeAfterConsistency();
+    disk_gc_paused_for_consistency = false;
+  }
+
+  if (vecsimdisk_sst_consistency_lock_held) {
+    DiskConsistencyWindow_Close();
+  }
 }
+
 
 // SST replication event handler.
 //
@@ -880,7 +975,7 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // index jobs cannot mutate on-disk state while the checkpoint is taken.
       // Released at POST_CHECKPOINT (or unwound by ABORT). PRE_FORK opens a
       // fresh window afterwards.
-      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
+      DiskConsistencyWindow_Begin();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT:
       RedisModule_Log(ctx, "notice", "SST replication: POST_CHECKPOINT");
@@ -891,23 +986,18 @@ static void SSTReplicationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: PRE_FORK");
-      DiskConsistencyWindow_Begin(SearchDisk_PreFork);
+      DiskConsistencyWindow_Begin();
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_POST_FORK:
       RedisModule_Log(ctx, "notice", "SST replication: POST_FORK");
       RS_ASSERT(vecsimdisk_sst_consistency_lock_held);
-      DiskConsistencyWindow_End(SearchDisk_PostFork);
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       break;
     case REDISMODULE_SUBEVENT_SST_REPL_ABORT:
       RedisModule_Log(ctx, "notice", "SST replication: ABORT");
-      // The abort can fire before PRE_FORK opened the window, so the lock may
-      // not be held. Always run ReplicationAbort; only unwind the window when
-      // it was actually opened.
-      if (vecsimdisk_sst_consistency_lock_held) {
-        DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
-      } else {
-        ForEachIndex(SearchDisk_ReplicationAbort);
-      }
+      // Can fire anywhere between PRE_CHECKPOINT and POST_FORK, so either half of the
+      // window may or may not be held; End unwinds each only if it is.
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       break;
     default:
       RS_LOG_ASSERT_FMT(false, "Received unknown sub-event %llu for SST replication", (unsigned long long)subevent);
@@ -948,19 +1038,20 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
       // Hot restart: a RAM-only RDB (restart.rdb) is being saved in the
       // foreground alongside the on-disk state. The replication
       // SST_REPL_PRE_FORK consistency hook never fires for a foreground save,
-      // so open the consistency window here instead (flushing via PreCheckpoint).
+      // so open the consistency window here instead.
       RedisModule_Log(ctx, "notice", "SAVE start mode=HOT_RESTART proc=main sst=true disk_index=preserved");
       // Latch so the upcoming shutdown keeps the on-disk DBs (see ShutdownDiskClose).
       g_hotRestartSave = true;
-      DiskConsistencyWindow_Begin(SearchDisk_PreCheckpoint);
+      DiskConsistencyWindow_Begin();
     }
     break;
   case REDISMODULE_SUBEVENT_PERSISTENCE_ENDED:
     if (vecsimdisk_sst_consistency_lock_held) {
-      // Re-enable compactions but keep the numeric consistency gate
-      // closed: the writes it guards must stay coherent with the
-      // just-serialized RDB (see SearchDisk_HotRestartSaveEnded).
-      DiskConsistencyWindow_End(SearchDisk_HotRestartSaveEnded);
+      // Only a real hot restart freezes: the process exits shortly, so resuming GC or
+      // reopening the gate would let the kept DBs advance past what restart.rdb captured.
+      // Any other SST save reaching here leaves the process running, so it must unwind.
+      DiskConsistencyWindow_End(g_hotRestartSave ? DISK_WINDOW_END_HOT_RESTART
+                                                 : DISK_WINDOW_END_RESUME);
       RedisModule_Log(ctx, "notice", "SAVE end mode=%s sst=true ok=true",
                       g_hotRestartSave ? "HOT_RESTART" : "SST_REPL");
     } else if (!useSst) {
@@ -971,8 +1062,8 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   case REDISMODULE_SUBEVENT_PERSISTENCE_FAILED:
     if (vecsimdisk_sst_consistency_lock_held) {
       // Unwind the hot-restart consistency window opened at SYNC_RDB_START,
-      // re-enabling compactions defensively via ReplicationAbort on failure.
-      DiskConsistencyWindow_End(SearchDisk_ReplicationAbort);
+      // re-enabling compactions defensively on failure.
+      DiskConsistencyWindow_End(DISK_WINDOW_END_RESUME);
       // The window may have been opened by a foreground hot-restart save
       // (g_hotRestartSave) or by an SST-replication fork (child observing the
       // COW-inherited flag) — log the actual mode before clearing the latch.

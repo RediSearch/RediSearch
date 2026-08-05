@@ -274,6 +274,10 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
         # CONTINUE must leave the GC enabled, not merely reply OK.
         self.env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').error().contains('GC is already running periodically')
+        # And a forced cycle must still run and unblock its client, which a job stranded on a
+        # paused pool would not.
+        with TimeLimit(30, 'GC_FORCEINVOKE did not complete after GC_CONTINUE_SCHEDULE'):
+            forceInvokeGC(self.env, 'idx')
         # STOP is idempotent.
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
         self.env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
