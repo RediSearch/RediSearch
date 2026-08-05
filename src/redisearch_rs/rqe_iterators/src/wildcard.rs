@@ -41,15 +41,21 @@ pub struct RawWildcard<'query, Rf: Ref> {
     /// A reusable result object to avoid allocations on each `read` call.
     result: RawIndexResult<'query, Rf>,
 
-    /// Whether the iterator has run *past* `top_id`, i.e. a `read`/`skip_to`
-    /// found nothing.
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing.
     ///
     /// The state behind [`current`](RQEIterator::current) and
-    /// [`at_eof`](RQEIterator::at_eof).
+    /// [`at_eof`](RQEIterator::at_eof), and the *only* record of it: both
+    /// entry points check it before anything else, so an exhausted iterator
+    /// stays exhausted until [`rewind`](RQEIterator::rewind) whatever the
+    /// position says.
     ///
     /// It cannot be folded into `result.doc_id`: that field *is*
     /// [`last_doc_id`](RQEIterator::last_doc_id), which parents use to choose
-    /// skip targets, so pushing it past `top_id` would misreport the position.
+    /// skip targets, so moving it to record exhaustion — past `top_id`, or onto
+    /// it when a skip overshoots — would report a position never yielded.
+    /// [`InvIndIterator`](crate::inverted_index::InvIndIterator) splits the two
+    /// the same way, with `at_eos` beside an untouched `last_doc_id`.
     past_end: bool,
 }
 
@@ -91,10 +97,28 @@ impl Wildcard<'_> {
     /// yet.
     ///
     /// Goes `false` one step before [`Self::past_end`] is set, while `top_id` is
-    /// still the current result.
+    /// still the current result. Says nothing on its own about an iterator a
+    /// skip has already run off the end — that one can still be sitting below
+    /// `top_id` — so [`Self::past_end`] is checked first, by
+    /// [`Self::exhausted`].
     #[inline(always)]
     const fn has_next(&self) -> bool {
         self.result.doc_id < self.top_id
+    }
+
+    /// Whether this iterator owes no further result, recording it if the
+    /// position has just reached `top_id`.
+    ///
+    /// The single gate on both entry points: once
+    /// [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it.
+    #[inline(always)]
+    const fn exhausted(&mut self) -> bool {
+        if self.past_end || !self.has_next() {
+            self.past_end = true;
+            return true;
+        }
+        false
     }
 }
 
@@ -108,8 +132,7 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if !self.has_next() {
-            self.past_end = true;
+        if self.exhausted() {
             return Ok(None);
         }
 
@@ -121,15 +144,15 @@ impl<'index> RQEIterator<'index> for Wildcard<'index> {
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        if !self.has_next() {
-            self.past_end = true;
+        if self.exhausted() {
             return Ok(None);
         }
         debug_assert!(self.last_doc_id() < doc_id);
 
         if doc_id > self.top_id {
-            // skip beyond range - set to EOF
-            self.result.doc_id = self.top_id;
+            // Beyond the last document: this skip carries no result, so it may
+            // not move the position. `past_end` is what records the step, and
+            // the position stays where the last yield left it.
             self.past_end = true;
             return Ok(None);
         }
