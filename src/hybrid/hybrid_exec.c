@@ -995,7 +995,10 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
 
   // Signal timeout to background thread
   HybridRequest_SetTimedOut(hreq);
-  recordHREQTimeoutStage(hreq, /*isError=*/true, !IsInternal(hreq->requests[0]));
+  // Read before disposing the cursors below: published cursors own their
+  // sub-AREQs, so freeing them frees the subs.
+  const bool coordinator = !IsInternal(hreq->requests[0]);
+  recordHREQTimeoutStage(hreq, /*isError=*/true, coordinator);
 
   // Lock to synchronize with cursor creation in HybridRequest_StartCursors.
   // After setting timedOut, any subsequent cursor creation attempt will be skipped.
@@ -1012,7 +1015,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest_UnlockCursors(hreq);
 
   // Reply with timeout error
-  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(hreq->requests[0]));
+  QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, coordinator);
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
   return REDISMODULE_OK;
