@@ -130,7 +130,7 @@ impl Drop for TestSpec {
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
     name: Vec<u8>,
-    unique_id: u64,
+    unique_id: u32,
     entries: Vec<NumericNodeDelta>,
 }
 
@@ -152,7 +152,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
     match Frame::decode(cursor).unwrap() {
         Frame::Terminator => None,
         Frame::Data(name) => {
-            let unique_id = u64::from_ne_bytes(read_arr(cursor));
+            let unique_id = u32::from_ne_bytes(read_arr(cursor));
             let mut entries = Vec::new();
             // `decode` deserializes each node and yields `None` at the per-field
             // node-stream terminator.
@@ -257,8 +257,7 @@ fn numeric_field_writes_header_and_node_deltas() {
 
     let test = TestSpec::create(vec![(c"price", FieldSpecType::Numeric.into(), Some(tree))]);
 
-    // The unique id is zero-extended from the tree's u32 id to a u64 on the wire.
-    let expected_unique_id: u64 = u32::from(test.trees[0].unique_id()).into();
+    let expected_unique_id = u32::from(test.trees[0].unique_id());
 
     let mut buf = Vec::new();
     collect_numeric(&mut buf, &test.read_guard()).unwrap();
