@@ -142,6 +142,10 @@ fn eval_disk<'index>(
     // SAFETY: `spec.terms` is a valid `Trie` (checked non-null above) that
     // outlives this lookup.
     let terms = unsafe { CTrieRef::from_raw(spec.terms) };
+    // The lookup refuses a term that is not valid UTF-8. These bytes are query
+    // text rather than a stored key, and a disk index only stages terms whose
+    // bytes are valid UTF-8, so zero is the true count for such a term rather
+    // than a lost one.
     let num_docs_in_term = terms.num_docs(term_bytes.unwrap_or_default());
     let num_documents = spec.stats.scoring.numDocuments;
     term.set_idfs(num_documents, num_docs_in_term);

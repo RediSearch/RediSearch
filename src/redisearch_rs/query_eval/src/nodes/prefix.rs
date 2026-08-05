@@ -199,6 +199,11 @@ impl Expansion<'_> {
         // The suffix trie hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in the
         // primary terms trie for the IDF; the in-memory path ignores it.
+        //
+        // That lookup refuses a key that is not valid UTF-8, which here is the right
+        // answer rather than a lost count: a disk index only stages a term whose
+        // bytes are valid UTF-8, and the terms trie is only updated for terms that
+        // staged, so a refused key was never counted there in the first place.
         let on_term = |term_bytes: &[u8]| {
             let num_docs = if self.is_disk {
                 terms.num_docs(term_bytes)
