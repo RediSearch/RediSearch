@@ -152,6 +152,9 @@ pub struct NumericRangeTree {
     stats: TreeStats,
     /// The last document ID added to the tree.
     last_doc_id: DocId,
+    /// Whether any document has been indexed under more than one value, as a
+    /// multivalue field does. See [`has_multivalued_docs`](Self::has_multivalued_docs).
+    has_multivalued_docs: bool,
     /// Revision ID, incremented when the tree structure changes (splits/rotations).
     ///
     /// When `revision_id != 0`, it indicates the tree nodes have changed and
@@ -219,6 +222,7 @@ impl NumericRangeTree {
                 empty_leaves: CheckedCount::new(1),
             },
             last_doc_id: 0,
+            has_multivalued_docs: false,
             revision_id: 0,
             unique_id: TreeUniqueId::next(),
             compress_floats,
@@ -243,6 +247,15 @@ impl NumericRangeTree {
     /// Get the root node index.
     pub const fn root_index(&self) -> NodeIndex {
         self.root
+    }
+
+    /// Whether any document is indexed under more than one value.
+    ///
+    /// Ranges are value-disjoint, so a document with a single value occurs in
+    /// exactly one range. Only when this is `true` can a document be reached
+    /// twice by a value-ordered scan and need de-duplicating.
+    pub const fn has_multivalued_docs(&self) -> bool {
+        self.has_multivalued_docs
     }
 
     /// Get the total number of ranges in the tree.
