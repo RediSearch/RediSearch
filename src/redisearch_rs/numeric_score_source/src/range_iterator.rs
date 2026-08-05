@@ -212,14 +212,14 @@ mod tests {
         let mut tree = NumericRangeTree::new(false);
         // Enough distinct values to force a split into two value-disjoint leaves.
         for value in 1..=20u64 {
-            tree.add(value, value as f64, false, 0);
+            tree.add(value, value as f64, false, false, 0);
         }
         assert!(
             tree.find(&NumericFilter::default()).len() >= 2,
             "expected a split"
         );
-        tree.add(doc_id, 1.0, true, 0);
-        tree.add(doc_id, 20.0, true, 0);
+        tree.add(doc_id, 1.0, false, true, 0);
+        tree.add(doc_id, 20.0, false, true, 0);
         tree
     }
 
@@ -227,7 +227,7 @@ mod tests {
     fn next_n_drops_records_outside_the_value_window() {
         let mut tree = NumericRangeTree::new(false);
         for id in 0..30u64 {
-            tree.add(id, id as f64, false, 0);
+            tree.add(id, id as f64, false, false, 0);
         }
         let filter = NumericFilter {
             min: 10.0,
@@ -248,7 +248,7 @@ mod tests {
     fn next_n_honors_exclusive_endpoints() {
         let mut tree = NumericRangeTree::new(false);
         for id in 0..30u64 {
-            tree.add(id, id as f64, false, 0);
+            tree.add(id, id as f64, false, false, 0);
         }
         let filter = NumericFilter {
             min: 10.0,
@@ -269,9 +269,9 @@ mod tests {
         // `is_multivalued` lets a doc id repeat with several values, as a
         // multivalue field does.
         let mut tree = NumericRangeTree::new(false);
-        tree.add(1, 90.0, true, 0);
-        tree.add(1, 5.0, true, 0);
-        tree.add(2, 40.0, false, 0);
+        tree.add(1, 90.0, false, true, 0);
+        tree.add(1, 5.0, false, true, 0);
+        tree.add(2, 40.0, false, false, 0);
 
         let pairs = drain_pairs(&tree, &NumericFilter::default());
 
@@ -283,8 +283,8 @@ mod tests {
     #[test]
     fn multivalue_doc_is_coalesced_to_its_best_descending_value() {
         let mut tree = NumericRangeTree::new(false);
-        tree.add(1, 90.0, true, 0);
-        tree.add(1, 5.0, true, 0);
+        tree.add(1, 90.0, false, true, 0);
+        tree.add(1, 5.0, false, true, 0);
 
         let filter = NumericFilter {
             ascending: false,

@@ -29,7 +29,7 @@ use top_k::{ScoreBatch, ScoreSource};
 fn tree_from(pairs: &[(u64, f64)]) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for &(id, value) in pairs {
-        tree.add(id, value, false, 0);
+        tree.add(id, value, false, false, 0);
     }
     tree
 }
@@ -205,11 +205,11 @@ fn filtered_retry_reaches_match_past_multivalue_inflated_ranges() {
     let mut tree = NumericRangeTree::new(false);
     for d in 1..=4u64 {
         for j in 0..100u64 {
-            tree.add(d, 1000.0 + (j as f64) * 100.0 + (d as f64), true, 0);
+            tree.add(d, 1000.0 + (j as f64) * 100.0 + (d as f64), false, true, 0);
         }
     }
     let match_id = 99999u64;
-    tree.add(match_id, 0.5, false, 0);
+    tree.add(match_id, 0.5, false, false, 0);
     assert!(
         tree.num_leaves() >= 3,
         "fixture needs several high leaves to inflate the per-range total"
