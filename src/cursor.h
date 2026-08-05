@@ -80,7 +80,11 @@ typedef struct Cursor {
  * cursors, the sub-AREQ for hybrid sub-cursors. NULL for the hybrid
  * single-cursor fallback (no wrapper). */
 static inline AREQ *Cursor_AREQ(const Cursor *cur) {
-  return cur->query && cur->query->kind == REQUEST_KIND_AREQ ? cur->query->query.areq : NULL;
+  if (!cur->query) {
+    return NULL;
+  }
+  RS_ASSERT(cur->query->kind == REQUEST_KIND_AREQ);
+  return cur->query->query.areq;
 }
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
