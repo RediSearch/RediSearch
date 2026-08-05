@@ -889,11 +889,13 @@ mod revalidate {
         assert!(it.at_eof());
     }
 
-    /// A revalidation whose scan fails has no position to report, but it also
-    /// clears `forced_eof` so a later read can retry. The EOF it reports in the
-    /// meantime must not outlive that retry succeeding.
+    /// A revalidation whose scan fails has no position to report, and neither
+    /// status it could return would be true — so the error goes to the caller,
+    /// which aborts the iterator. Reporting `Moved { current: None }` instead
+    /// would say "exhausted" to a parent that acts on it, leaving any later read
+    /// to resurrect behind its back.
     #[test]
-    fn revalidate_scan_error_does_not_latch_eof() {
+    fn revalidate_scan_error_propagates() {
         let (_guard, context) = make_revalidate_context();
         let ii = DocIdsOnly::from_opaque(context.wildcard_inverted_index());
         let wcii = rqe_iterators::inverted_index::Wildcard::new(ii.reader(), 1.0);
@@ -914,30 +916,17 @@ mod revalidate {
         // GC doc 5, so the wildcard moves onto 10 — which the child holds, so
         // the iterator scans for the next valid result and the scan fails.
         gc_document(&context, 5);
-        let status = it.revalidate(&*context.spec_read()).unwrap();
+        let error = it
+            .revalidate(&*context.spec_read())
+            .expect_err("a failing revalidation scan must reach the caller");
         assert!(
-            matches!(status, RQEValidateStatus::Moved { current: None }),
-            "expected Moved {{ current: None }}, got {status:?}"
+            matches!(error, RQEIteratorError::TimedOut),
+            "the child's error must be propagated as it stands, got {error:?}",
         );
-        assert!(it.at_eof(), "nothing to report yet, so at EOF for now");
 
-        // The failure was transient, and the wildcard still holds documents past
-        // 10, so the retry finds one.
-        child_data.set_error_at_done(None);
-        let doc_id = it
-            .read()
-            .expect("read must be able to retry after a failed revalidation scan")
-            .expect("the wildcard has documents beyond 10")
-            .doc_id;
-
-        assert!(
-            !it.at_eof(),
-            "at_eof() must be false while positioned on doc {doc_id}",
-        );
-        assert!(
-            it.current().is_some(),
-            "current() must return the result read() just yielded (doc {doc_id})",
-        );
+        // Nothing further is asserted, and nothing may be: an `Err` from
+        // `revalidate` reaches the C boundary as `VALIDATE_ABORTED`, and an
+        // aborted iterator is dropped rather than used.
     }
 }
 
