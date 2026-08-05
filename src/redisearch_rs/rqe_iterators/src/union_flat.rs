@@ -198,10 +198,9 @@ where
 
 // Methods reachable only when `QUICK_EXIT` is `false`, grouped so that the full-mode
 // read path reads together. Each guards its mode at entry rather than being typed on
-// `UnionFlat<'index, I, false>`: the callers are the generic `RQEIterator` impl, which cannot
-// reach a method that exists for only one value of a const generic, and splitting that
-// impl in two would also strand the `ProfileChildren` impl, whose `RQEIterator`
-// supertrait bound is stated for a generic `QUICK_EXIT`.
+// `UnionFlat<'index, I, false>`: the caller is the generic `RQEIterator` impl, which
+// cannot reach a method that exists for only one value of a const generic (E0599),
+// and splitting that impl in two would strand its `ProfileChildren` dependant.
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -211,15 +210,11 @@ where
     ///
     /// Returns the minimum doc_id among active children, or `DocId::MAX` if all are exhausted.
     ///
-    /// Only [`Self::read_full`] calls this, so `QUICK_EXIT` is always `false` here and
-    /// no child can be *behind* `current_id`: a full union advances every child on
-    /// every `read`/`skip_to`, and its own `revalidate` re-seeks any child that came
-    /// back from a child revalidation behind the union — an exhausted leaf can
-    /// resurrect there — before it returns.
-    /// A child that were behind would have to be seeked rather than read — one read
-    /// need not clear `current_id` — and would otherwise become the minimum and hand
-    /// back a document already delivered. That case is asserted away rather than
-    /// handled, so it cannot be introduced silently.
+    /// Only [`Self::read_full`] calls this, so no child can be *behind* `current_id`:
+    /// full-mode `read`/`skip_to` advance every active child, and `revalidate`
+    /// re-seeks any child a child revalidation resurrected behind the union. A child
+    /// behind would become the minimum and hand back a document already delivered,
+    /// so the invariant is asserted rather than handled.
     fn advance_and_find_min(&mut self, current_id: DocId) -> Result<DocId, RQEIteratorError> {
         if QUICK_EXIT {
             panic!("a quick union reads through skip_to instead");
@@ -343,9 +338,6 @@ where
             return Ok(None);
         }
 
-        // The minimum is taken over children that were all advanced past
-        // `previous_id`, so it has to name a later document. Handing back one this
-        // union already delivered would have the caller emit it twice.
         debug_assert!(
             min_id > previous_id,
             "a read must move forward: {previous_id} -> {min_id}",
@@ -693,26 +685,19 @@ where
         // past-the-end state — so it re-enters the active set far behind a union
         // that carried on without it.
         if min_doc_id < original_last_doc_id {
-            // The result has to be republished either way, because it holds raw
-            // pointers into the children's own results: one that moved leaves it
-            // describing another document, and one that aborted was dropped above and
-            // leaves it dangling. What it can be republished *from* decides the
-            // outcome.
-            //
             // A child still sitting on the union's document backs the position as it
-            // stands: republish from that *single* child — the full aggregate is what
-            // `QUICK_EXIT` exists to avoid — and report `Ok`, with no reads spent.
-            // `min_child_idx` cannot serve: that is the lagging child just rejected.
-            // Only quick mode takes this exit, leaving its laggers behind as ordinary
-            // state for the next `read`/`skip_to` to seek past; a full union must
-            // catch them up below either way, because `advance_and_find_min` relies
-            // on no active child sitting behind the union.
+            // stands: republish from it (the result holds raw pointers into children
+            // that may have moved or been dropped) and report `Ok`, with no reads
+            // spent. `min_child_idx` cannot serve — that is the lagging child just
+            // rejected. Quick mode only: its laggers are ordinary state for the next
+            // `read`/`skip_to` to seek past, while a full union must catch them up
+            // below either way — `advance_and_find_min` relies on no active child
+            // sitting behind the union.
             if QUICK_EXIT
                 && let Some(idx) = self.children[..self.num_active]
                     .iter()
                     .position(|c| c.last_doc_id() == original_last_doc_id)
             {
-                // Still backed, so the union has not moved and its current stands.
                 self.quick_set_from_child(idx);
 
                 debug_assert_eq!(
@@ -732,10 +717,9 @@ where
             // stepping over it would let that document into the result set. So every
             // lagger is seeked to the abandoned position itself, not past it.
             //
-            // These are the reads a revalidation cannot avoid. An `Err` here reaches
-            // the caller as `VALIDATE_ABORTED`, which frees the iterator and
-            // substitutes an empty one — the failure is reported, if bluntly, which
-            // beats handing out a position no child backs.
+            // These reads cannot be avoided. An `Err` here reaches the caller as
+            // `VALIDATE_ABORTED`, freeing the iterator and substituting an empty one
+            // — blunt, but better than handing out a position no child backs.
             let mut i = 0;
             while i < self.num_active {
                 if self.children[i].last_doc_id() >= original_last_doc_id {
@@ -745,10 +729,8 @@ where
                 match self.children[i].skip_to(original_last_doc_id)? {
                     Some(SkipToOutcome::Found(_)) => {
                         if QUICK_EXIT {
-                            // The document is still matched after all: the union
-                            // stays on it, backed by the child that just landed
-                            // there. Remaining laggers are left for the next call,
-                            // as everywhere else in this mode.
+                            // Still matched after all: the union stays on it, backed
+                            // by this child; remaining laggers wait for the next call.
                             self.quick_set_from_child(i);
 
                             debug_assert_eq!(
