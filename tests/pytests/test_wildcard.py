@@ -626,7 +626,7 @@ def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     env.assertEqual(res, [2, 'doc1', 'doc2'])
 
 @skip(cluster=True)
-def testWildcardStarredNonFinalAnchorWithSuffixTrie():
+def testWildcardStarredNonFinalAnchor():
     """On the suffix-trie path, a pattern whose best anchor token is starred
     and non-final (in w'verylongtoken*a', 'verylongtoken' out-scores the tail
     token 'a' despite the starred-anchor penalty) must return the same result
@@ -635,12 +635,15 @@ def testWildcardStarredNonFinalAnchorWithSuffixTrie():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    env.expect('FT.CREATE', 'idx_plain', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
     conn.execute_command('HSET', 'doc1', 't', 'verylongtokenxa')
     conn.execute_command('HSET', 'doc2', 't', 'verylongtokenxb')
 
-    res = env.cmd('FT.SEARCH', 'idx', "w'verylongtoken*a'", 'NOCONTENT')
-    env.assertEqual(res, [1, 'doc1'])
+    res_plain = env.cmd('FT.SEARCH', 'idx_plain', "w'verylongtoken*a'", 'NOCONTENT')
+    res_suffix = env.cmd('FT.SEARCH', 'idx_suffix', "w'verylongtoken*a'", 'NOCONTENT')
+    env.assertEqual(res_plain, [1, 'doc1'])
+    env.assertEqual(res_suffix, res_plain)
 
 @skip(cluster=True)
 def testWildcardSupplementaryPlaneParity():
