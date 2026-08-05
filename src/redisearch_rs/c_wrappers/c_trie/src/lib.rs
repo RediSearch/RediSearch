@@ -13,8 +13,9 @@
 
 use std::{
     ffi::{c_char, c_int, c_void},
+    marker::PhantomData,
     ops::ControlFlow,
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 use ffi::{
@@ -22,7 +23,7 @@ use ffi::{
     SuffixType_SUFFIX_TYPE_WILDCARD,
 };
 
-/// Which side(s) of a term a [`CTrieRef::iterate_suffix`] walk anchors on.
+/// Which side(s) of a term a [`SuffixTrie::iterate_contains`] walk anchors on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuffixMode {
     /// Match terms that end with the pattern (`*llo`).
@@ -55,7 +56,7 @@ impl From<SuffixMode> for SuffixType {
 ///   case `runes` is ignored).
 ///
 /// Both hold when the trie invokes this through the function pointer installed
-/// by [`CTrieRef::iterate_contains`] or [`CTrieRef::iterate_wildcard`].
+/// by [`TermsTrie::iterate_contains`] or [`TermsTrie::iterate_wildcard`].
 unsafe extern "C" fn range_trampoline<F>(
     runes: *const ffi::rune,
     len: usize,
@@ -97,8 +98,8 @@ where
 /// - `s` must point to `len` valid bytes, or `len` must be `0`.
 ///
 /// Both hold when the suffix trie invokes this through the function pointer
-/// installed by [`CTrieRef::iterate_suffix`] or
-/// [`CTrieRef::iterate_suffix_wildcard`].
+/// installed by [`SuffixTrie::iterate_contains`] or
+/// [`SuffixTrie::iterate_wildcard`].
 unsafe extern "C" fn suffix_trampoline<F>(
     s: *const c_char,
     len: usize,
@@ -178,7 +179,7 @@ impl LoweredPattern {
     }
 }
 
-/// Outcome of [`CTrieRef::iterate_suffix_wildcard`].
+/// Outcome of [`SuffixTrie::iterate_wildcard`].
 ///
 /// Neither variant is a failure: declining a pattern the suffix trie cannot
 /// anchor on is a routine handover to the primary terms trie. The distinction is
@@ -195,7 +196,7 @@ pub enum SuffixWalk {
     /// The pattern held no literal run to anchor on, so nothing was visited.
     ///
     /// The pattern comes back ready for a fallback walk over the primary terms
-    /// trie with [`iterate_wildcard`](CTrieRef::iterate_wildcard).
+    /// trie with [`TermsTrie::iterate_wildcard`].
     NoAnchor(LoweredPattern),
 }
 
@@ -213,28 +214,45 @@ pub enum CTrieDecrResult {
     Unsupported = 3,
 }
 
-/// Wrapper around the C Trie pointer for safe FFI operations.
-///
-/// This struct does NOT own the C Trie - it's just a wrapper for
-/// calling FFI functions. The caller is responsible for managing
-/// the lifetime of the C Trie.
+/// A safe wrapper around a C [`ffi::Trie`] used for terms tries.
 #[derive(Debug)]
-pub struct CTrieRef {
-    ptr: *mut ffi::Trie,
+#[repr(transparent)]
+pub struct TermsTrie {
+    inner: ffi::Trie,
+    // [`ffi::Trie`] is an opaque ZST, which would make `TermsTrie` `Send + Sync` by
+    // default. The C trie is neither: it is mutated under the owning spec's lock.
+    // This `PhantomData` removes the auto traits.
+    _phantom: PhantomData<*mut ffi::Trie>,
 }
 
-impl CTrieRef {
-    /// Create a new wrapper around an existing C Trie pointer.
+impl TermsTrie {
+    /// Borrow an existing C Terms Trie pointer as a shared reference.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that:
-    /// - `ptr` is a valid pointer to a C `Trie` struct
-    /// - The C Trie outlives this wrapper
-    /// - No other code frees the C Trie while this wrapper exists
-    pub unsafe fn from_raw(ptr: *mut ffi::Trie) -> Self {
+    /// 1. `ptr` must be a valid, non-null pointer to a terms `ffi::Trie`, must
+    ///    remain live for `'a`, and must not be mutated for the duration.
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::Trie) -> &'a Self {
         debug_assert!(!ptr.is_null(), "C Trie pointer cannot be null");
-        Self { ptr }
+        // SAFETY: guaranteed by caller (1.)
+        unsafe { &*ptr.cast::<Self>() }
+    }
+
+    /// Borrow an existing C Terms Trie pointer as an exclusive reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must be a valid, non-null pointer to a terms `ffi::Trie`, must remain
+    ///    live for `'a`, and must have no other aliasing references for the duration.
+    pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::Trie) -> &'a mut Self {
+        debug_assert!(!ptr.is_null(), "C Trie pointer cannot be null");
+        // SAFETY: guaranteed by caller (1.)
+        unsafe { &mut *ptr.cast::<Self>() }
+    }
+
+    /// Return a raw pointer to the underlying terms [`ffi::Trie`].
+    pub const fn as_ptr(&self) -> *mut ffi::Trie {
+        ptr::from_ref(self).cast_mut().cast::<ffi::Trie>()
     }
 
     /// Decrement the numDocs count for a term in the C Trie.
@@ -250,11 +268,6 @@ impl CTrieRef {
     /// * `CTrieDecrResult::Updated` - numDocs decremented, still > 0
     /// * `CTrieDecrResult::Deleted` - numDocs reached 0, term deleted
     /// * `CTrieDecrResult::Unsupported` - term too long/unconvertible; never inserted
-    ///
-    /// # Safety
-    ///
-    /// This function is safe to call if the `CTrieRef` was created safely.
-    /// The C function handles UTF-8 to rune conversion internally.
     pub fn decrement_num_docs(&mut self, term: &[u8], delta: u64) -> CTrieDecrResult {
         // SAFETY: We're calling the C function with valid parameters.
         // The term is passed as a UTF-8 byte slice, and the C function
@@ -263,7 +276,7 @@ impl CTrieRef {
         // potentially deleting nodes.
         let result = unsafe {
             ffi::Trie_DecrementNumDocs(
-                self.ptr,
+                self.as_ptr(),
                 term.as_ptr() as *const c_char,
                 term.len(),
                 delta as usize,
@@ -285,7 +298,7 @@ impl CTrieRef {
     ///
     /// # Safety
     ///
-    /// This function is safe to call if the `CTrieRef` was created safely.
+    /// This function is safe to call if the `TermsTrie` was created safely.
     pub fn num_docs(&self, term: &[u8]) -> usize {
         // Terms longer than the trie can store are never present, so report zero
         // without a lookup (mirrors the C insertion/decrement guards). This also
@@ -316,12 +329,12 @@ impl CTrieRef {
                 runes.as_mut_ptr(),
             )
         };
-        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `runes`/
+        // SAFETY: `self` borrows a valid `Trie` (`TermsTrie` invariant); `runes`/
         // `rlen` describe a valid rune slice, and `rlen <= term.len()` fits
         // `t_len` (guarded above).
         let node = unsafe {
             ffi::Trie_GetNode(
-                self.ptr,
+                self.as_ptr(),
                 runes.as_ptr(),
                 rlen as ffi::t_len,
                 true,
@@ -356,25 +369,12 @@ impl CTrieRef {
     ///
     /// `timeout` bounds the walk: `Some(deadline)` aborts it once the deadline
     /// passes, while `None` runs it to completion with no deadline.
-    ///
-    /// # Safety
-    ///
-    /// - A `Some` `timeout` must point to a valid [`timespec`](ffi::timespec)
-    ///   that stays valid, and is not mutated (including by another thread), for
-    ///   the duration of the call. The walk reads `*timeout` unsynchronized, so a
-    ///   concurrent write to the pointee is a data race.
-    /// - The wrapped trie must not be mutated, freed, or iterated again for the
-    ///   duration of the call — including from within `callback`. The walk caches
-    ///   raw node and child pointers and reuses them after each callback
-    ///   invocation, so mutating the trie (e.g. deleting a term, or decrementing
-    ///   one to zero, through another handle) can free a node mid-walk and leave
-    ///   those pointers dangling.
-    pub unsafe fn iterate_contains<F>(
+    pub fn iterate_contains<F>(
         &self,
         pattern: &[ffi::rune],
         prefix: bool,
         suffix: bool,
-        timeout: Option<NonNull<ffi::timespec>>,
+        mut timeout: Option<ffi::timespec>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -392,17 +392,17 @@ impl CTrieRef {
         // The iterator only honours a deadline when timeout checks are enabled,
         // and treats a null deadline as already-expired, so the two must move
         // together: a deadline enables the checks, its absence disables them.
-        let (timeout, skip_timeout_checks) = match timeout {
-            Some(deadline) => (deadline.as_ptr(), false),
-            None => (std::ptr::null_mut(), true),
+        let (timeout, skip_timeout_checks) = match &mut timeout {
+            Some(timeout) => (ptr::from_mut(timeout), false),
+            None => (ptr::null_mut(), true),
         };
-        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `pattern`
-        // points to `pattern.len()` runes; `&mut callback` stays alive for the
-        // whole call, so the `ctx` the trampoline reconstitutes is valid; and
-        // `timeout` is null or the valid pointer the caller supplied.
+        // SAFETY: `self` borrows a valid terms `Trie`; `pattern` points to
+        // `pattern.len()` runes; `&mut callback` stays alive for the whole
+        // call, so the `ctx` the trampoline reconstitutes is valid; and
+        // `timeout` is null or points to a valid `timeout` argument.
         unsafe {
             ffi::Trie_IterateContains(
-                self.ptr,
+                self.as_ptr(),
                 pattern.as_ptr(),
                 pattern.len() as c_int,
                 prefix,
@@ -412,65 +412,6 @@ impl CTrieRef {
                 timeout,
                 skip_timeout_checks,
             );
-        }
-    }
-
-    /// Visit every term matched by `pattern` through the *suffix* trie, which
-    /// indexes terms by their suffixes to answer contains/suffix queries without
-    /// a full scan.
-    ///
-    /// `self` must wrap a suffix trie, not the primary terms trie. `pattern` is
-    /// the rune key and `mode` selects a suffix or contains match. Each matching
-    /// term is delivered to `callback` as a UTF-8 byte string — already converted
-    /// from runes by the suffix trie — with no document count; the callback
-    /// returns [`ControlFlow`] to continue or stop.
-    ///
-    /// The suffix-trie walk is recursive and does not check for a timeout, so
-    /// this method takes no deadline. An empty `pattern` visits nothing.
-    ///
-    /// # Safety
-    ///
-    /// - `self` must wrap a suffix trie, whose nodes carry a suffix-data payload.
-    ///   The iterator reinterprets each visited node's payload as that type and
-    ///   dereferences it, so passing the primary terms trie (or any trie with a
-    ///   different payload) is type confusion and undefined behavior.
-    /// - The wrapped trie must not be mutated, freed, or iterated again for the
-    ///   duration of the call — including from within `callback`. The walk caches
-    ///   raw node and child pointers and reuses them after each callback
-    ///   invocation, so mutating the trie through another handle can free a node
-    ///   mid-walk and leave those pointers dangling.
-    pub unsafe fn iterate_suffix<F>(&self, pattern: &[ffi::rune], mode: SuffixMode, mut callback: F)
-    where
-        F: FnMut(&[u8]) -> ControlFlow<()>,
-    {
-        // An empty pattern has no suffix/contains anchor.
-        if pattern.is_empty() {
-            return;
-        }
-        // The suffix-trie node lookup narrows the pattern length to `t_len`
-        // (`u16`), so an over-long pattern would be truncated and match a shorter
-        // key. No stored key can be this long, so nothing can match: bail out
-        // rather than look up a truncated pattern.
-        if pattern.len() > ffi::t_len::MAX as usize {
-            return;
-        }
-        let mut suffix_ctx = SuffixCtx {
-            trie: self.ptr,
-            rune: pattern.as_ptr().cast_mut(),
-            runelen: pattern.len(),
-            type_: mode.into(),
-            callback: Some(suffix_trampoline::<F>),
-            cbCtx: std::ptr::from_mut(&mut callback).cast(),
-            // The suffix walk ignores these; keep them zeroed.
-            timeout: std::ptr::null_mut(),
-            skipTimeoutChecks: false,
-        };
-        // SAFETY: every `suffix_ctx` field is initialised above with a valid
-        // value — `self.ptr` is a valid suffix `Trie` (caller contract), the
-        // pattern pointer/len describe a live rune slice, and the callback
-        // closure outlives the call.
-        unsafe {
-            ffi::Suffix_IterateContains(std::ptr::from_mut(&mut suffix_ctx));
         }
     }
 
@@ -495,22 +436,10 @@ impl CTrieRef {
     ///
     /// [`Break`]: ControlFlow::Break
     ///
-    /// # Safety
-    ///
-    /// - A `Some` `timeout` must point to a valid [`timespec`](ffi::timespec)
-    ///   that stays valid, and is not mutated (including by another thread), for
-    ///   the duration of the call. The walk reads `*timeout` unsynchronized, so a
-    ///   concurrent write to the pointee is a data race.
-    /// - The wrapped trie must not be mutated, freed, or iterated again for the
-    ///   duration of the call — including from within `callback`. The walk caches
-    ///   raw node and child pointers and reuses them after each callback
-    ///   invocation, so mutating the trie (e.g. deleting a term, or decrementing
-    ///   one to zero, through another handle) can free a node mid-walk and leave
-    ///   those pointers dangling.
-    pub unsafe fn iterate_wildcard<F>(
+    pub fn iterate_wildcard<F>(
         &self,
         pattern: &LoweredPattern,
-        timeout: Option<NonNull<ffi::timespec>>,
+        mut timeout: Option<ffi::timespec>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -524,18 +453,18 @@ impl CTrieRef {
         // As in `iterate_contains`: the walk only honours a deadline when timeout
         // checks are enabled and treats a null deadline as already-expired, so the
         // two must move together.
-        let (timeout, skip_timeout_checks) = match timeout {
-            Some(deadline) => (deadline.as_ptr(), false),
-            None => (std::ptr::null_mut(), true),
+        let (timeout, skip_timeout_checks) = match &mut timeout {
+            Some(timeout) => (ptr::from_mut(timeout), false),
+            None => (ptr::null_mut(), true),
         };
-        // SAFETY: `self.ptr` is a valid `Trie` (`CTrieRef` invariant); `pattern`
-        // addresses its content runes followed by the readable zero sentinel the
-        // matcher requires (`LoweredPattern` invariant); `&mut callback` stays
-        // alive for the whole call, so the `ctx` the trampoline reconstitutes is
-        // valid; and `timeout` is null or the valid pointer the caller supplied.
+        // SAFETY: `self` borrows a valid terms `Trie`; `pattern` addresses its
+        // content runes followed by the readable zero sentinel the matcher
+        // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
+        // the whole call, so the `ctx` the trampoline reconstitutes is valid; and
+        // `timeout` is null or points to a valid `timeout` argument.
         unsafe {
             ffi::Trie_IterateWildcard(
-                self.ptr,
+                self.as_ptr(),
                 pattern.runes.as_ptr(),
                 pattern.len() as c_int,
                 Some(range_trampoline::<F>),
@@ -546,62 +475,159 @@ impl CTrieRef {
         }
     }
 
+    /// Iterate every term in the trie, in the trie's natural iteration order,
+    /// with no filter or distance constraint.
+    pub fn iterate_all(&self) -> CTrieAllIterator<'_> {
+        CTrieAllIterator::new(self)
+    }
+
+    /// Remove `term` from the trie.
+    ///
+    /// Returns whether an entry was actually removed.
+    pub fn delete(&mut self, term: &[u8]) -> bool {
+        // Terms longer than the trie can store are never present, so report a
+        // miss without a lookup. The C function applies the same cap, but only
+        // after the rune conversion below has already run.
+        if term.len() > ffi::TRIE_INITIAL_STRING_LEN as usize * std::mem::size_of::<ffi::rune>() {
+            return false;
+        }
+
+        // SAFETY: `self` borrows a valid Terms `Trie`, and `term`/`term_len`
+        // describe a valid byte slice for the duration of the call.
+        let removed =
+            unsafe { ffi::Trie_Delete(self.as_ptr(), term.as_ptr() as *const c_char, term.len()) };
+
+        removed != 0
+    }
+}
+
+/// A safe wrapper around a C [`ffi::Trie`] used for suffix tries.
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct SuffixTrie {
+    inner: ffi::Trie,
+    // [`ffi::Trie`] is an opaque ZST, which would make `SuffixTrie` `Send + Sync`
+    // by default. The C trie is neither: it is mutated under the owning spec's lock.
+    // This `PhantomData` removes the auto traits.
+    _phantom: PhantomData<*mut ffi::Trie>,
+}
+
+impl SuffixTrie {
+    /// Borrow an existing C Suffix Trie pointer as a shared reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must be a valid, non-null pointer to a suffix `ffi::Trie`, must
+    ///    remain live for `'a`, and must not be mutated for the duration.
+    pub const unsafe fn from_raw<'a>(ptr: *const ffi::Trie) -> &'a Self {
+        debug_assert!(!ptr.is_null(), "C Suffix Trie pointer cannot be null");
+        // SAFETY: guaranteed by caller (1.)
+        unsafe { &*ptr.cast::<Self>() }
+    }
+
+    /// Borrow an existing C Suffix Trie pointer as an exclusive reference.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must be a valid, non-null pointer to a suffix `ffi::Trie`, must remain
+    ///    live for `'a`, and must have no other aliasing references for the duration.
+    pub const unsafe fn from_raw_mut<'a>(ptr: *mut ffi::Trie) -> &'a mut Self {
+        debug_assert!(!ptr.is_null(), "C Suffix Trie pointer cannot be null");
+        // SAFETY: guaranteed by caller (1.)
+        unsafe { &mut *ptr.cast::<Self>() }
+    }
+
+    /// Return a raw pointer to the underlying suffix [`ffi::Trie`].
+    pub const fn as_ptr(&self) -> *mut ffi::Trie {
+        ptr::from_ref(self).cast_mut().cast::<ffi::Trie>()
+    }
+
+    /// Visit every term matched by `pattern` through the *suffix* trie, which
+    /// indexes terms by their suffixes to answer contains/suffix queries without
+    /// a full scan.
+    ///
+    /// `pattern` is the rune key and `mode` selects a suffix or contains match.
+    /// Each matching term is delivered to `callback` as a UTF-8 byte string —
+    /// already converted from runes by the suffix trie — with no document count;
+    /// the callback returns [`ControlFlow`] to continue or stop.
+    ///
+    /// The suffix-trie walk is recursive and does not check for a timeout, so
+    /// this method takes no deadline. An empty `pattern` visits nothing.
+    pub fn iterate_contains<F>(&self, pattern: &[ffi::rune], mode: SuffixMode, mut callback: F)
+    where
+        F: FnMut(&[u8]) -> ControlFlow<()>,
+    {
+        // An empty pattern has no suffix/contains anchor.
+        if pattern.is_empty() {
+            return;
+        }
+        // The suffix-trie node lookup narrows the pattern length to `t_len`
+        // (`u16`), so an over-long pattern would be truncated and match a shorter
+        // key. No stored key can be this long, so nothing can match: bail out
+        // rather than look up a truncated pattern.
+        if pattern.len() > ffi::t_len::MAX as usize {
+            return;
+        }
+        let mut suffix_ctx = SuffixCtx {
+            trie: self.as_ptr(),
+            rune: pattern.as_ptr().cast_mut(),
+            runelen: pattern.len(),
+            type_: mode.into(),
+            callback: Some(suffix_trampoline::<F>),
+            cbCtx: std::ptr::from_mut(&mut callback).cast(),
+            // The suffix walk ignores these; keep them zeroed.
+            timeout: std::ptr::null_mut(),
+            skipTimeoutChecks: false,
+        };
+        // SAFETY: every `suffix_ctx` field is initialised above with a valid
+        // value, `self` borrows a valid suffix `Trie`, the pattern pointer/len
+        // describe a live rune slice, and the callback closure outlives the call.
+        unsafe {
+            ffi::Suffix_IterateContains(std::ptr::from_mut(&mut suffix_ctx));
+        }
+    }
+
     /// Visit every term matching a wildcard `pattern` through the *suffix* trie,
     /// which indexes terms by their suffixes so a pattern that is not
     /// front-anchored can be answered without a full scan.
     ///
-    /// `self` must wrap a suffix trie, not the primary terms trie. Each matching
-    /// term is delivered to `callback` as a byte string — already converted from
-    /// runes by the suffix trie — with no document count; the callback returns
-    /// [`ControlFlow`] to continue or stop. A term reachable under several
-    /// matching suffix keys is delivered once per key, so `callback` may see
-    /// duplicates.
+    /// Each matching term is delivered to `callback` as a byte string — already
+    /// converted from runes by the suffix trie — with no document count; the
+    /// callback returns [`ControlFlow`] to continue or stop. A term reachable
+    /// under several matching suffix keys is delivered once per key, so
+    /// `callback` may see duplicates.
     ///
     /// A [`Break`](ControlFlow::Break) carries the same weak guarantee as in
-    /// [`iterate_wildcard`](Self::iterate_wildcard): it is honoured outright only
-    /// when the anchor token the walk settles on is `*`-terminated, and otherwise
-    /// ends just the current suffix key's terms. Which token is chosen is not the
-    /// caller's to predict, so treat the weaker guarantee as the contract.
+    /// [`TermsTrie::iterate_wildcard`]: it is honoured outright only when the
+    /// anchor token the walk settles on is `*`-terminated, and otherwise ends just
+    /// the current suffix key's terms. Which token is chosen is not the caller's
+    /// to predict, so treat the weaker guarantee as the contract.
     ///
     /// The suffix trie can only answer a pattern that contains a literal run to
     /// anchor on. When it does not, nothing is visited and the pattern is handed
     /// back as [`SuffixWalk::NoAnchor`] so the caller can fall back to
-    /// [`iterate_wildcard`](Self::iterate_wildcard) over the primary terms trie.
+    /// [`TermsTrie::iterate_wildcard`].
     ///
     /// `pattern` is consumed so that a declined walk can hand it back through
     /// [`SuffixWalk::NoAnchor`] for the fallback.
     ///
-    /// `timeout` bounds the walk, as for [`iterate_wildcard`](Self::iterate_wildcard).
-    ///
-    /// # Safety
-    ///
-    /// - `self` must wrap a suffix trie, whose nodes carry a suffix-data payload.
-    ///   The iterator reinterprets each visited node's payload as that type and
-    ///   dereferences it, so passing the primary terms trie (or any trie with a
-    ///   different payload) is type confusion and undefined behavior.
-    /// - A `Some` `timeout` must satisfy the same validity and no-concurrent-write
-    ///   requirement as in [`iterate_wildcard`](Self::iterate_wildcard).
-    /// - The wrapped trie must not be mutated, freed, or iterated again for the
-    ///   duration of the call — including from within `callback` — for the same
-    ///   dangling-pointer reason as [`iterate_wildcard`](Self::iterate_wildcard).
-    ///   A `callback` that consults the *primary* trie is fine; it is a separate
-    ///   trie.
-    pub unsafe fn iterate_suffix_wildcard<F>(
+    /// `timeout` bounds the walk, as for [`TermsTrie::iterate_wildcard`].
+    pub fn iterate_wildcard<F>(
         &self,
         mut pattern: LoweredPattern,
-        timeout: Option<NonNull<ffi::timespec>>,
+        mut timeout: Option<ffi::timespec>,
         mut callback: F,
     ) -> SuffixWalk
     where
         F: FnMut(&[u8]) -> ControlFlow<()>,
     {
-        let (timeout_ptr, skip_timeout_checks) = match timeout {
-            Some(deadline) => (deadline.as_ptr(), false),
-            None => (std::ptr::null_mut(), true),
+        let (timeout_ptr, skip_timeout_checks) = match &mut timeout {
+            Some(timeout) => (ptr::from_mut(timeout), false),
+            None => (ptr::null_mut(), true),
         };
 
         let mut suffix_ctx = SuffixCtx {
-            trie: self.ptr,
+            trie: self.as_ptr(),
             rune: pattern.runes.as_mut_ptr(),
             runelen: pattern.len(),
             // The wildcard walk never reads this back, but a stale `Contains`
@@ -613,10 +639,10 @@ impl CTrieRef {
             skipTimeoutChecks: skip_timeout_checks,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
-        // value — `self.ptr` is a valid suffix `Trie` (caller contract), the rune
-        // pointer describes a live pattern followed by the sentinel the walk
-        // reads (`LoweredPattern` invariant), the callback closure outlives the
-        // call, and `timeout` is null or the valid pointer the caller supplied.
+        // value — `self` borrows a valid suffix `Trie`, the rune pointer describes
+        // a live pattern followed by the sentinel the walk reads
+        // (`LoweredPattern` invariant), the callback closure outlives the call,
+        // and `timeout` is null or points to a valid `timeout` argument.
         let used = unsafe { ffi::Suffix_IterateWildcard(std::ptr::from_mut(&mut suffix_ctx)) };
         if used == 0 {
             SuffixWalk::NoAnchor(pattern)
@@ -625,10 +651,143 @@ impl CTrieRef {
         }
     }
 
-    /// Get the raw pointer to the C Trie.
+    /// Remove `term` and all of its suffixes from the suffix trie.
     ///
-    /// This is useful when you need to pass the pointer to other C functions.
-    pub const fn as_ptr(&self) -> *mut ffi::Trie {
-        self.ptr
+    /// An empty `term` is a caller-level mistake and is ignored after
+    /// a debug assertion.
+    pub fn delete(&mut self, term: &[u8]) {
+        debug_assert!(
+            !term.is_empty(),
+            "an empty term is never inserted into a suffix trie"
+        );
+
+        // The C side asserts on a term that decodes to no runes rather than
+        // handling one, and an empty term is the reachable way to get there.
+        if term.is_empty() {
+            return;
+        }
+
+        let Ok(term_len) = u32::try_from(term.len()) else {
+            // The C API takes a `uint32_t` length. A term this long was never
+            // inserted, and truncating would delete an unrelated entry.
+            return;
+        };
+
+        // SAFETY: `self` borrows a valid Suffix `Trie`, and `term`/`term_len`
+        // describe a valid byte slice for the duration of the call.
+        unsafe {
+            ffi::deleteSuffixTrie(self.as_ptr(), term.as_ptr() as *const c_char, term_len);
+        }
     }
+}
+
+/// Iterator over every term in a trie.
+///
+/// Reached through [`TermsTrie::iterate_all`], the public entry point.
+pub struct CTrieAllIterator<'a> {
+    ptr: NonNull<ffi::TrieIterator>,
+    _borrow: PhantomData<&'a TermsTrie>,
+}
+
+impl<'a> CTrieAllIterator<'a> {
+    fn new(trie: &'a TermsTrie) -> Self {
+        // SAFETY: `trie` borrows a valid `Trie`.
+        let ptr = unsafe { ffi::Trie_IterateAll(trie.as_ptr()) };
+        Self {
+            // `Trie_IterateAll` allocates via `rm_calloc`, which aborts the
+            // process on allocation failure rather than returning null.
+            ptr: NonNull::new(ptr).expect("Trie_IterateAll returned null"),
+            _borrow: PhantomData,
+        }
+    }
+
+    /// Advance the walk, returning the next term's rune key, or `None` once
+    /// every term has been visited.
+    fn advance(&mut self) -> Option<&[ffi::rune]> {
+        let mut ptr: *mut ffi::rune = std::ptr::null_mut();
+        let mut len: ffi::t_len = 0;
+        let mut score: f32 = 0.0;
+
+        // SAFETY: `self.ptr` is a valid, non-exhausted `TrieIterator`. `score`
+        // is a valid `&mut f32` the C function may write through unconditionally
+        // on a match; `numDocs`, `payload` and `matchCtx` are unused, and the C
+        // side skips each of them when null.
+        let has_next = unsafe {
+            ffi::TrieIterator_Next(
+                self.ptr.as_ptr(),
+                &mut ptr,
+                &mut len,
+                std::ptr::null_mut(),
+                &mut score,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if has_next == 0 {
+            return None;
+        }
+
+        // SAFETY: on a match, the C function sets `ptr`/`len` to describe
+        // `len` valid, contiguous runes owned by the iterator's internal
+        // buffer, borrowed for `self`'s lifetime until the next call.
+        Some(unsafe { std::slice::from_raw_parts(ptr, len as usize) })
+    }
+}
+
+impl Iterator for CTrieAllIterator<'_> {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let runes = self.advance()?;
+            // A key that cannot be converted back is skipped rather than
+            // ending the walk: `runes_to_bytes` only fails for a key longer
+            // than the trie can represent, which no stored key can be.
+            if let Some(term) = runes_to_bytes(runes) {
+                return Some(term);
+            }
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a TermsTrie {
+    type Item = Vec<u8>;
+    type IntoIter = CTrieAllIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iterate_all()
+    }
+}
+
+impl Drop for CTrieAllIterator<'_> {
+    fn drop(&mut self) {
+        // SAFETY: `self.ptr` was allocated by `Trie_IterateAll` and has not
+        // been freed yet (owned exclusively by this iterator).
+        unsafe { ffi::TrieIterator_Free(self.ptr.as_ptr()) };
+    }
+}
+
+/// Convert a rune slice back to its original representation.
+///
+/// Returns `None` if `runes` is longer than the trie can represent; this
+/// can only happen for a key that was never actually stored in a trie.
+pub fn runes_to_bytes(runes: &[ffi::rune]) -> Option<Vec<u8>> {
+    let mut utflen: usize = 0;
+    // SAFETY: `runes` points to `runes.len()` valid runes; `utflen` is a
+    // valid `&mut usize` out-param.
+    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut utflen) };
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: on success `ptr` points to `utflen` initialised bytes in a
+    // buffer allocated by `runesToStr` via `rm_calloc` (`RedisModule_Calloc`).
+    let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), utflen) }.to_vec();
+    // SAFETY: `RedisModule_Free` is set during module init and not mutated
+    // afterwards.
+    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
+    // SAFETY: `ptr` was allocated by `runesToStr` via the Redis allocator and
+    // is freed exactly once here, matching the C side's `rm_free`.
+    unsafe { rm_free(ptr.cast()) };
+    Some(bytes)
 }

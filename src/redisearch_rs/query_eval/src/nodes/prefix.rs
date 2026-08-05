@@ -9,9 +9,9 @@
 
 //! Evaluation of `QN_PREFIX` query nodes.
 
-use std::{ops::ControlFlow, ptr::NonNull};
+use std::ops::ControlFlow;
 
-use c_trie::{CTrieRef, SuffixMode};
+use c_trie::{SuffixMode, SuffixTrie, TermsTrie};
 use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -97,7 +97,7 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     let time = &ctx.sctx().time;
-    let timeout = (!time.skipTimeoutChecks).then(|| NonNull::from(&time.timeout));
+    let timeout = (!time.skipTimeoutChecks).then_some(time.timeout);
 
     let expansion = Expansion {
         ctx,
@@ -111,14 +111,14 @@ pub(crate) fn eval<'index>(
     debug_assert!(!terms_trie.is_null(), "terms trie should be initialized");
     // SAFETY: `terms_trie` is the spec's terms `Trie`, valid for and unmutated
     // during the query (`QueryEvalContext` invariants 1/2).
-    let terms = unsafe { CTrieRef::from_raw(terms_trie) };
+    let terms = unsafe { TermsTrie::from_raw(terms_trie) };
 
     let children = if match_suffix && !suffix_trie.is_null() {
         // The spec maintains a suffix trie for this pattern's fields: expand
         // through it.
         // SAFETY: `suffix_trie` is non-null (checked above) and is the spec's
         // suffix `Trie`, valid for and unmutated during the query.
-        let suffix = unsafe { CTrieRef::from_raw(suffix_trie) };
+        let suffix = unsafe { SuffixTrie::from_raw(suffix_trie) };
         expansion.expand_via_suffix_trie(
             suffix,
             terms,
@@ -171,8 +171,8 @@ impl Expansion<'_> {
     /// suffix trie, a `Generic` error is set and no reader is returned.
     fn expand_via_suffix_trie(
         mut self,
-        suffix: CTrieRef,
-        terms: CTrieRef,
+        suffix: &SuffixTrie,
+        terms: &TermsTrie,
         pattern: &[ffi::rune],
         contains: bool,
         node_field_mask: FieldMask,
@@ -212,15 +212,7 @@ impl Expansion<'_> {
             };
             self.push_child(num_docs, term_bytes)
         };
-        // SAFETY: `suffix` wraps the spec's valid suffix `Trie`, whose nodes carry
-        // the suffix-data payload the walk expects (caller contract); the suffix
-        // walk carries no timeout. The trie is not mutated or re-iterated for the
-        // duration of the call: `on_term` only opens per-term readers (which read
-        // the spec's inverted indexes) and, on the disk path, looks up the
-        // separate primary terms trie — never the suffix trie being walked.
-        unsafe {
-            suffix.iterate_suffix(pattern, suffix_mode, on_term);
-        }
+        suffix.iterate_contains(pattern, suffix_mode, on_term);
         self.children
     }
 
@@ -232,11 +224,11 @@ impl Expansion<'_> {
     /// bounds it (`None` runs it to completion).
     fn expand_via_terms_trie(
         mut self,
-        terms: CTrieRef,
+        terms: &TermsTrie,
         pattern: &[ffi::rune],
         match_prefix: bool,
         match_suffix: bool,
-        timeout: Option<NonNull<ffi::timespec>>,
+        timeout: Option<ffi::timespec>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
         // for the disk IDF), which must be encoded back into the term's key, byte for
@@ -249,14 +241,7 @@ impl Expansion<'_> {
             };
             self.push_child(num_docs, &key)
         };
-        // SAFETY: `terms` wraps the spec's valid primary terms `Trie`; `timeout`,
-        // if set, points to the sctx's live timeout `timespec`. The trie is not
-        // mutated or re-iterated for the duration of the call: `on_runes` only
-        // opens per-term readers, which read the spec's inverted indexes rather
-        // than the terms trie being walked.
-        unsafe {
-            terms.iterate_contains(pattern, match_prefix, match_suffix, timeout, on_runes);
-        }
+        terms.iterate_contains(pattern, match_prefix, match_suffix, timeout, on_runes);
         self.children
     }
 }
