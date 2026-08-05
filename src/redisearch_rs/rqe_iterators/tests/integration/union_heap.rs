@@ -125,7 +125,7 @@ fn reuse_results_optimization_quick_mode() {
 fn into_trimmed_full_heap_yields_all_children() {
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionFullHeap::new(children);
-    let mut trimmed = union.into_trimmed(usize::MAX, true).unwrap();
+    let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(usize::MAX, true).unwrap());
 
     let mut docs = Vec::new();
     while let Some(r) = trimmed.read().unwrap() {
@@ -158,9 +158,13 @@ fn into_trimmed_quick_heap_trims_desc() {
     // Desc scan from child[1] backward: child[1].est=2 > 1 → skip=1.
     let (children, _data) = create_mock_3([1, 2], [3, 4], [5, 6]);
     let union = UnionQuickHeap::new(children);
-    let mut trimmed = union.into_trimmed(1, false).unwrap();
+    let mut trimmed = ContractChecker::new_unordered(union.into_trimmed(1, false).unwrap());
 
-    assert_eq!(trimmed.num_children_total(), 3, "all children stay alive");
+    assert_eq!(
+        trimmed.inner().num_children_total(),
+        3,
+        "all children stay alive"
+    );
     let mut docs = Vec::new();
     while let Some(r) = trimmed.read().unwrap() {
         docs.push(r.doc_id);
