@@ -548,6 +548,7 @@ def testWildcardQuestionMarkMultibyteWithoutSuffixTrie():
     """Without WITHSUFFIXTRIE, a wildcard query is evaluated by brute force over
     the rune terms trie (Wildcard_MatchRune), where `?` consumes one codepoint —
     so w'entr?' matches 'entré' ('é' is two UTF-8 bytes but one codepoint)."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -564,6 +565,7 @@ def testWildcardQuestionMarkMultibyteWithSuffixTrie():
     re-filtered rune-wise (Suffix_CB_Wildcard -> Wildcard_MatchRune), where `?`
     consumes one codepoint — so w'entr?' matches 'entré', the same result the
     brute-force path produces without the suffix trie."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
@@ -580,6 +582,7 @@ def testWildcardStarredNonFinalAnchorWithSuffixTrie():
     and non-final (in w'verylongtoken*a', 'verylongtoken' out-scores the tail
     token 'a' despite the starred-anchor penalty) must return the same result
     as the brute-force path."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
 
