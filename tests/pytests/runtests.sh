@@ -157,12 +157,16 @@ setup_clang_sanitizer() {
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
-		# Apple's ASan runtime has no LeakSanitizer: with detect_leaks=1
+		# Apple's ASan runtime — linked from under Xcode.app or
+		# CommandLineTools — has no LeakSanitizer: with detect_leaks=1
 		# every instrumented process aborts before main ("detect_leaks is
-		# not supported on this platform").
+		# not supported on this platform"). Other runtimes, like Homebrew
+		# LLVM's, support it, so key off the runtime the module links, not
+		# the OS.
 		local detect_leaks=1
-		if [[ $(uname) == Darwin ]]; then
+		if otool -l "$MODULE" 2> /dev/null | grep -qE 'Xcode\.app|CommandLineTools'; then
 			detect_leaks=0
+			echo "Disabling ASan leak detection: Apple's runtime does not support it"
 		fi
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=${detect_leaks}:verbosity=0"
