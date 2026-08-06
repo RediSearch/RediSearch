@@ -868,14 +868,19 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     before = gcCycles(env, 'idx')
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
     env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    # Whether CONTINUE queued a duplicate was already decided above. Stopping again before the
+    # parked run is released leaves it unable to re-arm, so no timer can fire during the
+    # assertion below -- a second cycle can then only mean a duplicate run.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Release the parked run. SIGNAL also disarms, so nothing parks again.
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
 
-    # Exactly one run was in flight, so exactly one cycle completes from it. A second queued
-    # run would land a second cycle immediately -- the pool is single-threaded and both would
-    # already be queued, whereas the next timer-driven cycle is a full interval away.
-    completed = waitForGCCycles(env, 'idx', before, timeout=30)
+    # GC_WAIT_FOR_JOBS queues a marker at the end of the single-threaded pool and blocks until
+    # it runs, so it drains the parked run and any duplicate queued behind it. That is a
+    # barrier rather than a wall-clock window: no poll can be descheduled past a stray cycle.
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    completed = gcCycles(env, 'idx')
     env.assertEqual(completed, before + 1,
                     message=f'GC_CONTINUE_SCHEDULE queued a duplicate run: '
                             f'{before} -> {completed}')
