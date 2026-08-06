@@ -2185,6 +2185,8 @@ void IndexSpec_Free(IndexSpec *spec) {
 // This function consumes the Strong reference it gets
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
+  GCContext *gc = spec->gc;
+  const bool ownGCAfterUnlink = gc && GCContext_BeginDrop(gc);
   // Remove spec from global index lists (by name and by specId)
   dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void*)(uintptr_t)spec->specId);
@@ -2230,6 +2232,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
   StrongRef_Release(spec_ref);
+
+  if (ownGCAfterUnlink) {
+    GCContext_FinishDrop(gc);
+  }
 }
 
 void Indexes_Free(dict *d, bool deleteDiskData) {
