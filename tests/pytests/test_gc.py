@@ -560,3 +560,97 @@ def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
     forceInvokeGC(env, 'idx')
     env.expect('PING').equal(True)
 
+# Periodic-GC scheduling tests assert on the per-index gc_stats cycle counter.
+
+
+def gcCycles(env, idx):
+    return int(to_dict(index_info(env, idx)['gc_stats'])['total_cycles'])
+
+
+def waitForGCCycles(env, idx, base, count=1, timeout=60):
+    """Wait for `idx` to complete `count` cycles past `base`, returning the counter value that
+    was actually observed. Callers assert on that value rather than re-reading: a re-read can
+    pick up a later timer-driven cycle and turn an exact-count assertion into a flake."""
+    seen = {}
+
+    def check():
+        seen['total_cycles'] = gcCycles(env, idx)
+        return seen['total_cycles'] >= base + count, {'index': idx, 'base': base, **seen}
+
+    wait_for_condition(check, f'GC stopped collecting for {idx}', timeout=timeout)
+    return seen['total_cycles']
+
+
+@skip(cluster=True)
+def testGCPeriodicScheduleStopAndResume():
+    """The periodic GC re-arms itself, stops on GC_STOP_SCHEDULE, and resumes on
+    GC_CONTINUE_SCHEDULE. Almost every other GC test drives collection with FORCE_INVOKE,
+    which never re-arms, so nothing else notices if the chain stops after its first pass."""
+    # No garbage on purpose: a GC that finds nothing still has to re-arm. CLEAN_THRESHOLD 0
+    # keeps those empty passes from short-circuiting ahead of the total_cycles counter.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # A second index nobody stops, used to time the negative window below instead of sleeping.
+    # It is what keeps that window from passing for the wrong reason: a runner slow enough to
+    # delay 'idx' past a fixed sleep delays 'ctl' just as much, so the window stretches with
+    # the host rather than expiring before the timer it is meant to catch.
+    env.expect('FT.CREATE', 'ctl', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Two cycles, not one: the second is the one that can only come from the chain re-arming.
+    waitForGCCycles(env, 'idx', gcCycles(env, 'idx'), 2)
+
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')  # let the run already in flight finish
+    stopped_at = gcCycles(env, 'idx')
+    # Two cycles of the control index: direct evidence that GC timers did fire during this
+    # window, so a flat counter on 'idx' can only mean its own scheduling stopped.
+    waitForGCCycles(env, 'ctl', gcCycles(env, 'ctl'), 2)
+    after_stop = gcCycles(env, 'idx')
+    env.assertEqual(after_stop, stopped_at,
+                    message=f'GC ran after GC_STOP_SCHEDULE: {stopped_at} -> {after_stop}')
+
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForGCCycles(env, 'idx', stopped_at)
+
+
+@skip(cluster=True)
+def testGCScheduleCommandsOnIndexWithoutGC(env):
+    """A TEMPORARY index gets no GCContext, and the GC commands must reject it rather than
+    dereference the missing context. NOGC reaches the same branch in IndexSpec_StartGC."""
+    env.expect('FT.CREATE', 'tmp_idx', 'TEMPORARY', 3600, 'SCHEMA', 't', 'TEXT').ok()
+
+    for sub in ('GC_STOP_SCHEDULE', 'GC_CONTINUE_SCHEDULE', 'GC_FORCEBGINVOKE',
+                'GC_FORCEINVOKE'):
+        env.expect(debug_cmd(), sub, 'tmp_idx').error().contains(
+            'GC is not available for this index')
+
+    # A normal index in the same server still works, so the guard is not over-broad.
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx2').ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx2').ok()
+
+
+@skip(cluster=True)
+def testGCTerminatesAfterDropWhileStopped(env):
+    """A GC stopped by GC_STOP_SCHEDULE still has to terminate when its index is dropped.
+    IndexSpec_Free does not free the GCContext -- it waits for a run to discover the drop --
+    and a stopped GC has neither a timer nor a queued run, so nothing ever would. The context
+    and its detached thread-safe context would leak for the life of the process.
+
+    onTerm is what returns this index's logically-deleted docs to the global counter, so the
+    counter dropping back to 0 is evidence the GC actually terminated."""
+    logically_deleted = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
+
+    # The GC INFO section is only rendered while at least one index exists, so keep one that is
+    # never dropped -- otherwise the counter we assert on disappears just as it reaches 0. Give
+    # both a prefix so only 'idx' indexes the document, and the count is unambiguously its own.
+    env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logically_deleted(), 1)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
+                       'stopped GC never terminated after its index was dropped', timeout=30)

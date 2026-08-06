@@ -15,6 +15,7 @@
 #include "redismodule.h"
 #include "util/dllist.h"
 #include "util/references.h"
+#include "util/rs_atomic.h"
 #include <time.h>
 
 #ifdef __cplusplus
@@ -22,6 +23,10 @@ extern "C" {
 #endif
 
 #define GC_THREAD_POOL_SIZE 1
+
+typedef enum {
+  GC_SCHED_RUN_PENDING = 0x01,
+} GCSchedFlags;
 
 typedef struct GCCallbacks {
   int  (*periodicCallback)(void* gcCtx);
@@ -34,7 +39,9 @@ typedef struct GCCallbacks {
 
 typedef struct GCContext {
   void* gcCtx;
-  RedisModuleTimerID timerID; // Guarded by the GIL
+  RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
+  bool enabled;
+  RS_Atomic(unsigned) schedFlags;
   GCCallbacks callbacks;
 } GCContext;
 
@@ -50,6 +57,10 @@ void GCContext_OnDelete(GCContext* gc);
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc);
 void GCContext_ForceBGInvoke(GCContext* gc);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
+void GCContext_StopFutureRuns(GCContext* gc);
+bool GCContext_BeginDrop(GCContext* gc);
+void GCContext_FinishDrop(GCContext* gc);
+bool GCContext_IsEnabled(const GCContext* gc);
 
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
