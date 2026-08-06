@@ -346,6 +346,10 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
 }
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
+  // An empty pattern has no token to anchor on, and the arrays below require a positive length
+  if (sufCtx->cstrlen == 0) {
+    return 0;
+  }
   size_t idx[sufCtx->cstrlen];
   size_t lens[sufCtx->cstrlen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
@@ -504,6 +508,10 @@ end:
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
+  // An empty pattern has no token to anchor on, and the arrays below require a positive length
+  if (len == 0) {
+    return BAD_POINTER;
+  }
   size_t idx[len];
   size_t lens[len];
   // find best token

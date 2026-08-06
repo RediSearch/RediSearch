@@ -918,11 +918,23 @@ mod optional_iterator_non_sequential_reads {
                 result: index_result::RSIndexResult::build_numeric(42.).build(),
             }
         }
+
+        /// Whether a `read`/`skip_to` has already run past the last step — the
+        /// state behind both `current()` and `at_eof()`.
+        fn past_end(&self) -> bool {
+            self.read_step == utils::past_end_cursor(N)
+        }
+
+        /// Whether the next `read` would find nothing, true one step before
+        /// [`Self::past_end`].
+        fn no_more_steps(&self) -> bool {
+            self.read_step >= N
+        }
     }
 
     impl<'index, const N: usize> RQEIterator<'index> for ReadStepIterator<'index, N> {
         fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
-            if self.read_step == utils::past_end_cursor(N) {
+            if self.past_end() {
                 return None;
             }
             Some(&mut self.result)
@@ -932,7 +944,7 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
         ) -> Result<Option<&mut index_result::RSIndexResult<'index>>, rqe_iterators::RQEIteratorError>
         {
-            if self.at_eof() {
+            if self.no_more_steps() {
                 self.read_step = utils::past_end_cursor(N);
                 return Ok(None);
             }
@@ -946,7 +958,7 @@ mod optional_iterator_non_sequential_reads {
             &mut self,
             doc_id: DocId,
         ) -> Result<Option<SkipToOutcome<'_, 'index>>, rqe_iterators::RQEIteratorError> {
-            while !self.at_eof() && self.result.doc_id < doc_id {
+            while !self.no_more_steps() && self.result.doc_id < doc_id {
                 self.result.doc_id = self.read_steps[self.read_step];
                 self.read_step += 1;
             }
@@ -975,7 +987,7 @@ mod optional_iterator_non_sequential_reads {
         }
 
         fn at_eof(&self) -> bool {
-            self.read_step >= N
+            self.past_end()
         }
 
         fn revalidate(
@@ -1330,6 +1342,96 @@ mod via_resume {
         );
     }
 
+    /// A resume whose re-read runs off the end must report `Moved` with **no
+    /// current** — not the stale pre-suspend result.
+    ///
+    /// `ResumeOutcome::Moved` carries no `Option`, so the caller recovers the
+    /// new position from `current()`. The legacy `revalidate` forwarded
+    /// `read()` straight into `Moved { current }` and so surfaced EOF as
+    /// `current: None`; the resume path discarded the re-read's outcome, which
+    /// left `current()` handing back the very position the resume was repairing.
+    #[test]
+    fn resume_reread_to_eof_reports_no_current() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // `max_doc_id` of 1 with a child hit at doc 1: after reading it the
+        // iterator sits on its final result, so the resume's re-read finds
+        // nothing.
+        let child = Mock::new([1]);
+        child
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut optional = Box::new(Optional::new(1, WEIGHT, child));
+
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 1);
+        assert_eq!(hit.weight, WEIGHT, "doc 1 is a real child hit");
+        assert!(
+            !optional.at_eof(),
+            "doc 1 is the bound, but it is still the current result",
+        );
+        assert!(optional.current().is_some(), "doc 1 is the current result");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert!(
+            active.current().is_none(),
+            "the re-read ran off the end, so the moved iterator has no current",
+        );
+    }
+
+    /// A child whose resume *re-seeks* past the end — the inverted-index shape
+    /// where the cached offset was invalidated, so the seek runs off the end and
+    /// leaves `last_doc_id()` reset to 0 rather than advanced.
+    ///
+    /// `Optional` cannot notice that by comparing the child's `last_doc_id`
+    /// before and after: it went backwards, not forwards. Only the child's
+    /// `current()` reporting `None` identifies it. What must not happen is
+    /// `Optional` handing back the real hit it was sitting on, which no longer
+    /// exists.
+    #[test]
+    fn resume_child_reseeking_past_end_does_not_yield_stale_hit() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Child hits at doc 2 only; `max_doc_id` of 4 leaves room to move on.
+        let child = Mock::new([2]);
+        child.data().set_resume_reseeks_past_end(true);
+        let mut optional = Box::new(Optional::new(4, WEIGHT, child));
+
+        assert_eq!(optional.read().unwrap().unwrap().doc_id, 1, "virtual");
+        let hit = optional.read().unwrap().unwrap();
+        assert_eq!(hit.doc_id, 2);
+        assert_eq!(hit.weight, WEIGHT, "doc 2 is a real child hit");
+
+        let mut active = match optional
+            .suspend()
+            .resume(&mock_ctx.spec_read())
+            .expect("resume failed")
+        {
+            ResumeOutcome::Moved(it) => it,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+
+        let current = active
+            .current()
+            .expect("doc 3 is still within max_doc_id, so there is a current");
+        assert_eq!(
+            current.doc_id, 3,
+            "the re-read moved past the hit that vanished",
+        );
+        assert_eq!(
+            current.weight, 0.,
+            "doc 3 is virtual: the child is left unpositioned",
+        );
+        assert!(!active.at_eof());
+    }
+
     /// `Present` child that moves during resume, forcing a re-read whose own
     /// `read` then fails: the error propagates out of `Optional::resume`.
     #[test]
@@ -1432,4 +1534,13 @@ mod via_resume {
 
     const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.0;
+}
+
+#[test]
+fn optional_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    // Yields every id in 1..=5, real at 2 and 4, virtual elsewhere.
+    let mut it = Optional::new(5, 2.0, utils::Mock::new([2u64, 4]));
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

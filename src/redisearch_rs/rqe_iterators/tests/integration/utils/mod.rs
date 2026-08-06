@@ -103,7 +103,7 @@ impl RQEIterator<'static> for FieldMaskMock {
     }
 
     fn at_eof(&self) -> bool {
-        self.next >= self.doc_ids.len()
+        self.next == past_end_cursor(self.doc_ids.len())
     }
 
     fn type_(&self) -> IteratorType {

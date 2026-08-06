@@ -317,7 +317,10 @@ where
 
     /// Returns `true` if the current document is expired.
     fn is_current_doc_expired(&self) -> bool {
-        self.expiration_checker.is_expired(&self.result)
+        // `self.result` was just decoded from a posting of the index this checker filters, so its
+        // `has_field_expiration` is authoritative here. This is the only such call site.
+        self.expiration_checker
+            .is_expired_trusting_inline_bit(&self.result)
     }
 
     // SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.

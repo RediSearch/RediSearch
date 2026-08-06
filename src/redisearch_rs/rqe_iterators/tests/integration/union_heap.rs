@@ -26,6 +26,36 @@ use rqe_iterators::{RQEIterator, UnionFullHeap, UnionQuickHeap};
 // Implementation-specific tests (read_count assertions differ between Flat and Heap)
 // =============================================================================
 
+/// A revalidation before the first read rebuilds the heap while every child still
+/// sits at `last_doc_id() == 0`, leaving an entry per child at doc 0. The first
+/// read must not inherit those: doc 0 sorts ahead of every real id, so the union
+/// would report an id no document has.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn revalidate_before_first_read_leaves_no_stale_heap_entries() {
+    // The empty child has nothing to yield but reports not-at-EOF until something
+    // reads it, so the rebuild keeps it.
+    let empty: Mock<'static, 0> = Mock::new([]);
+    let sibling: Mock<'static, 2> = Mock::new([5, 7]);
+    let mut sibling_data = sibling.data();
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![Box::new(empty), Box::new(sibling)];
+    let mut it = UnionFullHeap::new(children);
+
+    // A sibling aborting is what triggers the rebuild, and leaves the empty child
+    // as the only one standing.
+    sibling_data.set_revalidate_result(MockRevalidateResult::Abort);
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let _ = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate should not fail");
+
+    assert!(
+        it.read().expect("read should not fail").is_none(),
+        "nothing is left to yield, so the union must report EOF rather than doc 0",
+    );
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
 fn reuse_results_optimization_quick_mode() {
@@ -230,4 +260,16 @@ fn revalidate_before_first_read_keeps_the_active_count_in_step_with_the_heap() {
         "both children are exhausted, and the count reached zero by counting them \
          rather than by wrapping past it",
     );
+}
+
+#[test]
+fn union_full_heap_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(Mock::new([1u64, 3])),
+        Box::new(Mock::new([2u64, 4])),
+    ];
+    let mut it = UnionFullHeap::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+    assert_current_contract_via_skip_to(&mut it, 5);
 }

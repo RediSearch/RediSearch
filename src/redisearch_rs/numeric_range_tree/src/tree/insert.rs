@@ -61,6 +61,7 @@ impl NumericRangeTree {
         &mut self,
         doc_id: DocId,
         value: f64,
+        has_field_expiration: bool,
         is_multivalued: bool,
         max_depth_range: usize,
     ) -> AddResult {
@@ -68,7 +69,13 @@ impl NumericRangeTree {
         let (stats_before, revision_id_before, total_records_before) =
             (self.stats, self.revision_id, self.total_records());
 
-        let result = self._add(doc_id, value, is_multivalued, max_depth_range);
+        let result = self._add(
+            doc_id,
+            value,
+            has_field_expiration,
+            is_multivalued,
+            max_depth_range,
+        );
 
         #[cfg(all(feature = "unittest", not(miri)))]
         {
@@ -87,6 +94,7 @@ impl NumericRangeTree {
         &mut self,
         doc_id: DocId,
         value: f64,
+        has_field_expiration: bool,
         is_multivalued: bool,
         max_depth_range: usize,
     ) -> AddResult {
@@ -117,6 +125,7 @@ impl NumericRangeTree {
             self.root,
             doc_id,
             value,
+            has_field_expiration,
             0,
             max_depth_range,
             self.compress_floats,
@@ -170,6 +179,7 @@ impl NumericRangeTree {
         node_idx: NodeIndex,
         doc_id: DocId,
         value: PreparedValue,
+        has_field_expiration: bool,
         depth: usize,
         max_depth_range: usize,
         compress_floats: bool,
@@ -194,6 +204,7 @@ impl NumericRangeTree {
                     child_idx,
                     doc_id,
                     value,
+                    has_field_expiration,
                     depth + 1,
                     max_depth_range,
                     compress_floats,
@@ -204,7 +215,8 @@ impl NumericRangeTree {
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx]
                     && let Some(range) = internal.range.as_mut()
                 {
-                    let outcome = range.add_without_cardinality(doc_id, value);
+                    let outcome =
+                        range.add_without_cardinality(doc_id, value, has_field_expiration);
                     rv.size_delta += outcome.mem_growth as i64;
                     rv.block_count_delta += outcome.blocks_added as i32;
                     rv.num_records_delta += 1;
@@ -241,7 +253,7 @@ impl NumericRangeTree {
                     *empty_leaves -= 1;
                 }
 
-                let outcome = leaf.range.add(doc_id, value);
+                let outcome = leaf.range.add(doc_id, value, has_field_expiration);
                 let mut rv = AddResult {
                     size_delta: outcome.mem_growth as i64,
                     num_records_delta: 1,
@@ -353,7 +365,9 @@ impl NumericRangeTree {
             };
 
             if let Some(target_range) = nodes[target_idx].range_mut() {
-                let outcome = target_range.add(result.doc_id, entry_value);
+                // Preserve the decoded entry's field-expiration bit across the split.
+                let outcome =
+                    target_range.add(result.doc_id, entry_value, result.has_field_expiration);
                 rv.size_delta += outcome.mem_growth as i64;
                 rv.block_count_delta += outcome.blocks_added as i32;
             }

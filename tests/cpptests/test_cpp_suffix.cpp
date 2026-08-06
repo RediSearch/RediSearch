@@ -9,7 +9,9 @@
 
 #include "gtest/gtest.h"
 #include "suffix.h"
+#include "trie/trie.h"
 #include "trie/rune_util.h"
+#include "triemap_ffi.h"
 #include "redisearch.h"
 
 #include <string>
@@ -155,4 +157,84 @@ TEST_F(SuffixChooseTokenTest, multiByteCharsScoredByRune) {
   EXPECT_EQ(chooseRune("αβγ*δεζη").len, 4u);
   EXPECT_EQ(chooseRune("αβγδε").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("αβγδε").len, 5u);
+}
+
+// The wildcard entry points size scratch arrays by the pattern length and read
+// its last character, so each must reject an empty pattern itself — the callers
+// that currently pre-filter empty patterns are not part of their contract.
+
+class WildcardEmptyPatternTest : public ::testing::Test {};
+
+static int countSuffixHit(const char *, size_t, void *ctx, void *) {
+  ++*static_cast<int *>(ctx);
+  return REDISEARCH_OK;
+}
+
+static int countRangeHit(const rune *, size_t, void *ctx, void *, size_t) {
+  ++*static_cast<int *>(ctx);
+  return REDISEARCH_OK;
+}
+
+TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, "abc", 3);
+  int hits = 0;
+  struct timespec timeout = {};
+  rune emptyPattern[1] = {0};
+  SuffixCtx ctx = {};
+  ctx.trie = t;
+  ctx.rune = emptyPattern;
+  ctx.runelen = 0;
+  ctx.cstr = "";
+  ctx.cstrlen = 0;
+  ctx.type = SUFFIX_TYPE_WILDCARD;
+  ctx.callback = countSuffixHit;
+  ctx.cbCtx = &hits;
+  ctx.timeout = &timeout;
+  ctx.skipTimeoutChecks = true;
+
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 0);
+  EXPECT_EQ(hits, 0);
+
+  // control: a non-empty pattern uses the trie and reaches the callback
+  size_t rlen = 0;
+  runeBuf buf;
+  ctx.rune = runeBufFill("*b*", 3, &buf, &rlen);
+  ctx.runelen = rlen;
+  ctx.cstr = "*b*";
+  ctx.cstrlen = 3;
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
+  EXPECT_GT(hits, 0);
+  runeBufFree(&buf);
+
+  TrieType_Free(t);
+}
+
+TEST_F(WildcardEmptyPatternTest, suffixTrieMapListSignalsUnusable) {
+  TrieMap *tm = NewTrieMap();
+  struct timespec timeout = {};
+  EXPECT_EQ((void *)GetList_SuffixTrieMap_Wildcard(tm, "", 0, timeout, 100, true), BAD_POINTER);
+  TrieMap_Free(tm, NULL);
+}
+
+TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  ASSERT_TRUE(Trie_InsertStringBuffer(t, "abc", 3, 1, 1, NULL, 0));
+  int hits = 0;
+  // The pattern points past a non-'*' sentinel, so the str[nstr - 1] read this
+  // guards against gives a deterministic "no prefix" answer if it ever returns.
+  rune patternBuf[2] = {(rune)'x', 0};
+  rune *emptyPattern = patternBuf + 1;
+  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, NULL, true);
+  EXPECT_EQ(hits, 0);
+
+  // control: "*" matches the inserted term
+  size_t rlen = 0;
+  runeBuf buf;
+  rune *star = runeBufFill("*", 1, &buf, &rlen);
+  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, NULL, true);
+  EXPECT_EQ(hits, 1);
+  runeBufFree(&buf);
+
+  TrieType_Free(t);
 }

@@ -442,6 +442,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/suffix.h",
         fns: &[
             "Suffix_IterateContains",
+            "Suffix_IterateWildcard",
             "addSuffixTrie",
             "suffixTrie_freeCallback",
         ],
@@ -468,6 +469,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_GetNode",
             "Trie_InsertStringBuffer",
             "Trie_IterateContains",
+            "Trie_IterateWildcard",
             "TrieType_Free",
         ],
         types: &[],

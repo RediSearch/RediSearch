@@ -30,9 +30,7 @@ pub enum ResumeOutcome<I> {
     ///
     /// The move may have landed on a live document or run off the end;
     /// [`current`](crate::RQEIterator::current) on the returned iterator tells
-    /// the two apart, `Some` being the new position and `None` a move past the
-    /// last result. Not [`at_eof`](crate::RQEIterator::at_eof), which answers a
-    /// different question — see its contract.
+    /// the two apart, and hands back the new position when there is one.
     Moved(I),
     /// Unrecoverable: no active iterator is produced and the suspended iterator
     /// was dropped.
