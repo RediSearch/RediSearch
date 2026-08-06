@@ -187,23 +187,23 @@ bool GCContext_BeginDrop(GCContext* gc) {
   if (RS_IsMock) {
     return false;
   }
-  // `IndexSpec_Free` does not free the GC; it relies on a run discovering the drop and
-  // self-terminating. A GC stopped by GC_STOP_SCHEDULE has neither a timer nor a queued run, so
-  // nothing would ever discover it -- hence re-enabling here.
+  // An armed timer or a run in flight will discover the drop on its own, which is the mechanism
+  // `IndexSpec_Free` already relies on -- leave those alone. A run in flight additionally frees
+  // this context itself, on the GC thread and without the GIL, as soon as the unlink makes its
+  // promote fail, so it must not be touched after the unlink either. Reading the bit is safe:
+  // that run's tail clears it under the GIL, and only the main thread ever sets it.
+  if (gc->timerID != 0 || GCContext_RunPending(gc)) {
+    return false;
+  }
+  // Neither exists, so nothing would ever discover the drop -- the state `GC_STOP_SCHEDULE`
+  // leaves behind. Re-enable so the run queued after the unlink is allowed to start.
   gc->enabled = true;
-  // A run already in flight owns this context and frees it, without the GIL, the moment the
-  // unlink makes its promote fail. So the caller must not touch `gc` after the unlink: report
-  // that. Such a run re-arms instead if it outlives the drop, now that collection is enabled,
-  // and that timer's run is what discovers the drop -- the "schedule another run soon" case
-  // `IndexSpec_Free` describes. Reading the bit is safe against that run's tail, which clears
-  // it under the GIL, and nothing can set it behind us: only the main thread queues runs.
-  return !GCContext_RunPending(gc);
+  return true;
 }
 
 void GCContext_FinishDrop(GCContext* gc) {
-  // A queued run must not coexist with an armed timer: this run frees the context, and the
-  // timer would then fire on it.
-  GCContext_DisarmTimer(gc);
+  // `GCContext_BeginDrop` returned true, so there is no timer to collide with: it established
+  // `timerID == 0`, and only the main thread -- us, without yielding since -- arms one.
   GCContext_QueueRun(gc);
 }
 
