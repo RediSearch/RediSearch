@@ -132,7 +132,7 @@ TEST_P(AREQBinarySlotRangeTest, testBinarySlotRangeParsing) {
 
     // Test AREQ_Compile
     BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
-    int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed for: " << test_data.description;
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error for: " << test_data.description;
@@ -223,7 +223,7 @@ TEST_F(AREQTest, testBinarySlotRangeParsingSingleRange) {
 
     // Test AREQ_Compile
     BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
-    int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";
@@ -259,7 +259,7 @@ TEST_F(AREQTest, testBinarySlotRangeInsufficientArgs) {
 
     // Test AREQ_Compile - should fail due to insufficient arguments
     BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
-    int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_ERR) << "AREQ_Compile should fail with insufficient arguments";
     EXPECT_TRUE(QueryError_HasError(&status)) << "Should have query error";
@@ -302,7 +302,7 @@ TEST_F(AREQTest, testComplexAggregateWithCursorAndSlotRanges) {
 
     // Test AREQ_Compile
     BlockedRequestCtx_NewAREQ(req, argv.data(), argv.size());
-    int result = AREQ_Compile(req, ctx, req->brc->argvHolds, argv.size(), false, &status);
+    int result = AREQ_Compile(req, ctx, 0, false, &status);
 
     EXPECT_EQ(result, REDISMODULE_OK) << "AREQ_Compile should succeed";
     EXPECT_FALSE(QueryError_HasError(&status)) << "Should not have query error";

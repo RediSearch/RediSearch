@@ -80,7 +80,7 @@ typedef struct {
 
 typedef struct {
   /* The key names: a borrowed window into the request's held argv (see
-   * BlockedRequestCtx.argvHolds), which outlives the AST. Not owned. */
+   * BlockedRequestCtx.argv), which outlives the AST. Not owned. */
   RedisModuleString **keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;

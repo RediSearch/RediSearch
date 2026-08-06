@@ -23,6 +23,7 @@
 #include "extension.h"
 #include "alias.h"
 #include "notifications.h"
+#include "util/misc.h"
 #include "ext/default.h"
 #include "json.h"
 #include "VecSim/vec_sim.h"
@@ -110,6 +111,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
 #endif
   RS_Initialized = 1;
+  MainThread_Set();
 
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);

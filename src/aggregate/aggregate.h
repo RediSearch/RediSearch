@@ -9,6 +9,8 @@
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
+#include <stdint.h>
+
 #include "query_flags.h"
 #include "value_ffi.h"
 #include "query.h"
@@ -345,6 +347,9 @@ typedef struct AREQ {
 /* Forward declaration; full type lives in hybrid_request.h. */
 struct HybridRequest;
 
+/* BlockedRequestCtx.queryOffset value meaning "no query argument". */
+#define QUERY_OFFSET_NONE UINT32_MAX
+
 /**
  * Heap-allocated owning wrapper around a top-level request (AREQ or
  * HybridRequest). It is the single owner of the query and holds the
@@ -362,14 +367,19 @@ struct BlockedRequestCtx {
    * borrows from; may be a superset of the parsed slice. Taken at
    * construction, on the main thread (string refcounts are not thread safe);
    * released in BlockedRequestCtx_Free, after the owned request. */
-  RedisModuleString **argvHolds;
-  size_t nargvHolds;
+  RedisModuleString **argv;
+  uint32_t argc;
 
-  /* The owned request's parse slice within argvHolds; the query string is
-   * parseSlice[0]. Set where the query is discovered (AREQ_Compile;
-   * setSubQueryArg for hybrid subs). NULL means no query argument (a VSIM
-   * sub without FILTER, or the container). */
-  RedisModuleString **parseSlice;
+  /* The logical command length within argv — the extent parsing may
+   * read. Set with the holds at construction; the debug constructors lower
+   * it so the trailing debug params stay held but unparsed. */
+  uint32_t parseArgc;
+
+  /* Index of the owned request's query string within argv — the start
+   * of its parse slice. Set where the query is discovered (AREQ_Compile;
+   * setSubQueryArg for hybrid subs). QUERY_OFFSET_NONE means no query
+   * argument (a VSIM sub without FILTER, or the container). */
+  uint32_t queryOffset;
 
   /* Partial-timeout coordination. The CAS claim grants exclusive ownership of
    * the result-production phase: the BG-thread winner runs AggregateResults
@@ -457,17 +467,18 @@ struct BlockedRequestCtx {
 
 /* The request's query string: the first argument of its parse slice, backed
  * by the wrapper's held argv. A request with no query argument (a hybrid
- * VSIM sub-request without a FILTER) matches everything. */
+ * VSIM sub-request without a FILTER) defaults to the match-all wildcard
+ * query "*". */
 static inline const char *AREQ_Query(const AREQ *req, size_t *len) {
-  if (req->brc->parseSlice == NULL) {
+  if (req->brc->queryOffset == QUERY_OFFSET_NONE) {
     if (len) *len = 1;
     return "*";
   }
-  return RedisModule_StringPtrLen(req->brc->parseSlice[0], len);
+  return RedisModule_StringPtrLen(req->brc->argv[req->brc->queryOffset], len);
 }
 
 /* Allocate a heap BlockedRequestCtx owning the request (refcount=1), wire the
- * `brc` back-pointer, and take the argv holds (see `argvHolds`). Main-thread
+ * `brc` back-pointer, and take the argv holds (see `argv`). Main-thread
  * only; `argv` must not be NULL. */
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc);
 BlockedRequestCtx *BlockedRequestCtx_NewHybrid(struct HybridRequest *hybrid,
@@ -540,11 +551,13 @@ void AREQ_DecrRef(AREQ *req);
 AREQ *AREQ_New(void);
 
 /**
- * Compile the request given the arguments. This does not rely on
+ * Compile the request from the wrapper's held argv, starting at `offset`
+ * (the query token) and reading up to the wrapper's `parseArgc` — the holds are
+ * the only string source by construction. This does not rely on
  * Redis-specific states and may be unit-tested. This largely just
  * compiles the options and parses the commands..
  */
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status);
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status);
 
 /**
  * Parse aggregate plan arguments (GROUPBY, APPLY, LOAD, FILTER) from an ArgsCursor.

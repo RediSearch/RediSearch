@@ -1543,10 +1543,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   return rc;
 }
 
-static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int type,
-                        QueryError *status, AREQ **r) {
+static int buildRequest(RedisModuleCtx *ctx, int type, QueryError *status, AREQ **r) {
   int rc = REDISMODULE_ERR;
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *indexname = RedisModule_StringPtrLen((*r)->brc->argv[1], NULL);
   RedisSearchCtx *sctx = NULL;
   RedisModuleCtx *thctx = NULL;
 
@@ -1559,7 +1558,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   AREQ_AddRequestFlags(*r, QEXEC_FORMAT_DEFAULT);
 
-  if (AREQ_Compile(*r, ctx, argv + 2, argc - 2, SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
+  if (AREQ_Compile(*r, ctx, 2 /* past the command and index names */,
+                   SearchDisk_IsEnabledForValidation(), status) != REDISMODULE_OK) {
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
     goto done;
   }
@@ -1600,11 +1600,12 @@ done:
   return rc;
 }
 
-static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, CommandType type, ProfileOptions profileOptions, QueryError *status) {
+static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, CommandType type, ProfileOptions profileOptions, QueryError *status) {
   AREQ *r = *r_ptr;
-  // If we got here, we know `argv[0]` is a valid registered command name.
-  // If it starts with an underscore, it is an internal command.
-  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+  // If we got here, we know the command name (the first held argument) is a
+  // valid registered command. If it starts with an underscore, it is an
+  // internal command.
+  if (RedisModule_StringPtrLen(r->brc->argv[0], NULL)[0] == '_') {
     AREQ_AddRequestFlags(r, QEXEC_F_INTERNAL);
   }
 
@@ -1619,7 +1620,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   // This function also builds the RedisSearchCtx
   // It will search for the spec according to the name given in the argv array,
   // and ensure the spec is valid.
-  if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
+  if (buildRequest(ctx, type, status, r_ptr) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -2083,7 +2084,7 @@ int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   AREQ *r = AREQ_New();
   BlockedRequestCtx_NewAREQ(r, argv, argc);
 
-  if (prepareRequest(&r, ctx, r->brc->argvHolds, argc, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc, profileOptions, &status);
@@ -2121,7 +2122,7 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                           QueryError *status) {
   AREQ *r = AREQ_New();
   BlockedRequestCtx_NewAREQ(r, argv, argc);
-  if (buildRequest(ctx, r->brc->argvHolds, argc, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
+  if (buildRequest(ctx, COMMAND_EXPLAIN, status, &r) != REDISMODULE_OK) {
     return NULL;
   }
   RedisSearchCtx *sctx = AREQ_SearchCtx(r);
@@ -2735,9 +2736,10 @@ int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int a
   debug_params = debug_req->debug_params;
 
   debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  // Parse the query, not including the debug params (the holds cover the full argv)
+  // Parsing stops before the debug params: the constructor set the wrapper's
+  // `parseArgc` below the debug tail (the holds still cover the full argv).
 
-  if (prepareRequest(&r, ctx, r->brc->argvHolds, argc - debug_argv_count, type, profileOptions, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, type, profileOptions, &status) != REDISMODULE_OK) {
     RS_ASSERT(r == NULL);
     if (QueryError_GetCode(&status) == QUERY_ERROR_CODE_TIMED_OUT) {
       return replyForPreExecutionTimeout(ctx, argv, argc - debug_argv_count, profileOptions, &status);

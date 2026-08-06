@@ -58,7 +58,7 @@ typedef struct {
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
     /* Index prefixes from _INDEX_PREFIXES: a borrowed window into the
-     * request's held argv (see BlockedRequestCtx.argvHolds). */
+     * request's held argv (see BlockedRequestCtx.argv). */
     RedisModuleString **prefixes;
     size_t nprefixes;
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)

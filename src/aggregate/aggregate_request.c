@@ -61,6 +61,7 @@
 #include "rlookup.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
+#include "util/misc.h"
 #include "rmutil/args.h"
 #include "rmutil/rm_assert.h"
 #include "rqe_core.h"
@@ -1152,7 +1153,7 @@ bool SearchTime_IsTimedOut(void *arg) {
 static BlockedRequestCtx *BlockedRequestCtx_NewCommon(RequestKind kind) {
   BlockedRequestCtx *brc = rm_calloc(1, sizeof(BlockedRequestCtx));
   brc->kind = kind;
-  brc->parseSlice = NULL;  // "no query argument" until parsing finds one
+  brc->queryOffset = QUERY_OFFSET_NONE;  // "no query argument" until parsing finds one
   brc->refcount = 1;
   brc->requiresAggregateResultsSync = false;
   brc->aggregatingResults = false;
@@ -1179,20 +1180,41 @@ void BlockedRequestCtx_DecrRef(BlockedRequestCtx *brc) {
 }
 
 /* Hold references to `argv` strings whose contents the wrapped request's
- * plan borrows (see BlockedRequestCtx.argvHolds). Runs at construction, on
+ * plan borrows (see BlockedRequestCtx.argv). Runs at construction, on
  * the main thread; released in BlockedRequestCtx_Free, also on main. */
 static void holdArgv(BlockedRequestCtx *brc, RedisModuleString **argv, size_t argc) {
   RS_ASSERT(argv != NULL);
-  RS_ASSERT(brc->argvHolds == NULL);
-  brc->argvHolds = rm_malloc(argc * sizeof(*brc->argvHolds));
-  brc->nargvHolds = argc;
+  RS_ASSERT(brc->argv == NULL);
+  brc->argv = rm_malloc(argc * sizeof(*brc->argv));
+  brc->argc = (uint32_t)argc;
+  brc->parseArgc = (uint32_t)argc;  // debug constructors lower it to exclude the debug tail
   for (size_t ii = 0; ii < argc; ++ii) {
-    brc->argvHolds[ii] = RedisModule_HoldString(NULL, argv[ii]);
+    brc->argv[ii] = RedisModule_HoldString(NULL, argv[ii]);
     // Redis auto-trims (reallocates) retained argv right after the command
     // callback returns — racing any thread already reading the string. Trim
     // here instead, before any borrow exists or a worker can see it.
-    RedisModule_TrimStringAllocation(brc->argvHolds[ii]);
+    RedisModule_TrimStringAllocation(brc->argv[ii]);
   }
+}
+
+/* Release an argv array taken by holdArgv: drop each string reference and
+ * free the array. Main-thread only (string refcounts are not thread safe). */
+static void releaseArgv(RedisModuleString **argv, uint32_t argc) {
+  for (uint32_t ii = 0; ii < argc; ++ii) {
+    RedisModule_FreeString(NULL, argv[ii]);
+  }
+  rm_free(argv);
+}
+
+typedef struct {
+  RedisModuleString **argv;
+  uint32_t argc;
+} DeferredArgvRelease;
+
+static void releaseArgvOnMainThread(void *privdata) {
+  DeferredArgvRelease *deferred = privdata;
+  releaseArgv(deferred->argv, deferred->argc);
+  rm_free(deferred);
 }
 
 BlockedRequestCtx *BlockedRequestCtx_NewAREQ(AREQ *areq, RedisModuleString **argv, size_t argc) {
@@ -1232,12 +1254,20 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   } else {
     HybridRequest_Free(brc->query.hybrid);
   }
-  if (brc->argvHolds) {
-    // After the request: its plan borrows from these strings
-    for (size_t ii = 0; ii < brc->nargvHolds; ++ii) {
-      RedisModule_FreeString(NULL, brc->argvHolds[ii]);
-    }
-    rm_free(brc->argvHolds);
+  // Every wrapper is born with its holds (construction invariant), released
+  // after the request: its plan borrows from these strings.
+  RS_ASSERT(brc->argv != NULL);
+  if (MainThread_Is()) {
+    releaseArgv(brc->argv, brc->argc);
+  } else {
+    // String references may only be released on the main thread; bounce the
+    // release to the main event loop. The API exists on every supported
+    // server (Redis 7+) and only fails on a NULL callback.
+    DeferredArgvRelease *deferred = rm_malloc(sizeof(*deferred));
+    *deferred = (DeferredArgvRelease){.argv = brc->argv, .argc = brc->argc};
+    int rc = RedisModule_EventLoopAddOneShot(releaseArgvOnMainThread, deferred);
+    RS_ASSERT(rc == REDISMODULE_OK);
+    (void)rc;
   }
   rm_free(brc);
 }
@@ -1424,24 +1454,22 @@ static bool shouldCheckInPipelineTimeout(RedisModuleCtx* ctx, AREQ *req) {
 
 }
 
-int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, RedisModuleString **argv, int argc, bool isDiskIndex, QueryError *status) {
+int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskIndex, QueryError *status) {
   BlockedRequestCtx *brc = req->brc;
   RS_ASSERT(brc != NULL);
-  // `argv` must be a slice of the holds taken at construction — holding here
-  // instead would touch string refcounts on whatever thread parses.
-  RS_ASSERT(brc->argvHolds <= argv && argv + argc <= brc->argvHolds + brc->nargvHolds);
-  brc->parseSlice = argv;
+  RS_ASSERT(offset <= brc->parseArgc && brc->parseArgc <= brc->argc);
+  brc->queryOffset = offset;
 
   // Parse the query and basic keywords first..
   ArgsCursor ac = {0};
-  ArgsCursor_InitRString(&ac, argv, argc);
+  ArgsCursor_InitRString(&ac, brc->argv + offset, brc->parseArgc - offset);
 
   if (AC_IsAtEnd(&ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
 
-  AC_Advance(&ac);  // The query string: parseSlice[0], read via AREQ_Query
+  AC_Advance(&ac);  // The query string: argv[queryOffset], read via AREQ_Query
   initializeAREQ(req);
   RSSearchOptions *searchOpts = &req->searchopts;
   ParseAggPlanContext papCtx;
@@ -1614,7 +1642,7 @@ static bool IsIndexCoherent(AREQ *req) {
     return true;
   }
 
-  RedisModuleString **args = req->brc->parseSlice;
+  RedisModuleString **args = req->brc->argv + req->brc->queryOffset;
   long long n_prefixes = 0;
   RedisModule_StringToLongLong(args[req->prefixesOffset + 1], &n_prefixes);
   // The first argument is at req->prefixesOffset + 2

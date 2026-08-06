@@ -20,6 +20,13 @@ typedef struct QueryError QueryError;
  */
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value);
 
+/* Record the calling thread as the process main thread (called at module init). */
+void MainThread_Set(void);
+
+/* True when called from the main thread — or from any thread before
+ * MainThread_Set was called (unit tests run without module init). */
+bool MainThread_Is(void);
+
 // null-unsafe
 int GetRedisErrorCodeLength(const char* error);
 

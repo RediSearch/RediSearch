@@ -59,7 +59,7 @@ TEST_F(AggTest, testBasic) {
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());
-  rv = AREQ_Compile(rr, ctx, rr->brc->argvHolds, aggArgs.size(), false, &qerr);
+  rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
@@ -310,7 +310,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     BlockedRequestCtx_NewAREQ(rr, aggArgs, aggArgs.size());
-    int rv = AREQ_Compile(rr, ctx, rr->brc->argvHolds, aggArgs.size(), false, &qerr);
+    int rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);

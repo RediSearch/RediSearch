@@ -82,7 +82,7 @@ protected:
     AREQ *r = AREQ_New();
     AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
     BlockedRequestCtx_NewAREQ(r, rmArgs, rmArgs.size());
-    int rc = AREQ_Compile(r, ctx, r->brc->argvHolds, rmArgs.size(), false, &qerr);
+    int rc = AREQ_Compile(r, ctx, 0, false, &qerr);
     EXPECT_EQ(rc, REDISMODULE_OK) << QueryError_GetUserError(&qerr);
     if (rc != REDISMODULE_OK) {
       AREQ_DecrRef(r);

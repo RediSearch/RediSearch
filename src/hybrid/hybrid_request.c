@@ -344,8 +344,8 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
   // skip command and index name
   const int step = argc > 2 ? 2 : argc;
   // argc bounds the parse; the holds may cover a superset (debug flows)
-  RS_ASSERT((size_t)(argc - step) <= req->brc->nargvHolds);
-  ArgsCursor_InitRString(ac, req->brc->argvHolds, argc - step);
+  RS_ASSERT((size_t)(argc - step) <= req->brc->argc);
+  ArgsCursor_InitRString(ac, req->brc->argv, argc - step);
 }
 
 /**
