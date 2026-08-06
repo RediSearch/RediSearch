@@ -202,11 +202,13 @@ pub(crate) fn runes_to_key(runes: &[ffi::rune]) -> Option<Vec<u8>> {
     Some(key)
 }
 
-/// A single prefix expansion in progress: the inputs both walks share, the
+/// A single pattern expansion in progress: the inputs every walk shares, the
 /// context they open readers against, and the readers opened so far.
 ///
-/// Built once per `QN_PREFIX` evaluation and consumed by whichever `expand_via_*`
-/// walk applies, which hands back the accumulated readers.
+/// Built once per `QN_PREFIX` or `QN_WILDCARD_QUERY` evaluation. The prefix walks
+/// consume it and hand back the accumulated readers; the wildcard walks take
+/// `&mut self`, since a declined suffix walk falls back to the terms-trie walk
+/// with both accumulating into the same `children`.
 pub(super) struct Expansion<'a> {
     /// The evaluation context readers are opened against, and where the
     /// expansion-cap warning and the unsupported-fields error are recorded.
@@ -233,11 +235,7 @@ impl Expansion<'_> {
     /// `num_docs` is the term's document count, used only on the disk path for
     /// the IDF.
     pub(crate) fn push_child(&mut self, num_docs: usize, term_bytes: &[u8]) -> ControlFlow<()> {
-        if self.children.len() >= self.max_expansions {
-            self.ctx
-                .status()
-                .warnings_mut()
-                .set_reached_max_prefix_expansions();
+        if self.cap_reached() {
             return ControlFlow::Break(());
         }
         if let Some(it) = open_expanded_term_reader(
@@ -250,5 +248,24 @@ impl Expansion<'_> {
             self.children.push(it);
         }
         ControlFlow::Continue(())
+    }
+
+    /// Whether the expansion cap has been reached, recording the "reached max
+    /// prefix expansions" warning when it has.
+    ///
+    /// [`push_child`](Self::push_child) applies this itself, so a walk only needs
+    /// to consult it directly when producing the term key costs something — a
+    /// walk that keeps calling back after being asked to stop would pay that cost
+    /// once per remaining match.
+    pub(crate) fn cap_reached(&mut self) -> bool {
+        if self.children.len() >= self.max_expansions {
+            self.ctx
+                .status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            true
+        } else {
+            false
+        }
     }
 }
