@@ -118,6 +118,19 @@ grows past a few files, a worktree checked out at the pre-fix revision is simple
 For Rust, run the failing case on the pre-fix code under Miri
 (`cargo +nightly miri test --manifest-path src/redisearch_rs/Cargo.toml -p <crate>`);
 for bugs Miri cannot reach (FFI, foreign memory), use an ASan build of the affected test.
+Single-file extraction does not work here — cargo builds the whole crate — and the
+current checkout already contains the fix, so a Miri run in it only shows the *fixed*
+code is clean. Check out a pre-fix tree first:
+
+```bash
+git worktree add --detach /tmp/prefix_tree HEAD           # fix not yet committed (the usual case)
+git worktree add --detach /tmp/prefix_tree <fix-commit>^  # fix already committed
+```
+
+If the failing test was added alongside the fix, copy the test (and only the test) into
+that tree. Run Miri or ASan with `--manifest-path` pointing at the worktree, expect the
+failure there and a clean run in the fixed checkout, then clean up with
+`git worktree remove --force /tmp/prefix_tree`.
 
 ### Behavioral Tests (for significant changes in either language)
 ```bash
