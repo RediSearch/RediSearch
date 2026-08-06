@@ -57,7 +57,27 @@ typedef struct QueryIterator {
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
 
-  // Current result. Should always point to a valid current result, except when `lastDocId` is 0
+  // Current result: the document the iterator is positioned on, or NULL when it is
+  // positioned on none.
+  //
+  // Non-NULL after a `Read` or `SkipTo` returning ITERATOR_OK or ITERATOR_NOTFOUND, and
+  // after a `Revalidate` returning VALIDATE_MOVED with a result.
+  //
+  // NULL before the first read (`lastDocId` is 0), and again once an operation has
+  // reported that there is nothing to point at: an ITERATOR_EOF, or a VALIDATE_MOVED
+  // that landed past the end. The two answers are the same state, so the field is the C
+  // face of Rust's `RQEIterator::current`, which returns `None` in exactly these cases —
+  // that is what lets a caller distinguish "moved onto a document" from "moved past the
+  // end" after a revalidation. Clearing it is also what keeps the pointer safe: an
+  // iterator that owns the result it hands out frees it on the way past the end, so a
+  // pointer left behind would dangle rather than merely go stale.
+  //
+  // Caveat, until the port completes: `OptimizerIterator` and `HybridIterator` are still
+  // implemented in C and do not clear this field, so after they report EOF it keeps
+  // pointing at the last result they yielded. Both are slated to be replaced by the Rust
+  // `TopKIterator`, which clears it like every other Rust iterator; until then, a caller
+  // that inspects this field after a non-OK status may get a document it has already
+  // consumed instead of NULL. Check the status, not this field.
   RSIndexResult *current;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
