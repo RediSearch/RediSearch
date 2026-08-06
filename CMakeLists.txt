@@ -94,6 +94,24 @@ function(setup_cc_options)
         endif()
     endif()
 
+    # MOD-16890: harden against stack-clash attacks. Without this, the compiler
+    # emits a single `sub rsp, N` for large stack allocations (VLAs, big frames),
+    # which can jump over the guard page into an adjacent thread's stack. The flag
+    # forces page-by-page probing so any overflow hits the guard page and faults.
+    # Guarded because it is a GCC/Clang-on-Linux feature; Apple clang rejects it.
+    if(NOT APPLE)
+        include(CheckCCompilerFlag)
+        include(CheckCXXCompilerFlag)
+        check_c_compiler_flag("-fstack-clash-protection" _c_stack_clash_ok)
+        check_cxx_compiler_flag("-fstack-clash-protection" _cxx_stack_clash_ok)
+        if(_c_stack_clash_ok)
+            set(_common_c_flags "${_common_c_flags} -fstack-clash-protection")
+        endif()
+        if(_cxx_stack_clash_ok)
+            set(_common_cxx_flags "${_common_cxx_flags} -fstack-clash-protection")
+        endif()
+    endif()
+
     set(CMAKE_C_FLAGS   "${_common_c_flags}"   PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "${_common_cxx_flags}" PARENT_SCOPE)
 

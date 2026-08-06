@@ -118,6 +118,11 @@ struct IndexesScanner;
 
 #define SPEC_MAX_FIELDS 1024
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
+// Upper bound on a field name/path length (bytes) accepted by FT.CREATE / FT.ALTER.
+// Field names flow into stack buffers on the query path (e.g. the KNN score-field
+// name), so an uncapped length is a stack-clash/DoS vector (MOD-16890). 1024 bytes
+// is far beyond any legitimate schema field name or JSONPath.
+#define SPEC_MAX_FIELD_NAME_LEN 1024
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term
 

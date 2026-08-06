@@ -351,6 +351,31 @@ def testContainsMixedWithSuffix(env):
     .contains('Contains query on fields without WITHSUFFIXTRIE support')
 
 @skip(cluster=True)
+@skip(cluster=True)
+def testLongWildcardTagPatternNoStackClash(env):
+  # Regression for MOD-16890: the TAG suffix-wildcard path allocated two arrays
+  # (idx/lens) as stack VLAs sized by the query pattern length. Because each byte
+  # of the pattern costs 16 bytes of stack, a ~512 KB pattern overflowed the 8 MB
+  # worker-thread stack, jumping the guard page (a stack-clash primitive). The
+  # arrays are now heap-allocated. A large pattern must be handled cleanly (empty
+  # result or error), and the server must stay up.
+  conn = getConnectionByEnv(env)
+  conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE')
+  conn.execute_command('HSET', 'doc1', 't', 'hello')
+  waitForIndex(env, 'idx')
+
+  # ~600 KB contains pattern: 16 * 600000 bytes would have overflowed the old VLA.
+  pattern = '*' + ('a' * 600000) + '*'
+  try:
+    conn.execute_command('FT.SEARCH', 'idx', '@t:{%s}' % pattern, 'NOCONTENT')
+  except Exception:
+    # A clean error (e.g. query too long) is acceptable; a crash is not.
+    pass
+
+  # Server survived: a normal query still works.
+  env.assertEqual(conn.execute_command('FT.SEARCH', 'idx', '@t:{*ell*}', 'NOCONTENT'),
+                  [1, 'doc1'])
+
 def testSuffixTrieIncludesShortTagValue(env):
   # A 1-char tag value is stored in the suffix triemap and removed cleanly
   # after the document is deleted and the GC runs.

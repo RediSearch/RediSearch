@@ -350,16 +350,22 @@ int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   if (sufCtx->cstrlen == 0) {
     return 0;
   }
-  size_t idx[sufCtx->cstrlen];
-  size_t lens[sufCtx->cstrlen];
+  // The pattern length is attacker-controlled, so allocate the per-token arrays on
+  // the heap rather than as stack VLAs to avoid a stack-clash overflow (MOD-16890).
+  size_t *idx = rm_malloc(sizeof(*idx) * sufCtx->cstrlen);
+  size_t *lens = rm_malloc(sizeof(*lens) * sufCtx->cstrlen);
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == REDISEARCH_UNINITIALIZED) {
+    rm_free(idx);
+    rm_free(lens);
     return 0;
   }
 
   rune *token = sufCtx->rune + idx[useIdx];
   size_t toklen = lens[useIdx];
+  rm_free(idx);
+  rm_free(lens);
   if (token[toklen] == (rune)'*') {
     toklen++;
   }
@@ -512,16 +518,22 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   if (len == 0) {
     return BAD_POINTER;
   }
-  size_t idx[len];
-  size_t lens[len];
+  // The pattern length is attacker-controlled, so allocate the per-token arrays on
+  // the heap rather than as stack VLAs to avoid a stack-clash overflow (MOD-16890).
+  size_t *idx = rm_malloc(sizeof(*idx) * len);
+  size_t *lens = rm_malloc(sizeof(*lens) * len);
   // find best token
   int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
   if (useIdx == REDISEARCH_UNINITIALIZED) {
+    rm_free(idx);
+    rm_free(lens);
     return BAD_POINTER;
   }
 
   size_t tokenidx = idx[useIdx];
   size_t tokenlen = lens[useIdx];
+  rm_free(idx);
+  rm_free(lens);
   // if token end with '*', we iterate all its children
   int prefix = pattern[tokenidx + tokenlen] == '*';
 

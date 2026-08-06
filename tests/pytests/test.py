@@ -2312,6 +2312,39 @@ def testHashFieldPathWithNullByteRejected(env):
     with env.assertResponseError(contained='Field path cannot contain null bytes'):
         conn.execute_command('FT.CREATE', 'idx_path_nul_embedded', 'SCHEMA', b'real\x00tail', 'AS', 'tag', 'TAG')
 
+def testOverlongFieldNameRejected(env):
+    # A field name whose length is unbounded flows into stack buffers on the query
+    # path (e.g. the KNN default score-field name) and was a stack-clash/DoS vector
+    # (MOD-16890). FT.CREATE / FT.ALTER must reject names past SPEC_MAX_FIELD_NAME_LEN
+    # (1024 bytes) instead of accepting them and crashing later.
+    long_name = 'v' * (1024 + 1)
+    # Plain field name.
+    env.expect('FT.CREATE', 'idx_long_name', 'SCHEMA', long_name, 'TAG') \
+        .error().contains('Field name is too long')
+    # Name supplied via an explicit AS alias.
+    env.expect('FT.CREATE', 'idx_long_alias', 'SCHEMA', 'p', 'AS', long_name, 'TAG') \
+        .error().contains('Field name is too long')
+    # Path (the schema token before AS) is capped as well.
+    env.expect('FT.CREATE', 'idx_long_path', 'SCHEMA', long_name, 'AS', 'p', 'TAG') \
+        .error().contains('Field path is too long')
+    # Added via FT.ALTER.
+    env.cmd('FT.CREATE', 'idx_long_alter', 'SCHEMA', 't', 'TAG')
+    env.expect('FT.ALTER', 'idx_long_alter', 'SCHEMA', 'ADD', long_name, 'TAG') \
+        .error().contains('Field name is too long')
+    # A name at exactly the limit is still accepted.
+    env.cmd('FT.CREATE', 'idx_max_name', 'SCHEMA', 'v' * 1024, 'TAG')
+
+def testOverlongVectorFieldNameNoStackClash(env):
+    # Regression for MOD-16890: the KNN duplicate-distance-field validation used to
+    # build the default score-field name in a stack VLA sized by the vector field
+    # name. Combined with the missing FT.CREATE length cap, a long name let the VLA
+    # jump the guard page. The name cap now rejects the FT.CREATE up front; the query
+    # path also builds the name on the heap. This must fail cleanly, never crash.
+    long_name = 'v' * (1024 + 1)
+    env.expect('FT.CREATE', 'idx_clash', 'SCHEMA', long_name,
+               'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2') \
+        .error().contains('Field name is too long')
+
 @skip(no_json=True)
 def testJsonFieldPathWithNullByteRejected(env):
     conn = env.getClusterConnectionIfNeeded()

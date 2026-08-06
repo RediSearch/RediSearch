@@ -820,10 +820,14 @@ static QueryIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn,
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
       size_t len;
       const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
-      char default_score_field[len + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", fieldName);
+      // Build the default score field name on the heap. The field name length is
+      // attacker-controlled (no cap at FT.CREATE), so a stack VLA here would be a
+      // stack-clash primitive on the worker thread stack (MOD-16890).
+      char *default_score_field = VectorQuery_GetDefaultScoreFieldName(fieldName, len);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+      int isDefault = strcasecmp(qn->vn.vq->scoreField, default_score_field) == 0;
+      rm_free(default_score_field);
+      if (!isDefault) {
         QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_DUP_FIELD,
                                "Distance field was specified twice for vector query", ": %s and %s",
                                qn->vn.vq->scoreField, qn->opts.distField);

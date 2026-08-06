@@ -1394,6 +1394,20 @@ static bool validateFieldNameAndPath(const char *fieldName, size_t namelen, cons
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot be empty");
     return false;
   }
+  // Cap the name/path length. An uncapped field name flows into stack buffers on the
+  // query path and is a stack-clash/DoS vector (MOD-16890).
+  if (namelen > SPEC_MAX_FIELD_NAME_LEN) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "Field name is too long (max %d bytes)",
+                                     SPEC_MAX_FIELD_NAME_LEN);
+    return false;
+  }
+  if (fieldPath && pathlen > SPEC_MAX_FIELD_NAME_LEN) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "Field path is too long (max %d bytes)",
+                                     SPEC_MAX_FIELD_NAME_LEN);
+    return false;
+  }
   if (memchr(fieldName, '\0', namelen) != NULL) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, "Field name cannot contain null bytes");
     return false;
