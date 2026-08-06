@@ -71,11 +71,15 @@ impl NumericNodeDelta {
     ///
     /// Returns `Ok(None)` when a [`Frame::Terminator`] is received (end of
     /// the node stream), or `Ok(Some(node))` for a valid entry.
-    pub fn decode(reader: &mut impl Read) -> Result<Option<Self>, HandleError<TreeError>> {
+    pub fn decode<R: Read>(reader: &mut R) -> Result<Option<Self>, HandleError<TreeError>> {
         // The individual body reads are consecutive bytes of one entry we have
         // already committed to, so a failure in any of them has the same
         // diagnosis: the entry was truncated. They share one message.
-        let body = |e: io::Error| HandleError::codec("reading the numeric node entry", e);
+        let read_body = |reader: &mut R, buffer| {
+            reader
+                .read_exact(buffer)
+                .map_err(|e| HandleError::codec("reading the numeric node entry", e))
+        };
 
         let mut len_bytes = [0u8; size_of::<usize>()];
         reader
@@ -96,19 +100,15 @@ impl NumericNodeDelta {
         })?;
 
         let mut pos_bytes = [0u8; size_of::<u32>()];
-        reader.read_exact(&mut pos_bytes).map_err(body)?;
+        read_body(reader, &mut pos_bytes)?;
         let mut gen_bytes = [0u8; size_of::<u32>()];
-        reader.read_exact(&mut gen_bytes).map_err(body)?;
+        read_body(reader, &mut gen_bytes)?;
         let mut delta_data = vec![0u8; delta_data_len];
-        reader.read_exact(&mut delta_data).map_err(body)?;
+        read_body(reader, &mut delta_data)?;
         let mut registers_with_last_block = [0u8; Hll::size()];
-        reader
-            .read_exact(&mut registers_with_last_block)
-            .map_err(body)?;
+        read_body(reader, &mut registers_with_last_block)?;
         let mut registers_without_last_block = [0u8; Hll::size()];
-        reader
-            .read_exact(&mut registers_without_last_block)
-            .map_err(body)?;
+        read_body(reader, &mut registers_without_last_block)?;
 
         Ok(Some(NumericNodeDelta {
             position: u32::from_ne_bytes(pos_bytes),
