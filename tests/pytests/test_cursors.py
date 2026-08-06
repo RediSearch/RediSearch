@@ -457,7 +457,7 @@ def CursorOnCoordinator(env: Env):
 # commands to always return empty results without depleting the cursor.
 # After the fix, the accumulated results until the timeout are returned, and the cursor is properly depleted.
 def testCursorDepletionNonStrictTimeoutPolicySortby():
-    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     conn = getConnectionByEnv(env)
 
     # Create the index
@@ -496,7 +496,7 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
-    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN WORKERS 1')
     conn = getConnectionByEnv(env)
 
     # Create the index

@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1240" viewBox="0 0 1600 1240" role="img" aria-labelledby="title desc">
+<title id="title">MOD-17473 local benchmark results</title>
+<desc id="desc">POC versus master throughput and p99 latency percentage changes for aggregate and hybrid queries, plus cursor and memory summaries.</desc>
+<rect width="1600" height="1240" fill="#0b1020"/>
+<style>
+  text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .title { fill:#f8fafc; font-size:32px; font-weight:700; }
+  .subtitle { fill:#94a3b8; font-size:16px; }
+  .panel { fill:#111827; stroke:#263247; stroke-width:1; }
+  .panel-title { fill:#e2e8f0; font-size:21px; font-weight:650; }
+  .axis { fill:#94a3b8; font-size:13px; }
+  .label { fill:#cbd5e1; font-size:14px; }
+  .value { font-size:14px; font-weight:700; }
+  .grid { stroke:#334155; stroke-width:1; }
+  .zero { stroke:#cbd5e1; stroke-width:1.5; }
+  .good { fill:#22c55e; }
+  .bad { fill:#f97316; }
+  .neutral { fill:#60a5fa; }
+  .card-title { fill:#94a3b8; font-size:13px; font-weight:600; letter-spacing:.6px; }
+  .card-main { fill:#f8fafc; font-size:24px; font-weight:750; }
+  .card-note { fill:#cbd5e1; font-size:13px; }
+</style>
+<text class="title" x="60" y="58">MOD-17473 · Array-backed RETURN replies</text>
+<text class="subtitle" x="60" y="92">Local release benchmark · POC vs master · positive throughput is better; negative latency is better</text>
+<circle cx="1270" cy="55" r="7" class="good"/><text class="subtitle" x="1284" y="61">improvement</text>
+<circle cx="1412" cy="55" r="7" class="bad"/><text class="subtitle" x="1426" y="61">regression</text>
+<rect class="panel" x="50" y="122" width="1500" height="455" rx="16"/>
+<text class="panel-title" x="80" y="163">Throughput change</text>
+<text class="subtitle" x="80" y="190">Requests/second delta relative to master</text>
+<line class="grid" x1="470" y1="205" x2="470" y2="548"/>
+<text class="axis" x="470" y="566" text-anchor="middle">-20%</text>
+<line class="grid" x1="730" y1="205" x2="730" y2="548"/>
+<text class="axis" x="730" y="566" text-anchor="middle">-10%</text>
+<line class="zero" x1="990" y1="205" x2="990" y2="548"/>
+<text class="axis" x="990" y="566" text-anchor="middle">0%</text>
+<line class="grid" x1="1250" y1="205" x2="1250" y2="548"/>
+<text class="axis" x="1250" y="566" text-anchor="middle">+10%</text>
+<line class="grid" x1="1510" y1="205" x2="1510" y2="548"/>
+<text class="axis" x="1510" y="566" text-anchor="middle">+20%</text>
+<text class="label" x="80" y="234">Aggregate empty · RESP2</text>
+<rect class="bad" x="743.0" y="220" width="247.0" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="733.0" y="235" text-anchor="end">-9.5%</text>
+<text class="label" x="80" y="266">Aggregate empty · RESP3</text>
+<rect class="bad" x="711.8" y="252" width="278.2" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="701.8" y="267" text-anchor="end">-10.7%</text>
+<text class="label" x="80" y="298">Aggregate small · RESP2</text>
+<rect class="bad" x="836.6" y="284" width="153.4" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="826.6" y="299" text-anchor="end">-5.9%</text>
+<text class="label" x="80" y="330">Aggregate small · RESP3</text>
+<rect class="bad" x="540.2" y="316" width="449.8" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="530.2" y="331" text-anchor="end">-17.3%</text>
+<text class="label" x="80" y="362">Aggregate medium · RESP2</text>
+<rect class="bad" x="844.4" y="348" width="145.6" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="834.4" y="363" text-anchor="end">-5.6%</text>
+<text class="label" x="80" y="394">Aggregate medium · RESP3</text>
+<rect class="good" x="990.0" y="380" width="31.2" height="20" rx="4" opacity=".92"/>
+<text class="value good" x="1031.2" y="395" text-anchor="start">+1.2%</text>
+<text class="label" x="80" y="426">Aggregate large/wide · RESP2</text>
+<rect class="bad" x="860.0" y="412" width="130.0" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="850.0" y="427" text-anchor="end">-5.0%</text>
+<text class="label" x="80" y="458">Aggregate large/wide · RESP3</text>
+<rect class="bad" x="938.0" y="444" width="52.0" height="20" rx="4" opacity=".92"/>
+<text class="value bad" x="928.0" y="459" text-anchor="end">-2.0%</text>
+<text class="label" x="80" y="490">Hybrid · RESP2</text>
+<rect class="good" x="990.0" y="476" width="356.2" height="20" rx="4" opacity=".92"/>
+<text class="value good" x="1356.2" y="491" text-anchor="start">+13.7%</text>
+<text class="label" x="80" y="522">Hybrid · RESP3</text>
+<rect class="good" x="990.0" y="508" width="390.0" height="20" rx="4" opacity=".92"/>
+<text class="value good" x="1390.0" y="523" text-anchor="start">+15.0%</text>
+<rect class="panel" x="50" y="600" width="1500" height="405" rx="16"/>
+<text class="panel-title" x="80" y="641">p99 latency change</text>
+<text class="subtitle" x="80" y="668">Tail-latency delta relative to master</text>
+<line class="grid" x1="470.0" y1="682" x2="470.0" y2="965"/>
+<text class="axis" x="470.0" y="989" text-anchor="middle">-10%</text>
+<line class="zero" x1="643.3" y1="682" x2="643.3" y2="965"/>
+<text class="axis" x="643.3" y="989" text-anchor="middle">0%</text>
+<line class="grid" x1="816.7" y1="682" x2="816.7" y2="965"/>
+<text class="axis" x="816.7" y="989" text-anchor="middle">+10%</text>
+<line class="grid" x1="990.0" y1="682" x2="990.0" y2="965"/>
+<text class="axis" x="990.0" y="989" text-anchor="middle">+20%</text>
+<line class="grid" x1="1163.3" y1="682" x2="1163.3" y2="965"/>
+<text class="axis" x="1163.3" y="989" text-anchor="middle">+30%</text>
+<line class="grid" x1="1336.7" y1="682" x2="1336.7" y2="965"/>
+<text class="axis" x="1336.7" y="989" text-anchor="middle">+40%</text>
+<line class="grid" x1="1510.0" y1="682" x2="1510.0" y2="965"/>
+<text class="axis" x="1510.0" y="989" text-anchor="middle">+50%</text>
+<text class="label" x="80" y="710">Aggregate empty · RESP2</text>
+<rect class="bad" x="643.3" y="697" width="135.2" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="787.5" y="711" text-anchor="start">+7.8%</text>
+<text class="label" x="80" y="737">Aggregate empty · RESP3</text>
+<rect class="good" x="563.6" y="724" width="79.7" height="18" rx="4" opacity=".92"/>
+<text class="value good" x="554.6" y="738" text-anchor="end">-4.6%</text>
+<text class="label" x="80" y="764">Aggregate small · RESP2</text>
+<rect class="bad" x="643.3" y="751" width="41.6" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="693.9" y="765" text-anchor="start">+2.4%</text>
+<text class="label" x="80" y="791">Aggregate small · RESP3</text>
+<rect class="bad" x="643.3" y="778" width="721.1" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="1373.4" y="792" text-anchor="start">+41.6%</text>
+<text class="label" x="80" y="818">Aggregate medium · RESP2</text>
+<rect class="bad" x="643.3" y="805" width="507.9" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="1160.2" y="819" text-anchor="start">+29.3%</text>
+<text class="label" x="80" y="845">Aggregate medium · RESP3</text>
+<rect class="bad" x="643.3" y="832" width="533.9" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="1186.2" y="846" text-anchor="start">+30.8%</text>
+<text class="label" x="80" y="872">Aggregate large/wide · RESP2</text>
+<rect class="bad" x="643.3" y="859" width="223.6" height="18" rx="4" opacity=".92"/>
+<text class="value bad" x="875.9" y="873" text-anchor="start">+12.9%</text>
+<text class="label" x="80" y="899">Aggregate large/wide · RESP3</text>
+<rect class="good" x="603.5" y="886" width="39.9" height="18" rx="4" opacity=".92"/>
+<text class="value good" x="594.5" y="900" text-anchor="end">-2.3%</text>
+<text class="label" x="80" y="926">Hybrid · RESP2</text>
+<rect class="good" x="544.5" y="913" width="98.8" height="18" rx="4" opacity=".92"/>
+<text class="value good" x="535.5" y="927" text-anchor="end">-5.7%</text>
+<text class="label" x="80" y="953">Hybrid · RESP3</text>
+<rect class="good" x="516.8" y="940" width="126.5" height="18" rx="4" opacity=".92"/>
+<text class="value good" x="507.8" y="954" text-anchor="end">-7.3%</text>
+<rect class="panel" x="65" y="1028" width="345" height="145" rx="14"/>
+<text class="card-title" x="87" y="1060">HYBRID THROUGHPUT</text>
+<text class="card-main good" x="87" y="1100">+13.7% / +15.0%</text>
+<text class="card-note" x="87" y="1133">RESP2 / RESP3</text>
+<rect class="panel" x="440" y="1028" width="345" height="145" rx="14"/>
+<text class="card-title" x="462" y="1060">CURSOR TRANSACTIONS/S</text>
+<text class="card-main neutral" x="462" y="1100">−0.1% / −0.2%</text>
+<text class="card-note" x="462" y="1133">effectively flat</text>
+<rect class="panel" x="815" y="1028" width="345" height="145" rx="14"/>
+<text class="card-title" x="837" y="1060">WORST AGGREGATE CASE</text>
+<text class="card-main bad" x="837" y="1100">−17.3% throughput</text>
+<text class="card-note" x="837" y="1133">small RESP3; p99 +41.6%</text>
+<rect class="panel" x="1190" y="1028" width="345" height="145" rx="14"/>
+<text class="card-title" x="1212" y="1060">CUMULATIVE PEAK MEMORY</text>
+<text class="card-main bad" x="1212" y="1100">+22.4% / +13.1%</text>
+<text class="card-note" x="1212" y="1133">used_memory_peak / VmHWM</text>
+<text class="axis" x="60" y="1210">10k HASH documents · search-workers=1 · 32 clients non-cursor · 8 cursor clients · one run/build (directional, not a confidence interval)</text>
+</svg>

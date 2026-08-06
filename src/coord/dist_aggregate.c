@@ -1109,8 +1109,8 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   return REDISMODULE_OK;
 }
 
-// Main-thread reply callback for coord AREQ (FAIL / RETURN-STRICT). Reads results
-// stored by the BG thread in req->brc->reply. NOT called if timeout fired
+// Main-thread reply callback for coord AREQ. Reads results stored by the BG
+// thread in req->brc->reply. NOT called if a blocked-client timeout fired.
 int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);

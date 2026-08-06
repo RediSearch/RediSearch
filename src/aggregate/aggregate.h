@@ -49,8 +49,8 @@ typedef struct {
 
 /**
  * State needed for reply serialization in reply_callback path.
- * When using FAIL policy with workers, the background thread stores results here,
- * then calls UnblockClient. The reply_callback reads from here to build the reply.
+ * When a background query defers its reply, the worker stores results here and
+ * calls UnblockClient. The reply_callback reads from here to build the reply.
  *
  * ## Cursor ↔ AREQ Ownership
  *

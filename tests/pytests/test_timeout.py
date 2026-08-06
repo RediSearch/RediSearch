@@ -1,8 +1,73 @@
 from common import *
 
+
 def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", depth=0):
     env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
+
+
+def _test_return_background_stores_partial_results(protocol):
+    """RETURN stores deterministic partial rows before the main-thread reply callback."""
+    env = Env(protocol=protocol, enableDebugCommand=True,
+              moduleArgs='WORKERS 1 ON_TIMEOUT RETURN')
+    skipIfNoEnableAssert(env)
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(5):
+        conn.execute_command('HSET', f'doc:{i}', 'n', i)
+    waitForIndex(env, 'idx')
+
+    query_result = []
+    setPauseAfterStoreResults(env, True, internal=False)
+    query_thread = threading.Thread(
+        target=call_and_store,
+        args=(runDebugQueryCommandTimeoutAfterN,
+              [env, ['FT.AGGREGATE', 'idx', '*',
+                     'SORTBY', '2', '@n', 'ASC', 'LOAD', '1', '@n'], 2],
+              query_result),
+        daemon=True,
+    )
+    try:
+        query_thread.start()
+        wait_for_condition(
+            lambda: (getIsStoreResultsPaused(env) == 1,
+                     {'paused': getIsStoreResultsPaused(env)}),
+            'RETURN query did not pause after storing partial results',
+            timeout=10,
+        )
+    finally:
+        resetStoreResultsDebug(env)
+
+    query_thread.join(timeout=10)
+    env.assertFalse(query_thread.is_alive(), message='RETURN query thread did not finish')
+    env.assertEqual(len(query_result), 1, message='RETURN query did not produce a reply')
+
+    if protocol == 2:
+        env.assertEqual(query_result[0], [2, ['n', '0'], ['n', '1']])
+    else:
+        env.assertEqual(query_result[0], {
+            'attributes': [],
+            'warning': ['Timeout limit was reached'],
+            'total_results': 2,
+            'format': 'STRING',
+            'results': [
+                {'extra_attributes': {'n': '0'}, 'values': []},
+                {'extra_attributes': {'n': '1'}, 'values': []},
+            ],
+        })
+
+
+@skip(cluster=True)
+def test_return_background_stores_partial_results_resp2():
+    """Exercise the array-backed RETURN timeout reply under RESP2."""
+    _test_return_background_stores_partial_results(2)
+
+
+@skip(cluster=True)
+def test_return_background_stores_partial_results_resp3():
+    """Exercise the array-backed RETURN timeout reply under RESP3."""
+    _test_return_background_stores_partial_results(3)
 
 # skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
 @skip(cluster=True)

@@ -53,8 +53,7 @@ typedef struct HybridRequest {
 
     bool useReplyCallback;
 
-    // State for reply_callback path (FAIL policy with workers in coordinator mode)
-    // Background thread stores results here, then calls UnblockClient.
+    // State for the background reply_callback path.
     // Mutex for synchronizing cursor creation with timeout callback.
     // Protects cursor array access to ensure proper cleanup on timeout.
     pthread_mutex_t cursorMutex;
