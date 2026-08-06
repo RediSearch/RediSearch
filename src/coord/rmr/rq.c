@@ -81,6 +81,15 @@ void RQ_Done(MRWorkQueue *q) {
   uv_mutex_unlock(&q->lock);
 }
 
+#ifdef ENABLE_ASSERT
+int RQ_Debug_GetPending(MRWorkQueue *q) {
+  uv_mutex_lock(&q->lock);
+  int pending = q->pending + (int)q->sz;
+  uv_mutex_unlock(&q->lock);
+  return pending;
+}
+#endif
+
 MRWorkQueue *RQ_New(int maxPending, size_t id) {
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));
   q->sz = 0;

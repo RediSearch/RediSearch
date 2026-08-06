@@ -86,11 +86,11 @@ class TestDebugCommands(object):
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
-        # SYNC_POINT, BG_PENDING_REPLIES, SEND_ERROR and REPL_COMPACTION_COORDINATOR
-        # are only available in ENABLE_ASSERT builds
+        # These commands are only available in ENABLE_ASSERT builds.
         if isEnableAssertEnabled(self.env):
             help_list.append('SYNC_POINT')
             help_list.append('BG_PENDING_REPLIES')
+            help_list.append('IO_RUNTIME_PENDING_REQUESTS')
             help_list.append('SEND_ERROR')
             help_list.append('REPL_COMPACTION_COORDINATOR')
 
@@ -99,7 +99,8 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES']
+                        'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
+                        'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 

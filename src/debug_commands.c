@@ -3136,6 +3136,18 @@ DEBUG_COMMAND(bgPendingReplies) {
   return RedisModule_ReplyWithLongLong(ctx, pending);
 }
 
+#ifdef ENABLE_ASSERT
+/**
+ * FT.DEBUG IO_RUNTIME_PENDING_REQUESTS
+ * Returns the number of queued or active coordinator IO requests.
+ */
+DEBUG_COMMAND(ioRuntimePendingRequests) {
+  if (!debugCommandsEnabled(ctx)) return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  if (argc != 2) return RedisModule_WrongArity(ctx);
+  return RedisModule_ReplyWithLongLong(ctx, MR_Debug_GetPendingRequests());
+}
+#endif
+
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
  * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
@@ -3549,6 +3561,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 static DebugCommandType assertOnlyCommands[] = {
     {"SYNC_POINT", syncPoint},
     {"BG_PENDING_REPLIES", bgPendingReplies},
+    {"IO_RUNTIME_PENDING_REQUESTS", ioRuntimePendingRequests},
     {"SEND_ERROR", sendError},
     {"REPL_COMPACTION_COORDINATOR", replCompactionCoordinator},
     {NULL, NULL}};
