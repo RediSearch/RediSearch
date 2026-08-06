@@ -824,3 +824,46 @@ def test_cursor_gc_edge_cases(env: Env):
     # Test with only external cursors
     env.expect(debug_cmd(), 'DELETE_LOCAL_CURSORS').ok()
     env.expect('_FT.CURSOR', 'GC', 'idx', '0').equal(0)
+
+
+@skip(cluster=False)
+def test_cursor_gc_reschedules_sweep_on_main_thread():
+    """
+    Pins the invariant that re-arming the cursor idle-sweep timer only ever
+    happens on the main thread.
+
+    `Cursors_RescheduleSweepLocked` calls `RedisModule_StopTimer` /
+    `RedisModule_CreateTimer`, which mutate the server's event-loop timer state
+    and are therefore main-thread only; off-thread callers must instead post
+    `Cursors_RequestRescheduleSweep`. On a multi-shard cluster the user-facing
+    `FT.CURSOR GC` is dispatched to `DIST_THREADPOOL` and `threadHandleCommand`
+    does not take the GIL, so a `Cursors_CollectIdle` that re-arms the timer
+    inline violates that invariant. Under `ENABLE_ASSERT` builds the assertion
+    in `Cursors_RescheduleSweepLocked` turns that into a hard failure here
+    rather than a silent data race.
+
+    `test_cursor_gc_edge_cases` above only drives the shard-local
+    `_FT.CURSOR GC`, which already runs on the main thread, so it does not
+    reach this path.
+    """
+    env = Env(shardsCount=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(100 * env.shardsCount):
+            con.execute_command('HSET', f'doc{i}', 't', 'hello')
+
+    # Leave a coordinator cursor idle with a short MAXIDLE, so the sweep timer
+    # is armed and every GC below has a reason to re-arm it.
+    env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '1', 'MAXIDLE', '600')
+    with TimeLimit(2, "cursors were not created"):
+        while getCursorStats(env)['global_total'] < 1:
+            sleep(0.01)
+
+    # Drive the coordinator GC repeatedly; each call re-arms the sweep timer.
+    for _ in range(30):
+        env.cmd('FT.CURSOR', 'GC', 'idx', '0')
+
+    # Reaping must still happen at MAXIDLE, i.e. the timer survived the re-arms.
+    with TimeLimit(5, "idle cursor was not reaped after cluster FT.CURSOR GC"):
+        while getCursorStats(env)['global_total']:
+            sleep(0.05)
