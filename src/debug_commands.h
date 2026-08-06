@@ -176,6 +176,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 // the key inside the async swap window so the callback hits the docid-mismatch / expired-doc path,
 // and lets a test hold the load past the query timeout to exercise the ON_TIMEOUT policy.
 #define SYNC_POINT_AFTER_PREFETCH_ISSUE                 "AfterPrefetchIssue"
+// Fork-GC worker: parked at the very top of a periodic GC job, before the collection callback
+// runs. Lets a test rendezvous with a real run while RUN_PENDING is held, instead of sleeping.
+#define SYNC_POINT_GC_TASK_START                        "GCTaskStart"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block
