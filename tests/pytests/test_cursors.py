@@ -1,6 +1,6 @@
 from common import *
 
-from time import sleep, time
+from time import sleep
 from redis import ResponseError
 
 from cmath import inf
@@ -141,15 +141,97 @@ def testTimeout(env):
     # Maximum idle of 1ms
     q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 1]
     env.cmd(*q1)
-    exptime = time() + 2.5
-    rv = 1
-    while time() < exptime:
-        sleep(0.01)
-        env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
-        rv = getCursorStats(env, 'idx1')['index_total']
-        if not rv:
-            break
-    env.assertEqual(0, rv)
+    with TimeLimit(2.5, "idle cursor was not reaped after MAXIDLE"):
+        while getCursorStats(env, 'idx1')['index_total']:
+            sleep(0.01)
+            env.cmd('FT.CURSOR', 'GC', 'idx1', '0')
+
+@skip(cluster=True)
+def testMaxIdleAutoReap(env):
+    # Regression test for MOD-6430: idle cursors must be reaped at MAXIDLE
+    # without requiring further client traffic (no explicit FT.CURSOR GC).
+    loadDocs(env, idx='idx1')
+    q1 = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1', 'WITHCURSOR', 'COUNT', 10, 'MAXIDLE', 50]
+    env.cmd(*q1)
+    env.assertEqual(1, getCursorStats(env, 'idx1')['index_total'])
+
+    # Wait comfortably longer than MAXIDLE; the module timer should have
+    # reaped the cursor by now without us issuing any other command.
+    with TimeLimit(2.5, "idle cursor was not reaped at MAXIDLE"):
+        while getCursorStats(env, 'idx1')['index_total']:
+            sleep(0.05)
+
+@skip(cluster=True)
+def testMaxIdleAutoReapAfterCacheInvalidation(env):
+    # Regression test: when the previous minimum-holding idle cursor is
+    # removed (e.g. via FT.CURSOR DEL), the per-list `nextIdleTimeoutNs`
+    # cache is reset. A subsequent FT.AGGREGATE WITHCURSOR with a later
+    # MAXIDLE must not stomp the cache with that later deadline while
+    # another idle cursor (with an earlier deadline) is still present,
+    # otherwise the idle-sweep timer would be armed past the true
+    # minimum and the still-idle cursor would be reaped well after its
+    # MAXIDLE.
+    loadDocs(env, idx='idx1')
+
+    # Three cursors with strictly increasing MAXIDLE values. After
+    # deleting A (the original minimum), B becomes the true minimum,
+    # and C is paused last with a much larger MAXIDLE.
+    q_a = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 500]
+    q_b = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 1500]
+    q_c = ['FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+           'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 8000]
+
+    _, cid_a = env.cmd(*q_a)
+    env.cmd(*q_b)
+    env.assertEqual(2, getCursorStats(env, 'idx1')['index_total'])
+
+    # Remove A, the minimum-holding cursor; this resets the cache to 0.
+    env.cmd('FT.CURSOR', 'DEL', 'idx1', cid_a)
+    env.assertEqual(1, getCursorStats(env, 'idx1')['index_total'])
+
+    # Pause C with a deadline far after B's. The cache must be
+    # recomputed against the live idle list (yielding B's deadline);
+    # it must not be set to C's deadline.
+    env.cmd(*q_c)
+    env.assertEqual(2, getCursorStats(env, 'idx1')['index_total'])
+
+    # Within ~B's MAXIDLE, B must be reaped while C remains idle.
+    # If the cache is stale at C's deadline, B's reap is delayed
+    # until C's MAXIDLE (~8s) and the TimeLimit fires.
+    with TimeLimit(4, "B was not reaped at its MAXIDLE (stale cache)"):
+        while getCursorStats(env, 'idx1')['index_total'] != 1:
+            sleep(0.05)
+
+@skip(cluster=True)
+def testDropIndexFreesIdleCursors(env):
+    # Regression test for MOD-6416: idle cursors created by FT.AGGREGATE
+    # WITHCURSOR keep the dropped IndexSpec (and their AREQ) alive until
+    # they are reaped. Without automatic reaping at MAXIDLE, the memory
+    # held by idle cursors persists past FT.DROPINDEX with no further
+    # client traffic. With the timer-based sweep, the cursors expire on
+    # their own and the global cursor count drops to zero.
+    loadDocs(env, idx='idx1')
+    # Second index used only to read FT.INFO after idx1 is dropped, since
+    # the global cursor stats are exposed per-index.
+    loadDocs(env, count=1, idx='idx2')
+
+    n_cursors = 5
+    for _ in range(n_cursors):
+        # Don't read from the cursor: it goes idle immediately.
+        env.cmd('FT.AGGREGATE', 'idx1', '*', 'LOAD', '1', '@f1',
+                'WITHCURSOR', 'COUNT', 1, 'MAXIDLE', 50)
+
+    env.assertEqual(n_cursors, getCursorStats(env, 'idx2')['global_total'])
+
+    env.cmd('FT.DROPINDEX', 'idx1')
+
+    # Wait comfortably longer than MAXIDLE; the module timer must reap
+    # the orphaned idle cursors without any further cursor traffic.
+    with TimeLimit(2.5, "orphaned idle cursors were not reaped"):
+        while getCursorStats(env, 'idx2')['global_total']:
+            sleep(0.05)
 
 def testLeaked(env):
     # Ensure that sanitizer doesn't report memory leak for idle cursors.
