@@ -33,6 +33,11 @@ typedef enum ValidateStatus {
   VALIDATE_MOVED,   // The iterator is still valid but lastDocID changed, and `current` is a new valid result or
                     // at EOF. If not at EOF, the `current` result should be used before the next read, or it will be overwritten.
   VALIDATE_ABORTED, // The iterator is no longer valid, and should not be used or rewound. Should be freed.
+                    // The result set is still reported as complete: the query ends normally.
+  VALIDATE_TIMEOUT, // The deadline expired while revalidating. The iterator is no longer valid and
+                    // should be freed, exactly as for `VALIDATE_ABORTED`. The two differ only in
+                    // what the caller reports: a timeout leaves the result set INCOMPLETE, so the
+                    // caller must surface it (`RS_RESULT_TIMEDOUT`) rather than end-of-results.
 } ValidateStatus;
 
 /* An abstract interface used by readers / intersectors / uniones etc.
@@ -91,6 +96,9 @@ typedef struct QueryIterator {
    * @return VALIDATE_OK if the iterator is still valid
    * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
    * @return VALIDATE_ABORTED if the iterator is no longer valid
+   * @return VALIDATE_TIMEOUT if the deadline expired mid-revalidation. Composite iterators must
+   *         propagate it to their caller rather than folding it into VALIDATE_ABORTED: freeing is
+   *         a single act at the root for both, but only a timeout says the results are partial.
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
 

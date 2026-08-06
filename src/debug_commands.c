@@ -3347,6 +3347,38 @@ DEBUG_COMMAND(VecSimMockTimeout) {
 }
 
 /**
+ * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
+ * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
+ * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
+ *          the index after a concurrent change
+ * disable - restore normal behavior
+ * status - show whether the switch is currently on. Nothing resets it, so a test that dies before
+ *          disabling it leaves every later cursor resume reporting a timeout
+ */
+DEBUG_COMMAND(MockRevalidateTimeout) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcmp("enable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(true);
+  } else if (!strcmp("disable", op)) {
+    RQEIterators_SetMockRevalidateTimeout(false);
+  } else if (!strcmp("status", op)) {
+    return RedisModule_ReplyWithSimpleString(
+        ctx, RQEIterators_GetMockRevalidateTimeout() ? "Mock revalidation timeout: enabled"
+                                                     : "Mock revalidation timeout: disabled");
+  } else {
+    return RedisModule_ReplyWithError(
+        ctx, "Invalid command for 'MOCK_REVALIDATE_TIMEOUT'. Use: enable, disable, or status");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG DISK_IO_CONTROL <enable|disable|status>
  *
  * Control async disk I/O behavior for testing and debugging.
@@ -3592,6 +3624,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},

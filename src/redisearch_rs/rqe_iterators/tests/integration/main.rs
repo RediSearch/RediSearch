@@ -39,6 +39,7 @@ mod empty;
 mod format_g;
 mod geo_shape;
 mod id_list;
+mod interop;
 mod intersection;
 mod inverted_index;
 mod maybe_empty;
