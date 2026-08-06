@@ -2491,6 +2491,7 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "rs_token",
+ "thiserror",
  "workspace_hack",
 ]
 
