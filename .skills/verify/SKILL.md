@@ -42,21 +42,8 @@ Required for changes to command handlers, query execution, indexing pipeline, or
 ./build.sh RUN_UNIT_TESTS SAN=address
 ```
 
-When the change claims to fix a memory-safety bug (out-of-bounds access, use-after-free),
-also demonstrate the bug once on the pre-fix code with an *executed* sanitizer repro —
-a predicted report is not verification. The cheap form needs no ASan build tree: extract
-the affected file at the pre-fix commit and compile a standalone repro against it, e.g.
-
-```bash
-git show <fix-commit>^:src/<file>.c > /tmp/before_fix.c
-clang -fsanitize=address -g -O0 <repro.c> /tmp/before_fix.c -o repro && ./repro
-```
-
-Most `src/` files won't compile standalone as-is: expect to add `-I` paths and stub out
-heavyweight includes (`rm_malloc`, `RS_ABORT`, module headers) with minimal definitions
-in the repro's own directory. That stubbing is usually minutes of work, not hours.
-
-Expect the sanitizer report on the pre-fix build and a clean run on the fixed one.
+If the change claims to fix a memory-safety bug, also follow
+*Memory-safety fixes (either language)* below.
 
 #### 5. Coordinator Tests (if `coord/` code was modified)
 
@@ -95,9 +82,42 @@ cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml
 ```
 All Rust tests must pass.
 
+If the change claims to fix a memory-safety bug, also follow
+*Memory-safety fixes (either language)* below.
+
 ### If both C and Rust were modified
 
 Run all checks from both sections above.
+
+### Memory-safety fixes (either language)
+
+When the change claims to fix a memory-safety bug (out-of-bounds access, use-after-free),
+demonstrate the bug once on the pre-fix code with an *executed* sanitizer repro —
+a predicted report is not verification. Expect the sanitizer report on the pre-fix code
+and a clean run on the fixed one.
+
+For C, the cheap form needs no ASan build tree: extract the affected file at the pre-fix
+revision and compile a standalone repro against it, e.g.
+
+```bash
+git show HEAD:src/<file>.c > /tmp/before_fix.c           # fix not yet committed (the usual case)
+git show <fix-commit>^:src/<file>.c > /tmp/before_fix.c  # fix already committed
+clang -fsanitize=address -g -O0 <repro.c> /tmp/before_fix.c -o repro && ./repro
+```
+
+Most `src/` files won't compile standalone as-is: expect to add `-I` paths and stub out
+heavyweight includes (`rm_malloc`, `RS_ABORT`, module headers) with minimal definitions
+in the repro's own directory. That stubbing is usually minutes of work, not hours.
+
+The repro must build against a consistent pre-fix baseline. If the fix also touches a
+header, macro, or inline helper the extracted file depends on, extract those at the same
+pre-fix revision — compiling a pre-fix `.c` against post-fix headers tests a mixed
+program that can hide the bug or fail for an unrelated reason. When the dependency set
+grows past a few files, a worktree checked out at the pre-fix revision is simpler.
+
+For Rust, run the failing case on the pre-fix code under Miri
+(`cargo +nightly miri test --manifest-path src/redisearch_rs/Cargo.toml -p <crate>`);
+for bugs Miri cannot reach (FFI, foreign memory), use an ASan build of the affected test.
 
 ### Behavioral Tests (for significant changes in either language)
 ```bash
