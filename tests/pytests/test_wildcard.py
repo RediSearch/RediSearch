@@ -591,3 +591,80 @@ def testEmptyWildcardPattern():
         env.assertEqual(res, [1, 'doc2'], message=idx)
         res = env.cmd('FT.SEARCH', idx, '@tag:{""}', 'NOCONTENT')
         env.assertEqual(res, [1, 'doc2'], message=idx)
+
+@skip(cluster=True)
+def testWildcardQuestionMarkMultibyteWithoutSuffixTrie():
+    """Without WITHSUFFIXTRIE, a wildcard query is evaluated by brute force over
+    the rune terms trie (Wildcard_MatchRune), where `?` consumes one codepoint —
+    so w'entr?' matches 'entré' ('é' is two UTF-8 bytes but one codepoint)."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'entré')
+    conn.execute_command('HSET', 'doc2', 't', 'entrx')
+
+    res = env.cmd('FT.SEARCH', 'idx', "w'entr?'", 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
+
+@skip(cluster=True)
+def testWildcardQuestionMarkMultibyteWithSuffixTrie():
+    """With WITHSUFFIXTRIE, the candidate terms found via the suffix trie are
+    re-filtered rune-wise (Suffix_CB_Wildcard -> Wildcard_MatchRune), where `?`
+    consumes one codepoint — so w'entr?' matches 'entré', the same result the
+    brute-force path produces without the suffix trie."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'entré')
+    conn.execute_command('HSET', 'doc2', 't', 'entrx')
+
+    res = env.cmd('FT.SEARCH', 'idx', "w'entr?'", 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc2'])
+
+@skip(cluster=True)
+def testWildcardStarredNonFinalAnchor():
+    """On the suffix-trie path, a pattern whose best anchor token is starred
+    and non-final (in w'verylongtoken*a', 'verylongtoken' out-scores the tail
+    token 'a' despite the starred-anchor penalty) must return the same result
+    as the brute-force path."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_plain', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'verylongtokenxa')
+    conn.execute_command('HSET', 'doc2', 't', 'verylongtokenxb')
+
+    res_plain = env.cmd('FT.SEARCH', 'idx_plain', "w'verylongtoken*a'", 'NOCONTENT')
+    res_suffix = env.cmd('FT.SEARCH', 'idx_suffix', "w'verylongtoken*a'", 'NOCONTENT')
+    env.assertEqual(res_plain, [1, 'doc1'])
+    env.assertEqual(res_suffix, res_plain)
+
+@skip(cluster=True)
+def testWildcardSupplementaryPlaneParity():
+    """Terms containing supplementary-plane codepoints (4-byte UTF-8, above
+    U+FFFF, e.g. emoji) are never returned by the brute-force wildcard path:
+    the 16-bit rune representation truncates the codepoint, so the
+    inverted-index key derived from it no longer exists. The suffix-trie path
+    keeps the original term bytes and would find them, so it must skip such
+    candidates — WITHSUFFIXTRIE is an optimization and may never change the
+    result set."""
+    # DEFAULT_DIALECT 2 because w'...' syntax needs dialect 2 or above.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx_plain', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello💩')
+    conn.execute_command('HSET', 'doc2', 't', '💩')
+
+    for query in ["w'hello?'", "w'hello*'", "w'?'", "w'*💩'"]:
+        res_plain = env.cmd('FT.SEARCH', 'idx_plain', query, 'NOCONTENT')
+        res_suffix = env.cmd('FT.SEARCH', 'idx_suffix', query, 'NOCONTENT')
+        env.assertEqual(res_plain, [0], message=query)
+        env.assertEqual(res_suffix, res_plain, message=query)

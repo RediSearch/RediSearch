@@ -413,9 +413,9 @@ fn lowered_pattern_from_no_runes_is_empty() {
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
 fn lowered_pattern_length_is_in_runes_not_bytes() {
-    // A multibyte pattern separates the two encodings, which every ASCII pattern
-    // leaves the same length. The byte form must be the longer one — it is what
-    // the suffix walk sizes its scratch space by.
+    // A multibyte pattern separates rune count from source-byte count, which
+    // every ASCII pattern leaves equal. `len()` must count runes — it is what
+    // the walks take as the pattern length.
     let p = pattern("hé*");
     assert_eq!(p.len(), 3, "three runes: h, é, *");
 }
@@ -426,8 +426,8 @@ fn lowered_pattern_length_is_in_runes_not_bytes() {
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
 fn lowered_pattern_declines_a_pattern_longer_than_max_rune_str_len() {
-    // The byte conversion declines anything over `MAX_RUNE_STR_LEN` runes; such a
-    // pattern can name no stored term, so there is nothing to walk with.
+    // Term insertion declines anything over `MAX_RUNE_STR_LEN` runes, so such a
+    // pattern can name no stored term and there is nothing to walk with.
     let runes = vec![ffi::rune::from(b'a'); ffi::MAX_RUNE_STR_LEN as usize + 1];
     assert!(LoweredPattern::new(&runes).is_none());
 }
@@ -438,28 +438,10 @@ fn lowered_pattern_declines_a_pattern_longer_than_max_rune_str_len() {
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
 fn lowered_pattern_declines_a_pattern_holding_a_zero_rune() {
-    // Violates the no-zero-rune contract: the byte conversion stops at the zero
-    // while the rune form keeps what follows, so the two encodings would describe
-    // different patterns. Declined rather than built.
+    // An interior zero collides with the sentinel layout the type guarantees —
+    // a consumer scanning for the zero would see only `a`. Declined rather than
+    // built.
     assert!(LoweredPattern::new(&[ffi::rune::from(b'a'), 0, ffi::rune::from(b'b')]).is_none());
-}
-
-#[test]
-#[cfg_attr(
-    miri,
-    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
-)]
-fn lowered_pattern_declines_a_zero_rune_the_length_check_cannot_catch() {
-    // Enough multibyte runes *before* the zero and the truncated byte form is
-    // still longer than the rune form, so a `bytes.len() < runes.len()` test
-    // passes while the two encodings describe different patterns. That is not a
-    // narrower match but a wrong one: the suffix walk picks its anchor from the
-    // rune form and filters candidates with the byte form, so the truncated
-    // `éé*` would admit terms the full pattern rejects.
-    let e = ffi::rune::from(0x00E9u16); // 'é' — two bytes, one rune
-    let runes = [e, e, ffi::rune::from(b'*'), 0, ffi::rune::from(b'a')];
-    // The check the explicit rejection replaces would have let this through.
-    assert!(LoweredPattern::new(&runes).is_none());
 }
 
 // --- `iterate_wildcard` (terms trie) ----------------------------------------
@@ -685,10 +667,9 @@ fn iterate_suffix_wildcard_anchors_on_the_pattern_literal() {
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
 fn iterate_suffix_wildcard_anchor_token_may_absorb_a_trailing_star() {
-    // The delicate case `LoweredPattern` exists for. The chosen anchor token
-    // `ma` is followed by `*`, so the walk extends the token to cover it and then
-    // terminates it *past* its end — writing the sentinel, at the index one
-    // beyond the pattern's last rune.
+    // The chosen anchor token `ma` is followed by `*`, so the walk extends the
+    // token to cover it and scans the whole sub-tree under `ma` — the only walk
+    // shape that honours an early stop.
     with_suffix_trie(CORPUS, |trie| {
         let mut got = HashSet::new();
         // SAFETY: live, un-mutated suffix trie; `None` timeout.
@@ -709,9 +690,9 @@ fn iterate_suffix_wildcard_anchor_token_may_absorb_a_trailing_star() {
     ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
 )]
 fn iterate_suffix_wildcard_matches_a_multibyte_pattern() {
-    // Separates the pattern's byte length from its rune length, which is what the
-    // walk sizes its stack scratch arrays by. Every ASCII pattern leaves the two
-    // equal and so cannot tell the sizing apart.
+    // A multibyte pattern separates rune count from byte count; the walk operates
+    // rune-wise throughout, and every ASCII pattern leaves the two equal and so
+    // could not tell.
     with_suffix_trie(&["héllo", "hallo"], |trie| {
         let mut got = HashSet::new();
         // SAFETY: live, un-mutated suffix trie; `None` timeout.
@@ -745,8 +726,8 @@ fn iterate_suffix_wildcard_declines_a_pattern_with_no_literal_to_anchor_on() {
             panic!("a pattern of only `*` has no token to anchor on");
         };
         assert_eq!(count, 0);
-        // The decision precedes every write, so the pattern comes back usable for
-        // the caller's fallback over the primary terms trie.
+        // The pattern comes back usable for the caller's fallback over the
+        // primary terms trie.
         assert_eq!(returned.len(), 2);
     });
 }

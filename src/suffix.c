@@ -301,7 +301,7 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   int retidx = REDISEARCH_UNINITIALIZED;
   for (int i = 0; i < runner; ++i) {
     // 1. long string are likely to have less results
-    // 2. tokens at end of pattern are likely to be more relevant
+    // 2. score ties are broken in favor of the later token (`>=` below)
     int curScore = tokenLen[i] + 1;
 
     // iterating all children is demanding
@@ -325,7 +325,19 @@ int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_
   return retidx;
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
+// True if the UTF-8 string contains a supplementary-plane codepoint
+// (> U+FFFF, i.e. a 4-byte sequence, lead byte 0xF0..0xF4).
+static bool containsSupplementaryCodepoint(const char *str, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    if ((unsigned char)str[i] >= 0xF0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *payload,
+                       size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
   if (!pl) {
@@ -335,9 +347,23 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
   suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
-            == FULL_MATCH) {
-      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+    size_t termLen = strlen(array[i]);
+    // The brute-force scan over the terms trie can never return terms with
+    // supplementary-plane codepoints: the 16-bit rune representation
+    // truncates them, so the inverted-index key it derives no longer exists.
+    // Skip such candidates to keep both paths result-identical.
+    if (containsSupplementaryCodepoint(array[i], termLen)) {
+      continue;
+    }
+    // Match rune-wise so `?` consumes one codepoint, keeping results
+    // identical to the brute-force scan over the terms trie.
+    runeBuf buf;
+    size_t termRuneLen;
+    rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);
+    match_t match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
+    runeBufFree(&buf);
+    if (match == FULL_MATCH) {
+      if (sufCtx->callback(array[i], termLen, sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
     }
@@ -347,22 +373,26 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
   // An empty pattern has no token to anchor on, and the arrays below require a positive length
-  if (sufCtx->cstrlen == 0) {
+  if (sufCtx->runelen == 0) {
     return 0;
   }
-  size_t idx[sufCtx->cstrlen];
-  size_t lens[sufCtx->cstrlen];
+  size_t idx[sufCtx->runelen];
+  size_t lens[sufCtx->runelen];
   int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
 
   if (useIdx == REDISEARCH_UNINITIALIZED) {
     return 0;
   }
 
-  rune *token = sufCtx->rune + idx[useIdx];
   size_t toklen = lens[useIdx];
-  if (token[toklen] == (rune)'*') {
+  if (sufCtx->rune[idx[useIdx] + toklen] == (rune)'*') {
     toklen++;
   }
+  // The trie walk wants a NUL-terminated token, but the pattern buffer must
+  // stay intact: Suffix_CB_Wildcard re-filters every candidate against
+  // sufCtx->rune while the iteration is running. Terminate a copy instead.
+  rune token[toklen + 1];
+  memcpy(token, sufCtx->rune + idx[useIdx], toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
   Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
