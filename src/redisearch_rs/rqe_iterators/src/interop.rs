@@ -245,6 +245,7 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -277,6 +278,7 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
+            wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
     }
@@ -310,6 +312,7 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
+                wrapper.header.current = std::ptr::null_mut();
             }
             ValidateStatus_VALIDATE_MOVED
         }
