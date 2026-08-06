@@ -176,15 +176,26 @@ impl MockQueryNode {
     }
 
     /// Set the `str`/`len` fields of the token-node union variant
-    /// ([`ffi::RSToken`]).
+    /// ([`ffi::RSToken`]), whose layout the prefix, fuzzy and verbatim payloads
+    /// each begin with.
     ///
     /// The caller must keep `str_` valid for `len` bytes for as long as the
     /// node is used (e.g. by owning the backing buffer alongside the node).
     /// The token's `flags`/`expanded` bitfields keep their zeroed defaults.
+    ///
+    /// A node whose token [`QueryNodeMut::token_mut`] hands out needs more than
+    /// that, because such a token is rewritten in place — see invariant (4) of
+    /// [`QueryNodeMut::new`]. Wrapping a node backed by a read-only, shorter, or
+    /// unterminated buffer in a [`QueryNodeMut`] is unsound even though every call
+    /// involved is safe.
+    ///
+    /// [`QueryNodeMut`]: crate::QueryNodeMut
+    /// [`QueryNodeMut::new`]: crate::QueryNodeMut::new
+    /// [`QueryNodeMut::token_mut`]: crate::QueryNodeMut::token_mut
     pub fn set_token(&mut self, str_: *mut c_char, len: usize) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
-        // guarantees the node type is Token so the `tn` (`RSToken`) variant is
-        // active.
+        // guarantees the node type is one whose payload begins with an
+        // `RSToken` — `tn` itself, or the prefix, fuzzy or verbatim struct.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let tok = &mut *union_ptr.cast::<ffi::RSToken>();
