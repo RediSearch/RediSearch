@@ -127,6 +127,8 @@ typedef struct {
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
   MRReply *stopWordList;
   InfoValue dialectValues[NUM_DIALECT_FIELDS_SPEC];
+  size_t numShards;
+  size_t numShardsReporting;
 } InfoFields;
 
 /**
@@ -392,6 +394,8 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
 
+  RedisModule_ReplyKV_LongLong(reply, "num_shards", fields->numShards);
+  RedisModule_ReplyKV_LongLong(reply, "num_shards_reporting", fields->numShardsReporting);
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
@@ -447,7 +451,10 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (QueryError_HasError(&error)) {
       break;
     }
+    fields.numShardsReporting++;
   }
+
+  fields.numShards = MRCtx_GetNumExpected(mc);
 
   // Now we've received all the replies.
   if (numErrored == count) {

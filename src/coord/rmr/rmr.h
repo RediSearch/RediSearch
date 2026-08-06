@@ -104,6 +104,9 @@ void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
 struct RedisModuleCtx *MRCtx_GetRedisCtx(struct MRCtx *ctx);
 int MRCtx_GetNumReplied(struct MRCtx *ctx);
+/* Number of shards the command was sent to - counted inside the fanout send loop, so shards with
+ * no live connection are excluded. */
+int MRCtx_GetNumExpected(struct MRCtx *ctx);
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);

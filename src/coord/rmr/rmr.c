@@ -199,6 +199,10 @@ int MRCtx_GetNumReplied(struct MRCtx *ctx) {
   return ctx->numReplied;
 }
 
+int MRCtx_GetNumExpected(struct MRCtx *ctx) {
+  return ctx->numExpected;
+}
+
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx) {
   return ctx->replies;
 }
