@@ -328,18 +328,6 @@ size_t NumericRangeTree_GetNumRanges(const struct NumericRangeTree *t);
 const struct InvertedIndexNumeric *NumericRange_GetEntries(const struct NumericRange *range);
 
 /**
- * Create a new [`NumericRangeTree`].
- *
- * Returns an opaque pointer to the newly created tree.
- * To free the tree, use [`NumericRangeTree_Free`].
- *
- * If `compress_floats` is true, the tree will use float compression which
- * attempts to store f64 values as f32 when precision loss is acceptable (< 0.01).
- * This corresponds to the `RSGlobalConfig.numericCompress` setting.
- */
-struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
-
-/**
  * Parse a serialized GC entry and apply it to the specified node.
  *
  * The entry data must have the wire format produced by the numeric child
@@ -357,6 +345,18 @@ struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
  * - `entry_data` must point to a valid byte buffer of at least `entry_len` bytes.
  */
 struct ApplyGcEntryResult NumericRangeTree_ApplyGcEntry(struct NumericRangeTree *tree, uint32_t node_position, uint32_t node_generation, const uint8_t *entry_data, size_t entry_len);
+
+/**
+ * Create a new [`NumericRangeTree`].
+ *
+ * Returns an opaque pointer to the newly created tree.
+ * To free the tree, use [`NumericRangeTree_Free`].
+ *
+ * If `compress_floats` is true, the tree will use float compression which
+ * attempts to store f64 values as f32 when precision loss is acceptable (< 0.01).
+ * This corresponds to the `RSGlobalConfig.numericCompress` setting.
+ */
+struct NumericRangeTree *NewNumericRangeTree(bool compress_floats);
 
 /**
  * Get the total size of inverted indexes in the tree.
