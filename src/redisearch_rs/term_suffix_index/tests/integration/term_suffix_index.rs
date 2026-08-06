@@ -243,8 +243,9 @@ fn iter_wildcard_multibyte_anchor_matches() {
 #[test]
 fn iter_wildcard_question_mark_is_codepoint_wise_for_multibyte() {
     // `?` consumes one *codepoint*, not one byte: `é` (U+00E9, two UTF-8
-    // bytes) satisfies the trailing `?` just like an ASCII `d` does.
-    let corpus = ["abxc\u{e9}", "abxcd"]
+    // bytes) satisfies the trailing `?` just like an ASCII `d` does,
+    // while `abxc\u{e9}d` has two codepoints after `c` and is rejected.
+    let corpus = ["abxc\u{e9}", "abxc\u{e9}d", "abxcd"]
         .into_iter()
         .map(String::from)
         .collect::<Vec<_>>();
