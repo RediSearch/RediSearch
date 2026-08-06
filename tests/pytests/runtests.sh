@@ -157,8 +157,15 @@ setup_clang_sanitizer() {
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
 	if [[ $SAN == addr || $SAN == address ]]; then
+		# Apple's ASan runtime has no LeakSanitizer: with detect_leaks=1
+		# every instrumented process aborts before main ("detect_leaks is
+		# not supported on this platform").
+		local detect_leaks=1
+		if [[ $(uname) == Darwin ]]; then
+			detect_leaks=0
+		fi
 		# RLTest places log file details in ASAN_OPTIONS
-		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=0"
+		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=${detect_leaks}:verbosity=0"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=0"
 		# :use_tls=0
 
