@@ -277,3 +277,64 @@ mod suspend_resume {
         assert_eq!(calls.get(), 1);
     }
 }
+
+#[test]
+fn id_list_lazy_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+
+    let calls = Rc::new(Cell::new(0));
+    let mut it = IdListLazy::<true>::new(
+        producer(vec![1, 4, 9], None, false, calls.clone()),
+        100,
+        index_result::RSIndexResult::build_virt().build(),
+    );
+
+    assert_eq!(assert_current_contract(&mut it), [1, 4, 9]);
+    assert_current_contract_via_skip_to(&mut it, 10);
+}
+
+#[test]
+fn metric_lazy_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+
+    let calls = Rc::new(Cell::new(0));
+    let mut it = MetricLazySortedById::new(
+        producer(
+            vec![2, 5, 8],
+            Some(vec![0.2, 0.5, 0.8]),
+            false,
+            calls.clone(),
+        ),
+        42,
+        MetricType::VectorDistance,
+    );
+
+    assert_eq!(assert_current_contract(&mut it), [2, 5, 8]);
+    assert_current_contract_via_skip_to(&mut it, 9);
+}
+
+/// A producer that times out leaves the iterator with an empty inner list and
+/// nothing it will ever yield — but it has not *run past* anything either, so it
+/// is not yet at EOF. The read that finds the empty list is what reports it.
+#[test]
+fn producer_timeout_reports_eof_only_once_a_read_has_found_nothing() {
+    let calls = Rc::new(Cell::new(0));
+    let mut it = IdListLazy::<true>::new(
+        producer(vec![1, 2], None, true, calls.clone()),
+        100,
+        index_result::RSIndexResult::build_virt().build(),
+    );
+
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert_eq!(calls.get(), 1);
+    assert!(
+        !it.at_eof(),
+        "the producer failed, but no read has run past the end yet",
+    );
+
+    // The producer is not retried, so this read finds the empty list.
+    assert!(it.read().expect("no second producer run").is_none());
+    assert_eq!(calls.get(), 1, "the producer must not run again");
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
+}

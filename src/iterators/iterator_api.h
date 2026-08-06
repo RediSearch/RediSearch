@@ -41,8 +41,17 @@ recursively */
 typedef struct QueryIterator {
   enum IteratorType type;
 
-  // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
-  // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
+  // Has the iterator run *past* its last result? Set once a `Read`/`SkipTo` has returned
+  // `ITERATOR_EOF`, or a `Revalidate` moved past the end — never while the iterator is still
+  // positioned on its last result, which it still owes to its caller.
+  //
+  // Consumers that pick the live members out of a set rely on that boundary: a composite
+  // rebuilding its active children after a revalidation keeps every child that still owes a
+  // result, and drops only those with nothing left. Setting this a step early costs that
+  // child's last document.
+  //
+  // Iterators that need to know in advance whether the next `Read` will produce anything keep
+  // that as their own private state; it answers a different question and flips a step earlier.
   bool atEOF;
 
   // the last docId read. Initially should be 0.

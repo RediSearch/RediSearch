@@ -228,7 +228,8 @@ impl<'a, const NUL_TERMINATED: bool> RSTokenRef<'a, NUL_TERMINATED> {
         let runes = unsafe { std::slice::from_raw_parts(ptr.as_ptr(), nrunes) }.to_vec();
         // SAFETY: `RedisModule_Free` is set during module init and not mutated
         // afterwards.
-        let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
         // SAFETY: `ptr` was allocated by the module allocator inside
         // `strToLowerRunes`.
         unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };

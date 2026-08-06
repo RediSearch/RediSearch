@@ -98,7 +98,7 @@ jobs:
           command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
           github_token: ${{ github.token }}
       # Cache Rust packages and binaries
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           prefix-key: "v1-rust"
           # The cargo workspaces and target directory configuration.

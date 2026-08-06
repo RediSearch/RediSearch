@@ -24,11 +24,10 @@
 void BlockedRequestCtx_BeginCycle(BlockedRequestCtx *brc, RedisModuleBlockedClient *bc,
                                   RedisModuleCmdFunc reply_cb) {
   // No overlapping cycles: the previous cycle's OnFree must have run before a
-  // new cycle may begin on the same wrapper.
-  // TRANSITIONAL(MOD-16691): until the cursor-ownership step moves cursor
-  // park/free from the BG thread to OnFree, there is a narrow window where a
-  // concurrent FT.CURSOR READ can reach a paused cursor before the previous
-  // cycle's OnFree ran — this assert makes that overlap loud in debug builds.
+  // new cycle may begin on the same wrapper. This holds structurally for
+  // blocked cursor cycles — the cursor is only parked back into the idle list
+  // by OnFree (cursorEndOfCycle records the disposition; OnFree executes it),
+  // so no other client can take it before the cycle fully ended.
   RS_ASSERT(brc->bc == NULL && brc->registry_node == NULL);
   // The cycle's hold on the wrapper: keeps the wrapper (and the owned request)
   // alive until OnFree, so the reply/timeout callbacks may dereference the
@@ -54,10 +53,10 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
     brc->registry_node = NULL;
   }
   // Dispose a stashed cursor reference-releasingly BEFORE the generic destroy:
-  // AREQ_CleanUpStoredCursor frees the cursor with execState intact, so
-  // Cursor_FreeInternal releases the cursor's wrapper reference. Skipping this
-  // and letting ChunkReplyState_Destroy handle the stash would leak that
-  // reference (it deliberately clears execState first — correct only in the
+  // AREQ_CleanUpStoredCursor frees the cursor with its wrapper handle intact,
+  // so Cursor_FreeInternal releases the cursor's wrapper reference. Skipping
+  // this and letting ChunkReplyState_Destroy handle the stash would leak that
+  // reference (it deliberately clears the handle first — correct only in the
   // refcount==0 context of BlockedRequestCtx_Free). Disposing the stash here is
   // also what prevents the RETURN_STRICT preempt path from leaking the cursor
   // reserved by an initial WITHCURSOR query.
@@ -71,6 +70,8 @@ void BlockedRequestCtx_EndCycle(BlockedRequestCtx *brc) {
   brc->reply.hasStoredResults = false;
   brc->bc = NULL;
   brc->deferred_reply = false;
+  brc->cursor = NULL;
+  brc->cursor_dispose_free = false;
 }
 
 void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
@@ -80,7 +81,21 @@ void BlockedRequestCtx_OnFree(RedisModuleCtx *ctx, void *privdata) {
   // free_privdata fired without blocking the main thread in the callback.
   BlockedRequestOnFreeDebug_Increment();
 #endif
+  // Execute the cycle's cursor disposition (snapshot first — EndCycle clears
+  // the per-cycle fields). Parking here, after the reply/timeout callback, is
+  // what keeps a cycle's cursor unreachable to other clients mid-cycle.
+  // Cursor_Pause converts park to free when CURSOR DEL marked the cursor
+  // mid-cycle (delete_mark).
+  struct Cursor *cursor = brc->cursor;
+  bool dispose_free = brc->cursor_dispose_free;
   BlockedRequestCtx_EndCycle(brc);
+  if (cursor) {
+    if (dispose_free) {
+      Cursor_Free(cursor);
+    } else {
+      Cursor_Pause(cursor);
+    }
+  }
   BlockedRequestCtx_DecrRef(brc);
 }
 
@@ -116,7 +131,7 @@ RedisModuleBlockedClient *BlockCursorClientWithTimeout(RedisModuleCtx *ctx, Curs
                                                        RedisModuleCmdFunc reply_cb,
                                                        RedisModuleCmdFunc timeout_cb,
                                                        rs_wall_clock_ms_t timeout_ms) {
-  RS_ASSERT(cursor->execState != NULL);
+  RS_ASSERT(cursor->query != NULL);
   RS_ASSERT(timeout_ms == 0 || (timeout_cb != NULL && reply_cb != NULL));
 
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();

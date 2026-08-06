@@ -1201,7 +1201,7 @@ void BlockedRequestCtx_Free(BlockedRequestCtx *brc) {
   pthread_cond_destroy(&brc->aggregateResultsCond);
   // Idempotent after EndCycle; kept as a safety net for wrappers freed
   // outside a cycle. Must run while the owned request is alive: disposing a
-  // stashed cursor clears its execState.
+  // stashed cursor clears its wrapper handle.
   ChunkReplyState_Destroy(&brc->reply);
 
   if (brc->kind == REQUEST_KIND_AREQ) {
@@ -1805,9 +1805,10 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 
   // Timeout edge case: cursor wasn't handled by reply_callback.
   // See ChunkReplyState ownership model in aggregate.h for full explanation.
-  // We must clear execState before Cursor_Free to prevent the AREQ_DecrRef loop.
+  // We must clear the cursor's wrapper handle before Cursor_Free to prevent
+  // the wrapper-release loop (this destroy runs from the wrapper's own free).
   if (state->cursor) {
-    state->cursor->execState = NULL;
+    state->cursor->query = NULL;
     Cursor_Free(state->cursor);
     state->cursor = NULL;
   }

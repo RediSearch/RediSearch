@@ -74,9 +74,8 @@ fn read_sequential() {
         assert_eq!(it.last_doc_id(), expected_id);
         assert_eq!(it.current().unwrap().doc_id, expected_id);
 
-        // Should not be at EOF until we've read all documents
-        let expected_eof = expected_id == 5;
-        assert_eq!(it.at_eof(), expected_eof);
+        // Positioned on a result, so not at EOF, including on the last id.
+        assert!(!it.at_eof());
     }
 
     // After reading all docs, next read should return None
@@ -105,7 +104,12 @@ fn skip_to_valid_targets() {
     assert_skip_to_found!(result, 10);
     assert_eq!(it.last_doc_id(), 10);
     assert_eq!(it.current().unwrap().doc_id, 10);
+    // Still positioned on doc 10; the read that runs past it is what flips EOF.
+    assert!(!it.at_eof());
+
+    assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[test]
@@ -199,8 +203,9 @@ fn skip_to_after_eof() {
 fn zero_documents() {
     let mut it = Wildcard::new(0, 3.7);
 
-    // Should immediately be at EOF
-    assert!(it.at_eof(), "iterator with top_id=0 should be at EOF");
+    // Unread rather than past its end: `at_eof()` only flips once a read has
+    // actually found nothing, even for an iterator that has nothing to find.
+    assert!(!it.at_eof(), "top_id=0 has not run past its end yet");
     assert_eq!(it.last_doc_id(), 0, "last_doc_id should be 0");
     assert_eq!(it.current().unwrap().doc_id, 0, "current().id should be 0");
     assert_eq!(it.num_estimated(), 0, "num_estimated should be 0");
@@ -209,6 +214,8 @@ fn zero_documents() {
     let result = it.read();
     let outcome = result.unwrap();
     assert!(outcome.is_none());
+    assert!(it.at_eof(), "the read ran past the end");
+    assert!(it.current().is_none());
 
     // Skip should return None
     let result = it.skip_to(1);
@@ -245,4 +252,12 @@ fn skip_to_same_position() {
 
     // Try to skip backwards to the same position, should panic
     let _ = it.skip_to(5);
+}
+
+#[test]
+fn wildcard_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = Wildcard::new(5, 1.0);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
 }

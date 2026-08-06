@@ -196,7 +196,7 @@ pub(crate) fn runes_to_key(runes: &[ffi::rune]) -> Option<Vec<u8>> {
     let key = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
     // SAFETY: `RedisModule_Free` is set during module init and not mutated
     // afterwards.
-    let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
     // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
     unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
     Some(key)

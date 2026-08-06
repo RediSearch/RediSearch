@@ -19,7 +19,7 @@ mod common {
     union_common_tests!(UnionFullFlat, UnionQuickFlat);
 }
 
-use crate::utils::{create_mock_2, create_mock_3};
+use crate::utils::{Mock, MockRevalidateResult, create_mock_2, create_mock_3};
 use rqe_iterators::{RQEIterator, UnionFullFlat, UnionQuickFlat};
 
 // =============================================================================
@@ -132,4 +132,86 @@ fn into_trimmed_quick_flat_trims_asc() {
     }
     // Active window [0..2), reads in reverse: child[1] then child[0].
     assert_eq!(docs, [3, 4, 1, 2]);
+}
+
+#[test]
+fn union_full_flat_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+        Box::new(crate::utils::Mock::new([1u64, 3])),
+        Box::new(crate::utils::Mock::new([2u64, 4])),
+    ];
+    let mut it = UnionFullFlat::new(children);
+    assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
+    assert_current_contract_via_skip_to(&mut it, 5);
+}
+
+/// `skip_to_quick` returns on the first exact match, so a later sibling can still
+/// be unread after many reads. A revalidation must not read that child's
+/// `last_doc_id() == 0` as a position: doc 0 sorts ahead of every real id, so the
+/// union would report a document no index holds and move *backwards*, handing a
+/// parent documents it has already been given.
+#[test]
+#[cfg_attr(miri, ignore = "Calls RSYieldableMetric_Concat FFI in push_borrowed")]
+fn revalidate_with_an_unread_sibling_does_not_move_the_union_backwards() {
+    // child0 holds the probe target, so the early return never reaches child1.
+    let matching: Mock<'static, 3> = Mock::new([10, 20, 30]);
+    let mut matching_data = matching.data();
+    let untouched: Mock<'static, 2> = Mock::new([15, 25]);
+    let untouched_data = untouched.data();
+
+    let children: Vec<Box<dyn RQEIterator<'static>>> =
+        vec![Box::new(matching), Box::new(untouched)];
+    let mut it = UnionQuickFlat::new(children);
+
+    let outcome = it
+        .skip_to(10)
+        .expect("skip_to must not fail")
+        .expect("10 is present");
+    match outcome {
+        rqe_iterators::SkipToOutcome::Found(r) | rqe_iterators::SkipToOutcome::NotFound(r) => {
+            assert_eq!(r.doc_id, 10)
+        }
+    }
+    assert_eq!(it.last_doc_id(), 10);
+    assert_eq!(
+        untouched_data.read_count(),
+        0,
+        "the early return is what leaves this child unread — the premise of the test",
+    );
+
+    matching_data.set_revalidate_result(MockRevalidateResult::Move);
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let status = it
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate must not fail");
+
+    // A `Moved` result is the union's current document and is consumed from here
+    // rather than by the next read, so it counts as delivered.
+    let mut seen = Vec::new();
+    if let rqe_iterators::RQEValidateStatus::Moved {
+        current: Some(result),
+    } = &status
+    {
+        assert_ne!(result.doc_id, 0, "doc 0 is not a document");
+        seen.push(result.doc_id);
+    }
+    assert!(
+        it.last_doc_id() >= 10,
+        "the union must not move behind the document it already yielded, got {}",
+        it.last_doc_id(),
+    );
+
+    // The unread sibling's documents are still owed, so none may be skipped over.
+    while let Some(r) = it.read().expect("read must not fail") {
+        seen.push(r.doc_id);
+    }
+    assert!(
+        seen.iter().all(|id| *id > 10),
+        "nothing already yielded may be handed back: {seen:?}",
+    );
+    assert!(
+        seen.contains(&15),
+        "the unread sibling's 15 is still owed and must not be skipped: {seen:?}",
+    );
 }

@@ -167,8 +167,11 @@ impl<E: NumericEncoder> EntriesTrackingIndex<E> {
         &mut self,
         doc_id: DocId,
         prepared: PreparedValue,
+        has_field_expiration: bool,
     ) -> std::io::Result<AddRecordOutcome> {
-        let result = self.index.add_prepared_record(doc_id, prepared)?;
+        let result = self
+            .index
+            .add_prepared_record(doc_id, prepared, has_field_expiration)?;
 
         self.number_of_entries += 1;
 

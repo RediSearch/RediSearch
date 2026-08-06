@@ -63,7 +63,7 @@ pub(crate) fn eval<'index>(
         predicate: FieldExpirationPredicate::Default,
     };
     let sctx = ctx.sctx_ptr();
-    let mut err_msg: *mut ffi::RedisModuleString = std::ptr::null_mut();
+    let mut err_msg: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
     // SAFETY: `api` is a valid `GeometryApi` and its `query` callback is always
     // populated by `GeometryApi_Get`.
@@ -89,11 +89,11 @@ pub(crate) fn eval<'index>(
             // SAFETY: these Redis API function-pointer are set once
             // during module load and never mutated afterwards, so reading them
             // during query evaluation cannot race.
-            let string_ptr_len =
-                unsafe { ffi::RedisModule_StringPtrLen }.expect("RedisModule_StringPtrLen unset");
+            let string_ptr_len = unsafe { redis_module::RedisModule_StringPtrLen }
+                .expect("RedisModule_StringPtrLen unset");
             // SAFETY: set once at module load, never mutated afterwards (see above).
-            let free_string =
-                unsafe { ffi::RedisModule_FreeString }.expect("RedisModule_FreeString unset");
+            let free_string = unsafe { redis_module::RedisModule_FreeString }
+                .expect("RedisModule_FreeString unset");
             // SAFETY: `err` is a valid `RedisModuleString` returned by the query.
             let str_ptr = unsafe { string_ptr_len(err.as_ptr(), std::ptr::null_mut()) };
             // SAFETY: `str_ptr` is a valid, NUL-terminated C string.

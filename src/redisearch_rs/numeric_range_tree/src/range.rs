@@ -115,9 +115,14 @@ impl NumericRange {
     /// describe what the index will return.
     ///
     /// [`AddRecordOutcome`]: inverted_index::AddRecordOutcome
-    pub fn add(&mut self, doc_id: DocId, value: PreparedValue) -> inverted_index::AddRecordOutcome {
+    pub fn add(
+        &mut self,
+        doc_id: DocId,
+        value: PreparedValue,
+        has_field_expiration: bool,
+    ) -> inverted_index::AddRecordOutcome {
         self.hll.add(&value.stored_value().into());
-        self.add_without_cardinality(doc_id, value)
+        self.add_without_cardinality(doc_id, value, has_field_expiration)
     }
 
     /// Add a (docId, value) entry without updating cardinality.
@@ -136,6 +141,7 @@ impl NumericRange {
         &mut self,
         doc_id: DocId,
         value: PreparedValue,
+        has_field_expiration: bool,
     ) -> inverted_index::AddRecordOutcome {
         let stored = value.stored_value().get();
 
@@ -146,7 +152,8 @@ impl NumericRange {
             self.max_val = stored;
         }
 
-        self.entries.add_prepared_record(doc_id, value)
+        self.entries
+            .add_prepared_record(doc_id, value, has_field_expiration)
     }
 
     /// Get the estimated cardinality (number of distinct values).

@@ -103,6 +103,19 @@ bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
 struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct TimeToLiveTable *table, t_docId doc_id);
 
 /**
+ * Borrow the entries of an owned [`FieldExpirations`] value without taking
+ * ownership.
+ *
+ * Returns an empty slice for a null pointer. The returned pointer is
+ * invalidated by any later mutation/drop of `fields` and must not be freed by
+ * the caller.
+ *
+ * # Safety
+ *  - `fields`, when non-null, must point to a valid [`FieldExpirations`].
+ */
+struct FieldExpirationSlice FieldExpirations_AsSlice(const FieldExpirations *fields);
+
+/**
  * Single-field expiration check.
  *
  * # Returns

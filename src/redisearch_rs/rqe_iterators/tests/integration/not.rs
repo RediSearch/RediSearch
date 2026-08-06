@@ -237,18 +237,56 @@ fn skip_to_child_last_doc_when_at_eof_excludes_it() {
     }
 }
 
+// A skip_to whose target is `max_doc_id` *and* held by the child runs the scan
+// off the end. The probe target must not be left behind as this iterator's
+// position: a parent pairing `last_doc_id()` with `current()` would then read a
+// position it has no result for.
+#[test]
+fn skip_to_onto_child_doc_at_max_docid_leaves_the_position_alone() {
+    let mut it = Not::new(IdListSorted::new(vec![4, 10]), 10, 1.0, NoTimeoutChecker);
+
+    let doc = it.read().expect("read() must not error").unwrap();
+    assert_eq!(doc.doc_id, 1);
+
+    // 10 is both `max_doc_id` and a child doc, so there is no result at or after
+    // it: the scan for the next valid doc immediately runs past the end.
+    let res = it.skip_to(10).expect("skip_to(10) must not error");
+    assert!(res.is_none(), "10 is excluded and nothing follows it");
+
+    assert!(it.at_eof());
+    assert!(
+        it.current().is_none(),
+        "no result was produced, so there is no current one",
+    );
+    assert_eq!(
+        it.last_doc_id(),
+        1,
+        "the probe target must not become the position of a skip that \
+         produced no result",
+    );
+}
+
 // skip_to past max_doc_id: should return None and move to EOF.
 #[test]
 fn skip_to_past_max_docid_returns_none_and_sets_eof() {
     let mut it = Not::new(IdListSorted::new(vec![2, 4, 7]), 10, 1.0, NoTimeoutChecker);
 
+    let doc = it.read().expect("read() must not error").unwrap();
+    assert_eq!(doc.doc_id, 1);
+
     // 11 > max_doc_id=10, so there is no valid target and we end at EOF.
     let res = it.skip_to(11).expect("skip_to(11) must not error");
     assert!(res.is_none());
     assert!(it.at_eof());
-    assert_eq!(it.last_doc_id(), 10);
+    assert_eq!(
+        it.last_doc_id(),
+        1,
+        "a skip_to that returns None produced no result, so it must leave the \
+         position where it was",
+    );
 
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.current().is_none());
 }
 
 // rewind should restore the initial state and read sequence.
@@ -584,10 +622,22 @@ fn skip_to_timeout_via_timeout_ctx() {
         "expected timeout due to timeout context in Not iterator triggered"
     );
 
+    // The timeout latched `forced_eof`, so nothing more will be produced — but
+    // the iterator is still positioned on its last result, and `at_eof()` is the
+    // negation of `current()`. The read that runs past the end is what flips it.
+    assert!(!it.at_eof(), "still positioned on its last result");
+    assert!(it.current().is_some());
+
+    assert!(
+        it.read()
+            .expect("a latched forced_eof yields None rather than erroring")
+            .is_none()
+    );
     assert!(
         it.at_eof(),
         "iterator is expected to EOF once timed out via timeout context"
     );
+    assert!(it.current().is_none());
 
     it.rewind();
     assert!(
@@ -604,4 +654,82 @@ fn skip_to_timeout_via_timeout_ctx() {
     )
     // that said... internal timeout context is _not_ reset,
     // so it is bound to timeout once you make the required amount of read/skip_to calls...
+}
+
+#[test]
+fn not_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    // Not over [2, 4] within 1..=5 yields the complement.
+    let mut it = rqe_iterators::not::Not::new(
+        crate::utils::Mock::new([2u64, 4]),
+        5,
+        1.0,
+        timeout::NoTimeoutChecker,
+    );
+    assert_eq!(assert_current_contract(&mut it), [1, 3, 5]);
+    assert_current_contract_via_skip_to(&mut it, 6);
+}
+
+// ---------------------------------------------------------------------------
+// A skip_to that carries no result must not claim the probed id as its position
+// ---------------------------------------------------------------------------
+
+/// A timeout during `skip_to` returns no result, so the probe target must not
+/// become the iterator's position — a parent pairs `last_doc_id()` with
+/// `current()` and reads a match as a promise of a result there.
+///
+/// `Empty` as the child puts this on the branch that accepts `doc_id` outright,
+/// which is where the position used to be published before the timeout check.
+#[test]
+fn skip_to_timing_out_leaves_the_position_alone() {
+    use rqe_iterators::empty::Empty;
+
+    let mut it = Not::new(
+        Empty,
+        10,
+        1.0,
+        // Already elapsed, and checked on every call.
+        DeadlineTimeoutChecker::new(Duration::ZERO, 1),
+    );
+
+    let rc = it.skip_to(5);
+    assert!(
+        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        "expected a timeout, got {rc:?}",
+    );
+    assert_eq!(
+        it.last_doc_id(),
+        0,
+        "no result was produced, so the probe target must not become the position",
+    );
+}
+
+/// The same for the tail path, where the scan for the next valid document fails:
+/// the position is published so the scan can start from it, and has to go back.
+#[test]
+fn skip_to_whose_scan_fails_leaves_the_position_alone() {
+    // 4 is in the child, so skipping to it takes the tail path that scans for the
+    // next valid document, and that scan reads the child past its end.
+    let child = Mock::new([4u64]);
+    let mut child_data = child.data();
+    let mut it = Not::new(child, 10, 1.0, NoTimeoutChecker);
+
+    let doc = it
+        .read()
+        .expect("read must not fail")
+        .expect("1 is not in the child");
+    assert_eq!(doc.doc_id, 1);
+
+    child_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+
+    let rc = it.skip_to(4);
+    assert!(
+        matches!(rc, Err(RQEIteratorError::TimedOut)),
+        "expected the child's error to propagate, got {rc:?}",
+    );
+    assert_eq!(
+        it.last_doc_id(),
+        1,
+        "the failed scan produced no result, so the position stays where it was",
+    );
 }

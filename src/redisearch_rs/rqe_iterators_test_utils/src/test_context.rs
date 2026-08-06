@@ -51,7 +51,7 @@ use ttl_table::FieldExpirations;
 
 /// Wrapper around RedisModuleCtx ensuring its resources are properly cleaned up.
 struct ModuleCtx {
-    ctx: ptr::NonNull<ffi::RedisModuleCtx>,
+    ctx: ptr::NonNull<redis_module::RedisModuleCtx>,
 }
 
 impl ModuleCtx {
@@ -60,7 +60,7 @@ impl ModuleCtx {
         redis_mock::init_redis_module_mock();
 
         let ctx = unsafe {
-            let get_thread_safe_context = ffi::RedisModule_GetThreadSafeContext
+            let get_thread_safe_context = redis_module::RedisModule_GetThreadSafeContext
                 .expect("RedisModule_GetThreadSafeContext not implemented");
             get_thread_safe_context(ptr::null_mut())
         };
@@ -76,7 +76,7 @@ impl ModuleCtx {
         }
     }
 
-    const fn as_ptr(&self) -> *mut ffi::RedisModuleCtx {
+    const fn as_ptr(&self) -> *mut redis_module::RedisModuleCtx {
         self.ctx.as_ptr()
     }
 }
@@ -84,7 +84,7 @@ impl ModuleCtx {
 impl Drop for ModuleCtx {
     fn drop(&mut self) {
         unsafe {
-            let free_thread_safe_context = ffi::RedisModule_FreeThreadSafeContext
+            let free_thread_safe_context = redis_module::RedisModule_FreeThreadSafeContext
                 .expect("RedisModule_FreeThreadSafeContext not implemented");
             free_thread_safe_context(self.ctx.as_ptr());
         }
@@ -343,10 +343,10 @@ impl TestContext {
         // Add numeric data to the range tree
         for record in records {
             let record_val = record.as_numeric().unwrap();
-            numeric_range_tree.add(record.doc_id as DocId, record_val, false, 0);
+            numeric_range_tree.add(record.doc_id as DocId, record_val, false, false, 0);
 
             if multi {
-                numeric_range_tree.add(record.doc_id as DocId, record_val, true, 0);
+                numeric_range_tree.add(record.doc_id as DocId, record_val, false, true, 0);
             }
         }
 
@@ -412,7 +412,7 @@ impl TestContext {
             let coords = geo::hash::WGS84Coordinates::from_f64(lon, lat)
                 .expect("TestContext::geo given out-of-WGS84-bounds coordinates");
             let score = geo::hash::encode_wgs84(coords, geo::hash::GEO_STEP_MAX).bits as f64;
-            numeric_range_tree.add(doc_id, score, false, 0);
+            numeric_range_tree.add(doc_id, score, false, false, 0);
         }
 
         Self {
@@ -879,7 +879,7 @@ impl TestContext {
 
         // Write the entry to the inverted index
         unsafe {
-            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry);
+            ffi::InvertedIndex_WriteForwardIndexEntry(idx, &mut entry, false);
         }
 
         varint_ffi::VVW_Free(Some(vw_nonnull));

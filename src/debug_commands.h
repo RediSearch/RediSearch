@@ -151,6 +151,8 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_HYBRID_RESULTS_CLAIM          "BeforeHybridResultsClaim"
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
+#define SYNC_POINT_BEFORE_CURSOR_MAPPING_PROMOTE        "BeforeCursorMappingPromote"
+#define SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED  "AfterCursorMappingPromoteFailed"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
 #define SYNC_POINT_RPNET_WAITING_FOR_REPLY              "RpnetWaitingForReply"

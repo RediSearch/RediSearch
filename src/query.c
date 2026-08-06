@@ -665,35 +665,43 @@ static QueryIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
   ctx.nits = 0;
 
+  if (spec->suffix && qn->opts.fieldMask != RS_FIELDMASK_ALL &&
+      (spec->suffixMask & qn->opts.fieldMask) != qn->opts.fieldMask) {
+    QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC,
+                        "Contains query on fields without WITHSUFFIXTRIE support");
+    rm_free(str);
+    return NewUnionIterator(ctx.its, 0, true, qn->opts.weight, QN_WILDCARD_QUERY, qn->verb.tok.str,
+                            q->config);
+  }
+
+  // An empty pattern matches exactly the empty term (indexed under INDEXEMPTY), like the
+  // empty-string text query; the trie scans below never contain it, so skip them
+  if (nstr == 0) {
+    charIterCb("", 0, &ctx, NULL);
+    rm_free(str);
+    return NewUnionIterator(ctx.its, ctx.nits, true, qn->opts.weight, QN_WILDCARD_QUERY,
+                            qn->verb.tok.str, q->config);
+  }
+
   bool fallbackBruteForce = false;
   // spec support using suffix trie
   if (spec->suffix) {
-    // all modifier fields are supported
-    if (qn->opts.fieldMask == RS_FIELDMASK_ALL ||
-       (spec->suffixMask & qn->opts.fieldMask) == qn->opts.fieldMask) {
-      // TEXT terms are stored lowercased, so recheck against the lowercased
-      // pattern (Suffix_CB_Wildcard matches cstr) to stay case-insensitive.
-      size_t lcstrlen;
-      char *lcstr = runesToStr(str, nstr, &lcstrlen);
-      SuffixCtx sufCtx = {
-        .trie = spec->suffix,
-        .rune = str,
-        .runelen = nstr,
-        .cstr = lcstr,
-        .cstrlen = lcstrlen,
-        .type = SUFFIX_TYPE_WILDCARD,
-        .callback = charIterCb, // the difference is weather the function receives char or rune
-        .cbCtx = &ctx,
-        .timeout = &q->sctx->time.timeout,
-        .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
-      };
-      if (Suffix_IterateWildcard(&sufCtx) == 0) {
-        // if suffix trie cannot be used, use brute force
-        fallbackBruteForce = true;
-      }
-      rm_free(lcstr);
-    } else {
-      QueryError_SetError(q->status, QUERY_ERROR_CODE_GENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+    // TEXT terms are stored lowercased and `str` holds the lowercased
+    // pattern runes, so the candidate recheck in Suffix_CB_Wildcard stays
+    // case-insensitive.
+    SuffixCtx sufCtx = {
+      .trie = spec->suffix,
+      .rune = str,
+      .runelen = nstr,
+      .type = SUFFIX_TYPE_WILDCARD,
+      .callback = charIterCb, // the difference is weather the function receives char or rune
+      .cbCtx = &ctx,
+      .timeout = &q->sctx->time.timeout,
+      .skipTimeoutChecks = q->sctx->time.skipTimeoutChecks,
+    };
+    if (Suffix_IterateWildcard(&sufCtx) == 0) {
+      // if suffix trie cannot be used, use brute force
+      fallbackBruteForce = true;
     }
   }
 
@@ -1023,6 +1031,16 @@ static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   size_t itsSz = 0, itsCap = 8;
   QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
+
+  // An empty pattern matches exactly the empty tag value (indexed under INDEXEMPTY),
+  // like the empty-string tag query; skip the suffix-trie and brute-force scans
+  if (tok->len == 0) {
+    QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, "", 0, 1, fieldIndex, q->status);
+    if (ret) {
+      its[itsSz++] = ret;
+    }
+    return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
+  }
 
   bool fallbackBruteForce = false;
   if (TagIndex_HasSuffix(idx)) {
