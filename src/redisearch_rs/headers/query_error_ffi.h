@@ -291,10 +291,29 @@ bool QueryError_HasQueryOOMWarning(const struct QueryError *query_error);
 void QueryError_SetQueryOOMWarning(struct QueryError *query_error);
 
 /**
+ * Returns whether the [`QueryError`] has the `max_row_fields_reached` warning set.
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+bool QueryError_HasMaxRowFieldsReachedWarning(const struct QueryError *query_error);
+
+/**
+ * Sets the `max_row_fields_reached` warning on the [`QueryError`].
+ *
+ * # Safety
+ *
+ * - `query_error` must have been created by [`QueryError_Default`].
+ */
+void QueryError_SetMaxRowFieldsReachedWarning(struct QueryError *query_error);
+
+/**
  * Returns a [`QueryWarningCode`] given an warnings message.
  *
  * This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
- * [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`] and [`QueryWarningCode::MaxTimeoutCapped`].
+ * [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`],
+ * [`QueryWarningCode::MaxTimeoutCapped`] and [`QueryWarningCode::MaxRowFieldsReached`].
  * If another message is provided, [`QueryWarningCode::Ok`] is returned.
  *
  * If the message is a null pointer, returns [`QueryWarningCode::Ok`].

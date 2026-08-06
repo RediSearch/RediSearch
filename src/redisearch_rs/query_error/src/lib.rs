@@ -660,6 +660,7 @@ pub enum QueryWarningCode {
     UnavailableSlots,
     AsmInaccurateResults,
     MaxTimeoutCapped,
+    MaxRowFieldsReached,
 }
 
 impl QueryWarningCode {
@@ -684,6 +685,9 @@ impl QueryWarningCode {
             Self::MaxTimeoutCapped => {
                 c"Query TIMEOUT exceeded the configured maximum (search-_max-foreground-timeout-limit) while search-workers is disabled; effective timeout was capped"
             }
+            Self::MaxRowFieldsReached => {
+                c"Max fields per result row limit was reached; some results were skipped"
+            }
         }
     }
 }
@@ -692,6 +696,7 @@ impl QueryWarningCode {
 pub struct Warnings {
     reached_max_prefix_expansions: bool,
     out_of_memory: bool,
+    max_row_fields_reached: bool,
 }
 
 impl Warnings {
@@ -709,6 +714,14 @@ impl Warnings {
 
     pub const fn set_out_of_memory(&mut self) {
         self.out_of_memory = true;
+    }
+
+    pub const fn max_row_fields_reached(&self) -> bool {
+        self.max_row_fields_reached
+    }
+
+    pub const fn set_max_row_fields_reached(&mut self) {
+        self.max_row_fields_reached = true;
     }
 }
 

@@ -725,7 +725,7 @@ def skipTestUntil(date_str, reason=None):
     """
     skip_until(date_str, reason)(lambda: None)()
 
-def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
+def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, coverage, redis_less_than,
                             redis_greater_equal, min_shards, arch, gc_no_fork,
                             no_json, enterprise):
     """True if the caller provided at least one skip condition.
@@ -733,12 +733,12 @@ def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than
     With no conditions, @skip's legacy behaviour is to always skip — used as a
     "temporarily disable this test" marker.
     """
-    return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
-            or redis_greater_equal or min_shards or (arch is not None)
+    return ((cluster is not None) or macos or musl or asan or msan or coverage
+            or redis_less_than or redis_greater_equal or min_shards or (arch is not None)
             or gc_no_fork or no_json or (enterprise is not None))
 
 
-def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch, no_json, enterprise):
+def _skip_fires_statically(*, cluster, macos, musl, asan, msan, coverage, min_shards, arch, no_json, enterprise):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
     Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
@@ -755,6 +755,8 @@ def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch
     if asan and SANITIZER == 'address':
         return True
     if msan and SANITIZER == 'memory':
+        return True
+    if coverage and CODE_COVERAGE:
         return True
     if min_shards and Defaults.num_shards < min_shards:
         return True
@@ -780,9 +782,10 @@ def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
     return False
 
 
-def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, coverage=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None):
     static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
-                         min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise)
+                         coverage=coverage, min_shards=min_shards, arch=arch, no_json=no_json,
+                         enterprise=enterprise)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
                           redis_greater_equal=redis_greater_equal,
                           gc_no_fork=gc_no_fork)

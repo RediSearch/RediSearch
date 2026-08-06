@@ -878,6 +878,9 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   if (req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
+  if (QueryError_HasMaxRowFieldsReachedWarning(qctx->err)) {
+    RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_ROW_FIELDS_REACHED));
+  }
   RedisModule_Reply_ArrayEnd(reply); // >warnings
 }
 

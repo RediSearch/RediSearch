@@ -439,10 +439,43 @@ pub unsafe extern "C" fn QueryError_SetQueryOOMWarning(query_error: *mut OpaqueQ
     query_error.warnings_mut().set_out_of_memory()
 }
 
+/// Returns whether the [`QueryError`] has the `max_row_fields_reached` warning set.
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryError_HasMaxRowFieldsReachedWarning(
+    query_error: *const OpaqueQueryError,
+) -> bool {
+    // Safety: see safety requirement above.
+    let query_error =
+        unsafe { QueryError::from_opaque_ptr(query_error) }.expect("query_error is null");
+
+    query_error.warnings().max_row_fields_reached()
+}
+
+/// Sets the `max_row_fields_reached` warning on the [`QueryError`].
+///
+/// # Safety
+///
+/// - `query_error` must have been created by [`QueryError_Default`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn QueryError_SetMaxRowFieldsReachedWarning(
+    query_error: *mut OpaqueQueryError,
+) {
+    // Safety: see safety requirement above.
+    let query_error =
+        unsafe { QueryError::from_opaque_mut_ptr(query_error) }.expect("query_error is null");
+
+    query_error.warnings_mut().set_max_row_fields_reached()
+}
+
 /// Returns a [`QueryWarningCode`] given an warnings message.
 ///
 /// This only supports the query error codes [`QueryWarningCode::TimedOut`], [`QueryWarningCode::ReachedMaxPrefixExpansions`],
-/// [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`] and [`QueryWarningCode::MaxTimeoutCapped`].
+/// [`QueryWarningCode::OutOfMemoryShard`], [`QueryWarningCode::OutOfMemoryCoord`],
+/// [`QueryWarningCode::MaxTimeoutCapped`] and [`QueryWarningCode::MaxRowFieldsReached`].
 /// If another message is provided, [`QueryWarningCode::Ok`] is returned.
 ///
 /// If the message is a null pointer, returns [`QueryWarningCode::Ok`].
@@ -464,6 +497,8 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
     const OUT_OF_MEMORY_COORD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryCoord.to_c_str();
     const OUT_OF_MEMORY_SHARD_WARNING_CSTR: &CStr = QueryWarningCode::OutOfMemoryShard.to_c_str();
     const MAX_TIMEOUT_CAPPED_WARNING_CSTR: &CStr = QueryWarningCode::MaxTimeoutCapped.to_c_str();
+    const MAX_ROW_FIELDS_REACHED_WARNING_CSTR: &CStr =
+        QueryWarningCode::MaxRowFieldsReached.to_c_str();
 
     // Safety: see safety requirement above and the handling of null pointer at the start.
     let message = unsafe { CStr::from_ptr(message) };
@@ -478,6 +513,8 @@ pub unsafe extern "C" fn QueryWarningCode_GetCodeFromMessage(
         QueryWarningCode::OutOfMemoryShard
     } else if message == MAX_TIMEOUT_CAPPED_WARNING_CSTR {
         QueryWarningCode::MaxTimeoutCapped
+    } else if message == MAX_ROW_FIELDS_REACHED_WARNING_CSTR {
+        QueryWarningCode::MaxRowFieldsReached
     } else {
         QueryWarningCode::Ok
     }

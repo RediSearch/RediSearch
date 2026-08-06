@@ -136,6 +136,9 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
       } else if (!strcmp(warning_str, QUERY_WINDEXING_FAILURE)) {
         RS_ASSERT(nc->areq);
         AREQ_QueryProcessingCtx(nc->areq)->bgScanOOM = true;
+      } else if (!strcmp(warning_str,
+                         QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_ROW_FIELDS_REACHED))) {
+        QueryError_SetMaxRowFieldsReachedWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
       } else if (!strcmp(warning_str, QUERY_ASM_INACCURATE_RESULTS)) {
         RS_ASSERT(nc->areq);
         nc->areq->stateflags |= QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
@@ -541,7 +544,15 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     const char *field = MRReply_String(MRReply_ArrayElement(fields, i), &len);
     MRReply *val = MRReply_ArrayElement(fields, i + 1);
     RSValue *v = MRReply_ToValue(val);
-    RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
+    if (!RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v)) {
+      // One lookup serves the whole request, so field names accumulate across every row of
+      // every shard; once it is full there is no slot left to address this field by. Warn
+      // and carry on with the fields that did fit rather than failing: rows stream to the
+      // client as shard replies arrive, so by now earlier rows are already serialized and
+      // only the first code the pipeline returns reaches handleSendChunkError. `v` was
+      // moved into the call and is released there, so there is nothing to free here.
+      QueryError_SetMaxRowFieldsReachedWarning(AREQ_QueryProcessingCtx(nc->areq)->err);
+    }
   }
 
   return RS_RESULT_OK;

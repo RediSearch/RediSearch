@@ -1093,27 +1093,70 @@ def testLoadAll(env):
 # so slots 0..=65535 are the whole addressable space.
 UNADDRESSABLE_FIELD_COUNT = 65536 + 1
 
-@skip(cluster=True)
-def testLoadAllMoreFieldsThanARowCanAddress(env):
-    """`LOAD *` on a hash with more distinct fields than a row has addressable slots
-    must fail the query rather than the server, and must leave the document loadable
-    by queries that stay within the limit."""
-    conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc:', 'SCHEMA', 'f0', 'TEXT').ok()
+# Filling the lookup is inherently quadratic -- every field walks the key list looking for
+# a name that is not there yet -- and the limit under test is what it is, so the work
+# cannot be scaled down. That is affordable on an ordinary build and not on an
+# instrumented one, where it outruns the per-test timeout.
+LOOKUP_OVERFLOW_TOO_SLOW = dict(asan=True, msan=True, coverage=True)
 
+def _fillUnaddressableHash(conn, key):
+    """HSET `key` with one more distinct field than a result row can address."""
     # Field names are unique per HSET pair, so the loader creates one key per field.
     batch = 8192
     for start in range(0, UNADDRESSABLE_FIELD_COUNT, batch):
         pairs = []
         for i in range(start, min(start + batch, UNADDRESSABLE_FIELD_COUNT)):
             pairs += [f'f{i}', 'v']
-        conn.execute_command('HSET', 'doc:bomb', *pairs)
+        conn.execute_command('HSET', key, *pairs)
 
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '*').error() \
-        .contains('cannot load more than 65536 fields in a single query')
+MAX_ROW_FIELDS_WARNING = 'Max fields per result row limit was reached; some results were skipped'
 
-    # The document is not at fault and must stay visible to queries that load fewer fields.
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f0').equal([1, ['f0', 'v']])
+@skip(**LOOKUP_OVERFLOW_TOO_SLOW)
+def testLoadAllMoreFieldsThanARowCanAddress():
+    """`LOAD *` on a hash with more distinct fields than a row has addressable slots must
+    take down neither the server nor the query: the document is skipped like any other one
+    that cannot be loaded, the remaining rows are returned, and a warning says so.
+
+    Uses RESP3 because that is the only protocol with a warnings channel - the reply is
+    otherwise a plain success, and the count is the assertion that the skip was accounted
+    for. Runs in cluster mode too, where the shard skips the row and the coordinator picks
+    the warning up out of the shard's reply.
+    """
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc:', 'SCHEMA', 'f0', 'TEXT').ok()
+
+    # A document that loads cleanly, so the overflowing one is not the first row the loader
+    # reaches. Rows before the overflow have already been serialized by then, which is why
+    # the overflow warns instead of failing the query.
+    conn.execute_command('HSET', 'doc:ok', 'f0', 'v')
+    _fillUnaddressableHash(conn, 'doc:bomb')
+
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*')
+    env.assertEqual(res['results'], [{'extra_attributes': {'f0': 'v'}, 'values': []}], message=res)
+    env.assertContains(MAX_ROW_FIELDS_WARNING, res['warning'], message=res)
+
+    res = env.cmd('FT.SEARCH', 'idx', '*')
+    env.assertEqual(res['total_results'], 1, message=res)
+    env.assertEqual([r['id'] for r in res['results']], ['doc:ok'], message=res)
+    env.assertContains(MAX_ROW_FIELDS_WARNING, res['warning'], message=res)
+
+    # The documents are not at fault and must stay visible to queries within the limit.
+    res = env.cmd('FT.SEARCH', 'idx', '@f0:v', 'NOCONTENT')
+    env.assertEqual(res['total_results'], 2, message=res)
+    env.assertEqual(sorted(r['id'] for r in res['results']), ['doc:bomb', 'doc:ok'], message=res)
+    env.assertEqual(res['warning'], [], message=res)
+
+    # One DEL per key: in cluster mode the two land in different slots.
+    conn.execute_command('DEL', 'doc:bomb')
+    conn.execute_command('DEL', 'doc:ok')
+
+# There is no JSON counterpart to the test above: `LOAD *` on a JSON document does not
+# expand its members into one lookup key each, it binds the whole document to the single
+# root key `$`. One document therefore consumes one slot no matter how large it is, and
+# the JSON loader cannot fill the lookup on its own.
+
+    conn.execute_command('DEL', 'jdoc:bomb')
 
 def testLimitIssue(env):
     #ticket 66895

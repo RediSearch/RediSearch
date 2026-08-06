@@ -971,14 +971,13 @@ static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   return true;
 }
 
-// Load `r`'s document into its row. Returns false if the failure is one the query cannot
-// recover from, in which case the query error has been moved to the pipeline and the
-// caller must abort; a false return leaves `r` untouched for the caller to release.
-static bool rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
+// Load `r`'s document into its row. A document that cannot be loaded is flagged
+// Result_ExpiredDoc for the caller to drop; no load failure fails the query.
+static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // If the document was modified or deleted, we don't load it, and we need to mark
   // the result as expired.
   if (!isDocumentStillValid(self, r)) {
-    return true;
+    return;
   }
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
@@ -1008,18 +1007,26 @@ static bool rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   }
 
   if (ret == REDISMODULE_OK) {
-    return true;
+    return;
   }
 
-  // A document holding more distinct fields than a row has addressable slots is a
-  // property of the query (LOAD *), not of the document: the document is alive and
-  // will fail the same way for every reader. Marking it "failed to open" would hide
-  // it from all later queries, so fail this query instead and leave the metadata be.
+  // A document naming more distinct fields than a row has addressable slots cannot be
+  // returned - some of its fields would have nowhere to go - but the shortfall is a
+  // property of this query (LOAD *), not of the document: it is alive and loads fine for
+  // a query that names fewer fields. So drop the row and warn instead of marking the
+  // metadata "failed to open", which would hide the document from every later reader.
+  //
+  // Warning rather than failing is forced by the reply path: the plain loader loads each
+  // row as the sender asks for it, so by the time row N overflows, rows 1..N-1 have been
+  // serialized already. Only the first code the pipeline returns reaches
+  // handleSendChunkError, and RESP2 cannot carry a later one, so a fatal error here would
+  // reach a RESP2 client as a truncated reply indistinguishable from a complete one.
+  // Query-construction sites, which run before anything is serialized, do fail the query.
   if (QueryError_GetCode(&self->status) == QUERY_ERROR_CODE_LIMIT) {
-    QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_LIMIT,
-                        QueryError_GetDisplayableError(&self->status, false));
+    QueryError_SetMaxRowFieldsReachedWarning(self->base.parent->err);
+    SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
     QueryError_ClearError(&self->status);
-    return false;
+    return;
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1029,16 +1036,15 @@ static bool rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
   // The result contains an expired document.
   SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
   QueryError_ClearError(&self->status);
-  return true;
 }
 
 // Whether a loaded result can be serialized to the client. A result flagged
-// Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
-// the iterator yielding it and the safe loader loading it (the safe loader releases the
-// spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
-// that window) - so serializing it would produce a doc id followed by a nil field-array
-// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them.
+// Result_ExpiredDoc has no usable row - either its document went away between the
+// iterator yielding it and the loader reaching it (only the safe loader races that way:
+// it releases the spec read lock to take the GIL, so a concurrent re-index can pop the
+// doc's metadata in that window), or the load itself failed - so serializing it would
+// produce a doc id followed by a nil field-array (RESP2 $-1). Both loaders drop such
+// results; see rpSafeLoader_Load and rploaderNext.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }
@@ -1063,14 +1069,7 @@ static int rploaderNext(ResultProcessor *base, SearchResult *r) {
   RPLoader *lc = (RPLoader *)base;
   int rc;
   while ((rc = base->upstream->Next(base->upstream, r)) == RS_RESULT_OK) {
-    if (!rpLoader_loadDocument(lc, r)) {
-      // Unrecoverable load failure. Release the partially loaded row - the caller gets
-      // an empty result alongside the error - and stop pulling from upstream. This is
-      // not a skipped result: the query does not complete.
-      SearchResult_Destroy(r);
-      *r = SearchResult_New();
-      return RS_RESULT_ERROR;
-    }
+    rpLoader_loadDocument(lc, r);
     if (loaderResultIsEmittable(r)) {
       return RS_RESULT_OK;
     }
@@ -1266,26 +1265,13 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
-    if (!rpLoader_loadDocument(&self->base_loader, curr_res)) {
-      // Unrecoverable load failure. Rows buffered before this one are already loaded, so
-      // yield them and report the error afterwards, the way a buffered timeout is
-      // reported. Everything from here on stays unloaded and must not be emitted:
-      // tombstone this row and the rest of the buffer.
-      self->last_buffered_rc = RS_RESULT_ERROR;
-      do {
-        // Not skipped results - the query is failing, so they are not counted against
-        // the reported total. Tombstoning the slot (null metadata) makes the yield
-        // phase skip it and lets rpSafeLoaderFree destroy it safely.
-        SearchResult_Destroy(curr_res);
-        *curr_res = SearchResult_New();
-      } while ((curr_res = GetNextResult(self)));
-      break;
-    }
+    rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
-      // released the read lock to take the GIL). Drop it: loaderDropResult counts it as
-      // skipped and re-initializes the slot to an empty tombstone (null metadata), which
-      // the yield phase skips and rpSafeLoaderFree can destroy safely.
+      // released the read lock to take the GIL), or it could not be loaded at all. Drop
+      // it: loaderDropResult counts it as skipped and re-initializes the slot to an empty
+      // tombstone (null metadata), which the yield phase skips and rpSafeLoaderFree can
+      // destroy safely.
       loaderDropResult(&self->base_loader.base, curr_res);
     }
   }
@@ -2480,6 +2466,13 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
+/* Outcome of folding one upstream result into the merger's dictionary. */
+typedef enum {
+  HYBRID_STORE_OK,      // stored; the dictionary owns the result now
+  HYBRID_STORE_SKIP,    // unusable result (no document key); the caller reuses it
+  HYBRID_STORE_FAILED,  // the query must fail; an error is set on the query context
+} HybridStoreStatus;
+
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
   * @param r - the result to store
   * @param hybridResults - the dictionary to store the result in
@@ -2487,12 +2480,23 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   * @param numUpstreams - the number of upstreams
   * @param score - used to override the result's score
  */
- static bool hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
+ static HybridStoreStatus hybridMergerStoreUpstreamResult(RPHybridMerger* self, SearchResult *r, size_t upstreamIndex, double score) {
   // Single shard case - use dmd->keyPtr
   RLookupRow translated = RLookupRow_New();
-  RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
+  if (!RLookupRow_WriteFieldsFrom(SearchResult_GetRowData(r),
       self->lookupCtx->sourceLookups[upstreamIndex], &translated,
-      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys);
+      self->lookupCtx->tailLookup, self->lookupCtx->createMissingKeys)) {
+    // The subqueries together name more fields than the tail lookup can address. The
+    // translated row is missing some of them, so the merged result would silently drop
+    // fields the caller asked for; fail the query instead. Unlike the loaders, the merger
+    // can afford to: it drains every upstream into its dictionary before yielding a single
+    // row, so the error is the first code the pipeline returns and reaches
+    // handleSendChunkError before anything has been serialized.
+    RLookupRow_Reset(&translated);
+    QueryError_SetError(self->base.parent->err, QUERY_ERROR_CODE_LIMIT,
+                        "Hybrid subqueries produce more fields than a result row can hold");
+    return HYBRID_STORE_FAILED;
+  }
   RLookupRow_Reset(SearchResult_GetRowDataMut(r));
   SearchResult_SetRowData(r, translated);
 
@@ -2507,7 +2511,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
     }
   }
   if (!keyPtr) {
-    return false;
+    return HYBRID_STORE_SKIP;
   }
 
   // Check if we've seen this document before
@@ -2524,7 +2528,7 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
    // preserve or drop the borrowed RSIndexResult so it does not dangle.
    SearchResult_BufferIndexResult(&self->base, r);
    HybridSearchResult_StoreResult(hybridResult, r, upstreamIndex);
-   return true;
+   return HYBRID_STORE_OK;
  }
 
  /* Helper function to consume results from a single upstream */
@@ -2540,13 +2544,18 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
        if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
-       if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
+       HybridStoreStatus status = hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score);
+       if (status == HYBRID_STORE_OK) {
          r = rm_calloc(1, sizeof(*r));
          *r = SearchResult_New();
-       } else {
-         SearchResult_Clear(r);
-         --consumed; // avoid wrong rank in RRF
+         continue;
        }
+       SearchResult_Clear(r);
+       if (status == HYBRID_STORE_FAILED) {
+         rc = RS_RESULT_ERROR;
+         break;
+       }
+       --consumed; // avoid wrong rank in RRF
    }
    rm_free(r);
    return rc;
