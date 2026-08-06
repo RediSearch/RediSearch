@@ -1,134 +1,101 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1240" viewBox="0 0 1600 1240" role="img" aria-labelledby="title desc">
-<title id="title">MOD-17473 local benchmark results</title>
-<desc id="desc">POC versus master throughput and p99 latency percentage changes for aggregate and hybrid queries, plus cursor and memory summaries.</desc>
-<rect width="1600" height="1240" fill="#0b1020"/>
-<style>
-  text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .title { fill:#f8fafc; font-size:32px; font-weight:700; }
-  .subtitle { fill:#94a3b8; font-size:16px; }
-  .panel { fill:#111827; stroke:#263247; stroke-width:1; }
-  .panel-title { fill:#e2e8f0; font-size:21px; font-weight:650; }
-  .axis { fill:#94a3b8; font-size:13px; }
-  .label { fill:#cbd5e1; font-size:14px; }
-  .value { font-size:14px; font-weight:700; }
-  .grid { stroke:#334155; stroke-width:1; }
-  .zero { stroke:#cbd5e1; stroke-width:1.5; }
-  .good { fill:#22c55e; }
-  .bad { fill:#f97316; }
-  .neutral { fill:#60a5fa; }
-  .card-title { fill:#94a3b8; font-size:13px; font-weight:600; letter-spacing:.6px; }
-  .card-main { fill:#f8fafc; font-size:24px; font-weight:750; }
-  .card-note { fill:#cbd5e1; font-size:13px; }
-</style>
-<text class="title" x="60" y="58">MOD-17473 · Array-backed RETURN replies</text>
-<text class="subtitle" x="60" y="92">Local release benchmark · POC vs master · positive throughput is better; negative latency is better</text>
-<circle cx="1270" cy="55" r="7" class="good"/><text class="subtitle" x="1284" y="61">improvement</text>
-<circle cx="1412" cy="55" r="7" class="bad"/><text class="subtitle" x="1426" y="61">regression</text>
-<rect class="panel" x="50" y="122" width="1500" height="455" rx="16"/>
-<text class="panel-title" x="80" y="163">Throughput change</text>
-<text class="subtitle" x="80" y="190">Requests/second delta relative to master</text>
-<line class="grid" x1="470" y1="205" x2="470" y2="548"/>
-<text class="axis" x="470" y="566" text-anchor="middle">-20%</text>
-<line class="grid" x1="730" y1="205" x2="730" y2="548"/>
-<text class="axis" x="730" y="566" text-anchor="middle">-10%</text>
-<line class="zero" x1="990" y1="205" x2="990" y2="548"/>
-<text class="axis" x="990" y="566" text-anchor="middle">0%</text>
-<line class="grid" x1="1250" y1="205" x2="1250" y2="548"/>
-<text class="axis" x="1250" y="566" text-anchor="middle">+10%</text>
-<line class="grid" x1="1510" y1="205" x2="1510" y2="548"/>
-<text class="axis" x="1510" y="566" text-anchor="middle">+20%</text>
-<text class="label" x="80" y="234">Aggregate empty · RESP2</text>
-<rect class="bad" x="743.0" y="220" width="247.0" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="733.0" y="235" text-anchor="end">-9.5%</text>
-<text class="label" x="80" y="266">Aggregate empty · RESP3</text>
-<rect class="bad" x="711.8" y="252" width="278.2" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="701.8" y="267" text-anchor="end">-10.7%</text>
-<text class="label" x="80" y="298">Aggregate small · RESP2</text>
-<rect class="bad" x="836.6" y="284" width="153.4" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="826.6" y="299" text-anchor="end">-5.9%</text>
-<text class="label" x="80" y="330">Aggregate small · RESP3</text>
-<rect class="bad" x="540.2" y="316" width="449.8" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="530.2" y="331" text-anchor="end">-17.3%</text>
-<text class="label" x="80" y="362">Aggregate medium · RESP2</text>
-<rect class="bad" x="844.4" y="348" width="145.6" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="834.4" y="363" text-anchor="end">-5.6%</text>
-<text class="label" x="80" y="394">Aggregate medium · RESP3</text>
-<rect class="good" x="990.0" y="380" width="31.2" height="20" rx="4" opacity=".92"/>
-<text class="value good" x="1031.2" y="395" text-anchor="start">+1.2%</text>
-<text class="label" x="80" y="426">Aggregate large/wide · RESP2</text>
-<rect class="bad" x="860.0" y="412" width="130.0" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="850.0" y="427" text-anchor="end">-5.0%</text>
-<text class="label" x="80" y="458">Aggregate large/wide · RESP3</text>
-<rect class="bad" x="938.0" y="444" width="52.0" height="20" rx="4" opacity=".92"/>
-<text class="value bad" x="928.0" y="459" text-anchor="end">-2.0%</text>
-<text class="label" x="80" y="490">Hybrid · RESP2</text>
-<rect class="good" x="990.0" y="476" width="356.2" height="20" rx="4" opacity=".92"/>
-<text class="value good" x="1356.2" y="491" text-anchor="start">+13.7%</text>
-<text class="label" x="80" y="522">Hybrid · RESP3</text>
-<rect class="good" x="990.0" y="508" width="390.0" height="20" rx="4" opacity=".92"/>
-<text class="value good" x="1390.0" y="523" text-anchor="start">+15.0%</text>
-<rect class="panel" x="50" y="600" width="1500" height="405" rx="16"/>
-<text class="panel-title" x="80" y="641">p99 latency change</text>
-<text class="subtitle" x="80" y="668">Tail-latency delta relative to master</text>
-<line class="grid" x1="470.0" y1="682" x2="470.0" y2="965"/>
-<text class="axis" x="470.0" y="989" text-anchor="middle">-10%</text>
-<line class="zero" x1="643.3" y1="682" x2="643.3" y2="965"/>
-<text class="axis" x="643.3" y="989" text-anchor="middle">0%</text>
-<line class="grid" x1="816.7" y1="682" x2="816.7" y2="965"/>
-<text class="axis" x="816.7" y="989" text-anchor="middle">+10%</text>
-<line class="grid" x1="990.0" y1="682" x2="990.0" y2="965"/>
-<text class="axis" x="990.0" y="989" text-anchor="middle">+20%</text>
-<line class="grid" x1="1163.3" y1="682" x2="1163.3" y2="965"/>
-<text class="axis" x="1163.3" y="989" text-anchor="middle">+30%</text>
-<line class="grid" x1="1336.7" y1="682" x2="1336.7" y2="965"/>
-<text class="axis" x="1336.7" y="989" text-anchor="middle">+40%</text>
-<line class="grid" x1="1510.0" y1="682" x2="1510.0" y2="965"/>
-<text class="axis" x="1510.0" y="989" text-anchor="middle">+50%</text>
-<text class="label" x="80" y="710">Aggregate empty · RESP2</text>
-<rect class="bad" x="643.3" y="697" width="135.2" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="787.5" y="711" text-anchor="start">+7.8%</text>
-<text class="label" x="80" y="737">Aggregate empty · RESP3</text>
-<rect class="good" x="563.6" y="724" width="79.7" height="18" rx="4" opacity=".92"/>
-<text class="value good" x="554.6" y="738" text-anchor="end">-4.6%</text>
-<text class="label" x="80" y="764">Aggregate small · RESP2</text>
-<rect class="bad" x="643.3" y="751" width="41.6" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="693.9" y="765" text-anchor="start">+2.4%</text>
-<text class="label" x="80" y="791">Aggregate small · RESP3</text>
-<rect class="bad" x="643.3" y="778" width="721.1" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="1373.4" y="792" text-anchor="start">+41.6%</text>
-<text class="label" x="80" y="818">Aggregate medium · RESP2</text>
-<rect class="bad" x="643.3" y="805" width="507.9" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="1160.2" y="819" text-anchor="start">+29.3%</text>
-<text class="label" x="80" y="845">Aggregate medium · RESP3</text>
-<rect class="bad" x="643.3" y="832" width="533.9" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="1186.2" y="846" text-anchor="start">+30.8%</text>
-<text class="label" x="80" y="872">Aggregate large/wide · RESP2</text>
-<rect class="bad" x="643.3" y="859" width="223.6" height="18" rx="4" opacity=".92"/>
-<text class="value bad" x="875.9" y="873" text-anchor="start">+12.9%</text>
-<text class="label" x="80" y="899">Aggregate large/wide · RESP3</text>
-<rect class="good" x="603.5" y="886" width="39.9" height="18" rx="4" opacity=".92"/>
-<text class="value good" x="594.5" y="900" text-anchor="end">-2.3%</text>
-<text class="label" x="80" y="926">Hybrid · RESP2</text>
-<rect class="good" x="544.5" y="913" width="98.8" height="18" rx="4" opacity=".92"/>
-<text class="value good" x="535.5" y="927" text-anchor="end">-5.7%</text>
-<text class="label" x="80" y="953">Hybrid · RESP3</text>
-<rect class="good" x="516.8" y="940" width="126.5" height="18" rx="4" opacity=".92"/>
-<text class="value good" x="507.8" y="954" text-anchor="end">-7.3%</text>
-<rect class="panel" x="65" y="1028" width="345" height="145" rx="14"/>
-<text class="card-title" x="87" y="1060">HYBRID THROUGHPUT</text>
-<text class="card-main good" x="87" y="1100">+13.7% / +15.0%</text>
-<text class="card-note" x="87" y="1133">RESP2 / RESP3</text>
-<rect class="panel" x="440" y="1028" width="345" height="145" rx="14"/>
-<text class="card-title" x="462" y="1060">CURSOR TRANSACTIONS/S</text>
-<text class="card-main neutral" x="462" y="1100">−0.1% / −0.2%</text>
-<text class="card-note" x="462" y="1133">effectively flat</text>
-<rect class="panel" x="815" y="1028" width="345" height="145" rx="14"/>
-<text class="card-title" x="837" y="1060">WORST AGGREGATE CASE</text>
-<text class="card-main bad" x="837" y="1100">−17.3% throughput</text>
-<text class="card-note" x="837" y="1133">small RESP3; p99 +41.6%</text>
-<rect class="panel" x="1190" y="1028" width="345" height="145" rx="14"/>
-<text class="card-title" x="1212" y="1060">CUMULATIVE PEAK MEMORY</text>
-<text class="card-main bad" x="1212" y="1100">+22.4% / +13.1%</text>
-<text class="card-note" x="1212" y="1133">used_memory_peak / VmHWM</text>
-<text class="axis" x="60" y="1210">10k HASH documents · search-workers=1 · 32 clients non-cursor · 8 cursor clients · one run/build (directional, not a confidence interval)</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+<rect width="100%" height="100%" fill="white"/>
+<rect x="697.5" y="150" width="45.0" height="725" fill="#e7f0fe"/>
+<line x1="420.0" y1="150" x2="420.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="420.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">-40%</text>
+<line x1="570.0" y1="150" x2="570.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="570.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">-20%</text>
+<line x1="720.0" y1="150" x2="720.0" y2="875" stroke="#374151" stroke-width="3"/>
+<text x="720.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+0%</text>
+<line x1="870.0" y1="150" x2="870.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="870.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+20%</text>
+<line x1="1020.0" y1="150" x2="1020.0" y2="875" stroke="#d1d5db" stroke-width="1"/>
+<text x="1020.0" y="913" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">+40%</text>
+<text x="24" y="47" font-family="DejaVu Sans,sans-serif" font-size="27" font-weight="bold" fill="#111827">MOD-17473 — Full-result performance</text>
+<text x="24" y="83" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#4b5563">Equal work: identical complete 10k-row replies · baseline 20ba4ed7c2 → PR d22ed77e59</text>
+<text x="24" y="113" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#1f4f7a">Effect axis: positive = favorable · paired-bootstrap 95% CIs · N=5 SCREENING</text>
+<text x="24" y="210.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP2 · workers=1</text>
+<text x="24" y="234.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="530.2" y1="213.8" x2="698.0" y2="213.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="530.2" y1="206.8" x2="530.2" y2="220.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="698.0" y1="206.8" x2="698.0" y2="220.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="621.8" cy="213.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="211.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -13.1% · 95% CI [-25.3, -2.9]</text>
+<text x="1040" y="231.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="278.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP2 · workers=1</text>
+<text x="24" y="302.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="490.8" y1="281.2" x2="717.0" y2="281.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="490.8" y1="274.2" x2="490.8" y2="288.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="717.0" y1="274.2" x2="717.0" y2="288.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="623.2" cy="281.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="279.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -12.9% · 95% CI [-30.6, -0.4]</text>
+<text x="1040" y="299.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="345.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=0</text>
+<text x="24" y="369.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="674.9" y1="348.8" x2="725.4" y2="348.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="674.9" y1="341.8" x2="674.9" y2="355.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="725.4" y1="341.8" x2="725.4" y2="355.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="701.3" cy="348.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="346.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -2.5% · 95% CI [-6.0, +0.7]</text>
+<text x="1040" y="366.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="413.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=0</text>
+<text x="24" y="437.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="683.3" y1="416.2" x2="725.9" y2="416.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="683.3" y1="409.2" x2="683.3" y2="423.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="725.9" y1="409.2" x2="725.9" y2="423.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="704.9" cy="416.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="414.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -2.0% · 95% CI [-4.9, +0.8]</text>
+<text x="1040" y="434.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="480.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=1</text>
+<text x="24" y="504.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="612.2" y1="483.8" x2="776.1" y2="483.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="612.2" y1="476.8" x2="612.2" y2="490.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="776.1" y1="476.8" x2="776.1" y2="490.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="690.0" cy="483.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="481.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -4.0% · 95% CI [-14.4, +7.5]</text>
+<text x="1040" y="501.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="548.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=1</text>
+<text x="24" y="572.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="549.4" y1="551.2" x2="800.4" y2="551.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="549.4" y1="544.2" x2="549.4" y2="558.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="800.4" y1="544.2" x2="800.4" y2="558.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="681.7" cy="551.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="549.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -5.1% · 95% CI [-22.7, +10.7]</text>
+<text x="1040" y="569.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="615.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=16</text>
+<text x="24" y="639.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="574.9" y1="618.8" x2="607.8" y2="618.8" stroke="#c2413b" stroke-width="4"/>
+<line x1="574.9" y1="611.8" x2="574.9" y2="625.8" stroke="#c2413b" stroke-width="3"/>
+<line x1="607.8" y1="611.8" x2="607.8" y2="625.8" stroke="#c2413b" stroke-width="3"/>
+<circle cx="591.0" cy="618.8" r="7" fill="#c2413b"/>
+<text x="1040" y="608.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -17.2% · 95% CI [-19.4, -15.0]</text>
+<text x="1040" y="628.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · regression</text>
+<text x="1040" y="648.8" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER-CONFOUNDED (5/0 AB)</text>
+<text x="24" y="683.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · workers=16</text>
+<text x="24" y="707.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="565.7" y1="686.2" x2="628.2" y2="686.2" stroke="#c2413b" stroke-width="4"/>
+<line x1="565.7" y1="679.2" x2="565.7" y2="693.2" stroke="#c2413b" stroke-width="3"/>
+<line x1="628.2" y1="679.2" x2="628.2" y2="693.2" stroke="#c2413b" stroke-width="3"/>
+<circle cx="597.5" cy="686.2" r="7" fill="#c2413b"/>
+<text x="1040" y="676.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -16.3% · 95% CI [-20.6, -12.2]</text>
+<text x="1040" y="696.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · regression</text>
+<text x="1040" y="716.2" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER-CONFOUNDED (5/0 AB)</text>
+<text x="24" y="750.8" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · no LIMIT · workers=1</text>
+<text x="24" y="774.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Throughput · requests/s</text>
+<line x1="557.5" y1="753.8" x2="787.9" y2="753.8" stroke="#9a6b16" stroke-width="4"/>
+<line x1="557.5" y1="746.8" x2="557.5" y2="760.8" stroke="#9a6b16" stroke-width="3"/>
+<line x1="787.9" y1="746.8" x2="787.9" y2="760.8" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="668.4" cy="753.8" r="7" fill="#9a6b16"/>
+<text x="1040" y="751.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -6.9% · 95% CI [-21.7, +9.1]</text>
+<text x="1040" y="771.8" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="818.2" font-family="DejaVu Sans,sans-serif" font-size="18" fill="#111827">RESP3 · no LIMIT · workers=1</text>
+<text x="24" y="842.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Latency · p99</text>
+<line x1="444.9" y1="821.2" x2="744.9" y2="821.2" stroke="#9a6b16" stroke-width="4"/>
+<line x1="444.9" y1="814.2" x2="444.9" y2="828.2" stroke="#9a6b16" stroke-width="3"/>
+<line x1="744.9" y1="814.2" x2="744.9" y2="828.2" stroke="#9a6b16" stroke-width="3"/>
+<circle cx="621.5" cy="821.2" r="7" fill="#9a6b16"/>
+<text x="1040" y="819.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#111827">effect -13.1% · 95% CI [-36.7, +3.3]</text>
+<text x="1040" y="839.2" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">N=5 SCREENING · inconclusive</text>
+<text x="24" y="947" font-family="DejaVu Sans,sans-serif" font-size="15" fill="#4b5563">Blue band: ±3% equivalence threshold. Arrowheads: CIs clipped at ±40%; annotations are exact.</text>
+<text x="24" y="976" font-family="DejaVu Sans,sans-serif" font-size="15" font-weight="bold" fill="#8a4b08">ORDER NOTE: full workers=16 is screening-only: all 5 pairs were AB (baseline first; 5/0). Timeout workers=16 is order-skewed (4/1 AB/BA).</text>
 </svg>
