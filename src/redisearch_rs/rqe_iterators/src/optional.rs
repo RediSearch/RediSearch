@@ -194,7 +194,10 @@ where
     /// reached yet.
     ///
     /// Goes `false` one step before [`Self::past_end`] is set, while
-    /// `max_doc_id` is still the current result.
+    /// `max_doc_id` is still the current result. Says nothing on its own about
+    /// an iterator a skip has already run off the end — that one can still be
+    /// sitting below `max_doc_id` — so [`Self::past_end`] is checked first, by
+    /// [`Self::exhausted`].
     #[inline(always)]
     const fn has_next(&self) -> bool {
         self.result.doc_id < self.max_doc_id

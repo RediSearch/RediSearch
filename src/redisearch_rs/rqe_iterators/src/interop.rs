@@ -245,13 +245,6 @@ extern "C" fn read<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
-            // The Rust side owes no result here, so the header must not keep
-            // pointing at the last one. Iterators that own their current result
-            // — `TopKIterator` holds it in an `Option` and drops it on the way
-            // out — leave that pointer dangling otherwise, and the ones that
-            // reuse a fixed result slot would hand a consumer a document it has
-            // already seen. `current()` reports `None` past the end on the Rust
-            // side; this is the same answer, in the shape C reads.
             wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
@@ -285,7 +278,6 @@ extern "C" fn skip_to<'index, I: RQEIterator<'index> + 'index>(
         }
         Ok(None) => {
             wrapper.header.atEOF = true;
-            // See `read`: no result to point at, so the header says so too.
             wrapper.header.current = std::ptr::null_mut();
             IteratorStatus_ITERATOR_EOF
         }
@@ -320,9 +312,6 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
                 wrapper.header.lastDocId = result.doc_id;
             } else {
                 wrapper.header.atEOF = true;
-                // A move that landed past the end has no result to publish; see
-                // `read`. Detecting exactly this is what `current()` returning
-                // `None` at EOF is for, so the header must not contradict it.
                 wrapper.header.current = std::ptr::null_mut();
             }
             ValidateStatus_VALIDATE_MOVED

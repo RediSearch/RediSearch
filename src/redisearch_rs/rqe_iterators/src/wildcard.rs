@@ -111,7 +111,10 @@ impl Wildcard<'_> {
     ///
     /// The single gate on both entry points: once
     /// [`past_end`](Self::past_end) is set, only a
-    /// [`rewind`](RQEIterator::rewind) clears it.
+    /// [`rewind`](RQEIterator::rewind) clears it. Checking it before
+    /// [`Self::has_next`] is what lets an overshooting
+    /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
+    /// then sits below `top_id` while the iterator owes nothing.
     #[inline(always)]
     const fn exhausted(&mut self) -> bool {
         if self.past_end || !self.has_next() {

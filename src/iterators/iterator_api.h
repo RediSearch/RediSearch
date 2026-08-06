@@ -87,6 +87,11 @@ typedef struct QueryIterator {
    *  On a successful read, the iterator must:
    *  1. Set its `lastDocId` member to the new current result id
    *  2. Set its `current` pointer to its current result, for the caller to access if desired
+   *  On ITERATOR_EOF it must instead set `atEOF` and clear `current` to NULL, leaving
+   *  `lastDocId` on the last result it yielded: there is nothing to point at, and an
+   *  iterator that owns its result frees it on the way past the end.
+   *  On ITERATOR_TIMEOUT both `current` and `lastDocId` are untouched — the iterator has
+   *  not moved, and a later call may still find a result where it stands.
    *  @returns ITERATOR_OK on normal operation, or any other `IteratorStatus` except `ITERATOR_NOTFOUND`
    */
   IteratorStatus (*Read)(struct QueryIterator *self);
@@ -99,7 +104,10 @@ typedef struct QueryIterator {
    *  A read is successful if the iterator has a valid result to yield.
    *  @returns ITERATOR_OK if the iterator has found `docId`.
    *  @returns ITERATOR_NOTFOUND if the iterator has only found a result greater than `docId`.
-   *  In any other case, `current` and `lastDocId` should be untouched, and the relevant IteratorStatus is returned.
+   *  Otherwise the relevant IteratorStatus is returned, under the same post-conditions as
+   *  `Read`: ITERATOR_EOF sets `atEOF` and clears `current` to NULL while leaving
+   *  `lastDocId` where the last yield left it — never on `docId`, which the iterator has no
+   *  result to back — and ITERATOR_TIMEOUT touches neither.
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
 
@@ -109,7 +117,10 @@ typedef struct QueryIterator {
    *
    * @param spec The index spec, provided by the caller (result processor).
    * @return VALIDATE_OK if the iterator is still valid
-   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed (moved forward)
+   * @return VALIDATE_MOVED if the iterator is still valid, but the lastDocId has changed
+   * (moved forward). A move that landed on a document publishes it in `current`; one that
+   * ran past the end sets `atEOF` and clears `current` to NULL, which is how a caller tells
+   * the two apart.
    * @return VALIDATE_ABORTED if the iterator is no longer valid
    */
   ValidateStatus (*Revalidate)(struct QueryIterator *self, struct IndexSpec *spec);
