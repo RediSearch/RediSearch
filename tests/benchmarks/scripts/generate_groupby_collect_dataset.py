@@ -59,6 +59,13 @@ GROUP_DISTRIBUTIONS = {
 
 SORT_ARGS = ["@target", "DESC", "@dueDate", "ASC", "@eventId", "ASC"]
 
+# Low-cardinality projection used by the DISTINCT variants. The default
+# projections all include a per-document unique field (@eventId, or @recordId
+# and @payload via `FIELDS *`), so DISTINCT would deduplicate nothing there.
+# type/target/processed have 3/2/2 values, collapsing a group to 12 rows.
+TAG_FIELDS = ["@type", "@target", "@processed"]
+TAG_SORT = ["@type", "ASC", "@target", "ASC", "@processed", "ASC"]
+
 QUERY_VARIANTS = {
     "collect-fields-1-k50": {
         "load": ["@entityName", "@eventId", "@target", "@dueDate"],
@@ -98,6 +105,31 @@ QUERY_VARIANTS = {
         "load": "*",
         "fields": "*",
         "limit": (500, 50),
+    },
+    # Baseline for the DISTINCT variants below: same projection and sort, no
+    # DISTINCT. The pair is what makes the DISTINCT number interpretable.
+    "collect-fields-tags-k50": {
+        "load": ["@entityName", *TAG_FIELDS],
+        "fields": TAG_FIELDS,
+        "sort": TAG_SORT,
+        "limit": (0, 50),
+    },
+    # Heavy dedup: 12 distinct tuples per group regardless of group size.
+    "collect-fields-tags-distinct-k50": {
+        "load": ["@entityName", *TAG_FIELDS],
+        "fields": TAG_FIELDS,
+        "sort": TAG_SORT,
+        "limit": (0, 50),
+        "distinct": True,
+    },
+    # Light dedup: adding @dueDate (3681 values) leaves most rows unique, so
+    # this measures the DISTINCT machinery when it removes little.
+    "collect-fields-tags-duedate-distinct-k50": {
+        "load": ["@entityName", *TAG_FIELDS, "@dueDate"],
+        "fields": [*TAG_FIELDS, "@dueDate"],
+        "sort": [*TAG_SORT, "@dueDate", "ASC"],
+        "limit": (0, 50),
+        "distinct": True,
     },
 }
 
@@ -223,9 +255,13 @@ def collect_args_for_variant(variant):
     else:
         collect_args = ["FIELDS", str(len(fields)), *fields]
 
+    sort_args = variant.get("sort", SORT_ARGS)
     offset, count = variant["limit"]
-    collect_args.extend(["SORTBY", str(len(SORT_ARGS)), *SORT_ARGS])
+    collect_args.extend(["SORTBY", str(len(sort_args)), *sort_args])
     collect_args.extend(["LIMIT", str(offset), str(count)])
+    if variant.get("distinct"):
+        # Trailing flag, counted in the COLLECT arg count by the caller.
+        collect_args.append("DISTINCT")
     return collect_args
 
 
