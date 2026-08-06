@@ -72,5 +72,5 @@ fn null_fields_and_indices_are_empty() {
     let sut = unsafe { SchemaRule::from_raw(ptr::from_ref(&schema_rule)) };
 
     assert_eq!(sut.filter_fields().len(), 0);
-    assert_eq!(sut.filter_fields_index(), []);
+    assert!(sut.filter_fields_index().is_empty());
 }
