@@ -4408,8 +4408,8 @@ class TestCoordinatorTimeout:
         )
         t_query.start()
 
-        blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
         try:
+            blocked_client_id = wait_for_blocked_query_client(env, 'FT.HYBRID')
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'SYNC_POINT',
                                  'IS_WAITING', sync_point) == 1, {}),
