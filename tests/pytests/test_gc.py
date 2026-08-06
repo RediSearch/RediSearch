@@ -880,3 +880,29 @@ def testGCContinueScheduleDuringRun_MOD_17309():
                     message=f'GC_CONTINUE_SCHEDULE queued a duplicate run: '
                             f'{before} -> {completed}')
     env.expect('PING').equal(True)
+
+
+@skip(cluster=True)
+def testGCTerminatesAfterDropWhileStopped(env):
+    """A GC stopped by GC_STOP_SCHEDULE still has to terminate when its index is dropped.
+    IndexSpec_Free does not free the GCContext -- it waits for a run to discover the drop --
+    and a stopped GC has neither a timer nor a queued run, so nothing ever would. The context
+    and its detached thread-safe context would leak for the life of the process.
+
+    onTerm is what returns this index's logically-deleted docs to the global counter, so the
+    counter dropping back to 0 is evidence the GC actually terminated."""
+    logically_deleted = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
+
+    # The GC INFO section is only rendered while at least one index exists, so keep one that is
+    # never dropped -- otherwise the counter we assert on disappears just as it reaches 0. Give
+    # both a prefix so only 'idx' indexes the document, and the count is unambiguously its own.
+    env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logically_deleted(), 1)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    wait_for_condition(lambda: (logically_deleted() == 0, {'not_collected': logically_deleted()}),
+                       'stopped GC never terminated after its index was dropped', timeout=30)

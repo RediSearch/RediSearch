@@ -144,12 +144,20 @@ void Spec_AddToDict(RefManager *rm) {
 // This function consumes the Strong reference it gets.
 void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
+  // Survives the unlink below: IndexSpec_Free deliberately does not free the GC.
+  GCContext *gc = spec->gc;
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
 
   // Unwind the spec's remaining global state and consume the reference.
   IndexSpec_Unlink(spec_ref, removeActive);
+
+  // Only after the unlink, so the run below cannot promote the spec and mistake this for an
+  // ordinary cycle -- it has to observe the drop and free itself.
+  if (gc) {
+    GCContext_ScheduleTermination(gc);
+  }
 }
 
 // Look up a spec by name (or alias) in the global registry - the specDict_g

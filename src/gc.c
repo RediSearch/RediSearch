@@ -182,6 +182,22 @@ void GCContext_Start(GCContext* gc) {
   GCContext_ArmTimer(gc);
 }
 
+void GCContext_ScheduleTermination(GCContext* gc) {
+  // The mock harness has no GC pool, and `IndexSpec_Free` frees the GC there directly -- so by
+  // now `gc` is already gone. Must be checked before touching it.
+  if (RS_IsMock) {
+    return;
+  }
+  // `IndexSpec_Free` does not free the GC; it relies on a run discovering the drop and
+  // self-terminating. A GC stopped by GC_STOP_SCHEDULE has neither a timer nor a queued run,
+  // so nothing would ever discover it. Re-enable and queue one.
+  gc->enabled = true;
+  // A queued run must not coexist with an armed timer: this run frees the context, and the
+  // timer would then fire on it.
+  GCContext_DisarmTimer(gc);
+  GCContext_QueueRun(gc);  // declines if a run already owns this context; that one will do it
+}
+
 void GCContext_StopFutureRuns(GCContext* gc) {
   gc->enabled = false;
   GCContext_DisarmTimer(gc);
