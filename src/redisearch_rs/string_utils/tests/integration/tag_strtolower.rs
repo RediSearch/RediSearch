@@ -97,9 +97,11 @@ mod ffi_comparison {
     /// Call C `tag_strtolower` via FFI and return the resulting string.
     fn c_tag_strtolower(s: &str, case_sensitive: bool) -> String {
         // SAFETY: extern are initialized by the test harness (mock allocator).
-        let rm_alloc = unsafe { ffi::RedisModule_Alloc.expect("Redis allocator not available") };
+        let rm_alloc =
+            unsafe { redis_module::RedisModule_Alloc.expect("Redis allocator not available") };
         // SAFETY: as above — the allocator externs are set up by the test harness.
-        let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
 
         // Allocate with rm_malloc: C code may rm_free this pointer.
         let buf_len = s.len() + 1; // +1 for null terminator

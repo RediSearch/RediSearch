@@ -13,7 +13,7 @@ use value_ffi::getters::RSValue_Number_Get;
 use value_ffi::shared::RSValue_DecrRef;
 
 #[unsafe(no_mangle)]
-pub static mut RSDummyContext: *mut redis_mock::ffi::RedisModuleCtx =
+pub static mut RSDummyContext: *mut redis_module::RedisModuleCtx =
     redis_mock::globals::redis_module_ctx();
 
 #[test]

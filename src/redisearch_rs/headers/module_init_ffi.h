@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include "redismodule.h"
 
+typedef struct RedisModuleCtx RedisModuleCtx;
+
+typedef struct RedisModuleInfoCtx RedisModuleInfoCtx;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -22,7 +26,7 @@ extern "C" {
  *
  * `level` must point to a valid, null-terminated C string.
  */
-void TracingRedisModule_Init(RedisModuleCtx *ctx, const char *level);
+void TracingRedisModule_Init(struct RedisModuleCtx *ctx, const char *level);
 
 /**
  * Updates the `tracing` log level filter from a redis `loglevel` config value
@@ -49,7 +53,7 @@ void RustPanicHook_Init(void);
  *
  * `ctx` must be a valid pointer to a `RedisModuleInfoCtx`.
  */
-void AddToInfo_RustBacktrace(RedisModuleInfoCtx *ctx);
+void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
 #ifdef __cplusplus
 }  // extern "C"

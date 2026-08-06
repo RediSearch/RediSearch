@@ -104,7 +104,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         // The TTL table holds field-level (HEXPIRE) entries only and is
         // destroyed once the last one leaves the index, so a NULL `ttl`
@@ -127,7 +127,7 @@ impl ExpirationChecker for FieldExpirationChecker {
         // SAFETY: Guaranteed by the safety contract of `new`.
         let sctx = unsafe { self.sctx.as_ref() };
         // SAFETY: Guaranteed by the safety contract of `new`.
-        let spec = unsafe { *(sctx.spec) };
+        let spec = unsafe { &(*sctx.spec) };
 
         // The TTL table may transition from non-NULL to NULL mid-query when the
         // last HFE doc is removed via `DocTable_Pop` (with the spec lock briefly

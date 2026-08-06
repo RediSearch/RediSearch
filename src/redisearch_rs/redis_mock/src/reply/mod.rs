@@ -76,7 +76,10 @@ mod tests {
             // SAFETY: Context is ignored in mock mode
             unsafe {
                 let ctx = std::ptr::null_mut();
-                RedisModule_ReplyWithArray(ctx, ffi::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong);
+                RedisModule_ReplyWithArray(
+                    ctx,
+                    redis_module::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong,
+                );
                 RedisModule_ReplyWithLongLong(ctx, 1);
                 RedisModule_ReplyWithLongLong(ctx, 2);
                 RedisModule_ReplyWithLongLong(ctx, 3);
@@ -100,10 +103,16 @@ mod tests {
             unsafe {
                 let ctx = std::ptr::null_mut();
                 // Outer array
-                RedisModule_ReplyWithArray(ctx, ffi::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong);
+                RedisModule_ReplyWithArray(
+                    ctx,
+                    redis_module::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong,
+                );
                 RedisModule_ReplyWithLongLong(ctx, 1);
                 // Inner array
-                RedisModule_ReplyWithArray(ctx, ffi::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong);
+                RedisModule_ReplyWithArray(
+                    ctx,
+                    redis_module::REDISMODULE_POSTPONED_ARRAY_LEN as c_longlong,
+                );
                 RedisModule_ReplyWithLongLong(ctx, 2);
                 RedisModule_ReplyWithLongLong(ctx, 3);
                 RedisModule_ReplySetArrayLength(ctx, 2);
@@ -128,7 +137,10 @@ mod tests {
             // SAFETY: Context is ignored in mock mode
             unsafe {
                 let ctx = std::ptr::null_mut();
-                RedisModule_ReplyWithMap(ctx, ffi::REDISMODULE_POSTPONED_LEN as c_longlong);
+                RedisModule_ReplyWithMap(
+                    ctx,
+                    redis_module::REDISMODULE_POSTPONED_LEN as c_longlong,
+                );
                 RedisModule_ReplyWithSimpleString(ctx, c"key1".as_ptr());
                 RedisModule_ReplyWithLongLong(ctx, 100);
                 RedisModule_ReplyWithSimpleString(ctx, c"key2".as_ptr());

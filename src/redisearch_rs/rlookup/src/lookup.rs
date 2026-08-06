@@ -429,7 +429,7 @@ impl<'a> RLookup<'a> {
         dst_row: &mut RLookupRow<'a>,
         index_spec: &'a IndexSpec,
         key_name: &CStr,
-        open_key: Option<&ffi::RedisModuleKey>,
+        open_key: Option<&redis_module::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
         // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
         // for every key.

@@ -14,9 +14,9 @@ bench = false
 [dependencies]
 cheadergen.workspace = true
 decorum.workspace = true
-ffi.workspace = true
 geo.workspace = true
 query_error.workspace = true
+redis-module.workspace = true
 tracing.workspace = true
 tracing_log_error.workspace = true
 workspace_hack.workspace = true
