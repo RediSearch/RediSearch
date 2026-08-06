@@ -14,7 +14,7 @@ use index_result::RSIndexResult;
 use inverted_index::doc_ids_only::DocIdsOnly;
 use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, NoOpChecker, RQEIterator, inverted_index::Missing};
-use rqe_iterators_test_utils::MockContext;
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
 use crate::inverted_index::utils::BaseTest;
 
@@ -53,21 +53,21 @@ impl MissingBaseTest {
 #[test]
 fn missing_type() {
     let test = MissingBaseTest::new(10);
-    let it = test.create_iterator();
+    let it = ContractChecker::new(test.create_iterator());
     assert_eq!(it.type_(), IteratorType::InvIdxMissing);
 }
 
 #[test]
 fn missing_read() {
     let test = MissingBaseTest::new(100);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.read(&mut it, test.test.docs_ids_iter());
 }
 
 #[test]
 fn missing_skip_to() {
     let test = MissingBaseTest::new(10);
-    let mut it = test.create_iterator();
+    let mut it = ContractChecker::new(test.create_iterator());
     test.test.skip_to(&mut it);
 }
 
@@ -79,7 +79,8 @@ fn missing_empty_index() {
     let reader = ii.reader();
     // SAFETY: `mock_ctx` provides a valid `RedisSearchCtx` with a valid `spec`
     // that outlives the iterator.
-    let mut it = unsafe { Missing::new(reader, mock_ctx.sctx(), 0, NoOpChecker) };
+    let mut it =
+        ContractChecker::new(unsafe { Missing::new(reader, mock_ctx.sctx(), 0, NoOpChecker) });
 
     // Should immediately be at EOF
     assert!(it.read().expect("read failed").is_none());
@@ -137,21 +138,21 @@ mod not_miri {
     #[test]
     fn missing_revalidate_basic() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_basic(&mut it);
     }
 
     #[test]
     fn missing_revalidate_at_eof() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         test.test.revalidate_at_eof(&mut it);
     }
 
     #[test]
     fn missing_revalidate_after_index_disappears() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         // Verify the iterator works normally and read at least one document
         let status = it
             .revalidate(&*test.test.context.spec_read())
@@ -199,7 +200,7 @@ mod not_miri {
     #[test]
     fn missing_revalidate_after_document_deleted() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.missing_inverted_index());
 
         test.test.revalidate_after_document_deleted(&mut it, ii);
@@ -211,7 +212,7 @@ mod not_miri {
     #[test]
     fn missing_revalidate_after_dict_entry_removed() {
         let test = MissingRevalidateTest::new(10);
-        let mut it = test.create_iterator();
+        let mut it = ContractChecker::new(test.create_iterator());
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());

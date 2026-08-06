@@ -12,6 +12,7 @@
 use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -28,9 +29,11 @@ fn eval_ids_with_pre_resolved_doc_ids() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::IdListSorted);
     assert!(!it.at_eof());
@@ -58,9 +61,11 @@ fn eval_ids_deduplicates() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 3);
@@ -82,9 +87,11 @@ fn eval_ids_filters_zero_doc_ids() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 5);
@@ -104,9 +111,11 @@ fn eval_ids_all_zero_produces_empty_list() {
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
     // of `current()`, so it flips once a read has run past the end.
@@ -124,9 +133,11 @@ fn eval_ids_empty_keys() {
     mock_node.set_ids(std::ptr::null(), std::ptr::null_mut(), 0);
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval_node(&mut ctx, node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
     // of `current()`, so it flips once a read has run past the end.
@@ -174,9 +185,11 @@ mod ids_doctable {
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::IdListSorted);
         // Results are sorted; the unknown key is dropped.
@@ -207,9 +220,11 @@ mod ids_doctable {
         mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval_node(&mut ctx, node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         // Nothing to yield, but nothing read yet either.
         assert!(!it.at_eof());

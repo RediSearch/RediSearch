@@ -115,7 +115,15 @@ impl MockScoreSource {
         scores: Vec<(DocId, f64)>,
         batch_strategy: impl FnMut(usize, usize) -> BatchStrategy + 'static,
     ) -> Self {
-        let num_estimated = batches.iter().map(Vec::len).sum();
+        // Adhoc mode serves results from `scores` rather than from batches, so
+        // the bound has to cover both — the real source's estimate
+        // (`k.min(index_size())`) is mode-independent for the same reason, and an
+        // estimate below what the iterator goes on to yield is not a bound.
+        let num_estimated = batches
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>()
+            .max(scores.len());
         Self {
             batches,
             batch_pos: 0,

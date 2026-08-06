@@ -29,6 +29,7 @@ use query_term::RSQueryTerm;
 use query_types::QueryNodeType;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// All (low 32) field-mask bits set, so the reader's field-mask filter never
@@ -231,7 +232,7 @@ impl PrefixFixture {
 }
 
 /// Drain an iterator into the list of document IDs it yields, in order.
-fn collect_doc_ids(it: &mut EvalResult) -> Vec<u64> {
+fn collect_doc_ids<'index>(it: &mut impl RQEIterator<'index>) -> Vec<u64> {
     let mut ids = Vec::new();
     while let Some(r) = it.read().expect("read must not error") {
         ids.push(r.doc_id);
@@ -243,9 +244,11 @@ fn collect_doc_ids(it: &mut EvalResult) -> Vec<u64> {
 fn eval_prefix_expands_and_unions_matches() {
     // `ap*` matches `apple` and `apricot`, whose documents union to {1, 2, 3}.
     let mut fixture = PrefixFixture::new("ap", true, false);
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
     assert_eq!(it.type_(), IteratorType::Union);
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
@@ -255,9 +258,11 @@ fn eval_prefix_single_match_returns_reader_directly() {
     // `gr*` matches only `grape`; the union of one child collapses to that
     // child's term reader.
     let mut fixture = PrefixFixture::new("gr", true, false);
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with one match must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with one match must build an iterator"),
+    );
     assert_eq!(it.type_(), IteratorType::InvIdxTerm);
     assert_eq!(collect_doc_ids(&mut it), vec![4]);
 }
@@ -277,9 +282,11 @@ fn eval_prefix_single_match_uses_unit_child_weight() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with one match must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with one match must build an iterator"),
+    );
     assert_eq!(it.type_(), IteratorType::InvIdxTerm);
     let r = it.read().expect("read must not error").expect("one result");
     assert_eq!(r.weight, 1.0, "expanded child readers carry unit weight");
@@ -290,9 +297,11 @@ fn eval_prefix_lowercases_the_pattern() {
     // Terms are indexed lowercased, so the pattern is lowercased before the trie
     // walk: `AP*` expands exactly like `ap*`, to `apple` and `apricot`.
     let mut fixture = PrefixFixture::new("AP", true, false);
-    let mut it = fixture
-        .eval()
-        .expect("an upper-case prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("an upper-case prefix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -314,9 +323,11 @@ fn eval_prefix_skips_expansion_without_inverted_index() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -338,9 +349,11 @@ fn eval_prefix_expands_a_term_whose_key_is_not_utf8() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 7]);
 }
 
@@ -359,9 +372,11 @@ fn eval_prefix_field_mask_excludes_every_expansion() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix always builds an iterator, even with no readers");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix always builds an iterator, even with no readers"),
+    );
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
 
@@ -378,9 +393,11 @@ fn eval_prefix_field_mask_excludes_every_expansion() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -389,9 +406,11 @@ fn eval_prefix_no_match_yields_empty_union() {
     // `zz*` matches no term: evaluation returns a (non-null) empty union, not
     // `None`, so it yields an iterator that reads nothing.
     let mut fixture = PrefixFixture::new("zz", true, false);
-    let mut it = fixture
-        .eval()
-        .expect("a prefix always builds an iterator, even with no matches");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix always builds an iterator, even with no matches"),
+    );
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
 }
 
@@ -433,9 +452,11 @@ fn eval_prefix_caps_expansions_and_warns() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a prefix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a prefix with matches must build an iterator"),
+    );
     assert_eq!(
         collect_doc_ids(&mut it).len(),
         2,
@@ -452,9 +473,11 @@ fn eval_prefix_caps_expansions_and_warns() {
 fn eval_suffix_matches_terms_ending_with_pattern() {
     // `*ple` matches terms ending in `ple`: only `apple` (docs 1, 2).
     let mut fixture = PrefixFixture::new("ple", false, true);
-    let mut it = fixture
-        .eval()
-        .expect("a suffix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a suffix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
 }
 
@@ -463,9 +486,11 @@ fn eval_contains_matches_terms_containing_pattern() {
     // `*ap*` matches terms containing `ap`: `apple`(1,2), `apricot`(3), and
     // `grape`(4); `banana` has no `ap`.
     let mut fixture = PrefixFixture::new("ap", true, true);
-    let mut it = fixture
-        .eval()
-        .expect("a contains pattern with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a contains pattern with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4]);
 }
 
@@ -474,9 +499,11 @@ fn eval_suffix_via_suffix_trie_matches_terms_ending_with_pattern() {
     // The suffix-trie path yields the same result as the brute-force scan:
     // `*ple` matches only `apple` (docs 1, 2).
     let mut fixture = PrefixFixture::with_suffix_trie("ple", false, true);
-    let mut it = fixture
-        .eval()
-        .expect("a suffix with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a suffix with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
 }
 
@@ -485,9 +512,11 @@ fn eval_contains_via_suffix_trie_matches_terms_containing_pattern() {
     // The suffix-trie contains path matches the brute-force result: `*ap*`
     // matches `apple`(1,2), `apricot`(3), and `grape`(4).
     let mut fixture = PrefixFixture::with_suffix_trie("ap", true, true);
-    let mut it = fixture
-        .eval()
-        .expect("a contains pattern with matches must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a contains pattern with matches must build an iterator"),
+    );
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4]);
 }
 
@@ -508,9 +537,11 @@ fn eval_contains_on_field_without_suffix_support_errors() {
             ..PrefixOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("evaluation still returns the empty union");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("evaluation still returns the empty union"),
+    );
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Generic);

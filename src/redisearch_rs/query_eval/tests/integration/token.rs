@@ -30,6 +30,7 @@ use query_term::RSQueryTerm;
 use query_types::QueryNodeType;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
 /// The term populated by [`TokenFixture`]. `TestContext::term` registers the
@@ -119,9 +120,11 @@ impl TokenFixture {
 #[test]
 fn eval_token_reads_matching_docs() {
     let mut fixture = TokenFixture::new(INDEXED_TERM);
-    let mut it = fixture
-        .eval()
-        .expect("a term present in the index must build an iterator");
+    let mut it = ContractChecker::new(
+        fixture
+            .eval()
+            .expect("a term present in the index must build an iterator"),
+    );
     assert_eq!(it.type_(), IteratorType::InvIdxTerm);
 
     for expected in [1, 2, 3] {
