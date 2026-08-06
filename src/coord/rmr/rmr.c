@@ -725,7 +725,8 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       "depleted(should be false): %d, Pending: (%d), inProcess: %d, itRefCount: %d, channel size: "
       "%zu, target_shard_idx: %hu, target_shard: %s",
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
-      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx, ctx->cmd.targetShard);
+      MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetShardIdx,
+      ctx->cmd.targetShard ? ctx->cmd.targetShard : "(none)");
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
@@ -853,12 +854,8 @@ void iterCursorMappingCb(void *p) {
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(SYNC_POINT_AFTER_CURSOR_MAPPING_PROMOTE_FAILED);
 #endif
-    // No shard commands were dispatched, so clear the provisional pending/in-process counts.
-    it->ctx.pending = 0;
-    it->ctx.inProcess = 0;
-    IORuntimeCtx *ioRuntime = it->ctx.ioRuntime;  // Save before potential free
-    MRIterator_Release(it);
-    IORuntimeCtx_RequestCompleted(ioRuntime);
+    // Complete the provisional callback now that no shard commands will be dispatched.
+    MRIteratorCallback_Done(&it->cbxs[0], 1);
     rm_free(data);
     return;
   }

@@ -4424,8 +4424,7 @@ class TestCoordinatorTimeout:
             env.assertEqual(len(query_result), 1, message="Expected one timeout reply")
 
             # Request teardown has released the mappings. The UV callback must
-            # now discard its provisional counters instead of treating them as
-            # one real pending cursor with an uninitialized target shard.
+            # complete its provisional work without dispatching a cursor command.
             pending = env.cmd(debug_cmd(), 'IO_RUNTIME_PENDING_REQUESTS')
             env.assertGreaterEqual(pending, 1)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
