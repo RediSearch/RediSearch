@@ -185,8 +185,6 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   ctx.trie = t;
   ctx.rune = emptyPattern;
   ctx.runelen = 0;
-  ctx.cstr = "";
-  ctx.cstrlen = 0;
   ctx.type = SUFFIX_TYPE_WILDCARD;
   ctx.callback = countSuffixHit;
   ctx.cbCtx = &hits;
@@ -201,8 +199,6 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   runeBuf buf;
   ctx.rune = runeBufFill("*b*", 3, &buf, &rlen);
   ctx.runelen = rlen;
-  ctx.cstr = "*b*";
-  ctx.cstrlen = 3;
   EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
   EXPECT_GT(hits, 0);
   runeBufFree(&buf);
