@@ -48,6 +48,16 @@ pub enum RLookupOption {
 #[cheadergen::config(skip)]
 pub type RLookupOptions = BitFlags<RLookupOption>;
 
+/// The lookup has no row slot left to address a new key by.
+///
+/// Distinct from the `None` the `get_key_*` methods return for a key that needs no work
+/// (it already exists, or its value is available without loading): that `None` is routine
+/// and callers may ignore it, whereas this error means the caller's field never made it
+/// into the lookup and the query must fail rather than answer without it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("cannot load more than {} fields in a single query", RLookup::MAX_KEYS)]
+pub struct LookupFull;
+
 /// An append-only list of [`RLookupKey`]s.
 ///
 /// This type maintains a mapping from string names to [`RLookupKey`]s.
@@ -137,7 +147,16 @@ impl<'a> RLookup<'a> {
     /// - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
     /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
     /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
-    pub fn add_keys_from(&mut self, src: &RLookup<'a>, flags: RLookupKeyFlags) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`] if a key has to be created and this lookup has no row slot
+    /// left for it. The keys copied before that point stay in the lookup.
+    pub fn add_keys_from(
+        &mut self,
+        src: &RLookup<'a>,
+        flags: RLookupKeyFlags,
+    ) -> Result<(), LookupFull> {
         debug_assert!(
             !flags.contains(RLookupKeyFlag::NameAlloc),
             "The NameAlloc flag should have been handled in the FFI function. This is a bug."
@@ -151,8 +170,10 @@ impl<'a> RLookup<'a> {
 
             // NB: get_key_write returns none if the key already exists and `flags` don't contain `Override`.
             // In this case, we just want to move on to the next key
-            let _ = self.get_key_write(src_key.name().clone(), combined_flags);
+            let _ = self.get_key_write(src_key.name().clone(), combined_flags)?;
         }
+
+        Ok(())
     }
 
     /// Returns a [`Cursor`] starting at the first key.
@@ -187,11 +208,16 @@ impl<'a> RLookup<'a> {
     ///
     /// If the flag `RLookupKeyFlag::AllowUnresolved` is set, it will create a new key if it does not exist in the lookup table
     /// nor in the schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`] if the key has to be created and the lookup has no row slot
+    /// left for it.
     pub fn get_key_read(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
         mut flags: RLookupKeyFlags,
-    ) -> Option<&RLookupKey<'a>> {
+    ) -> Result<Option<&RLookupKey<'a>>, LookupFull> {
         flags &= GET_KEY_FLAGS;
 
         let name = name.into();
@@ -201,17 +227,17 @@ impl<'a> RLookup<'a> {
             // FIXME: We cannot use let-some above because of a borrow-checker false positive.
             // This duplication might have performance implications.
             // See <https://github.com/rust-lang/rust/issues/54663>
-            return self.keys.find_by_name(&name).unwrap().into_current();
+            return Ok(self.keys.find_by_name(&name).unwrap().into_current());
         }
 
         // If we didn't find the key at the lookup table, check if it exists in
         // the schema as SORTABLE, and create only if so.
         let name = match self.gen_key_from_spec(name, flags) {
             Ok(key) => {
-                let key = self.keys.push(key)?;
+                let key = self.keys.push(key).ok_or(LookupFull)?;
 
                 // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
-                return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
+                return Ok(Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) }));
             }
             Err(name) => name,
         };
@@ -221,13 +247,13 @@ impl<'a> RLookup<'a> {
             let mut key = RLookupKey::new(name, flags);
             key.flags |= RLookupKeyFlag::Unresolved;
 
-            let key = self.keys.push(key)?;
+            let key = self.keys.push(key).ok_or(LookupFull)?;
 
             // Safety: We treat the pointer as pinned internally and safe Rust cannot move out of the returned immutable reference.
-            return Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) });
+            return Ok(Some(unsafe { Pin::into_inner_unchecked(key.into_ref()) }));
         }
 
-        None
+        Ok(None)
     }
 
     // Gets a key from the schema if the field is sortable (so its data is available), unless an RP upstream
@@ -270,11 +296,16 @@ impl<'a> RLookup<'a> {
     ///
     /// This will never get a key from the cache, it will either create a new key, override an existing key or return `None` if the key
     /// is in exclusive mode.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`] if the key has to be created and the lookup has no row slot
+    /// left for it.
     pub fn get_key_write(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
         mut flags: RLookupKeyFlags,
-    ) -> Option<&RLookupKey<'a>> {
+    ) -> Result<Option<&RLookupKey<'a>>, LookupFull> {
         // remove all flags that are not relevant to getting a key
         flags &= GET_KEY_FLAGS;
 
@@ -288,26 +319,31 @@ impl<'a> RLookup<'a> {
                     .unwrap()
             } else {
                 // We are in exclusive mode, return None
-                return None;
+                return Ok(None);
             }
         } else {
             // B. we didn't find the key in the lookup table:
             // create a new key with the name and flags.
             self.keys
-                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))?
+                .push(RLookupKey::new(name, flags | RLookupKeyFlag::QuerySrc))
+                .ok_or(LookupFull)?
         };
 
-        Some(key.into_ref().get_ref())
+        Ok(Some(key.into_ref().get_ref()))
     }
 
     // ===== Load key from redis keyspace (include known information on the key, fail if already loaded) =====
 
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`] if the key has to be created and the lookup has no row slot
+    /// left for it.
     pub fn get_key_load(
         &mut self,
         name: impl Into<Cow<'a, CStr>>,
         field_name: &'a CStr,
         mut flags: RLookupKeyFlags,
-    ) -> Option<&RLookupKey<'a>> {
+    ) -> Result<Option<&RLookupKey<'a>>, LookupFull> {
         // remove all flags that are not relevant to getting a key
         flags &= GET_KEY_FLAGS;
 
@@ -346,7 +382,7 @@ impl<'a> RLookup<'a> {
                     // If the caller wanted to mark this key as explicit return, mark it as such even if we don't return it.
                     key.header.flags |= flags & RLookupKeyFlag::ExplicitReturn;
 
-                    return None;
+                    return Ok(None);
                 }
             }
 
@@ -356,10 +392,13 @@ impl<'a> RLookup<'a> {
             // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
             unsafe { Pin::into_inner_unchecked(key) }
         } else {
-            let key = self.keys.push(RLookupKey::new(
-                name.clone(),
-                flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
-            ))?;
+            let key = self
+                .keys
+                .push(RLookupKey::new(
+                    name.clone(),
+                    flags | RLookupKeyFlag::DocSrc | RLookupKeyFlag::IsLoaded,
+                ))
+                .ok_or(LookupFull)?;
             // Safety: We treat the pointer as pinned internally and never hand out references that could be moved out of (in safe Rust).
             unsafe { Pin::into_inner_unchecked(key) }
         };
@@ -376,7 +415,7 @@ impl<'a> RLookup<'a> {
             {
                 // If the key is marked as "value available", it means that it is sortable and un-normalized.
                 // so we can use the sorting vector as the source, and we don't need to load it from the document.
-                return None;
+                return Ok(None);
             }
         } else {
             // Field not found in the schema.
@@ -396,7 +435,7 @@ impl<'a> RLookup<'a> {
             // it was already set to the same allocation for the name, so we don't need to do anything.
         }
 
-        Some(key)
+        Ok(Some(key))
     }
 
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
@@ -411,8 +450,8 @@ impl<'a> RLookup<'a> {
 
     /// Whether this lookup holds as many keys as a row can address.
     ///
-    /// Once full, every `get_key_*` method returns `None` for names that are not
-    /// already present, since a new key would have no row slot to call its own.
+    /// Once full, every `get_key_*` method fails with [`LookupFull`] for names that are
+    /// not already present, since a new key would have no row slot to call its own.
     /// Overriding an existing key still works: it reuses the old key's slot.
     pub const fn is_full(&self) -> bool {
         self.keys.is_full()
@@ -445,8 +484,10 @@ impl<'a> RLookup<'a> {
         key_name: &CStr,
         open_key: Option<&ffi::RedisModuleKey>,
     ) -> Result<(), LoadFieldError> {
-        // NB: eagerly consume the entire iterator, so the **side-effect-full* `self.keys.push` happens
-        // for every key.
+        // NB: collect eagerly. `self.keys.push` is side-effect-full and borrows `self`
+        // mutably, so the iterator has to be driven to completion here rather than handed
+        // to the loader lazily. Short-circuiting at the first full-lookup error is fine:
+        // every remaining push would fail the same way and the caller abandons the query.
         let keys_to_load: Vec<_> = create_keys_from_spec(index_spec)
             .map(|k| self.keys.push(k).ok_or(LoadFieldError::TooManyKeys))
             .collect::<Result<_, _>>()?;
@@ -560,6 +601,7 @@ mod tests {
         for name in [c"a", c"b", c"c"] {
             rlookup
                 .get_key_write(name, RLookupKeyFlags::empty())
+                .expect("lookup is not full")
                 .unwrap();
         }
 
@@ -589,7 +631,10 @@ mod tests {
         let mut rlookup = RLookup::new();
 
         // Assert that we can write a new key
-        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        let key = rlookup
+            .get_key_write(name.as_c_str(), flags)
+            .expect("lookup is not full")
+            .unwrap();
         assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
@@ -603,13 +648,18 @@ mod tests {
         let mut rlookup = RLookup::new();
 
         // Assert that we can write a new key
-        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        let key = rlookup
+            .get_key_write(name.as_c_str(), flags)
+            .expect("lookup is not full")
+            .unwrap();
         assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
 
         // Assert that we cannot write the same key again without allowing overwrites
-        let not_key = rlookup.get_key_write(name.as_c_str(), flags);
+        let not_key = rlookup
+            .get_key_write(name.as_c_str(), flags)
+            .expect("lookup is not full");
         assert!(not_key.is_none());
     }
 
@@ -620,14 +670,20 @@ mod tests {
         let flags = RLookupKeyFlags::empty();
         let mut rlookup = RLookup::new();
 
-        let key = rlookup.get_key_write(name.as_c_str(), flags).unwrap();
+        let key = rlookup
+            .get_key_write(name.as_c_str(), flags)
+            .expect("lookup is not full")
+            .unwrap();
         assert_eq!(key.name().as_ref(), name.as_c_str());
         assert_eq!(key.name, name.as_ptr());
         assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
 
         let new_flags = make_bitflags!(RLookupKeyFlag::{ExplicitReturn | Override});
 
-        let new_key = rlookup.get_key_write(name.as_c_str(), new_flags).unwrap();
+        let new_key = rlookup
+            .get_key_write(name.as_c_str(), new_flags)
+            .expect("lookup is not full")
+            .unwrap();
         assert_eq!(new_key.name().as_ref(), name.as_c_str());
         assert_eq!(new_key.name, name.as_ptr());
         assert!(new_key.flags.contains(RLookupKeyFlag::QuerySrc));
@@ -649,6 +705,7 @@ mod tests {
 
         let retrieved_key = rlookup
             .get_key_load(key_name, field_name, RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -682,6 +739,7 @@ mod tests {
                 field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -722,6 +780,7 @@ mod tests {
                 cache_field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -758,11 +817,13 @@ mod tests {
 
         rlookup.keys.push(key);
 
-        let retrieved_key = rlookup.get_key_load(
-            key_name,
-            cache_field_name,
-            make_bitflags!(RLookupKeyFlag::Override),
-        );
+        let retrieved_key = rlookup
+            .get_key_load(
+                key_name,
+                cache_field_name,
+                make_bitflags!(RLookupKeyFlag::Override),
+            )
+            .expect("lookup is not full");
 
         // we should access the sorting vector instead
         assert!(retrieved_key.is_none());
@@ -799,6 +860,7 @@ mod tests {
                 cache_field_name,
                 make_bitflags!(RLookupKeyFlag::{Override | ForceLoad}),
             )
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -836,21 +898,29 @@ mod tests {
 
             rlookup.keys.push(key);
 
-            let retrieved_key =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlags::empty());
+            let retrieved_key = rlookup
+                .get_key_load(key_name, field_name, RLookupKeyFlags::empty())
+                .expect("lookup is not full");
             assert!(retrieved_key.is_none());
-            if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
+            if let Some(key) = rlookup
+                .get_key_read(key_name, RLookupKeyFlags::empty())
+                .expect("lookup is not full")
+            {
                 assert!(!key.flags.contains(RLookupKeyFlag::ExplicitReturn));
             } else {
                 panic!("expected to find key by name");
             }
 
             // let's use the load to tag explicit return
-            let opt =
-                rlookup.get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into());
+            let opt = rlookup
+                .get_key_load(key_name, field_name, RLookupKeyFlag::ExplicitReturn.into())
+                .expect("lookup is not full");
             assert!(opt.is_none(), "expected None, got {opt:?}");
 
-            if let Some(key) = rlookup.get_key_read(key_name, RLookupKeyFlags::empty()) {
+            if let Some(key) = rlookup
+                .get_key_read(key_name, RLookupKeyFlags::empty())
+                .expect("lookup is not full")
+            {
                 assert!(key.flags.contains(RLookupKeyFlag::ExplicitReturn));
             } else {
                 panic!("expected to find key by name");
@@ -879,6 +949,7 @@ mod tests {
                 field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -910,6 +981,7 @@ mod tests {
                 field_name,
                 make_bitflags!(RLookupKeyFlag::Override),
             )
+            .expect("lookup is not full")
             .expect("expected to find key by name");
 
         assert_eq!(retrieved_key.name().as_ref(), key_name);
@@ -923,12 +995,19 @@ mod tests {
     #[test]
     fn rlookup_add_keys_from_basic() {
         let mut src = RLookup::new();
-        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
-        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
-        src.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
+        src.get_key_write(c"baz", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
 
         let mut dst = RLookup::new();
-        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+        dst.add_keys_from(&src, RLookupKeyFlags::empty())
+            .expect("lookup is not full");
 
         assert!(dst.keys.find_by_name(c"foo").is_some());
         assert!(dst.keys.find_by_name(c"bar").is_some());
@@ -941,10 +1020,12 @@ mod tests {
 
         let mut dst = RLookup::new();
         dst.get_key_write(c"existing", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .unwrap();
 
         assert_eq!(dst.get_row_len(), 1);
-        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+        dst.add_keys_from(&src, RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert_eq!(dst.get_row_len(), 1);
 
         assert!(dst.keys.find_by_name(c"existing").is_some());
@@ -960,41 +1041,72 @@ mod tests {
 
         // Create overlapping keys in different sources
         // src1: field1, field2, field3
-        let _src1_key1 = src1.get_key_write(c"field1", RLookupKeyFlags::empty());
-        let _src1_key2 = src1.get_key_write(c"field2", RLookupKeyFlags::empty());
-        let _src1_key3 = src1.get_key_write(c"field3", RLookupKeyFlags::empty());
+        let _src1_key1 = src1
+            .get_key_write(c"field1", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src1_key2 = src1
+            .get_key_write(c"field2", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src1_key3 = src1
+            .get_key_write(c"field3", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
 
         // src2: field2, field3, field4 (field2, field3 overlap with src1)
-        let _src2_key2 = src2.get_key_write(c"field2", RLookupKeyFlags::empty());
-        let _src2_key3 = src2.get_key_write(c"field3", RLookupKeyFlags::empty());
-        let _src2_key4 = src2.get_key_write(c"field4", RLookupKeyFlags::empty());
+        let _src2_key2 = src2
+            .get_key_write(c"field2", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src2_key3 = src2
+            .get_key_write(c"field3", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src2_key4 = src2
+            .get_key_write(c"field4", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
 
         // src3: field3, field4, field5 (field3, field4 overlap)
-        let _src3_key3 = src3.get_key_write(c"field3", RLookupKeyFlags::empty());
-        let _src3_key4 = src3.get_key_write(c"field4", RLookupKeyFlags::empty());
-        let _src3_key5 = src3.get_key_write(c"field5", RLookupKeyFlags::empty());
+        let _src3_key3 = src3
+            .get_key_write(c"field3", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src3_key4 = src3
+            .get_key_write(c"field4", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
+        let _src3_key5 = src3
+            .get_key_write(c"field5", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
 
         // Add sources sequentially (first wins for conflicts)
-        dest.add_keys_from(&src1, RLookupKeyFlags::empty()); // field1, field2, field3
-        dest.add_keys_from(&src2, RLookupKeyFlags::empty()); // field4 (field2, field3 already exist)
-        dest.add_keys_from(&src3, RLookupKeyFlags::empty()); // field5 (field3, field4 already exist)
+        dest.add_keys_from(&src1, RLookupKeyFlags::empty())
+            .expect("lookup is not full"); // field1, field2, field3
+        dest.add_keys_from(&src2, RLookupKeyFlags::empty())
+            .expect("lookup is not full"); // field4 (field2, field3 already exist)
+        dest.add_keys_from(&src3, RLookupKeyFlags::empty())
+            .expect("lookup is not full"); // field5 (field3, field4 already exist)
 
         // Verify final result: all unique keys present (first wins for conflicts)
         assert_eq!(5, dest.get_row_len()); // field1, field2, field3, field4, field5
 
-        let d_key1 = dest.get_key_read(c"field1", RLookupKeyFlags::empty());
+        let d_key1 = dest
+            .get_key_read(c"field1", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert!(d_key1.is_some());
 
-        let d_key2 = dest.get_key_read(c"field2", RLookupKeyFlags::empty());
+        let d_key2 = dest
+            .get_key_read(c"field2", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert!(d_key2.is_some());
 
-        let d_key3 = dest.get_key_read(c"field3", RLookupKeyFlags::empty());
+        let d_key3 = dest
+            .get_key_read(c"field3", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert!(d_key3.is_some());
 
-        let d_key4 = dest.get_key_read(c"field4", RLookupKeyFlags::empty());
+        let d_key4 = dest
+            .get_key_read(c"field4", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert!(d_key4.is_some());
 
-        let d_key5 = dest.get_key_read(c"field5", RLookupKeyFlags::empty());
+        let d_key5 = dest
+            .get_key_read(c"field5", RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert!(d_key5.is_some());
     }
 
@@ -1003,17 +1115,26 @@ mod tests {
     #[test]
     fn rlookup_add_keys_from_override_existing() {
         let mut src = RLookup::new();
-        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
-        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
         let src_baz = &raw const *src
             .get_key_write(c"baz", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("lookup is not full")
             .unwrap();
 
         let mut dst = RLookup::new();
-        let old_dst_baz = &raw const *dst.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+        let old_dst_baz = &raw const *dst
+            .get_key_write(c"baz", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
 
         assert_eq!(dst.get_row_len(), 1);
-        dst.add_keys_from(&src, make_bitflags!(RLookupKeyFlag::Override));
+        dst.add_keys_from(&src, make_bitflags!(RLookupKeyFlag::Override))
+            .expect("lookup is not full");
         assert_eq!(dst.get_row_len(), 3);
 
         assert!(dst.keys.find_by_name(c"foo").is_some());
@@ -1039,17 +1160,26 @@ mod tests {
     #[test]
     fn rlookup_add_keys_from_skip_existing() {
         let mut src = RLookup::new();
-        src.get_key_write(c"foo", RLookupKeyFlags::empty()).unwrap();
-        src.get_key_write(c"bar", RLookupKeyFlags::empty()).unwrap();
-        let src_baz = &raw const *src.get_key_write(c"baz", RLookupKeyFlags::empty()).unwrap();
+        src.get_key_write(c"foo", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
+        src.get_key_write(c"bar", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
+        let src_baz = &raw const *src
+            .get_key_write(c"baz", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
+            .unwrap();
 
         let mut dst = RLookup::new();
         let old_dst_baz = &raw const *dst
             .get_key_write(c"baz", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("lookup is not full")
             .unwrap();
 
         assert_eq!(dst.get_row_len(), 1);
-        dst.add_keys_from(&src, RLookupKeyFlags::empty());
+        dst.add_keys_from(&src, RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert_eq!(dst.get_row_len(), 3);
 
         assert!(dst.keys.find_by_name(c"foo").is_some());
@@ -1084,21 +1214,25 @@ mod tests {
         // Create key in src1 with Hidden flag
         let src1_key = src1
             .get_key_write(c"test_field", make_bitflags!(RLookupKeyFlag::Hidden))
+            .expect("lookup is not full")
             .expect("writing test_field to src1 failed");
         assert!(src1_key.flags.contains(RLookupKeyFlag::Hidden));
 
         // Add src1 keys first - test flag preservation
-        dest.add_keys_from(&src1, RLookupKeyFlags::empty());
+        dest.add_keys_from(&src1, RLookupKeyFlags::empty())
+            .expect("lookup is not full");
         assert_eq!(dest.get_row_len(), 1);
 
         let dest_key_after_src1 = dest
             .get_key_read(c"test_field", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .expect("test_field cannot be read from dst");
         assert!(dest_key_after_src1.flags.contains(RLookupKeyFlag::Hidden));
 
         // Create same key name in src2 WITHOUT Hidden flag
         let src2_key = src2
             .get_key_write(c"test_field", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .expect("writing test_field to src2 failed");
         assert!(!src2_key.flags.contains(RLookupKeyFlag::Hidden));
 
@@ -1107,12 +1241,14 @@ mod tests {
         #[cfg(not(miri))]
         let original_dest_key_ptr = std::ptr::from_ref(dest_key_after_src1);
         // Add src2 keys with Override flag - test flag override behavior
-        dest.add_keys_from(&src2, make_bitflags!(RLookupKeyFlag::Override));
+        dest.add_keys_from(&src2, make_bitflags!(RLookupKeyFlag::Override))
+            .expect("lookup is not full");
         assert_eq!(dest.get_row_len(), 1);
 
         // Verify the key was overridden
         let dest_key_after_src2 = dest
             .get_key_read(c"test_field", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .expect("test_field cannot be read from dst after src2 add");
 
         #[cfg(not(miri))]
@@ -1150,7 +1286,7 @@ mod tests {
              rlookup.keys.push(key);
 
              let key = rlookup
-                 .get_key_read(&name, RLookupKeyFlags::empty())
+                 .get_key_read(&name, RLookupKeyFlags::empty()).expect("lookup is not full")
                  .unwrap();
              assert_eq!(key.name().as_ref(), name.as_ref());
              assert!(key.path().is_none());
@@ -1173,7 +1309,7 @@ mod tests {
              rlookup.keys.push(key);
 
              let not_key = rlookup
-                 .get_key_read(&wrong_name, RLookupKeyFlags::empty());
+                 .get_key_read(&wrong_name, RLookupKeyFlags::empty()).expect("lookup is not full");
              prop_assert!(not_key.is_none());
          }
 
@@ -1200,7 +1336,7 @@ mod tests {
 
              // the first call will load from the index spec cache
              let key = rlookup
-                 .get_key_read(&name, RLookupKeyFlags::empty()).unwrap();
+                 .get_key_read(&name, RLookupKeyFlags::empty()).expect("lookup is not full").unwrap();
 
              assert_eq!(key.name().as_ref(), name.as_c_str());
              assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
@@ -1214,7 +1350,7 @@ mod tests {
              let _spec_cache = rlookup.index_spec_cache.take();
 
              let key = rlookup
-                 .get_key_read(&name, RLookupKeyFlags::empty())
+                 .get_key_read(&name, RLookupKeyFlags::empty()).expect("lookup is not full")
                  .unwrap();
              assert_eq!(key.name().as_ref(), name.as_c_str());
              assert_eq!(key.path().as_ref().unwrap().as_ref(), path.as_c_str());
@@ -1247,7 +1383,7 @@ mod tests {
              // set the cache as the rlookup cache
              rlookup.set_cache(Some(spcache));
 
-             let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty());
+             let not_key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).expect("lookup is not full");
              prop_assert!(not_key.is_none());
          }
 
@@ -1281,7 +1417,7 @@ mod tests {
              // set the AllowUnresolved option to allow unresolved keys in this rlookup
              rlookup.options.set(RLookupOption::AllowUnresolved, true);
 
-             let key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).unwrap();
+             let key = rlookup.get_key_read(&wrong_name, RLookupKeyFlags::empty()).expect("lookup is not full").unwrap();
              prop_assert!(key.flags.contains(RLookupKeyFlag::Unresolved));
              prop_assert_eq!(key.name, wrong_name.as_ptr());
              prop_assert_eq!(key.name().as_ref(), wrong_name.as_c_str());

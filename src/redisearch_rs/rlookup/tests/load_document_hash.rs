@@ -123,7 +123,7 @@ proptest! {
                     // Use `get_key_load` (not `get_key_write`) — `get_key_write` would mark
                     // the keys as `QuerySrc`, which load_all is required to skip.
                     let dstidx = rlookup
-                        .get_key_load(key.clone(), key.as_c_str(), RLookupKeyFlags::empty())
+                        .get_key_load(key.clone(), key.as_c_str(), RLookupKeyFlags::empty()).expect("lookup is not full")
                         .unwrap()
                         .dstidx;
 
@@ -167,7 +167,7 @@ proptest! {
                 .iter()
                 .map(|(field_name, _)| {
                     let key = rlookup
-                        .get_key_write(field_name.clone(), RLookupKeyFlags::empty())
+                        .get_key_write(field_name.clone(), RLookupKeyFlags::empty()).expect("lookup is not full")
                         .unwrap();
                     assert!(key.flags.contains(RLookupKeyFlag::QuerySrc));
                     key.dstidx as usize
@@ -263,10 +263,12 @@ fn load_all_composes_branches_in_one_pass() {
                 fields[0].0.as_c_str(),
                 RLookupKeyFlags::empty(),
             )
+            .expect("lookup is not full")
             .unwrap()
             .dstidx;
         let query_dst = rlookup
             .get_key_write(fields[1].0.clone(), RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .unwrap()
             .dstidx;
 
@@ -333,6 +335,7 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
                 fields[0].0.as_c_str(),
                 RLookupKeyFlags::empty(),
             )
+            .expect("lookup is not full")
             .unwrap();
         assert!(key.flags.contains(RLookupKeyFlag::Numeric));
         let dstidx = key.dstidx;
@@ -360,6 +363,7 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
                 fields[0].0.as_c_str(),
                 RLookupKeyFlags::empty(),
             )
+            .expect("lookup is not full")
             .unwrap()
             .dstidx;
 

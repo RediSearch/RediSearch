@@ -56,8 +56,14 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     srckeys[ii] = RLookup_GetKey_ReadEx(srclookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
-        // We failed to get the key for reading, so we know getting it for loading will succeed.
+        // We failed to get the key for reading, so getting it for loading only fails if
+        // the lookup has no addressable row slot left.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
+        if (!srckeys[ii]) {
+          QueryError_SetError(err, QUERY_ERROR_CODE_LIMIT,
+                              "Query names more fields than a result row can hold");
+          return NULL;
+        }
         *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
       // We currently allow implicit loading only for known fields from the schema.
@@ -271,8 +277,14 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
-          // We failed to get the key for reading, so we can't fail to get it for loading.
+          // We failed to get the key for reading, so getting it for loading only fails if
+          // the lookup has no addressable row slot left.
           sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          if (!sortkey) {
+            QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                                "Query names more fields than a result row can hold");
+            goto end;
+          }
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(RLookupKey_GetFlags(sortkey) & RLOOKUP_F_SCHEMASRC)) {
@@ -421,8 +433,14 @@ static int processLoadStepArgs(PLN_LoadStep *loadStep, RLookup *lookup, uint32_t
 
     // Create the RLookupKey
     RLookupKey *kk = RLookup_GetKey_LoadEx(lookup, name, name_len, path, loadFlags);
-    // We only get a NULL return if the key already exists, which means
-    // that we don't need to retrieve it again.
+    // A NULL return means either the key already exists -- so we don't need to retrieve it
+    // again -- or the lookup has no addressable row slot left for it, which would answer
+    // the query without a field the user explicitly asked to LOAD.
+    if (!kk && RLookup_IsFull(lookup)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                          "Query names more fields than a result row can hold");
+      return REDISMODULE_ERR;
+    }
     if (kk && loadStep->nkeys < loadStep->args.argc) {
       loadStep->keys[loadStep->nkeys++] = kk;
     }
@@ -567,6 +585,13 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
     for (size_t ii = 0; ii < params->outFields->numFields; ++ii) {
       const ReturnedField *rf = params->outFields->fields + ii;
       RLookupKey *lk = RLookup_GetKey_Load(lookup, rf->name, rf->path, loadFlags);
+      if (!lk && RLookup_IsFull(lookup)) {
+        // The field was never added, so the RETURN clause would come back short.
+        QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                            "Query names more fields than a result row can hold");
+        array_free(loadkeys);
+        return REDISMODULE_ERR;
+      }
       if (lk) {
         *array_ensure_tail(&loadkeys, const RLookupKey *) = lk;
       }

@@ -129,8 +129,9 @@ arrayof(char*) HybridRequest_BuildDistributedPipeline(HybridRequest *hreq,
     // the score key.
     // Skip for 'LOAD *' - keys are created dynamically during loading and will
     // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
-    if (!(hreq->reqflags & QEXEC_AGG_LOAD_ALL)) {
-      HybridRequest_SynchronizeLookupKeys(hreq);
+    if (!(hreq->reqflags & QEXEC_AGG_LOAD_ALL)
+        && HybridRequest_SynchronizeLookupKeys(hreq, status) != REDISMODULE_OK) {
+      return NULL;
     }
 
     // Open the key outside the RLOOKUP_OPT_ALLOWUNRESOLVED scope so it won't be marked as unresolved

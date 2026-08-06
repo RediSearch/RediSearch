@@ -137,14 +137,23 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
     return scoreKey;
 }
 
-void HybridRequest_SynchronizeLookupKeys(HybridRequest *req) {
+int HybridRequest_SynchronizeLookupKeys(HybridRequest *req, QueryError *status) {
   RLookup *tailLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
   // Add keys from all source lookups to create unified schema
   for (size_t i = 0; i < req->nrequests; i++) {
     RLookup *srcLookup = AGPLN_GetLookup(AREQ_AGGPlan(req->requests[i]), NULL, AGPLN_GETLOOKUP_FIRST);
     RS_ASSERT(srcLookup);
-    RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS);
+    if (!RLookup_AddKeysFrom(srcLookup, tailLookup, RLOOKUP_F_NOFLAGS)) {
+      // Each subquery stays within the limit on its own, but their union need not. The
+      // keys that did not fit are simply absent from the unified schema, and the merger
+      // will not create them later (it only does so for LOAD *, which skips this call),
+      // so the merged rows would silently lack fields the caller asked for.
+      QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT,
+                          "Hybrid subqueries name more fields than a result row can hold");
+      return REDISMODULE_ERR;
+    }
   }
+  return REDISMODULE_OK;
 }
 
 void HybridPipelineParams_Cleanup(HybridPipelineParams *params) {
@@ -246,8 +255,9 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
     // the score key.
     // Skip for 'LOAD *' - keys are created dynamically during loading and will
     // be synchronized lazily in RLookupRow_WriteFieldsFrom when first needed.
-    if (!(req->reqflags & QEXEC_AGG_LOAD_ALL)) {
-      HybridRequest_SynchronizeLookupKeys(req);
+    if (!(req->reqflags & QEXEC_AGG_LOAD_ALL)
+        && HybridRequest_SynchronizeLookupKeys(req, status) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
 
     const RLookupKey *scoreKey = OpenMergeScoreKey(tailLookup, params->aggregationParams.common.scoreAlias, status);

@@ -159,6 +159,10 @@ pub unsafe extern "C" fn RLookupRow_MoveFieldsFrom(
 ///
 /// Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
 ///
+/// Returns `false` when the lookup holds as many keys as one of its rows can address, in
+/// which case the value is **not** written. A caller that must not answer a query with
+/// fields missing has to fail it with `QUERY_ERROR_CODE_LIMIT`.
+///
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
@@ -180,7 +184,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
     value: Option<NonNull<RSValue>>,
-) {
+) -> bool {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
 
@@ -205,8 +209,10 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
     // and move the clone into the function.
     // We then make sure the original `value` is not dropped (which would decrease the refcount again)
     // by giving it to `mem::forget()`.
-    row.write_key_by_name(lookup, name, value.clone());
+    let written = row.write_key_by_name(lookup, name, value.clone()).is_ok();
     mem::forget(value);
+
+    written
 }
 
 /// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
@@ -216,6 +222,11 @@ pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
 /// Ownership of `name` remains with the caller, this function will make a copy if required.
 ///
 /// Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+///
+/// Returns `false` when the lookup holds as many keys as one of its rows can address, in
+/// which case the value is **not** written — and, since this function takes ownership of
+/// it, is released. A caller that must not answer a query with fields missing has to fail
+/// it with `QUERY_ERROR_CODE_LIMIT`.
 ///
 /// # Safety
 ///
@@ -238,7 +249,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     name_len: size_t,
     row: Option<NonNull<OpaqueRLookupRow>>,
     value: Option<NonNull<RSValue>>,
-) {
+) -> bool {
     // Safety: ensured by caller (1.)
     let lookup = unsafe { lookup.expect("lookup must not be null").as_mut() };
 
@@ -260,7 +271,7 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
     let value = unsafe { into_shared_value(value) };
 
     // 'value' is moved directly into the function without affecting its refcount.
-    row.write_key_by_name(lookup, name, value);
+    row.write_key_by_name(lookup, name, value).is_ok()
 }
 
 /// Write fields from a source row into this row.
@@ -272,6 +283,12 @@ pub unsafe extern "C" fn RLookupRow_WriteByNameOwned<'a>(
 ///
 /// If a source key is not found in the destination lookup the function will either create it or panic
 /// depending on the value of `create_missing_keys`.
+///
+/// Returns `false` when creating a missing key found the destination lookup already holding as
+/// many keys as one of its rows can address. The fields that did not fit are absent from
+/// `dst_row`, so a caller that must not answer a query with fields missing has to fail it with
+/// `QUERY_ERROR_CODE_LIMIT`. With `create_missing_keys` false no key is ever created and the
+/// return value is always `true`.
 ///
 /// # Safety
 ///
@@ -290,7 +307,7 @@ pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     dst_row: Option<NonNull<OpaqueRLookupRow>>,
     dst_lookup: Option<NonNull<RLookup<'a>>>,
     create_missing_keys: bool,
-) {
+) -> bool {
     let dst_row = dst_row.unwrap();
 
     // Safety: ensured by caller (4.)
@@ -315,7 +332,9 @@ pub unsafe extern "C" fn RLookupRow_WriteFieldsFrom<'a>(
     // Safety: ensured by caller (2.)
     let src_lookup = unsafe { src_lookup.as_ref().unwrap() };
 
-    dst_row.copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys);
+    dst_row
+        .copy_fields_from(dst_lookup, src_row, src_lookup, create_missing_keys)
+        .is_ok()
 }
 
 /// Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.

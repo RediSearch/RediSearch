@@ -131,27 +131,18 @@ struct RLookupRow RLookupRow_New(void);
 void RLookup_WriteKey(const RLookupKey *key, struct RLookupRow *row, struct RSValue *value);
 
 /**
- * Add all non-overridden keys from `src` to `dest`.
+ * Whether the lookup holds as many keys as one of its rows can address.
  *
- * For each key in `src`, check if it already exists *by name*.
- * - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
- * - If it doesn't, a new key will be created.
- *
- * Flag handling:
- * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
- * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
- * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
- * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ * A full lookup accepts no new field names, so a query that still has fields to add must
+ * fail with `QUERY_ERROR_CODE_LIMIT` rather than reply without them.
  *
  * # Safety
  *
- * 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
- * 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
- * 3. `src` and `dest` must not point to the same [`RLookup`].
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32_t flags);
+bool RLookup_IsFull(struct RLookup *lookup);
 
 /**
  * Writes a key to the row without incrementing the value reference count, thus taking ownership of the value.
@@ -167,16 +158,32 @@ void RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32
 void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct RSValue *value);
 
 /**
- * Disables the given set of `RLookup` options.
+ * Add all non-overridden keys from `src` to `dest`.
+ *
+ * For each key in `src`, check if it already exists *by name*.
+ * - If it does, the `flag` argument controls the behaviour (skip with `RLookupKeyFlags::empty()`, override with `RLookupKeyFlag::Override`).
+ * - If it doesn't, a new key will be created.
+ *
+ * Flag handling:
+ * - Preserves persistent source key properties (F_SVSRC, F_HIDDEN, F_EXPLICITRETURN, etc.)
+ * - Filters out transient flags from source keys (F_OVERRIDE, F_FORCE_LOAD)
+ * - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
+ * - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
+ *
+ * Returns `false` when `dest` ran out of addressable row slots before every key had been
+ * copied. The keys copied up to that point stay in `dest`; the rest are absent, so a
+ * caller that must not answer a query with fields missing has to fail it with
+ * `QUERY_ERROR_CODE_LIMIT`.
  *
  * # Safety
  *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+ * 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
+ * 2. `dest` must be a [valid], non-null pointer to an [`RLookup`]
+ * 3. `src` and `dest` must not point to the same [`RLookup`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
+bool RLookup_AddKeysFrom(const struct RLookup *src, struct RLookup *dest, uint32_t flags);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.
@@ -188,18 +195,6 @@ void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_Wipe(struct RLookupRow *row);
-
-/**
- * Enables the given set of `RLookup` options.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 
 /**
  * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
@@ -215,6 +210,18 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
+ * Disables the given set of `RLookup` options.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
+
+/**
  * Move data from the source row to the destination row. The source row is cleared.
  *
  * # Safety
@@ -227,6 +234,18 @@ void RLookupRow_Reset(struct RLookupRow *row);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, struct RLookupRow *src_row, struct RLookupRow *dst_row);
+
+/**
+ * Enables the given set of `RLookup` options.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ * 2. All bits set in `options` must correspond to a value of the `RLookupOptions` enum.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 
 /**
  * Find a field in the index spec cache of the lookup.
@@ -245,6 +264,36 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, struct RLookupRow *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
+
+/**
+ * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
+ * for which it is not necessary to use the boilerplate of getting an explicit
+ * key.
+ *
+ * Ownership of `name` remains with the caller, this function will make a copy if required.
+ *
+ * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
+ *
+ * Returns `false` when the lookup holds as many keys as one of its rows can address, in
+ * which case the value is **not** written. A caller that must not answer a query with
+ * fields missing has to fail it with `QUERY_ERROR_CODE_LIMIT`.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
+ * 2. The memory pointed to by `name` must contain a valid null terminator at the
+ *    end of the string.
+ * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
+ *    This means in particular:
+ *     1. `name_len` must be same as `strlen(name)`
+ *     2. The entire memory range of this cstr must be contained within a single allocation!
+ *     3. `name` must be non-null even for a zero-length cstr.
+ * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
+ * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t name_len, struct RLookupRow *row, struct RSValue *value);
 
 /**
  * Get an RLookup key for a given name.
@@ -278,7 +327,12 @@ RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32
  *
  * Ownership of `name` remains with the caller, this function will make a copy if required.
  *
- * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
+ * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+ *
+ * Returns `false` when the lookup holds as many keys as one of its rows can address, in
+ * which case the value is **not** written — and, since this function takes ownership of
+ * it, is released. A caller that must not answer a query with fields missing has to fail
+ * it with `QUERY_ERROR_CODE_LIMIT`.
  *
  * # Safety
  *
@@ -295,7 +349,7 @@ RLookupKey *RLookup_GetKey_Read(struct RLookup *lookup, const char *name, uint32
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t name_len, struct RLookupRow *row, struct RSValue *value);
+bool RLookupRow_WriteByNameOwned(struct RLookup *lookup, const char *name, size_t name_len, struct RLookupRow *row, struct RSValue *value);
 
 /**
  * Get an RLookup key for a given name.
@@ -322,32 +376,6 @@ void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t nam
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 RLookupKey *RLookup_GetKey_ReadEx(struct RLookup *lookup, const char *name, size_t name_len, uint32_t flags);
-
-/**
- * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
- * for which it is not necessary to use the boilerplate of getting an explicit
- * key.
- *
- * Ownership of `name` remains with the caller, this function will make a copy if required.
- *
- * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
- * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookupRow_WriteByNameOwned(struct RLookup *lookup, const char *name, size_t name_len, struct RLookupRow *row, struct RSValue *value);
 
 /**
  * Get an RLookup key for a given name.
@@ -384,6 +412,12 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
  * If a source key is not found in the destination lookup the function will either create it or panic
  * depending on the value of `create_missing_keys`.
  *
+ * Returns `false` when creating a missing key found the destination lookup already holding as
+ * many keys as one of its rows can address. The fields that did not fit are absent from
+ * `dst_row`, so a caller that must not answer a query with fields missing has to fail it with
+ * `QUERY_ERROR_CODE_LIMIT`. With `create_missing_keys` false no key is ever created and the
+ * return value is always `true`.
+ *
  * # Safety
  *
  * 1. `src_row` must be a [valid], non-null pointer to an [`RLookupRow`].
@@ -395,7 +429,7 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row, const struct RLookup *src_lookup, struct RLookupRow *dst_row, struct RLookup *dst_lookup, bool create_missing_keys);
+bool RLookupRow_WriteFieldsFrom(const struct RLookupRow *src_row, const struct RLookup *src_lookup, struct RLookupRow *dst_row, struct RLookup *dst_lookup, bool create_missing_keys);
 
 /**
  * Get an RLookup key for a given name.

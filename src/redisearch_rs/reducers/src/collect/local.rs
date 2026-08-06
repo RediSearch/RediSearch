@@ -100,8 +100,12 @@ impl Fields {
             },
             Self::Specific { requested, .. } => {
                 for name in requested {
-                    if let Some(v) = get_field(item, name.to_bytes()) {
-                        dst.write_key_by_name(lookup, name.clone(), v.clone());
+                    if let Some(v) = get_field(item, name.to_bytes())
+                        && dst
+                            .write_key_by_name(lookup, name.clone(), v.clone())
+                            .is_err()
+                    {
+                        warn_lookup_full();
                     }
                 }
             }
@@ -123,13 +127,28 @@ fn write_named_field(
     if let Some(name) = k.as_str_bytes()
         && let Ok(cname) = CString::new(name)
     {
-        dst.write_key_by_name(lookup, cname, v.clone());
+        if dst.write_key_by_name(lookup, cname, v.clone()).is_err() {
+            warn_lookup_full();
+        }
     } else {
         tracing_assert::debug_assert_warn!(
             false,
             "local COLLECT: shard payload field name must be a NUL-free string"
         );
     }
+}
+
+/// Report a per-group lookup that ran out of addressable row slots.
+///
+/// The reducer `Add` vtable entry has no error channel — `Grouper_rpAdd` discards its
+/// return value — so a group that collects more than `RLookup::MAX_KEYS` distinct field
+/// names drops the ones that do not fit rather than failing the query. The rows it emits
+/// are short those fields.
+fn warn_lookup_full() {
+    tracing::warn!(
+        "local COLLECT: group exceeded the addressable field limit; \
+         further fields are dropped from this group's rows"
+    );
 }
 
 /// Local COLLECT reducer.

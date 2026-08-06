@@ -28,8 +28,8 @@ pub use load_document::{
     LoadAllError, LoadFieldError, LoadFieldProfile,
 };
 pub use lookup::{
-    Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
-    RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
+    Cursor, CursorMut, Iter, IterMut, LookupFull, RLookup, RLookupKey, RLookupKeyFlag,
+    RLookupKeyFlags, RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
 pub use metric_request::{MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;

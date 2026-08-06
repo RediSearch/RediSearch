@@ -483,7 +483,8 @@ fn write_key_by_name_new_key() {
     assert_eq!(row.len(), 0);
 
     // Write the key
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone());
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), value.clone())
+        .expect("lookup is not full");
 
     // Verify we can find the key by name
     let cursor = lookup.find_key_by_name(&key_name);
@@ -513,7 +514,8 @@ fn write_key_by_name_existing_key_overwrite() {
     let new_value = SharedValue::new_string(b"new_value".to_vec());
 
     // Write initial value
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone());
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), initial_value.clone())
+        .expect("lookup is not full");
 
     // Verify initial state
     let cursor = lookup.find_key_by_name(&key_name).unwrap();
@@ -525,7 +527,8 @@ fn write_key_by_name_existing_key_overwrite() {
     );
 
     // Overwrite with new value - key count should not increase
-    row.write_key_by_name(&mut lookup, key_name.to_owned(), new_value.clone());
+    row.write_key_by_name(&mut lookup, key_name.to_owned(), new_value.clone())
+        .expect("lookup is not full");
 
     let cursor = lookup.find_key_by_name(&key_name).unwrap();
     assert!(cursor.into_current().is_some());
@@ -555,9 +558,12 @@ fn write_multiple_different_keys() {
     let value3 = SharedValue::new_string(b"value3".to_vec());
 
     // Write multiple keys
-    row.write_key_by_name(&mut lookup, key1_name.to_owned(), value1.clone());
-    row.write_key_by_name(&mut lookup, key2_name.to_owned(), value2.clone());
-    row.write_key_by_name(&mut lookup, key3_name.to_owned(), value3.clone());
+    row.write_key_by_name(&mut lookup, key1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    row.write_key_by_name(&mut lookup, key2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
+    row.write_key_by_name(&mut lookup, key3_name.to_owned(), value3.clone())
+        .expect("lookup is not full");
 
     // Verify all keys were added
     assert_eq!(row.len(), 3);
@@ -610,17 +616,27 @@ fn write_fields_basic() {
     let value1 = SharedValue::new_num(100.0);
     let value2 = SharedValue::new_num(200.0);
 
-    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
-    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
 
     // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
-    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(src_key2_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(src_key2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false)
+        .expect("lookup is not full");
 
     // Verify written values are correct and accessible by field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();
@@ -656,19 +672,29 @@ fn write_fields_empty_source() {
     let key1_name = CString::new("field1").unwrap();
     let key2_name = CString::new("field2").unwrap();
 
-    src_lookup.get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty());
-    src_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
+    src_lookup
+        .get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    src_lookup
+        .get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     // Add source keys to destination lookup
-    dst_lookup.get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     // Create empty rows
     let src_row: RLookupRow = RLookupRow::new();
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write from empty source row, will result in error
-    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false)
+        .expect("lookup is not full");
 
     // Verify destination remains empty
     assert_eq!(dst_row.num_dyn_values(), 0);
@@ -704,23 +730,39 @@ fn write_fields_different_mapping() {
     let value2 = SharedValue::new_num(222.0);
     let value3 = SharedValue::new_num(333.0);
 
-    src_row.write_key_by_name(&mut src_lookup, key1_name.to_owned(), value1.clone());
-    src_row.write_key_by_name(&mut src_lookup, key2_name.to_owned(), value2.clone());
-    src_row.write_key_by_name(&mut src_lookup, key3_name.to_owned(), value3.clone());
+    src_row
+        .write_key_by_name(&mut src_lookup, key1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    src_row
+        .write_key_by_name(&mut src_lookup, key2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
+    src_row
+        .write_key_by_name(&mut src_lookup, key3_name.to_owned(), value3.clone())
+        .expect("lookup is not full");
 
     // Create some dest keys first to ensure different indices
     let other_key_name = CString::new("other_field").unwrap();
-    dst_lookup.get_key_write(other_key_name, RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(other_key_name, RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     // Add source keys to destination (they'll have different dstidx values)
-    dst_lookup.get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(key3_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(key2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(key3_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields
-    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false)
+        .expect("lookup is not full");
 
     // Verify data is readable by field names despite potentially different indices
     let dst_cursor1 = dst_lookup.find_key_by_name(&key1_name).unwrap();
@@ -766,23 +808,43 @@ fn write_fields_multiple_sources_no_overlap() {
     let value3 = SharedValue::new_num(30.0);
     let value4 = SharedValue::new_num(40.0);
 
-    src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), value1.clone());
-    src1_row.write_key_by_name(&mut src1_lookup, field2_name.to_owned(), value2.clone());
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
 
-    src2_row.write_key_by_name(&mut src2_lookup, field3_name.to_owned(), value3.clone());
-    src2_row.write_key_by_name(&mut src2_lookup, field4_name.to_owned(), value4.clone());
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field3_name.to_owned(), value3.clone())
+        .expect("lookup is not full");
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field4_name.to_owned(), value4.clone())
+        .expect("lookup is not full");
 
     // Add keys from both sources to destination
-    dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write data from both sources to single destination row
-    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
-    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false)
+        .expect("lookup is not full");
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false)
+        .expect("lookup is not full");
 
     // Verify all 4 fields are readable from destination using field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -834,31 +896,57 @@ fn write_fields_multiple_sources_partial_overlap() {
     let s2_val5 = SharedValue::new_num(5.0);
 
     // Write values to rows
-    src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1.clone());
-    src1_row.write_key_by_name(&mut src1_lookup, field2_name.to_owned(), s1_val2.clone());
-    src1_row.write_key_by_name(&mut src1_lookup, field3_name.to_owned(), s1_val3.clone());
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1.clone())
+        .expect("lookup is not full");
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field2_name.to_owned(), s1_val2.clone())
+        .expect("lookup is not full");
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field3_name.to_owned(), s1_val3.clone())
+        .expect("lookup is not full");
 
-    src2_row.write_key_by_name(&mut src2_lookup, field2_name.to_owned(), s2_val2.clone());
-    src2_row.write_key_by_name(&mut src2_lookup, field4_name.to_owned(), s2_val4.clone());
-    src2_row.write_key_by_name(&mut src2_lookup, field5_name.to_owned(), s2_val5.clone());
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field2_name.to_owned(), s2_val2.clone())
+        .expect("lookup is not full");
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field4_name.to_owned(), s2_val4.clone())
+        .expect("lookup is not full");
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field5_name.to_owned(), s2_val5.clone())
+        .expect("lookup is not full");
 
     // Add keys to destination (first source wins for key creation, but last write wins for data)
-    dst_lookup.get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field5_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field4_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field5_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write src1 first, then src2
-    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false)
+        .expect("lookup is not full");
 
     // After first write, s1_val2 should have refcount 3 (original var + src1Row + destRow)
     assert_eq!(SharedValue::refcount(&s1_val2), 3); // Shared between source and destination
     assert_eq!(SharedValue::refcount(&s2_val2), 2); // s2_val2 unchanged yet (original var + src2Row)
 
-    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false)
+        .expect("lookup is not full");
 
     // After second write, s1_val2 should be decremented (overwritten in dest), s2_val2 should be shared
     assert_eq!(SharedValue::refcount(&s1_val2), 2); // Back to original var + src1Row (removed from destRow)
@@ -908,24 +996,46 @@ fn write_fields_multiple_sources_full_overlap() {
     let s2_val3 = SharedValue::new_num(333.0);
 
     // Populate source rows
-    src1_row.write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1);
-    src1_row.write_key_by_name(&mut src1_lookup, field2_name.to_owned(), s1_val2);
-    src1_row.write_key_by_name(&mut src1_lookup, field3_name.to_owned(), s1_val3);
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field1_name.to_owned(), s1_val1)
+        .expect("lookup is not full");
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field2_name.to_owned(), s1_val2)
+        .expect("lookup is not full");
+    src1_row
+        .write_key_by_name(&mut src1_lookup, field3_name.to_owned(), s1_val3)
+        .expect("lookup is not full");
 
-    src2_row.write_key_by_name(&mut src2_lookup, field1_name.to_owned(), s2_val1);
-    src2_row.write_key_by_name(&mut src2_lookup, field2_name.to_owned(), s2_val2);
-    src2_row.write_key_by_name(&mut src2_lookup, field3_name.to_owned(), s2_val3);
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field1_name.to_owned(), s2_val1)
+        .expect("lookup is not full");
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field2_name.to_owned(), s2_val2)
+        .expect("lookup is not full");
+    src2_row
+        .write_key_by_name(&mut src2_lookup, field3_name.to_owned(), s2_val3)
+        .expect("lookup is not full");
 
     // Add keys to destination
-    dst_lookup.get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty());
-    dst_lookup.get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(field2_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
+    dst_lookup
+        .get_key_write(field3_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write src1 first, then src2 - src2 should overwrite all values
-    dst_row.copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false);
-    dst_row.copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src1_row, &src1_lookup, false)
+        .expect("lookup is not full");
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src2_row, &src2_lookup, false)
+        .expect("lookup is not full");
 
     // Verify all fields contain src2 data (last write wins)
     let dst_cursor1 = dst_lookup.find_key_by_name(&field1_name).unwrap();
@@ -963,17 +1073,25 @@ fn write_fields_key_missing_in_dst_should_panic() {
     let value1 = SharedValue::new_num(100.0);
     let value2 = SharedValue::new_num(200.0);
 
-    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
-    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
 
     // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
     // Don't add key2, to force expected panic.
-    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, false)
+        .expect("lookup is not full");
 }
 
 #[test]
@@ -996,17 +1114,25 @@ fn write_fields_key_missing_in_dst_should_create() {
     let value1 = SharedValue::new_num(100.0);
     let value2 = SharedValue::new_num(200.0);
 
-    src_row.write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone());
-    src_row.write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone());
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key1_name.to_owned(), value1.clone())
+        .expect("lookup is not full");
+    src_row
+        .write_key_by_name(&mut src_lookup, src_key2_name.to_owned(), value2.clone())
+        .expect("lookup is not full");
 
     // Add source keys to destination lookup (simulating RLookup_AddKeysFrom)
     // Don't add key2, to force creation.
-    dst_lookup.get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty());
+    dst_lookup
+        .get_key_write(src_key1_name.to_owned(), RLookupKeyFlags::empty())
+        .expect("lookup is not full");
 
     let mut dst_row: RLookupRow = RLookupRow::new();
 
     // Write fields from source to destination
-    dst_row.copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, true);
+    dst_row
+        .copy_fields_from(&mut dst_lookup, &src_row, &src_lookup, true)
+        .expect("lookup is not full");
 
     // Verify written values are correct and accessible by field names
     let dst_cursor1 = dst_lookup.find_key_by_name(&src_key1_name).unwrap();

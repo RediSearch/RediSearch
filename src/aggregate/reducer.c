@@ -72,6 +72,13 @@ bool ReducerOpts_ResolveKey(const ReducerOptions *options, const char *keyName,
   // from the schema; anything else is rejected.
   const RLookupKey *loaded =
       RLookup_GetKey_Load(options->srclookup, keyName, keyName, RLOOKUP_F_HIDDEN);
+  if (!loaded && RLookup_IsFull(options->srclookup)) {
+    // The field exists as far as we know; the lookup simply has no addressable row slot
+    // left for it. Say so rather than blaming the property.
+    QueryError_SetError(options->status, QUERY_ERROR_CODE_LIMIT,
+                        "Query names more fields than a result row can hold");
+    return false;
+  }
   if (!loaded || !(RLookupKey_GetFlags(loaded) & RLOOKUP_F_SCHEMASRC)) {
     QueryError_SetWithUserDataFmt(options->status, QUERY_ERROR_CODE_NO_PROP_KEY,
                                   "Property not loaded nor in pipeline", ": `%s`", keyName);

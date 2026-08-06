@@ -209,9 +209,12 @@ fn remote_external_omits_keys_missing_on_row() {
 fn remote_load_all_emits_all_lookup_keys_present_on_row() {
     let mut fixture = RemoteCollectLoadAllFixture::new();
     let mut row = RLookupRow::new();
-    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
-    row.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
-    row.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
+    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"))
+        .expect("lookup is not full");
+    row.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"))
+        .expect("lookup is not full");
+    row.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0))
+        .expect("lookup is not full");
 
     let reducer = RemoteCollectReducer::new(
         Box::new([]),
@@ -250,15 +253,25 @@ fn remote_load_all_omits_keys_missing_on_row() {
     let mut fixture = RemoteCollectLoadAllFixture::new();
 
     let mut row_a = RLookupRow::new();
-    row_a.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
-    row_a.write_key_by_name(&mut fixture.lookup, c"color", string_value("red"));
-    row_a.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0));
+    row_a
+        .write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"))
+        .expect("lookup is not full");
+    row_a
+        .write_key_by_name(&mut fixture.lookup, c"color", string_value("red"))
+        .expect("lookup is not full");
+    row_a
+        .write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(4.0))
+        .expect("lookup is not full");
 
     // Row B is missing `color` entirely — the load-all map must drop the
     // entry instead of padding with `null_static`.
     let mut row_b = RLookupRow::new();
-    row_b.write_key_by_name(&mut fixture.lookup, c"name", string_value("lemon"));
-    row_b.write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(2.0));
+    row_b
+        .write_key_by_name(&mut fixture.lookup, c"name", string_value("lemon"))
+        .expect("lookup is not full");
+    row_b
+        .write_key_by_name(&mut fixture.lookup, c"sweetness", SharedValue::new_num(2.0))
+        .expect("lookup is not full");
 
     let reducer = RemoteCollectReducer::new(
         Box::new([]),
@@ -300,10 +313,12 @@ fn remote_load_all_omits_keys_missing_on_row() {
 fn remote_load_all_skips_hidden_keys_even_when_row_has_value() {
     let mut fixture = RemoteCollectLoadAllFixture::new();
     let mut row = RLookupRow::new();
-    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"));
+    row.write_key_by_name(&mut fixture.lookup, c"name", string_value("apple"))
+        .expect("lookup is not full");
     // Populate the Hidden key on the row to prove the filter happens at the
     // lookup-walk level, not at "no value" — the value is present.
-    row.write_key_by_name(&mut fixture.lookup, c"__hidden", string_value("internal"));
+    row.write_key_by_name(&mut fixture.lookup, c"__hidden", string_value("internal"))
+        .expect("lookup is not full");
 
     let reducer = RemoteCollectReducer::new(
         Box::new([]),

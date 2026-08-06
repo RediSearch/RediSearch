@@ -15,8 +15,8 @@ use redis_json_api::RedisJsonApi;
 use rlookup::JsonDocumentFormat;
 use rlookup::{DocumentLoader, HashDocumentFormat};
 use rlookup::{
-    IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
-    RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
+    IndexSpec, IndexSpecCache, LoadFieldProfile, LookupFull, OpaqueRLookup, OpaqueRLookupRow,
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow, SchemaRule,
 };
 use std::{
     borrow::Cow,
@@ -25,6 +25,38 @@ use std::{
     ptr::{self, NonNull},
     slice,
 };
+
+/// Collapse a `get_key_*` outcome into the nullable pointer the C API hands back.
+///
+/// C sees one NULL for two different outcomes: the key needed no work, and the lookup had
+/// no row slot left to create it in. Callers that must not answer a query with fields
+/// missing tell them apart with [`RLookup_IsFull`].
+fn key_ptr_or_null<'a>(
+    key: Result<Option<&RLookupKey<'a>>, LookupFull>,
+) -> Option<NonNull<RLookupKey<'a>>> {
+    match key {
+        Ok(key) => key.map(NonNull::from),
+        Err(LookupFull) => None,
+    }
+}
+
+/// Whether the lookup holds as many keys as one of its rows can address.
+///
+/// A full lookup accepts no new field names, so a query that still has fields to add must
+/// fail with `QUERY_ERROR_CODE_LIMIT` rather than reply without them.
+///
+/// # Safety
+///
+/// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RLookup_IsFull(lookup: Option<NonNull<OpaqueRLookup>>) -> bool {
+    // Safety: ensured by caller (1.)
+    let lookup = unsafe { RLookup::from_opaque_non_null(lookup.unwrap()) };
+
+    lookup.is_full()
+}
 
 /// Add all non-overridden keys from `src` to `dest`.
 ///
@@ -38,6 +70,11 @@ use std::{
 /// - Respects caller's control flags for behavior (F_OVERRIDE, F_FORCE_LOAD, etc.)
 /// - Target flags = caller_flags | (source_flags & ~RLOOKUP_TRANSIENT_FLAGS)
 ///
+/// Returns `false` when `dest` ran out of addressable row slots before every key had been
+/// copied. The keys copied up to that point stay in `dest`; the rest are absent, so a
+/// caller that must not answer a query with fields missing has to fail it with
+/// `QUERY_ERROR_CODE_LIMIT`.
+///
 /// # Safety
 ///
 /// 1. `src` must be a [valid], non-null pointer to an [`RLookup`]
@@ -50,7 +87,7 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
     src: *const OpaqueRLookup,
     dest: Option<NonNull<OpaqueRLookup>>,
     flags: u32,
-) {
+) -> bool {
     let dest = dest.unwrap();
     assert!(
         !ptr::addr_eq(src, dest.as_ptr().cast_const()),
@@ -69,7 +106,7 @@ pub unsafe extern "C" fn RLookup_AddKeysFrom(
 
     let flags = RLookupKeyFlags::from_bits(flags).unwrap();
 
-    dest.add_keys_from(src, flags);
+    dest.add_keys_from(src, flags).is_ok()
 }
 
 /// Disables the given set of `RLookup` options.
@@ -189,7 +226,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Read<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup.get_key_read(name, flags).map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_read(name, flags))
 }
 
 /// Get an RLookup key for a given name.
@@ -238,7 +275,7 @@ pub unsafe extern "C" fn RLookup_GetKey_ReadEx<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup.get_key_read(name, flags).map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_read(name, flags))
 }
 
 /// Get an RLookup key for a given name.
@@ -279,7 +316,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Write<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup.get_key_write(name, flags).map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_write(name, flags))
 }
 
 /// Get an RLookup key for a given name.
@@ -327,7 +364,7 @@ pub unsafe extern "C" fn RLookup_GetKey_WriteEx<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup.get_key_write(name, flags).map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_write(name, flags))
 }
 
 /// Get an RLookup key for a given name.
@@ -374,9 +411,7 @@ pub unsafe extern "C" fn RLookup_GetKey_Load<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup
-        .get_key_load(name, field_name, flags)
-        .map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_load(name, field_name, flags))
 }
 
 /// Get an RLookup key for a given name.
@@ -430,9 +465,7 @@ pub unsafe extern "C" fn RLookup_GetKey_LoadEx<'a>(
 
     let (name, flags) = handle_name_alloc_flag(name, flags);
 
-    lookup
-        .get_key_load(name, field_name, flags)
-        .map(NonNull::from)
+    key_ptr_or_null(lookup.get_key_load(name, field_name, flags))
 }
 
 /// Returns the number of visible fields in this RLookupRow.

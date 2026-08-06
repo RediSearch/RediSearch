@@ -144,6 +144,13 @@ impl DocumentFormat for HashDocumentFormat {
         let mut too_many_keys = false;
 
         scan_cursor.for_each(|_key, field, value| {
+            if too_many_keys {
+                // The outcome is already decided. Every remaining field would walk the
+                // full key list only to be rejected, so stop doing that work under the
+                // lock and let the scan run out.
+                return;
+            }
+
             let (field_ptr, field_len) = field.as_cstr_ptr_and_len();
 
             // Field names are treated as C strings here: a name with an interior NUL is
@@ -177,16 +184,12 @@ impl DocumentFormat for HashDocumentFormat {
                     RLookupKeyFlag::ForceLoad.into(),
                 );
 
-                let Some(key) = key else {
-                    debug_assert!(
-                        rlookup.is_full(),
-                        "`ForceLoad` suppresses every other `None` from `get_key_load`"
-                    );
+                let Ok(key) = key else {
                     too_many_keys = true;
                     return;
                 };
 
-                key
+                key.expect("`ForceLoad` suppresses every other `None` from `get_key_load`")
             };
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {

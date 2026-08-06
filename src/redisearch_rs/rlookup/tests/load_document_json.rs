@@ -64,6 +64,7 @@ fn load_field_value(
         let mut rlookup = RLookup::new();
         let key = rlookup
             .get_key_load(path, path, RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .unwrap();
 
         let mut row = RLookupRow::new();
@@ -187,6 +188,7 @@ fn load_all_writes_root_value() {
         let mut rlookup = RLookup::new();
         rlookup
             .get_key_load(c"$", c"$", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .unwrap();
 
         let mut row = RLookupRow::new();
@@ -226,7 +228,7 @@ proptest! {
 
             let mut rlookup = RLookup::new();
             let key = rlookup
-                .get_key_load(c"__key", c"__key", RLookupKeyFlags::empty())
+                .get_key_load(c"__key", c"__key", RLookupKeyFlags::empty()).expect("lookup is not full")
                 .unwrap();
 
             let mut row = RLookupRow::new();
@@ -339,6 +341,7 @@ fn borrow_loads_field_like_open() {
             let mut rlookup = RLookup::new();
             let key = rlookup
                 .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+                .expect("lookup is not full")
                 .unwrap();
             let mut row = RLookupRow::new();
             let loader = if via_borrow {
@@ -380,6 +383,7 @@ fn borrow_falls_back_to_open_by_name() {
         let mut rlookup = RLookup::new();
         let key = rlookup
             .get_key_load(c"$.name", c"$.name", RLookupKeyFlags::empty())
+            .expect("lookup is not full")
             .unwrap();
         let mut row = RLookupRow::new();
 

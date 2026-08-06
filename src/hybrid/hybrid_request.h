@@ -213,8 +213,11 @@ const RLookupKey *OpenMergeScoreKey(RLookup *tailLookup, const char *scoreAlias,
  * This function adds all keys from source lookups to the tail lookup to create a unified schema.
  *
  * @param req The HybridRequest containing multiple AREQ search requests
+ * @param status Query error status to report any errors
+ * @return REDISMODULE_OK, or REDISMODULE_ERR if the subqueries together name more fields
+ *         than a tail row can address, in which case the unified schema is incomplete
  */
-void HybridRequest_SynchronizeLookupKeys(HybridRequest *req);
+int HybridRequest_SynchronizeLookupKeys(HybridRequest *req, QueryError *status);
 
 /**
  * Build the merge pipeline for hybrid search processing.

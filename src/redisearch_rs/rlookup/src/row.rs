@@ -8,7 +8,8 @@
 */
 
 use crate::{
-    RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule, lookup::TRANSIENT_FLAGS,
+    LookupFull, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags, SchemaRule,
+    lookup::TRANSIENT_FLAGS,
 };
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
 use std::{borrow::Cow, ffi::CStr, fmt};
@@ -274,33 +275,29 @@ impl<'a> RLookupRow<'a> {
     /// Write a value to the lookup table *by-name*. This is useful for 'dynamic' keys
     /// for which it is not necessary to use the boilerplate of getting an explicit
     /// key.
-    /// Returns `false`, discarding `val`, when `name` is not yet known and `rlookup` is
-    /// [full][RLookup::is_full] — there is no row slot left to address the new key by.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`], discarding `val`, when `name` is not yet known and
+    /// `rlookup` is [full][RLookup::is_full] — there is no row slot left to address the
+    /// new key by.
     pub fn write_key_by_name(
         &mut self,
         rlookup: &mut RLookup<'a>,
         name: impl Into<Cow<'a, CStr>>,
         val: SharedValue,
-    ) -> bool {
+    ) -> Result<(), LookupFull> {
         let name = name.into();
         let key = if let Some(cursor) = rlookup.find_key_by_name(&name) {
             cursor.into_current().expect("the cursor returned by `Keys::find_by_name` must have a current key. This is a bug!")
         } else {
-            let key = rlookup.get_key_write(name.into_owned(), RLookupKeyFlags::empty());
-
-            let Some(key) = key else {
-                debug_assert!(
-                    rlookup.is_full(),
-                    "`get_key_write` only returns `None` for an existing key or a full lookup"
-                );
-                return false;
-            };
-
-            key
+            rlookup
+                .get_key_write(name.into_owned(), RLookupKeyFlags::empty())?
+                .expect("`get_key_write` returns a key for a name the lookup does not hold yet")
         };
         self.write_key(key, val);
 
-        true
+        Ok(())
     }
 
     /// Wipes the row, retaining its memory but decrementing the ref count of any included instance of `T`.
@@ -347,13 +344,18 @@ impl<'a> RLookupRow<'a> {
     /// - `src_row`: The source row from which to copy values.
     /// - `src_lookup`: The source lookup containing the schema of the source row, must be the associated lookup of `src_row`.
     /// - `create_missing_keys`: Whether keys missing in `dst_lookup` should be created automatically, or force a panic.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LookupFull`] if a missing key has to be created and `dst_lookup` has no
+    /// row slot left for it. The fields copied before that point stay in this row.
     pub fn copy_fields_from(
         &mut self,
         dst_lookup: &mut RLookup<'a>,
         src_row: &Self,
         src_lookup: &RLookup<'a>,
         create_missing_keys: bool,
-    ) {
+    ) -> Result<(), LookupFull> {
         let dst_row = self;
 
         // NB: the `Iterator` impl for `Cursor` will automatically skip overridden keys
@@ -372,9 +374,9 @@ impl<'a> RLookupRow<'a> {
 
                         // Key doesn't exist in destination - create it on demand.
                         // This can happen with LOAD * where keys are created dynamically.
-                        dst_lookup
-                            .get_key_write(src_key.name().clone(), flags)
-                            .unwrap()
+                        dst_lookup.get_key_write(src_key.name().clone(), flags)?.expect(
+                            "`get_key_write` returns a key for a name the lookup does not hold yet",
+                        )
                     }
                     _ => panic!("all source keys must exist in destination"),
                 };
@@ -385,6 +387,8 @@ impl<'a> RLookupRow<'a> {
 
             c.move_next();
         }
+
+        Ok(())
     }
 
     /// Move data from the source row to the destination row. The source row is cleared.
@@ -473,9 +477,12 @@ mod tests {
     fn get_length_without_flags() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -514,10 +521,13 @@ mod tests {
         let mut row = RLookupRow::new();
         let rlk = rlookup
             .get_key_write(c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("lookup is not full")
             .expect("key must be created");
         row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -540,10 +550,13 @@ mod tests {
         let mut row = RLookupRow::new();
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("lookup is not full")
             .expect("key must be created");
         row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -567,10 +580,13 @@ mod tests {
         let mut row = RLookupRow::new();
         let rlk = rlookup
             .get_key_load(c"a", c"a", make_bitflags!(RLookupKeyFlag::ExplicitReturn))
+            .expect("lookup is not full")
             .expect("key must be created");
         row.write_key(rlk, SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(None, None, None);
         let (len, flags) = row.get_length(
@@ -592,9 +608,12 @@ mod tests {
     fn get_length_without_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(36.))
+            .expect("lookup is not full");
 
         let (len, flags) = row.get_length(
             &rlookup,
@@ -616,9 +635,12 @@ mod tests {
     fn get_length_with_rule() {
         let mut rlookup = RLookup::new();
         let mut row = RLookupRow::new();
-        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.));
-        row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.));
+        row.write_key_by_name(&mut rlookup, c"a", SharedValue::new_num(42.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"b", SharedValue::new_num(12.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"score", SharedValue::new_num(100.))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(None, Some(c"score"), None);
         let (len, flags) = row.get_length(
@@ -636,9 +658,12 @@ mod tests {
             &mut rlookup,
             c"lang",
             SharedValue::new_string(b"en".to_vec()),
-        );
-        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(42.));
-        row.write_key_by_name(&mut rlookup, c"payload", SharedValue::new_num(815.0));
+        )
+        .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"c", SharedValue::new_num(42.))
+            .expect("lookup is not full");
+        row.write_key_by_name(&mut rlookup, c"payload", SharedValue::new_num(815.0))
+            .expect("lookup is not full");
 
         let tsrw = test_schema_rule(Some(c"lang"), Some(c"score"), Some(c"payload"));
         let (len, flags) = row.get_length(
