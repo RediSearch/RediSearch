@@ -42,6 +42,22 @@ Required for changes to command handlers, query execution, indexing pipeline, or
 ./build.sh RUN_UNIT_TESTS SAN=address
 ```
 
+When the change claims to fix a memory-safety bug (out-of-bounds access, use-after-free),
+also demonstrate the bug once on the pre-fix code with an *executed* sanitizer repro —
+a predicted report is not verification. The cheap form needs no ASan build tree: extract
+the affected file at the pre-fix commit and compile a standalone repro against it, e.g.
+
+```bash
+git show <fix-commit>^:src/<file>.c > /tmp/before_fix.c
+clang -fsanitize=address -g -O0 <repro.c> /tmp/before_fix.c -o repro && ./repro
+```
+
+Most `src/` files won't compile standalone as-is: expect to add `-I` paths and stub out
+heavyweight includes (`rm_malloc`, `RS_ABORT`, module headers) with minimal definitions
+in the repro's own directory. That stubbing is usually minutes of work, not hours.
+
+Expect the sanitizer report on the pre-fix build and a clean run on the fixed one.
+
 #### 5. Coordinator Tests (if `coord/` code was modified)
 
 Changes to the coordinator (`src/coord/`), distributed hybrid (`src/coord/hybrid/`), or
