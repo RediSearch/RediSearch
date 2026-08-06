@@ -634,28 +634,6 @@ int RSCursorGCCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status);
 
 
-/**
- * @brief Parse and validate the two arguments of `LIMIT <offset> <num>`
- *
- * Shared by the standalone parser (`handleCommonArgs`) and the coordinator's `FT.SEARCH`
- * parser (`rscParseRequest` in module.c). Both must apply the same rules: the coordinator
- * rewrites LIMIT to `LIMIT 0 <offset + num>` in `prepareCommand` before fanning out, so a
- * malformed value it accepts never reaches a shard's parser and would otherwise be
- * silently replaced by the default.
- *
- * Request-scoped upper bounds (`maxSearchResults` / `maxAggregateResults`) are deliberately
- * NOT checked here, because they differ per request type. Callers apply their own.
- *
- * @param offset pointer to uint64_t to store the parsed `<offset>`
- * @param limit pointer to uint64_t to store the parsed `<num>`
- * @param ac ArgsCursor positioned on `<offset>`, i.e. just past the LIMIT keyword
- * @param status QueryError struct to contain error messages
- * @return int REDISMODULE_OK in case of successful parsing, REDISMODULE_ERR otherwise.
- *         On REDISMODULE_ERR both out-params must be treated as undefined: `*offset` may
- *         already have been written when `<num>` is what failed to parse.
- */
-int parseLimit(uint64_t *offset, uint64_t *limit, ArgsCursor *ac, QueryError *status);
-
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status);
 int parseTimeout(size_t *timeout, ArgsCursor *ac, QueryError *status);
 int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *status);

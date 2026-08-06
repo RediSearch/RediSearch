@@ -2432,14 +2432,18 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   // Parse LIMIT offset and count from captured sub-arguments
-  if (AC_IsInitialized(&limitArgs)) {
-    uint64_t offset, limit;
-    if (parseLimit(&offset, &limit, &limitArgs, status) != REDISMODULE_OK) {
-      searchRequestCtx_Free(req);
-      return NULL;
-    }
-    req->offset = (long long)offset;
-    req->limit = (long long)limit;
+  if (AC_IsInitialized(&limitArgs) && limitArgs.argc >= 2) {
+    AC_GetLongLong(&limitArgs, &req->offset, 0);
+    AC_GetLongLong(&limitArgs, &req->limit, 0);
+  }
+  if (req->limit < 0 || req->offset < 0) {
+    // Report the same error the shard's parser (`handleCommonArgs`) produces for a negative
+    // LIMIT: it reads the values with AC_GetU64, which rejects negatives as non-numeric. Without
+    // setting the error here, `rscParseRequest` returns NULL with an empty status and the caller
+    // replies success for a malformed command.
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "LIMIT needs two numeric arguments");
+    searchRequestCtx_Free(req);
+    return NULL;
   }
   req->requestedResultsCount = req->limit + req->offset;
 
