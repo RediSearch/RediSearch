@@ -11,7 +11,7 @@
 use std::ffi::c_char;
 
 use query_term::RSTokenFlags;
-use rs_token::RSTokenRef;
+use rs_token::{RSTokenMut, RSTokenRef, TokenTooLong};
 
 // Install the mock Redis allocator so the C `strToLowerRunes` can allocate, and
 // force the combined C bundle to be linked into the test binary.
@@ -227,6 +227,45 @@ fn handle_reflects_mutation_between_borrows() {
     assert_eq!(tok.as_bytes(), Some(&b"hel"[..]));
 }
 
+/// Back a token's string with a mutable, NUL-terminated buffer — the way the
+/// query parser does — apply `f` to an [`RSTokenMut`] over it, and report what the
+/// rewrite left behind.
+///
+/// `content` is the string *without* its terminator, so `len` is the content
+/// length and `str_[len]` is the terminator. Returns the token's resulting bytes
+/// alongside the whole backing buffer, so a caller can also inspect the byte past
+/// the token's new end.
+///
+/// The handle is confined to an inner scope: it is the only way to reach the token
+/// while it is live, and the buffer is read again only after it is dropped.
+fn rewrite(
+    content: &[u8],
+    f: impl FnOnce(&mut RSTokenMut) -> Result<(), TokenTooLong>,
+) -> (Vec<u8>, Vec<c_char>) {
+    let mut buf: Vec<c_char> = content
+        .iter()
+        .map(|&b| b as c_char)
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `RSToken` is plain data whose all-zero bit pattern is a valid,
+    // empty token.
+    let mut raw: ffi::RSToken = unsafe { std::mem::zeroed() };
+    raw.str_ = buf.as_mut_ptr();
+    raw.len = content.len();
+    {
+        // SAFETY: `raw` is a valid token that outlives the handle, and its `str_`
+        // addresses `buf`'s `len` writable content bytes followed by the terminator
+        // at `str_[len]`. Nothing else reaches the token or the buffer for the
+        // handle's lifetime, which ends with this scope.
+        let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
+        // None of these fixtures is anywhere near the length limit, so a refusal
+        // here would mean the bound check fired on a token it should not have.
+        f(&mut tok).expect("token is short enough to rewrite");
+    }
+    let bytes = buf[..raw.len].iter().map(|&c| c as u8).collect();
+    (bytes, buf)
+}
+
 /// A non-NUL-terminated string handed to [`RSTokenRef::from_nul_terminated_ffi`]
 /// trips the debug-only termination check. The check compiles out of release
 /// builds, so this test only runs when debug assertions are enabled.
@@ -246,4 +285,171 @@ fn non_nul_terminated_string_trips_debug_assert() {
     // is in bounds and readable, so the debug check's dereference is sound — it
     // observes the missing terminator and panics.
     let _ = unsafe { RSTokenRef::from_nul_terminated_ffi(&raw const raw) };
+}
+
+/// The same check on the mutating handle, which repeats it rather than sharing
+/// [`RSTokenRef`]'s: its constructor takes `*mut`, so it cannot go through the
+/// shared one to get it.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "token string must be NUL-terminated")]
+fn non_nul_terminated_string_trips_debug_assert_on_mut_handle() {
+    // As above: `str_[len]` is `b'X'` — in bounds and readable, so the check's own
+    // dereference is sound, but non-zero, so the assertion fails.
+    let mut buf: Vec<c_char> = b"abcX".iter().map(|&b| b as c_char).collect();
+    // SAFETY: `RSToken` is plain data whose all-zero bit pattern is a valid,
+    // empty token.
+    let mut raw: ffi::RSToken = unsafe { std::mem::zeroed() };
+    raw.str_ = buf.as_mut_ptr();
+    raw.len = 3;
+    // SAFETY: `raw.str_`/`raw.len` describe a valid 3-byte writable range whose
+    // next byte is in bounds and readable, so the debug check's dereference is
+    // sound — it observes the missing terminator and panics. Nothing else reaches
+    // `raw` or `buf` for the handle's lifetime.
+    let _ = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
+}
+
+#[test]
+fn mut_handle_accepts_a_token_carrying_no_string() {
+    // A null `str_` is an empty token, per the constructor's contract: the
+    // termination check has nothing to inspect, the shared reborrow reports no
+    // string, and a rewrite is a no-op rather than a null dereference. The
+    // `rewrite` helper always allocates a buffer, so this shape is built by hand.
+    //
+    // No FFI is reached — `remove_wildcard_escapes` returns on the empty case
+    // before the converter — so this needs no `miri` exemption.
+    let mut raw = build_raw(None, 0);
+    {
+        // SAFETY: `raw` is a valid token that outlives the handle and carries no
+        // string, so `len` is zero as the contract requires. Nothing else reaches
+        // it for the handle's lifetime, which ends with this scope.
+        let mut tok = unsafe { RSTokenMut::from_nul_terminated_ffi(&raw mut raw) };
+        assert!(tok.as_ref().is_empty());
+        assert_eq!(tok.as_ref().as_bytes(), None);
+        assert_eq!(tok.as_ref().as_c_str(), None);
+        assert_eq!(tok.remove_wildcard_escapes(), Ok(()));
+        assert!(tok.as_ref().is_empty());
+    }
+    assert!(raw.str_.is_null(), "the token must be left untouched");
+    assert_eq!(raw.len, 0);
+}
+
+#[test]
+fn mut_handle_reads_through_as_ref() {
+    // The shared reborrow is how a rewrite's result is read back, so it must see
+    // the same string and length the handle holds.
+    let (_bytes, _buf) = rewrite(b"he?l*o", |tok| {
+        assert_eq!(tok.as_ref().len(), 6);
+        assert_eq!(tok.as_ref().as_bytes(), Some(&b"he?l*o"[..]));
+        assert_eq!(tok.as_ref().as_c_str(), Some(c"he?l*o"));
+        Ok(())
+    });
+}
+
+#[test]
+fn remove_wildcard_escapes_leaves_an_empty_token_alone() {
+    // An empty query parameter reaches the AST as a one-byte allocation holding
+    // only the terminator. The empty case returns before the converter is called
+    // at all, which is what keeps the write off the end of that single byte —
+    // hence no FFI here, and no reason to skip this under `miri`.
+    let (bytes, buf) = rewrite(b"", |tok| tok.remove_wildcard_escapes());
+    assert_eq!(bytes, b"");
+    assert_eq!(buf, vec![0 as c_char], "the buffer must be left untouched");
+}
+
+// These tests call the C `Wildcard_RemoveEscape`, so they cannot run under miri.
+#[cfg(not(miri))]
+mod remove_wildcard_escapes {
+    use super::*;
+
+    #[test]
+    fn collapses_escapes_in_place() {
+        // `w'a\*b\?c'` — the escaped `*` and `?` are literals, so both backslashes
+        // go and the token shortens by two.
+        let (bytes, buf) = rewrite(br"a\*b\?c", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"a*b?c");
+        assert_eq!(
+            buf[bytes.len()],
+            0,
+            "the token must be re-terminated in place"
+        );
+    }
+
+    #[test]
+    fn leaves_an_unescaped_token_alone() {
+        let (bytes, _buf) = rewrite(b"he?l*o", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"he?l*o");
+    }
+
+    #[test]
+    fn collapses_one_level_only() {
+        // `w'a\\b'` — the escaped backslash collapses to a single literal one, which
+        // is left as-is. Removal is single-level, so a second application would eat
+        // that backslash too; the token must only ever be unescaped once.
+        let (bytes, _buf) = rewrite(br"a\\b", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, br"a\b");
+    }
+
+    #[test]
+    fn collapses_a_leading_escape() {
+        // The escape sits at the very start, so the copy begins at the token's first
+        // byte rather than partway through it.
+        let (bytes, _buf) = rewrite(br"\*abc", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"*abc");
+    }
+
+    #[test]
+    fn collapses_a_token_that_is_all_escapes() {
+        // Every byte pair is an escape, so the token halves — the largest shrink a
+        // non-empty pattern can produce.
+        let (bytes, buf) = rewrite(br"\*\?", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"*?");
+        assert_eq!(
+            buf[bytes.len()],
+            0,
+            "the token must be re-terminated in place"
+        );
+    }
+
+    #[test]
+    fn drops_a_trailing_backslash() {
+        // The escape has nothing after it, so the converter copies the terminator
+        // into its place and stops. This is the only shape that reads the byte past
+        // the token's content, which is why the buffer must stay NUL-terminated.
+        let (bytes, buf) = rewrite(b"abc\\", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"abc");
+        assert_eq!(
+            buf[bytes.len()],
+            0,
+            "the token must be re-terminated in place"
+        );
+    }
+
+    #[test]
+    fn handles_a_non_utf8_token() {
+        // A pattern reaching the AST through a query parameter is binary data, so the
+        // rewrite has to work on bytes: `0xff` is not valid UTF-8 in any position.
+        let (bytes, _buf) = rewrite(b"a\\\xffb", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"a\xffb");
+    }
+
+    #[test]
+    fn truncates_at_an_interior_nul() {
+        // An interior NUL ends the pattern even though there is no escape to collapse,
+        // so the token is cut there rather than kept whole.
+        let (bytes, _buf) = rewrite(b"a\0b", |tok| tok.remove_wildcard_escapes());
+        assert_eq!(bytes, b"a");
+    }
+
+    #[test]
+    fn shortened_token_still_reads_as_a_c_str() {
+        // The rewrite re-terminates at the new end, so a handle taken afterwards
+        // still yields a NUL-terminated string rather than running on into the
+        // bytes the collapse left stranded.
+        let (_bytes, _buf) = rewrite(br"a\*b\?c", |tok| {
+            tok.remove_wildcard_escapes()?;
+            assert_eq!(tok.as_ref().as_c_str(), Some(c"a*b?c"));
+            Ok(())
+        });
+    }
 }
