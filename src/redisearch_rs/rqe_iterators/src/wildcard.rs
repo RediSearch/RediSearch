@@ -93,31 +93,19 @@ impl Wildcard<'_> {
         }
     }
 
-    /// Whether there is another result to yield: `top_id` has not been reached
-    /// yet.
-    ///
-    /// Goes `false` one step before [`Self::past_end`] is set, while `top_id` is
-    /// still the current result. Says nothing on its own about an iterator a
-    /// skip has already run off the end — that one can still be sitting below
-    /// `top_id` — so [`Self::past_end`] is checked first, by
-    /// [`Self::exhausted`].
-    #[inline(always)]
-    const fn has_next(&self) -> bool {
-        self.result.doc_id < self.top_id
-    }
-
     /// Whether this iterator owes no further result, recording it if the
     /// position has just reached `top_id`.
     ///
-    /// The single gate on both entry points: once
-    /// [`past_end`](Self::past_end) is set, only a
-    /// [`rewind`](RQEIterator::rewind) clears it. Checking it before
-    /// [`Self::has_next`] is what lets an overshooting
+    /// The single gate on both entry points, and the only predicate either of
+    /// them needs: once [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it. It is checked before the
+    /// position, which is what lets an overshooting
     /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
-    /// then sits below `top_id` while the iterator owes nothing.
+    /// then sits below `top_id` while the iterator owes nothing, so the
+    /// comparison alone would answer that there is more to come.
     #[inline(always)]
     const fn exhausted(&mut self) -> bool {
-        if self.past_end || !self.has_next() {
+        if self.past_end || self.result.doc_id >= self.top_id {
             self.past_end = true;
             return true;
         }
