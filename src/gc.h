@@ -81,9 +81,13 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out);
 // Stop periodic collection and disarm the timer. A run in flight completes without re-arming.
 // Requires the GIL, as does GCContext_IsEnabled: both touch GIL-guarded scheduling state.
 void GCContext_StopFutureRuns(GCContext* gc);
-// Call when the index is being dropped: guarantees a run happens so the GC discovers the drop
-// and frees itself, even if scheduling was stopped. Requires the GIL.
-void GCContext_ScheduleTermination(GCContext* gc);
+// Drop-time hand-off, in two phases because a run already in flight frees this context without
+// the GIL as soon as the unlink lands. Both require the GIL.
+// Call before unlinking the spec; returns true if the context is still the caller's to schedule.
+bool GCContext_BeginDrop(GCContext* gc);
+// Call after unlinking the spec, only when GCContext_BeginDrop returned true. Queues the run
+// that discovers the drop and frees the context.
+void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
 
 static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {

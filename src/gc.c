@@ -182,20 +182,29 @@ void GCContext_Start(GCContext* gc) {
   GCContext_ArmTimer(gc);
 }
 
-void GCContext_ScheduleTermination(GCContext* gc) {
-  // The mock harness has no GC pool, and `IndexSpec_Free` frees the GC there directly -- so by
-  // now `gc` is already gone. Must be checked before touching it.
+bool GCContext_BeginDrop(GCContext* gc) {
+  // The mock harness has no GC pool and frees the GC inside `IndexSpec_Free`.
   if (RS_IsMock) {
-    return;
+    return false;
   }
   // `IndexSpec_Free` does not free the GC; it relies on a run discovering the drop and
-  // self-terminating. A GC stopped by GC_STOP_SCHEDULE has neither a timer nor a queued run,
-  // so nothing would ever discover it. Re-enable and queue one.
+  // self-terminating. A GC stopped by GC_STOP_SCHEDULE has neither a timer nor a queued run, so
+  // nothing would ever discover it -- hence re-enabling here.
   gc->enabled = true;
+  // A run already in flight owns this context and frees it, without the GIL, the moment the
+  // unlink makes its promote fail. So the caller must not touch `gc` after the unlink: report
+  // that. Such a run re-arms instead if it outlives the drop, now that collection is enabled,
+  // and that timer's run is what discovers the drop -- the "schedule another run soon" case
+  // `IndexSpec_Free` describes. Reading the bit is safe against that run's tail, which clears
+  // it under the GIL, and nothing can set it behind us: only the main thread queues runs.
+  return !GCContext_RunPending(gc);
+}
+
+void GCContext_FinishDrop(GCContext* gc) {
   // A queued run must not coexist with an armed timer: this run frees the context, and the
   // timer would then fire on it.
   GCContext_DisarmTimer(gc);
-  GCContext_QueueRun(gc);  // declines if a run already owns this context; that one will do it
+  GCContext_QueueRun(gc);
 }
 
 void GCContext_StopFutureRuns(GCContext* gc) {

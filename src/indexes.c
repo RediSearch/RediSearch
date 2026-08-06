@@ -144,8 +144,10 @@ void Spec_AddToDict(RefManager *rm) {
 // This function consumes the Strong reference it gets.
 void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
-  // Survives the unlink below: IndexSpec_Free deliberately does not free the GC.
+  // The GC survives the unlink -- IndexSpec_Free deliberately does not free it -- unless a run
+  // is already in flight, which frees it itself. GCContext_BeginDrop tells us which.
   GCContext *gc = spec->gc;
+  const bool ownGCAfterUnlink = gc && GCContext_BeginDrop(gc);
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
@@ -153,10 +155,10 @@ void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   // Unwind the spec's remaining global state and consume the reference.
   IndexSpec_Unlink(spec_ref, removeActive);
 
-  // Only after the unlink, so the run below cannot promote the spec and mistake this for an
-  // ordinary cycle -- it has to observe the drop and free itself.
-  if (gc) {
-    GCContext_ScheduleTermination(gc);
+  // Only after the unlink, so this run cannot promote the spec and mistake the drop for an
+  // ordinary cycle -- below the clean threshold it would re-arm instead of terminating.
+  if (ownGCAfterUnlink) {
+    GCContext_FinishDrop(gc);
   }
 }
 
