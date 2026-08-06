@@ -12,6 +12,7 @@
 //! This module provides utilities for testing iterators, including contexts
 //! for setting up test environments.
 
+pub mod contract_checker;
 #[expect(clippy::undocumented_unsafe_blocks)]
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod mock_context;
@@ -20,6 +21,7 @@ pub mod mock_expiration;
 #[expect(clippy::multiple_unsafe_ops_per_block)]
 pub mod test_context;
 
+pub use contract_checker::ContractChecker;
 use index_spec::IndexSpecReadGuard;
 pub use mock_context::MockContext;
 pub use mock_expiration::MockExpirationChecker;
