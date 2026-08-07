@@ -167,13 +167,17 @@ impl DocumentFormat for HashDocumentFormat {
                 }
             } else {
                 // First returned document, create the key.
-                rlookup
-                    .get_key_load(
-                        field_cstr.to_owned(),
-                        field_cstr,
-                        RLookupKeyFlag::ForceLoad.into(),
-                    )
-                    .unwrap()
+                let key = rlookup.get_key_load(
+                    field_cstr.to_owned(),
+                    field_cstr,
+                    RLookupKeyFlag::ForceLoad.into(),
+                );
+
+                let Some(key) = key else {
+                    // The lookup is full: leave this field out of the row.
+                    return;
+                };
+                key
             };
 
             let coerce = if key.flags.contains(RLookupKeyFlag::Numeric) && !self.force_string {

@@ -124,9 +124,14 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
             rlk.into_current().unwrap()
         } else {
-            rlookup
-                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
-                .unwrap()
+            let rlk = rlookup.get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty());
+
+            let Some(rlk) = rlk else {
+                // No key for the root: leave it unloaded rather than failing the
+                // whole document.
+                return Ok(());
+            };
+            rlk
         };
 
         dst_row.write_key(rlk, value);
