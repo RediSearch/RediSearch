@@ -15,15 +15,13 @@
 #include "query_error_ffi.h"
 
 static pthread_t mainThread;
-static bool mainThreadSet = false;
 
 void MainThread_Set(void) {
   mainThread = pthread_self();
-  mainThreadSet = true;
 }
 
 bool MainThread_Is(void) {
-  return !mainThreadSet || pthread_equal(mainThread, pthread_self());
+  return pthread_equal(mainThread, pthread_self());
 }
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {

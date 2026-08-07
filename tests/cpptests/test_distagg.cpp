@@ -12,6 +12,7 @@
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
 #include "common.h"
+#include "util/misc.h"
 
 #include <vector>
 
@@ -174,6 +175,7 @@ static void testSplit() {
 
 int main(int, char **) {
   RS::InstallSegvStackTraceHandler();
+  MainThread_Set();
   RMCK::init();
   testAverage();
   testCountDistinct();
