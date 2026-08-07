@@ -388,9 +388,8 @@ def test_hybrid_cursors_race_with_flushall():
     t.join(timeout=10)
     env.assertFalse(t.is_alive(), message="FT.HYBRID thread should have finished")
 
-    # The flush delete-marked the shard's sub-cursors while the worker held
-    # them; pausing off the main thread parks them for the main-thread sweep.
-    # The sweep must reap them: nothing may leak, and the shard stays healthy.
+    # The flush delete-marked the sub-cursors mid-cycle; the cycle-end park
+    # on the main thread frees them. Nothing may leak.
     # (INFO hides the cursors section with zero indexes — recreate one.)
     env.cmd('FT.CREATE', 'observe_idx', 'SCHEMA', 't', 'TEXT')
     def shard_cursor_total():

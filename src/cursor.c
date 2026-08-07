@@ -19,7 +19,6 @@
 #include "reply.h"
 #include "rmalloc.h"
 #include "shard_window_ratio.h"
-#include "util/misc.h"
 
 #define Cursor_IsIdle(cur) ((cur)->pos != -1)
 
@@ -160,14 +159,6 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
  *
  */
 static int Cursors_GCInternal(CursorList *cl, int force) {
-  // Reaping is main-thread-only: freeing a cursor releases its request's
-  // wrapper, whose teardown is main-thread-only. Cursor APIs used from BG
-  // workers reach here through the op counter (and the Reserve limit path);
-  // hand the work to the sweep — always main — instead.
-  if (!MainThread_Is()) {
-    Cursors_RequestRescheduleSweep(cl);
-    return -1;
-  }
   uint64_t now = curTimeNs();
   if ((cl->nextIdleTimeoutNs && cl->nextIdleTimeoutNs > now) ||
       (!force && now - cl->lastCollect < RSCURSORS_SWEEP_THROTTLE)) {
@@ -393,20 +384,14 @@ int Cursor_Pause(Cursor *cur) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  if (cur->delete_mark && MainThread_Is()) {
+  if (cur->delete_mark) {
     // Cursor is marked for deletion, we need to free it.
     Cursor_FreeInternal(cur);
   } else {
-    // Cursor is not marked for deletion (or cannot be freed here), pause it.
-    // A delete-marked cursor pausing off the main thread parks as already
-    // expired instead of freeing: the cursor owns its request's wrapper,
-    // whose teardown is main-thread-only. The idle sweep — always main —
-    // reaps it, and Cursors_TakeForExecution refuses marked cursors
-    // meanwhile.
+    // Cursor is not marked for deletion, we need to pause it.
 
-    // Set the next timeout to now (marked) or now + timeout interval
-    cur->nextTimeoutNs = curTimeNs() +
-                         (cur->delete_mark ? 0 : ((uint64_t)cur->timeoutIntervalMs * 1000000));
+    // Set the next timeout to be the current time + timeout interval
+    cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
     // Maintain the `nextIdleTimeoutNs` cache invariant: when non-zero it must
     // equal the actual minimum deadline among the idle cursors. Only narrow it when
     // it is already valid; if it has been invalidated (set to 0 by
@@ -437,8 +422,8 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
   khiter_t iter = kh_get(cursors, cl->lookup, cid);
   if (iter != kh_end(cl->lookup)) {
     cur = kh_value(cl->lookup, iter);
-    if (cur->pos == -1 || cur->delete_mark) {
-      // Cursor is not idle — or was deleted and awaits the sweep's reap.
+    if (cur->pos == -1) {
+      // Cursor is not idle!
       cur = NULL;
     } else {
       // Remove from idle

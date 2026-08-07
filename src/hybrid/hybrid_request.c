@@ -18,6 +18,7 @@
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
 #include "spec.h"
+#include "cursor.h"
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
@@ -349,9 +350,16 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cursors should have been freed by the timeout callback or reply callback.
-    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
-    RS_ASSERT(req->cursors == NULL);
+    // Park the published sub-cursors: the container dies on the main thread
+    // at the end of the initial cursor cycle, after the IDs were replied, so
+    // this is the cycle-end disposition. Pause frees delete-marked cursors.
+    if (req->cursors) {
+      for (size_t i = 0; i < array_len(req->cursors); i++) {
+        Cursor_Pause(req->cursors[i]);
+      }
+      array_free(req->cursors);
+      req->cursors = NULL;
+    }
 
     // Free all individual AREQ requests and their pipelines — unless the
     // handoff transferred them to their cursors (each sub is then freed by
