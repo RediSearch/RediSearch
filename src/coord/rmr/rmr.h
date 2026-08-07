@@ -95,6 +95,10 @@ void MR_UpdateConnPoolSize(size_t conn_pool_size);
 
 void MR_Debug_ClearPendingTopo();
 
+#ifdef ENABLE_ASSERT
+long long MR_Debug_GetPendingRequests();
+#endif
+
 void MR_FreeCluster();
 
 /* Get the user stored private data from the context */
