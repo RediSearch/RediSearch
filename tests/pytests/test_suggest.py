@@ -226,6 +226,29 @@ def testEmptySuggestionDict(env):
     res = conn.execute_command('ft.sugdel', 'sug', 'hello world')
     env.assertEqual(res, 0)
 
+def testSuggestTrimDropsTail(env):
+    # Regression for MOD-15932: FT.SUGGET ... TRIM used to double-free when the
+    # trim post-pass dropped tail entries. The first loop left `h` pointing at
+    # the last surviving entry; the second loop then re-freed it once per
+    # dropped entry. Reliable crash with one score-dominant entry and several
+    # entries below the SCORE_TRIM_FACTOR (10x) cutoff.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('FT.SUGADD', 'sug', 'ha', '100'))
+    env.assertEqual(2, conn.execute_command('FT.SUGADD', 'sug', 'hb', '1'))
+    env.assertEqual(3, conn.execute_command('FT.SUGADD', 'sug', 'hc', '1'))
+    env.assertEqual(4, conn.execute_command('FT.SUGADD', 'sug', 'hd', '1'))
+    env.assertEqual(5, conn.execute_command('FT.SUGADD', 'sug', 'he', '1'))
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'h', 'MAX', '10', 'TRIM')
+    env.assertEqual(res, ['ha'])
+
+    # Server must still be alive and the trie intact: a follow-up SUGGET
+    # without TRIM still returns the full set.
+    res = conn.execute_command('FT.SUGGET', 'sug', 'h', 'MAX', '10')
+    env.assertEqual(sorted(res), ['ha', 'hb', 'hc', 'hd', 'he'])
+
 def testWrongType(env):
     skipOnCrdtEnv(env)
     conn = env.getClusterConnectionIfNeeded()
