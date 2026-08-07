@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "Active RediSearch release branches, oldest first, with each `-rse` variant",
+    "immediately after its base line.",
+    "",
+    "This is the source of truth for automation that needs to know 'which",
+    "release lines are currently relevant'. Today its only consumer is the",
+    "auto-backport create flow (scripts/auto_backport/resolve_create.py), which",
+    "expands a `/backport-agent >= <version>` comment into every branch here at",
+    "or above that version. Other flows may read it via",
+    "`jq -r '.release_branches[]' .github/release-branches.json`.",
+    "",
+    "Why an explicit list rather than deriving it from the remote's branches:",
+    "the repo carries `MAJOR.MINOR`-shaped branches that are not release lines",
+    "(e.g. `9.6` is a test-dummy branch, `99.88` is an internal version-bump",
+    "branch), plus long-EOL lines (1.x, 2.0-2.8, 4.2, 5.6, 6.4). A pattern sweep",
+    "would open backport PRs against all of them.",
+    "",
+    "Keep this current: branching a new release line (see",
+    ".skills/branch-out-release/SKILL.md) must add it here, and retiring a line",
+    "must remove it. A branch listed here that no longer exists on the remote is",
+    "harmless -- the backport agent's per-target `git ls-remote` pre-flight skips",
+    "it -- but a live release line MISSING from here is silently excluded from",
+    "`>=` expansion."
+  ],
+  "release_branches": [
+    "2.10",
+    "8.2",
+    "8.4",
+    "8.6",
+    "8.6-rse",
+    "8.8",
+    "8.8-rse",
+    "8.10"
+  ]
+}

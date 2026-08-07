@@ -77,6 +77,36 @@ def gh(*args: str, check: bool = True) -> str:
     return result.stdout
 
 
+def gh_graphql(query: str, **variables: Any) -> Any:
+    """Run a GraphQL query via `gh api graphql` and return the decoded `data`.
+
+    `variables` are passed as typed `-F name=value` fields (gh infers int/bool
+    from the literal). A variable whose value is `None` is omitted entirely, so
+    a nullable GraphQL variable declared in the query resolves to `null` — this
+    is how a pagination cursor is passed as null on the first page. Returns the
+    `data` object, or `None` on any failure — these calls are best-effort (a
+    transient gh/network hiccup shouldn't kill a backport-fix run), mirroring
+    `gh_paginated_array`.
+    """
+    args = ["api", "graphql", "-f", f"query={query}"]
+    for name, value in variables.items():
+        if value is None:
+            continue
+        args += ["-F", f"{name}={value}"]
+    try:
+        out = gh(*args, check=False)
+    except Exception:
+        return None
+    s = out.strip()
+    if not s:
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError:
+        return None
+    return parsed.get("data")
+
+
 def gh_json(*args: str) -> Any:
     """`gh <args>` with stdout decoded as a single JSON value.
 
@@ -166,9 +196,10 @@ def write_context(path: str, payload: dict) -> None:
     for k, v in payload.items():
         if k == "log_excerpts" and isinstance(v, list):
             summary[k] = f"<{len(v)} entries; tails omitted from log>"
-        elif k == "context" and isinstance(v, list):
-            # Human hints are short and useful to see, but cap the length
-            # just in case a reviewer pastes a wall of text.
+        elif k in ("context", "review_threads", "pr_comments") and isinstance(v, list):
+            # Human hints / reviewer feedback are short and useful to see, but
+            # replace them with a count digest so a reviewer pasting a wall of
+            # text can't bloat the workflow log.
             summary[k] = f"<{len(v)} entries>"
         else:
             summary[k] = v
