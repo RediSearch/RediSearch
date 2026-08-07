@@ -713,7 +713,8 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
           uint32_t flags = mstp->noOverride ? RLOOKUP_F_NOFLAGS : RLOOKUP_F_OVERRIDE;
           RLookupKey *dstkey = RLookup_GetKey_Write(curLookup, stp->alias, flags);
           if (!dstkey) {
-            // Can only happen if we're in noOverride mode
+            // The key already exists and we're in noOverride mode, or the lookup is
+            // already at its key limit.
             QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }
